@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
 import { db } from '../src/db';
+import { getIntegrationTestUserId } from './helpers/integrationFixtures';
 
 describe('PPC rolling import coil provisioning', () => {
   it('commits a new coil before linking order journey', async () => {
@@ -29,12 +30,13 @@ describe('PPC rolling import coil provisioning', () => {
     XLSX.utils.book_append_sheet(wb, sheet, 'Rolling Plan');
     const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
-    const preview = await PPCImportService.previewRollingXlsx(buf, 'coil-order.xlsx', 1, 'ROLLING', 'B');
+    const userId = getIntegrationTestUserId();
+    const preview = await PPCImportService.previewRollingXlsx(buf, 'coil-order.xlsx', userId, 'ROLLING', 'B');
     expect(preview.headerError).toBeUndefined();
 
     const result = await PPCImportService.commitRollingSession(
       preview.sessionId,
-      1,
+      userId,
       [batchNo],
     );
     expect(result.loaded).toBe(1);

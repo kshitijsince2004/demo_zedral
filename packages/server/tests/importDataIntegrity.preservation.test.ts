@@ -8,6 +8,7 @@ import { parsePpcCsv } from '../src/utils/ppcCsvParser';
 import { tokenizeCsvLine } from '../src/utils/csvTokenizer';
 import { previewSessionStore, PREVIEW_SESSION_TTL_MS } from '../src/services/previewSessionStore';
 import { db } from '../src/db';
+import { getIntegrationTestUserId } from './helpers/integrationFixtures';
 
 async function isDbReachable(): Promise<boolean> {
   try {
@@ -80,7 +81,7 @@ BPRES,2026-01-01,B,6HI,ROLLING,CPRES,ACME,D,1250,1.2,10`;
   });
 
   describe.skipIf(!dbReachable)('DB preservation', () => {
-    const testUserId = 1;
+    const testUserId = () => getIntegrationTestUserId();
 
     it('well-formed planning import reports LOADED', async () => {
       const { ImportService } = await import('../src/services/ImportService');
@@ -88,7 +89,7 @@ BPRES,2026-01-01,B,6HI,ROLLING,CPRES,ACME,D,1250,1.2,10`;
       const csv = `coil_no,customer_code,grade_code,sap_order_no,target_width_mm
 ${coil},CUST_TATA,CRCA,SO-${coil},1250`;
 
-      const result = await ImportService.importFromCsvText('CSV', 'pres.csv', csv, testUserId);
+      const result = await ImportService.importFromCsvText('CSV', 'pres.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
       expect(result.successCount).toBe(1);
       expect(result.errorCount).toBe(0);
@@ -101,7 +102,7 @@ ${coil},CUST_TATA,CRCA,SO-${coil},1250`;
       const csv = `coil_no,customer_code,grade_code,sap_order_no
 ${coil},CUST_TATA,CRCA,${orderNo}`;
 
-      await ImportService.importFromCsvText('CSV', 'pres-so.csv', csv, testUserId);
+      await ImportService.importFromCsvText('CSV', 'pres-so.csv', csv, testUserId());
       const order = await db.selectFrom('planning.plan_order')
         .select('sap_order_no')
         .where('sap_order_no', '=', orderNo)
@@ -115,7 +116,7 @@ ${coil},CUST_TATA,CRCA,${orderNo}`;
       const csv = `coil_no,customer_code,grade_code
 ${coil},CUST_TATA,CRCA`;
 
-      const result = await ImportService.importFromCsvText('CSV', 'pres-one.csv', csv, testUserId);
+      const result = await ImportService.importFromCsvText('CSV', 'pres-one.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
 
       const orders = await db.selectFrom('planning.plan_order')
@@ -132,7 +133,7 @@ ${coil},CUST_TATA,CRCA`;
       const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
 ${batchNo},${planDate},B,6HI,ROLLING,C-QFIRST,ACME,D,1250,1.2,10`;
 
-      const result = await PPCImportService.importFromCsvText('pres-q.csv', csv, testUserId);
+      const result = await PPCImportService.importFromCsvText('pres-q.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
       const row = await db.selectFrom('planning.ppc_batch')
         .select('queue_seq')
@@ -148,7 +149,7 @@ ${batchNo},${planDate},B,6HI,ROLLING,C-QFIRST,ACME,D,1250,1.2,10`;
       const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
 ${batchNo},2026-06-01,B,6HI,SKIN_PASS,C-PPC,ACME,D,1250,1.0,8`;
 
-      const result = await PPCImportService.importFromCsvText('pres-ppc.csv', csv, testUserId);
+      const result = await PPCImportService.importFromCsvText('pres-ppc.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
       const batch = await db.selectFrom('planning.ppc_batch')
         .select('batch_number')

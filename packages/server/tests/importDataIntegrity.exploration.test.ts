@@ -15,6 +15,7 @@ import {
   PREVIEW_SESSION_TTL_MS,
 } from '../src/services/previewSessionStore';
 import { db } from '../src/db';
+import { getIntegrationTestUserId } from './helpers/integrationFixtures';
 
 async function isDbReachable(): Promise<boolean> {
   try {
@@ -186,7 +187,7 @@ B4HI,2026-01-01,B,4HI,ROLLING,C4,CUST,D,1250,1.2,10`;
   });
 
   describe.skipIf(!dbReachable)('DB-backed bug conditions', () => {
-    const testUserId = 1;
+    const testUserId = () => getIntegrationTestUserId();
 
     describe('Bug 2 — unique fallback order per order-less row', () => {
       it('creates distinct plan_order rows for two order-less coils', async () => {
@@ -196,7 +197,7 @@ B4HI,2026-01-01,B,4HI,ROLLING,C4,CUST,D,1250,1.2,10`;
 COIL-A-${suffix},CUST_TATA,CRCA,1250
 COIL-B-${suffix},CUST_TATA,CRCA,1100`;
 
-        const result = await ImportService.importFromCsvText('CSV', `bug2-${suffix}.csv`, csv, testUserId);
+        const result = await ImportService.importFromCsvText('CSV', `bug2-${suffix}.csv`, csv, testUserId());
         expect(result.status).toBe('LOADED');
 
         const orders = await db.selectFrom('planning.plan_order')
@@ -216,13 +217,13 @@ COIL-B-${suffix},CUST_TATA,CRCA,1100`;
         const base = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
 ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
 
-        const first = await PPCImportService.importFromCsvText('first.csv', base, testUserId);
+        const first = await PPCImportService.importFromCsvText('first.csv', base, testUserId());
         expect(first.loaded).toBe(1);
 
         const second = await PPCImportService.importFromCsvText(
           'second.csv',
           base.replace('1.2', '1.1'),
-          testUserId,
+          testUserId(),
         );
         expect(second.errors.find((e) => e.message.includes('Duplicate'))).toBeUndefined();
         expect(second.loaded).toBe(1);
@@ -246,12 +247,12 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
         const csv1 = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
 ${batchA},${planDate},B,6HI,ROLLING,C-Q1,ACME,D,1250,1.2,10`;
 
-        await PPCImportService.importFromCsvText('q1.csv', csv1, testUserId);
+        await PPCImportService.importFromCsvText('q1.csv', csv1, testUserId());
 
         const csv2 = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
 ${batchB},${planDate},B,6HI,ROLLING,C-Q2,ACME,D,1250,1.2,10`;
 
-        await PPCImportService.importFromCsvText('q2.csv', csv2, testUserId);
+        await PPCImportService.importFromCsvText('q2.csv', csv2, testUserId());
 
         const batches = await db.selectFrom('planning.ppc_batch')
           .select(['batch_number', 'queue_seq'])
