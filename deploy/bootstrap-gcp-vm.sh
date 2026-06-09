@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/zedralv2}"
-REPO_URL="${REPO_URL:-https://github.com/YOUR_ORG/ZedralV2.git}"
+REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/ZedralV2.git}"
 
 echo "==> Installing Docker…"
 sudo apt-get update -qq
@@ -20,15 +20,28 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plu
 sudo usermod -aG docker "$USER" || true
 
 echo "==> Cloning application to $APP_DIR…"
-sudo mkdir -p "$(dirname "$APP_DIR")"
-if [ ! -d "$APP_DIR/.git" ]; then
-  sudo git clone "$REPO_URL" "$APP_DIR"
-  sudo chown -R "$USER:$USER" "$APP_DIR"
-else
+sudo mkdir -p "$APP_DIR"
+if [ -d "$APP_DIR/.git" ]; then
   echo "Repo already exists at $APP_DIR"
+elif [ -d "$APP_DIR/ZedralV2/.git" ]; then
+  echo "Repo already exists at $APP_DIR/ZedralV2"
+else
+  if [ "$(ls -A "$APP_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
+    sudo git clone "$REPO_URL" "$APP_DIR/ZedralV2"
+  else
+    sudo git clone "$REPO_URL" "$APP_DIR"
+  fi
+  sudo chown -R "$USER:$USER" "$APP_DIR"
 fi
 
-cd "$APP_DIR"
+if [ -d "$APP_DIR/.git" ]; then
+  cd "$APP_DIR"
+elif [ -d "$APP_DIR/ZedralV2/.git" ]; then
+  cd "$APP_DIR/ZedralV2"
+else
+  echo "ERROR: clone did not produce a .git directory under $APP_DIR"
+  exit 1
+fi
 if [ ! -f deploy/.env ]; then
   cp deploy/.env.production.example deploy/.env
   echo "Created deploy/.env — edit JWT_SECRET and DB_PASSWORD before first deploy."

@@ -1,191 +1,190 @@
 # ZedralV2 — GCP VM Deployment
 
-Production deployment for a **single GCP Compute Engine VM** using Docker Compose:
+Production deployment for a **single GCP Compute Engine VM** using Docker Compose.
 
-```
-Internet → :80 nginx (SPA + /api proxy) → backend:3005 → postgres:5432
-```
+**Host SSL (Let's Encrypt / HTTPS) is configured outside this stack** — deploy scripts only restart the Docker services and never modify `/etc/letsencrypt`, host nginx TLS vhosts, or certificate paths.
 
 ## Architecture
 
-| Service | Image | Role |
-|---------|-------|------|
-| `nginx` | `Dockerfile` target `nginx` | Serves React PWA, proxies `/api/*` → backend |
-| `backend` | `Dockerfile` target `backend` | Express API, runs migrations on start |
-| `db` | `postgres:15-alpine` | Primary PostgreSQL |
+```
+Internet → :443 host TLS (existing) → :80 docker nginx → backend:3005 → postgres:5432
+```
 
-## Prerequisites
+| Service | Container | Role |
+|---------|-----------|------|
+| `nginx` | `zedral-nginx` | Serves React SPA, proxies `/api/*` → backend |
+| `backend` | `zedral-backend` | Express API, migrations on start |
+| `db` | `zedral-db` | PostgreSQL 15 |
 
-- GCP VM: Ubuntu 22.04+, 2 vCPU / 4 GB RAM minimum, 30 GB disk
-- Firewall: allow TCP **80** (and **443** if you add TLS)
-- GitHub repo with Actions enabled
+## Deployment flow
+
+```mermaid
+flowchart TD
+  A[CI succeeds on main] --> B[deploy-gcp workflow]
+  B --> C[SSH to GCP VM]
+  C --> D[curl deploy/vm-deploy.sh]
+  D --> E{Repo exists?}
+  E -->|No| F[git clone to APP_BASE]
+  E -->|Yes| G[resolve_repo_root]
+  F --> G
+  G --> H{Path}
+  H -->|Case A| I["/opt/zedralv2/.git"]
+  H -->|Case B| J["/opt/zedralv2/ZedralV2/.git"]
+  I --> K[validate Docker + .env]
+  J --> K
+  K --> L[git fetch + reset --hard]
+  L --> M[docker compose pull + up --build]
+  M --> N[health: containers + /health]
+  N --> O[record .last-good-sha]
+  O --> P[External smoke GCP_PUBLIC_URL]
+```
+
+## Repository layout on VM
+
+The deploy resolver supports both common clone layouts:
+
+| Case | Path | When |
+|------|------|------|
+| **A** | `/opt/zedralv2/.git` | `git clone <repo> /opt/zedralv2` |
+| **B** | `/opt/zedralv2/ZedralV2/.git` | `git clone` into a non-empty `/opt/zedralv2` |
+
+Set `GCP_APP_DIR=/opt/zedralv2` (default) — not the nested `ZedralV2` folder.
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `deploy/vm-deploy.sh` | **CI entrypoint** — bootstrap, sync, compose, health |
+| `deploy/deploy.sh` | Manual deploy from the VM (`origin/main` or `DEPLOY_REF`) |
+| `deploy/rollback.sh` | Roll back to `.previous-good-sha` or explicit SHA |
+| `deploy/bootstrap-gcp-vm.sh` | One-time Docker + git install |
+| `deploy/lib/common.sh` | Shared helpers (sourced, not run directly) |
 
 ## One-time VM setup
 
 ```bash
-# On the VM (replace REPO_URL)
-export REPO_URL=https://github.com/YOUR_ORG/ZedralV2.git
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/ZedralV2/main/deploy/bootstrap-gcp-vm.sh)"
+export REPO_URL=https://github.com/kshitijsince2004/ZedralV2.git
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/kshitijsince2004/ZedralV2/main/deploy/bootstrap-gcp-vm.sh)"
 ```
 
-Or clone manually:
+Configure secrets (required before first successful deploy):
 
 ```bash
-sudo mkdir -p /opt && sudo git clone <repo> /opt/zedralv2
-sudo chown -R $USER:$USER /opt/zedralv2
-cp /opt/zedralv2/deploy/.env.production.example /opt/zedralv2/deploy/.env
-```
-
-Edit `deploy/.env`:
-
-```bash
-openssl rand -hex 32   # use for JWT_SECRET
-openssl rand -hex 16   # use for DB_PASSWORD
+# Resolve repo root (Case A or B)
+cd /opt/zedralv2 2>/dev/null || cd /opt/zedralv2/ZedralV2
+cp deploy/.env.production.example deploy/.env
+nano deploy/.env   # JWT_SECRET, DB_PASSWORD, DATABASE_URL
 ```
 
 ## Manual deploy
 
 ```bash
-cd /opt/zedralv2
+cd /opt/zedralv2          # or /opt/zedralv2/ZedralV2
 bash deploy/deploy.sh
 ```
 
-First-time data (optional):
+Deploy a specific ref:
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:admin
+DEPLOY_REF=abc123def bash deploy/deploy.sh
 ```
 
-Login: badge **1000**, PIN **1234** (change in production).
-
-## GitHub Actions
-
-### CI (`.github/workflows/ci.yml`)
-
-On every PR / push to `main` or `develop`:
-
-- `npm ci` → `npm run build`
-- Client tests (required)
-- Server tests (required)
-- Docker image build on `main` push
-
-### Deploy (`.github/workflows/deploy-gcp.yml`)
-
-Triggered when:
-
-1. **CI succeeds on `main`** (`workflow_run`) — deploys the exact commit SHA that passed CI
-2. **Manual `workflow_dispatch`** — deploys latest `main` (optional `skip_migrate`)
-
-Steps:
-
-1. SSH to GCP VM
-2. `git checkout` (pinned SHA or latest `main`) + `deploy/deploy.sh`
-3. External smoke test against `GCP_PUBLIC_URL/health` (if secret is set)
-
-### Private repo: VM git authentication
-
-`git pull` on the VM needs credentials for private repositories. Choose one:
-
-**Option A — Deploy key (recommended)**
+## Rollback
 
 ```bash
-# On the VM, as the deploy user
-ssh-keygen -t ed25519 -C "zedralv2-deploy" -f ~/.ssh/zedralv2_deploy -N ""
-cat ~/.ssh/zedralv2_deploy.pub
-# Add the public key in GitHub → Repo → Settings → Deploy keys (read-only)
+# Roll back to previous successful deploy
+bash deploy/rollback.sh
 
-cd /opt/zedralv2
-git remote set-url origin git@github.com:YOUR_ORG/ZedralV2.git
-
-# ~/.ssh/config
-cat >> ~/.ssh/config <<'EOF'
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/zedralv2_deploy
-  IdentitiesOnly yes
-EOF
-chmod 600 ~/.ssh/config
-ssh -T git@github.com
+# Roll back to explicit SHA
+bash deploy/rollback.sh abc123def
 ```
 
-**Option B — HTTPS + fine-grained PAT**
+Checkpoints are stored in `deploy/.last-good-sha` and `deploy/.previous-good-sha` (gitignored).
 
-```bash
-git remote set-url origin https://github.com/YOUR_ORG/ZedralV2.git
-# Store a read-only PAT (GitHub → Settings → Developer settings → PAT)
-git config credential.helper store
-git pull   # enter PAT once; cached in ~/.git-credentials
-```
+## GitHub Actions — `deploy-gcp.yml`
 
-### Required GitHub secrets
+**Triggers**
+
+1. CI succeeds on `main` → deploys exact CI SHA
+2. Manual `workflow_dispatch` → deploys `origin/main` (optional `skip_migrate`)
+
+**Remote steps (via SSH)**
+
+1. Download `deploy/vm-deploy.sh` for the target ref
+2. Run idempotent bootstrap + `git reset --hard`
+3. `docker compose pull` (ignore failures for local builds) + `up -d --build`
+4. Verify `zedral-db`, `zedral-backend`, `zedral-nginx` + `curl /health`
+5. External smoke test on `GCP_PUBLIC_URL` (if set)
+
+### Required secrets
 
 | Secret | Example | Description |
 |--------|---------|-------------|
-| `GCP_VM_HOST` | `34.x.x.x` | VM external IP or DNS |
+| `GCP_VM_HOST` | `34.x.x.x` | VM IP or DNS |
 | `GCP_VM_USER` | `deploy` | SSH user |
-| `GCP_VM_SSH_KEY` | `-----BEGIN OPENSSH...` | Private key (no passphrase) |
+| `GCP_VM_SSH_KEY` | `-----BEGIN OPENSSH...` | Private key |
 | `GCP_VM_SSH_PORT` | `22` | Optional |
-| `GCP_APP_DIR` | `/opt/zedralv2` | Optional app path |
-| `GCP_PUBLIC_URL` | `http://34.x.x.x` | Post-deploy external smoke test (recommended) |
+| `GCP_APP_DIR` | `/opt/zedralv2` | App base (not nested `ZedralV2`) |
+| `GCP_GIT_DEPLOY_TOKEN` | PAT | **Recommended** for private repo clone + raw script fetch |
+| `GCP_PUBLIC_URL` | `https://your.domain` | Post-deploy HTTPS smoke test |
 
-Create a **production** GitHub Environment for approval gates if desired.
+### Private repo authentication
 
-### GCP firewall (example)
+**Option A — `GCP_GIT_DEPLOY_TOKEN` (recommended for Actions)**
+
+Fine-grained PAT with read access to repository contents. Used for:
+
+- `raw.githubusercontent.com` script download
+- `git clone` on first deploy
+
+**Option B — Deploy key on VM**
 
 ```bash
-gcloud compute firewall-rules create allow-zedral-http \
-  --allow tcp:80 \
-  --target-tags=zedral-app \
-  --description="ZedralV2 HTTP"
+ssh-keygen -t ed25519 -C "zedralv2-deploy" -f ~/.ssh/zedralv2_deploy -N ""
+# Add public key in GitHub → Deploy keys
 ```
 
-Tag the VM: `--tags=zedral-app`
+## Environment validation
 
-## TLS (recommended)
+Deploy fails fast if `deploy/.env` is missing or contains placeholders:
 
-Place a reverse proxy or Certbot **in front of** the VM nginx, or extend `deploy/nginx.prod.conf` with:
+- `JWT_SECRET` (not `CHANGE_ME_*`)
+- `DB_PASSWORD` (not `CHANGE_ME_*`)
+- `DB_USER`, `DB_NAME`
+- `DATABASE_URL` or `DB_HOST`
 
-- Port 443 + Let's Encrypt certificates
-- `certbot certonly --standalone` or GCP load balancer SSL
+SSL/TLS variables on the host are **not** read or modified.
+
+## Troubleshooting
+
+### `fatal: not a git repository`
+
+Repo is nested at `/opt/zedralv2/ZedralV2` but workflow used `/opt/zedralv2` directly. Fixed in `deploy/lib/common.sh` — re-run deploy workflow.
+
+### `cd: /opt/zedralv2: No such file or directory`
+
+Run bootstrap or set `GCP_GIT_DEPLOY_TOKEN` so first deploy can clone automatically.
+
+### Health check fails
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env ps
+docker compose -f deploy/docker-compose.prod.yml logs backend nginx --tail 100
+curl -v http://127.0.0.1/health
+```
 
 ## Operations
 
 ```bash
-# Logs
 docker compose -f deploy/docker-compose.prod.yml logs -f backend
-
-# Migrations only
-docker compose -f deploy/docker-compose.prod.yml exec backend \
-  sh -c 'DATABASE_URL=postgres://$DB_USER:$DB_PASSWORD@db:5432/$DB_NAME npx node-pg-migrate --migrations-dir migrations up'
-
-# Backup DB
 docker compose -f deploy/docker-compose.prod.yml exec db \
   pg_dump -U m1_user m1_db > backup-$(date +%F).sql
-
-# Rollback app (git)
-git checkout <previous-sha>
-bash deploy/deploy.sh
 ```
 
 ## Security checklist
 
-- [ ] Strong `JWT_SECRET` (≥32 chars) and `DB_PASSWORD` in `deploy/.env`
-- [ ] `deploy/.env` never committed (in `.gitignore`)
-- [ ] `AUTH_STRICT=true` in production
-- [ ] Restrict GCP firewall to known IPs if possible
+- [ ] Strong `JWT_SECRET` and `DB_PASSWORD` in `deploy/.env`
+- [ ] `deploy/.env` never committed
+- [ ] `AUTH_STRICT=true`
+- [ ] Host TLS / Certbot config preserved separately from Docker deploy
 - [ ] Change default pilot PINs after `seed:admin`
-- [ ] Add TLS before exposing to the internet
-- [ ] `/device/register` is rate-limited (10 req/min per IP)
-
-## Local production smoke
-
-```bash
-cp deploy/.env.production.example deploy/.env
-# edit secrets
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
-curl http://localhost/health
-curl http://localhost/api/health
-```
-
-Open http://localhost

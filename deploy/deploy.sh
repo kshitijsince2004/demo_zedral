@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
-# Pull latest code and restart production stack on the VM.
+# Manual deploy on the VM — sync to origin/main and restart the stack.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="${ENV_FILE:-$ROOT_DIR/deploy/.env}"
-COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.prod.yml"
+# shellcheck source=lib/common.sh
+source "${ROOT_DIR}/deploy/lib/common.sh"
 
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Missing $ENV_FILE — copy deploy/.env.production.example to deploy/.env"
-  exit 1
+if [ -d "${ROOT_DIR}/.git" ]; then
+  if [ "$(basename "${ROOT_DIR}")" = "ZedralV2" ]; then
+    export APP_BASE="${APP_BASE:-$(dirname "${ROOT_DIR}")}"
+  else
+    export APP_BASE="${APP_BASE:-${ROOT_DIR}}"
+  fi
+else
+  export APP_BASE="${APP_BASE:-$(dirname "${ROOT_DIR}")}"
 fi
 
-cd "$ROOT_DIR"
+export DEPLOY_REF="${DEPLOY_REF:-main}"
+export SKIP_MIGRATE="${SKIP_MIGRATE:-false}"
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+require_docker
+resolve_repo_root || die "Not a git repository. Expected ${APP_BASE}/.git or ${APP_BASE}/ZedralV2/.git"
+validate_env_file
 
-echo "==> Building and starting ZedralV2 production stack…"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --remove-orphans
+if [ -f "${REPO_ROOT}/deploy/.last-good-sha" ]; then
+  cp "${REPO_ROOT}/deploy/.last-good-sha" "${REPO_ROOT}/deploy/.previous-good-sha"
+fi
 
-echo "==> Waiting for health…"
-sleep 8
-curl -fsS "http://localhost:${HTTP_PORT:-80}/health" | head -c 200 || {
-  echo "Health check failed — inspect: docker compose -f $COMPOSE_FILE logs backend nginx"
-  exit 1
-}
+git_sync_to_ref "${DEPLOY_REF}"
+run_stack_deploy
+verify_deployment_health
+record_successful_deploy
 
-echo ""
-echo "Deploy complete."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+log "Manual deploy complete."
