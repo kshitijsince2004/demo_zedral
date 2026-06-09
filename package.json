@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @m1/shared-validation && npm run build -w @m1/client && npm run build -w @m1/server",
     "test": "npm run test --workspaces --if-present",
     "smoke:pilot": "npm run smoke:pilot -w @m1/server",
     "smoke:api": "npm run smoke:api -w @m1/server",

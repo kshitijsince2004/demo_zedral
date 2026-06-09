@@ -28,6 +28,8 @@ import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 import { ExportData } from './pages/reports/ExportData';
 import { ExportHistory } from './pages/reports/ExportHistory';
 import { DprExport } from './pages/reports/DprExport';
+import { PlantHeadDashboard } from './pages/reports/PlantHeadDashboard';
+import { AuditTrailView } from './pages/audit/AuditTrailView';
 
 // Admin
 import { MasterDataAdmin } from './pages/admin/MasterDataAdmin';
@@ -83,6 +85,8 @@ function App() {
          * have been removed. The sidebar links already use uppercase canonical codes
          * (/shift-log/HRS, /shift-log/PKL, …) which match this route.
         {/* Legacy /reports mapped directly (or removed if obsolete) */}
+        <Route path="/plant" element={<PlantRoute><PlantHeadDashboard /></PlantRoute>} />
+        <Route path="/audit" element={<PlantRoute><AuditTrailView /></PlantRoute>} />
         <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
         <Route path="/reports/exports/history" element={<SupervisorRoute><ExportHistory /></SupervisorRoute>} />
         <Route path="/reports/dpr" element={<SupervisorRoute><DprExport /></SupervisorRoute>} />

@@ -19,7 +19,7 @@ COPY packages/server packages/server
 COPY packages/client packages/client
 COPY doc doc
 
-RUN npm run build --workspaces --if-present
+RUN npm run build
 
 # ── Backend runtime ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS backend
