@@ -1,0 +1,17 @@
+node_modules/
+**/dist/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+!deploy/.env.production.example
+deploy/.env
+
+packages/server/.env
+
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/

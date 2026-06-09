@@ -1,0 +1,1209 @@
+import { sql } from 'kysely';
+import type {
+  SixHiOrderDetail,
+  SixHiQueueCard,
+  SixHiRollingData,
+  SixHiShiftSummary,
+  SixHiSkinPassData,
+  SixHiSubProcess,
+} from '@m1/shared-validation';
+import { db } from '../db';
+import { ShiftLogService } from './shiftLogService';
+import { ShiftLogState } from '@m1/shared-validation';
+import { ProcessRouteService } from './ProcessRouteService';
+import {
+  assertMachineForSubProcess,
+  parseCrmMillCode,
+  type CrmMillCode,
+} from '../utils/machineAllocation';
+import { MachineStateEventService } from './MachineStateEventService';
+
+
+const SIX_HI_PROCESS_CODE = '6HI';
+
+function mapDestination(raw: string | null): 'REWINDING' | 'ANNEALING' {
+  return raw === 'REWINDING' ? 'REWINDING' : 'ANNEALING';
+}
+
+function mapRollFinish(raw: string | null): 'MATT' | 'BRIGHT' | 'LOW_MATT' {
+  if (raw === 'BRIGHT') return 'BRIGHT';
+  if (raw === 'LOW_MATT') return 'LOW_MATT';
+  return 'MATT';
+}
+
+export class SixHiService {
+  static async getProcessId(): Promise<number> {
+    const p = await db.selectFrom('master.process').select('process_id').where('code', '=', SIX_HI_PROCESS_CODE).executeTakeFirst();
+    if (!p) throw new Error('6HI process not configured');
+    return p.process_id;
+  }
+
+  static async ensureActiveShiftLog(userId: number, planDate?: Date, shiftCode?: string): Promise<string> {
+    const processId = await this.getProcessId();
+    const today = planDate ?? new Date();
+    const shift = shiftCode ?? 'B';
+
+    let active = await db.selectFrom('txn.shift_log')
+      .select('shift_log_id')
+      .where('process_id', '=', processId)
+      .where('state', '=', ShiftLogState.DRAFT)
+      .orderBy('prod_date', 'desc')
+      .executeTakeFirst();
+
+    if (!active) {
+      const id = await ShiftLogService.create({
+        processId,
+        productionDate: today,
+        shiftCode: shift,
+        supervisorId: userId,
+      });
+      return String(id);
+    }
+    return String(active.shift_log_id);
+  }
+
+  static formatPlanDate(value: Date | string): string {
+    const d = value instanceof Date ? value : new Date(value);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /** Resolve plan date + shift when the UI shift context does not match seeded PPC rows. */
+  static async resolveQueueContext(
+    planDate: string,
+    shiftCode: string,
+    subProcess: SixHiSubProcess,
+    machineCode: string = '6HI',
+  ): Promise<{ planDate: string; shiftCode: string }> {
+    const direct = await db.selectFrom('planning.ppc_batch')
+      .select(['plan_date', 'shift_code'])
+      .where('plan_date', '=', new Date(planDate))
+      .where('shift_code', '=', shiftCode)
+      .where('machine_code', '=', machineCode)
+      .where('sub_process', '=', subProcess)
+      .limit(1)
+      .executeTakeFirst();
+    if (direct) return { planDate, shiftCode };
+
+    const sameDate = await db.selectFrom('planning.ppc_batch')
+      .select(['plan_date', 'shift_code'])
+      .where('plan_date', '=', new Date(planDate))
+      .where('machine_code', '=', machineCode)
+      .where('sub_process', '=', subProcess)
+      .orderBy('queue_seq', 'asc')
+      .limit(1)
+      .executeTakeFirst();
+    if (sameDate) {
+      return { planDate, shiftCode: sameDate.shift_code };
+    }
+
+    const latest = await db.selectFrom('planning.ppc_batch')
+      .select(['plan_date', 'shift_code'])
+      .where('machine_code', '=', machineCode)
+      .where('sub_process', '=', subProcess)
+      .orderBy('plan_date', 'desc')
+      .orderBy('queue_seq', 'asc')
+      .limit(1)
+      .executeTakeFirst();
+    if (latest?.plan_date) {
+      return {
+        planDate: this.formatPlanDate(latest.plan_date),
+        shiftCode: latest.shift_code,
+      };
+    }
+    return { planDate, shiftCode };
+  }
+
+  /** @deprecated Use resolveQueueContext */
+  static async resolveQueueDate(planDate: string, shiftCode: string, subProcess: SixHiSubProcess): Promise<string> {
+    const ctx = await this.resolveQueueContext(planDate, shiftCode, subProcess);
+    return ctx.planDate;
+  }
+
+  private static async buildQueueCard(
+    b: {
+      batch_id: string | number | bigint;
+      batch_number: string;
+      coil_no: string;
+      slit_id: string | null;
+      customer_name: string;
+      grade_code: string;
+      width_mm: number | string;
+      input_thk_mm: number | string | null;
+      ppc_thk_mm: number | string;
+      finish_thk_mm?: number | string | null;
+      machine_code: string;
+      machine_allocated?: boolean;
+      active_rolling_pass_no?: number | null;
+      ppc_weight_mt: number | string;
+      destination: string | null;
+      roll_finish: string | null;
+      ppc_reroll_flag: boolean | null;
+    },
+    subProcess: SixHiSubProcess,
+    queuePosition: number,
+  ): Promise<SixHiQueueCard> {
+    const order = await db.selectFrom('txn.crm6_order')
+      .selectAll()
+      .where('batch_id', '=', String(b.batch_id))
+      .executeTakeFirst();
+
+    let activeStoppageCategory: string | undefined;
+    let prepReady = false;
+    if (order) {
+      const openStop = await db.selectFrom('txn.order_stoppage as os')
+        .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
+        .select(['sc.label'])
+        .where('os.order_id', '=', order.order_id)
+        .where('os.end_at', 'is', null)
+        .executeTakeFirst();
+      activeStoppageCategory = openStop?.label;
+
+      if (order.status === 'PENDING' || order.status === 'PREPARING') {
+        if (subProcess === 'ROLLING') {
+          const rolling = await db.selectFrom('txn.crm6_rolling')
+            .select(['actual_weight_mt', 'total_passes'])
+            .where('order_id', '=', order.order_id)
+            .executeTakeFirst();
+          const passCount = await db.selectFrom('txn.crm6_rolling_pass')
+            .select(sql<number>`count(*)::int`.as('n'))
+            .where('order_id', '=', order.order_id)
+            .executeTakeFirst();
+          prepReady = !!(rolling?.actual_weight_mt || (passCount?.n ?? 0) > 0 || (rolling?.total_passes ?? 0) > 0);
+        } else {
+          const sp = await db.selectFrom('txn.crm6_skinpass')
+            .select(['output_thk_mm', 'ann_hard', 'operating_mode'])
+            .where('order_id', '=', order.order_id)
+            .executeTakeFirst();
+          prepReady = !!(sp?.output_thk_mm || sp?.ann_hard || sp?.operating_mode);
+        }
+      }
+    }
+
+    const inputThk = Number(b.input_thk_mm ?? b.ppc_thk_mm);
+    const finishThk = b.finish_thk_mm != null ? Number(b.finish_thk_mm) : undefined;
+    const allocated = b.machine_allocated ?? true;
+
+    return {
+      batchNumber: b.batch_number,
+      motherCoil: b.coil_no,
+      slitId: b.slit_id ?? undefined,
+      customer: b.customer_name,
+      grade: b.grade_code,
+      widthMm: Number(b.width_mm),
+      inputThkMm: inputThk,
+      targetThkMm: Number(b.ppc_thk_mm),
+      finishThkMm: finishThk,
+      machineCode: b.machine_code,
+      machineAllocated: allocated,
+      suggestedMachineCode: allocated ? undefined : b.machine_code,
+      rollingPassNo: b.active_rolling_pass_no ? Number(b.active_rolling_pass_no) : undefined,
+      weightMt: Number(b.ppc_weight_mt),
+      destination: b.destination ? mapDestination(b.destination) : undefined,
+      rollFinish: b.roll_finish ? mapRollFinish(b.roll_finish) : undefined,
+      rerollFlag: b.ppc_reroll_flag ?? false,
+      status: (order?.status as SixHiQueueCard['status']) ?? 'PENDING',
+      subProcess,
+      queuePosition,
+      orderId: order ? String(order.order_id) : undefined,
+      activeStoppageCategory,
+      productionDurationMin: order?.prod_duration_min ?? undefined,
+      prepReady,
+    };
+  }
+
+  static async getQueue(
+    subProcess: SixHiSubProcess,
+    planDate: string,
+    shiftCode: string,
+    machineCode: string = '6HI',
+  ): Promise<{
+    planDate: string;
+    shiftCode: string;
+    machineCode: string;
+    queue: SixHiQueueCard[];
+    pendingAllocation: SixHiQueueCard[];
+  }> {
+    const { planDate: effectiveDate, shiftCode: effectiveShift } =
+      await this.resolveQueueContext(planDate, shiftCode, subProcess, machineCode);
+
+    const batches = await db.selectFrom('planning.ppc_batch as pb')
+      .selectAll('pb')
+      .where('pb.plan_date', '=', new Date(effectiveDate))
+      .where('pb.shift_code', '=', effectiveShift)
+      .where('pb.machine_code', '=', machineCode)
+      .where('pb.sub_process', '=', subProcess)
+      .where('pb.machine_allocated', '=', true)
+      .orderBy('pb.queue_seq', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
+      .selectAll('pb')
+      .where('pb.plan_date', '=', new Date(effectiveDate))
+      .where('pb.shift_code', '=', effectiveShift)
+      .where('pb.sub_process', '=', subProcess)
+      .where('pb.machine_allocated', '=', false)
+      .orderBy('pb.queue_seq', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    const cards: SixHiQueueCard[] = [];
+    let pos = 0;
+    for (const b of batches) {
+      pos++;
+      cards.push(await this.buildQueueCard(b, subProcess, pos));
+    }
+
+    const pendingAllocation: SixHiQueueCard[] = [];
+    let pendingPos = 0;
+    for (const b of pendingBatches) {
+      pendingPos++;
+      pendingAllocation.push(await this.buildQueueCard(b, subProcess, pendingPos));
+    }
+
+    return {
+      planDate: effectiveDate,
+      shiftCode: effectiveShift,
+      machineCode,
+      queue: cards,
+      pendingAllocation,
+    };
+  }
+
+  static async allocateMachine(
+    batchNumber: string,
+    machineCode: string,
+    userId: number,
+  ): Promise<SixHiOrderDetail> {
+    const machine = parseCrmMillCode(machineCode);
+    if (!machine) throw new Error(`Unknown machine: ${machineCode}`);
+
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .selectAll()
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
+
+    const subProcess = batch.sub_process as SixHiSubProcess;
+    assertMachineForSubProcess(subProcess, machine);
+
+    const order = await db.selectFrom('txn.crm6_order')
+      .select(['order_id', 'status'])
+      .where('batch_id', '=', batch.batch_id)
+      .executeTakeFirst();
+    if (order && !['PENDING', 'PREPARING'].includes(order.status)) {
+      throw new Error('Cannot change machine allocation while order is in production');
+    }
+
+    await this.ensureOrder(batchNumber, userId);
+
+    await db.transaction().execute(async (trx) => {
+      const maxSeq = await trx.selectFrom('planning.ppc_batch')
+        .select(trx.fn.max('queue_seq').as('max_seq'))
+        .where('plan_date', '=', batch.plan_date)
+        .where('shift_code', '=', batch.shift_code)
+        .where('machine_code', '=', machine)
+        .where('sub_process', '=', subProcess)
+        .where('machine_allocated', '=', true)
+        .executeTakeFirst();
+      const queueSeq = (Number(maxSeq?.max_seq) || 0) + 1;
+
+      await trx.updateTable('planning.ppc_batch')
+        .set({
+          machine_code: machine,
+          machine_allocated: true,
+          queue_seq: queueSeq,
+        })
+        .where('batch_id', '=', batch.batch_id)
+        .execute();
+
+      const journeyStep = await trx.selectFrom('planning.order_journey_step as ojs')
+        .innerJoin('planning.order_journey as oj', 'oj.journey_id', 'ojs.journey_id')
+        .select(['ojs.step_id'])
+        .where('oj.coil_no', '=', batch.coil_no)
+        .where('oj.status', '=', 'ACTIVE')
+        .where('ojs.queue_batch_id', '=', batch.batch_id)
+        .executeTakeFirst();
+
+      if (journeyStep) {
+        await trx.updateTable('planning.order_journey_step')
+          .set({ machine_code: machine })
+          .where('step_id', '=', journeyStep.step_id)
+          .execute();
+      }
+
+      await trx.updateTable('txn.crm6_order')
+        .set({ status: 'PREPARING' })
+        .where('batch_id', '=', batch.batch_id)
+        .where('status', '=', 'PENDING')
+        .execute();
+    });
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async transferMachines(
+    batchNumbers: string[],
+    targetMachine: CrmMillCode,
+    userId: number,
+    roles: string[],
+  ): Promise<{ batchNumber: string; ok: boolean; error?: string }[]> {
+    const isElevated = roles.includes('ADMIN');
+    if (!isElevated) {
+      const { MachineAccessService } = await import('./MachineAccessService');
+      const allowed = await MachineAccessService.getForUser(userId);
+      if (!allowed.includes(targetMachine)) {
+        throw new Error(`Not authorized to assign orders to ${targetMachine}`);
+      }
+    }
+
+    const results: { batchNumber: string; ok: boolean; error?: string }[] = [];
+    for (const batchNumber of batchNumbers) {
+      try {
+        await this.allocateMachine(batchNumber, targetMachine, userId);
+        results.push({ batchNumber, ok: true });
+      } catch (e: unknown) {
+        results.push({
+          batchNumber,
+          ok: false,
+          error: e instanceof Error ? e.message : 'Transfer failed',
+        });
+      }
+    }
+    return results;
+  }
+
+  static async ensureOrder(batchNumber: string, userId: number): Promise<string> {
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .selectAll()
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
+
+    const existing = await db.selectFrom('txn.crm6_order')
+      .select('order_id')
+      .where('batch_id', '=', batch.batch_id)
+      .executeTakeFirst();
+    if (existing) return String(existing.order_id);
+
+    const shiftLogId = await this.ensureActiveShiftLog(
+      userId,
+      batch.plan_date,
+      batch.shift_code,
+    );
+
+    const inputThk = Number(batch.input_thk_mm ?? batch.ppc_thk_mm);
+
+    await db.insertInto('coil.coil')
+      .values({
+        coil_no: batch.coil_no,
+        grade_code: batch.grade_code,
+        nominal_width_mm: batch.width_mm,
+        coil_thk_mm: inputThk,
+        weight_mt: batch.ppc_weight_mt,
+        status: 'PLANNED',
+      })
+      .onConflict((oc) => oc.column('coil_no').doNothing())
+      .execute();
+
+    const order = await db.insertInto('txn.crm6_order')
+      .values({
+        shift_log_id: shiftLogId,
+        batch_id: batch.batch_id,
+        batch_number: batch.batch_number,
+        coil_no: batch.coil_no,
+        slit_id: batch.slit_id,
+        customer_name: batch.customer_name,
+        grade_code: batch.grade_code,
+        width_mm: batch.width_mm,
+        input_thk_mm: inputThk,
+        ppc_thk_mm: batch.ppc_thk_mm,
+        ppc_weight_mt: batch.ppc_weight_mt,
+        sub_process: batch.sub_process,
+        status: 'PENDING',
+        logged_in_user_id: userId,
+        production_day: batch.plan_date,
+      })
+      .returning('order_id')
+      .executeTakeFirstOrThrow();
+
+    if (batch.sub_process === 'ROLLING') {
+      await db.insertInto('txn.crm6_rolling')
+        .values({
+          order_id: order.order_id,
+          destination: batch.destination ?? 'ANNEALING',
+          roll_finish: batch.roll_finish ?? 'MATT',
+          rerolling: batch.ppc_reroll_flag ?? false,
+          associate_rw: batch.destination === 'REWINDING' ? 'R/W' : null,
+        })
+        .execute();
+    } else {
+      await db.insertInto('txn.crm6_skinpass').values({ order_id: order.order_id }).execute();
+    }
+
+    return String(order.order_id);
+  }
+
+  static async getOrder(batchNumber: string, userId: number): Promise<SixHiOrderDetail> {
+    await this.ensureOrder(batchNumber, userId);
+    const order = await db.selectFrom('txn.crm6_order')
+      .selectAll()
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirstOrThrow();
+
+    const ppcBatch = await db.selectFrom('planning.ppc_batch')
+      .selectAll()
+      .where('batch_id', '=', order.batch_id)
+      .executeTakeFirst();
+
+    const rollChanges = await db.selectFrom('txn.crm_roll_change as rc')
+      .leftJoin('security.app_user as u', 'rc.operator_id', 'u.user_id')
+      .select([
+        'rc.change_id', 'rc.roll_position', 'rc.prev_roll_no', 'rc.prev_roll_code',
+        'rc.new_roll_no', 'rc.new_roll_code', 'rc.reason_text', 'rc.changed_at', 'u.full_name',
+      ])
+      .where('rc.order_id', '=', order.order_id)
+      .orderBy('rc.changed_at', 'desc')
+      .execute();
+
+    const remarks = await db.selectFrom('txn.order_remark as r')
+      .leftJoin('security.app_user as u', 'r.operator_id', 'u.user_id')
+      .select(['r.remark_id', 'r.text', 'r.created_at', 'u.full_name'])
+      .where('r.order_id', '=', order.order_id)
+      .orderBy('r.created_at', 'asc')
+      .execute();
+
+    const stoppages = await db.selectFrom('txn.order_stoppage as os')
+      .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
+      .select([
+        'os.stoppage_id', 'os.category_code', 'sc.label', 'os.breakdown_code',
+        'os.start_at', 'os.end_at', 'os.duration_min', 'os.remarks',
+      ])
+      .where('os.order_id', '=', order.order_id)
+      .orderBy('os.start_at', 'desc')
+      .execute();
+
+    const activeStoppage = stoppages.find((s) => !s.end_at);
+
+    let rolling: SixHiRollingData | undefined;
+    let skinPass: SixHiSkinPassData | undefined;
+
+    if (order.sub_process === 'ROLLING') {
+      const r = await db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
+      const passes = await db.selectFrom('txn.crm6_rolling_pass')
+        .selectAll()
+        .where('order_id', '=', order.order_id)
+        .orderBy('pass_no', 'asc')
+        .execute();
+      if (r) {
+        rolling = {
+          actualWeightMt: r.actual_weight_mt ? Number(r.actual_weight_mt) : undefined,
+          destination: mapDestination(r.destination),
+          destinationOverride: r.destination_override ?? false,
+          associateRw: r.associate_rw ?? undefined,
+          etr: r.etr ? Number(r.etr) : undefined,
+          dtr: r.dtr ? Number(r.dtr) : undefined,
+          passes: passes.map((p) => ({ passNo: p.pass_no, thicknessMm: Number(p.thickness_mm) })),
+          totalPasses: r.total_passes ?? passes.length,
+          finalThkMm: r.final_thk_mm ? Number(r.final_thk_mm) : undefined,
+        };
+      }
+    } else {
+      const s = await db.selectFrom('txn.crm6_skinpass').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
+      if (s) {
+        skinPass = {
+          actualWeightMt: s.actual_weight_mt ? Number(s.actual_weight_mt) : undefined,
+          outputThkMm: s.output_thk_mm ? Number(s.output_thk_mm) : undefined,
+          annHard: s.ann_hard ? Number(s.ann_hard) : undefined,
+          rwTension1: s.rw_tension_1 ? Number(s.rw_tension_1) : undefined,
+          rwTension2: s.rw_tension_2 ? Number(s.rw_tension_2) : undefined,
+          operatingMode: (s.operating_mode as 'LOAD' | 'STRETCH') ?? undefined,
+          loadMinT: s.load_min_t ? Number(s.load_min_t) : undefined,
+          loadMaxT: s.load_max_t ? Number(s.load_max_t) : undefined,
+          stretchPct: s.stretch_pct ? Number(s.stretch_pct) : undefined,
+        };
+      }
+    }
+
+    const passPlans = ppcBatch
+      ? await db.selectFrom('planning.ppc_rolling_pass_plan')
+          .selectAll()
+          .where('batch_id', '=', ppcBatch.batch_id)
+          .orderBy('pass_no', 'asc')
+          .execute()
+      : [];
+
+    const inputThk = Number(order.input_thk_mm ?? order.ppc_thk_mm);
+    const targetThk = Number(order.ppc_thk_mm);
+    const finishThk = ppcBatch?.finish_thk_mm != null ? Number(ppcBatch.finish_thk_mm) : undefined;
+
+    return {
+      orderId: String(order.order_id),
+      batchNumber: order.batch_number,
+      motherCoil: order.coil_no,
+      slitId: order.slit_id ?? undefined,
+      customer: order.customer_name,
+      grade: order.grade_code,
+      widthMm: Number(order.width_mm),
+      inputThkMm: inputThk,
+      targetThkMm: targetThk,
+      finishThkMm: finishThk,
+      machineCode: ppcBatch?.machine_code,
+      machineAllocated: ppcBatch?.machine_allocated ?? true,
+      rollingPassNo: ppcBatch?.active_rolling_pass_no ? Number(ppcBatch.active_rolling_pass_no) : undefined,
+      rollingPassPlans: passPlans.length > 0
+        ? passPlans.map((p) => ({
+            passNo: p.pass_no,
+            targetThkMm: p.target_thk_mm != null ? Number(p.target_thk_mm) : undefined,
+            rollFinish: p.roll_finish ? mapRollFinish(p.roll_finish) : undefined,
+          }))
+        : undefined,
+      ppcThkMm: targetThk,
+      ppcWeightMt: Number(order.ppc_weight_mt),
+      subProcess: order.sub_process as SixHiSubProcess,
+      status: order.status as SixHiOrderDetail['status'],
+      ppcDestination: ppcBatch?.destination ? mapDestination(ppcBatch.destination) : undefined,
+      ppcRollFinish: ppcBatch?.roll_finish ? mapRollFinish(ppcBatch.roll_finish) : undefined,
+      ppcRerollFlag: ppcBatch?.ppc_reroll_flag ?? false,
+      prodStartAt: order.prod_start_at?.toISOString(),
+      prodEndAt: order.prod_end_at?.toISOString(),
+      prodDurationMin: order.prod_duration_min ?? undefined,
+      rolling,
+      skinPass,
+      rollChanges: rollChanges.map((rc) => ({
+        id: String(rc.change_id),
+        rollPosition: rc.roll_position as 'IN' | 'OUT',
+        prevRollNo: rc.prev_roll_no ?? undefined,
+        prevRollCode: rc.prev_roll_code ?? undefined,
+        newRollNo: rc.new_roll_no,
+        newRollCode: rc.new_roll_code ?? undefined,
+        reasonText: rc.reason_text ?? undefined,
+        changedAt: rc.changed_at.toISOString(),
+        operatorName: rc.full_name ?? undefined,
+      })),
+      remarks: remarks.map((r) => ({
+        id: String(r.remark_id),
+        text: r.text,
+        createdAt: r.created_at.toISOString(),
+        operatorName: r.full_name ?? undefined,
+      })),
+      stoppages: stoppages.map((s) => ({
+        id: String(s.stoppage_id),
+        categoryCode: s.category_code,
+        categoryLabel: s.label,
+        breakdownCode: s.breakdown_code ?? undefined,
+        startAt: s.start_at.toISOString(),
+        endAt: s.end_at?.toISOString(),
+        durationMin: s.duration_min ?? undefined,
+        remarks: s.remarks ?? undefined,
+      })),
+      activeStoppage: activeStoppage ? {
+        id: String(activeStoppage.stoppage_id),
+        categoryCode: activeStoppage.category_code,
+        categoryLabel: activeStoppage.label,
+        breakdownCode: activeStoppage.breakdown_code ?? undefined,
+        startAt: activeStoppage.start_at.toISOString(),
+      } : undefined,
+    };
+  }
+
+  static async findActiveMachineOrder(
+    machineCode: string = '6HI',
+  ): Promise<{ batchNumber: string; status: string; subProcess: SixHiSubProcess } | null> {
+    const active = await db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select(['o.batch_number', 'o.status', 'o.sub_process'])
+      .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+      .where('pb.machine_code', '=', machineCode)
+      .where('pb.machine_allocated', '=', true)
+      .orderBy('o.updated_at', 'desc')
+      .executeTakeFirst();
+    if (!active) return null;
+    return {
+      batchNumber: active.batch_number,
+      status: active.status,
+      subProcess: active.sub_process as SixHiSubProcess,
+    };
+  }
+
+  static async startProduction(batchNumber: string, userId: number) {
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'machine_allocated', 'shift_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch?.machine_allocated) {
+      throw new Error('Assign a production machine before starting');
+    }
+    const machineCode = batch?.machine_code ?? '6HI';
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+
+    const active = await this.findActiveMachineOrder(machineCode);
+    if (active && active.batchNumber !== batchNumber) {
+      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    }
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    await db.updateTable('txn.crm6_order')
+      .set({ status: 'IN_PROGRESS', prod_start_at: new Date(), updated_at: new Date() })
+      .where('order_id', '=', orderId)
+      .execute();
+    await db.updateTable('coil.coil')
+      .set({ status: 'IN_PROCESS' })
+      .where('coil_no', '=', (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no)
+      .execute();
+
+    // Persist machine state event: IDLE_ENDED → RUNNING_STARTED
+    MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
+      orderId,
+      batchNumber,
+      operatorId: userId,
+      shiftCode: batch.shift_code,
+    }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async endProduction(batchNumber: string, userId: number, defectCodes?: string[]) {
+    const batchPre = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    const machineCode = batchPre?.machine_code ?? '6HI';
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+
+    const order = await db.selectFrom('txn.crm6_order').selectAll().where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
+    const endAt = new Date();
+    let durationMin: number | null = null;
+    if (order.prod_start_at) {
+      durationMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
+    }
+    await db.updateTable('txn.crm6_order')
+      .set({
+        status: 'COMPLETED',
+        prod_end_at: endAt,
+        prod_duration_min: durationMin,
+        updated_at: endAt,
+      })
+      .where('order_id', '=', order.order_id)
+      .execute();
+
+    if (defectCodes && defectCodes.length > 0) {
+      await db.insertInto('txn.order_remark')
+        .values({
+          order_id: order.order_id,
+          text: 'Minor defects logged during production completion',
+          defect_codes: JSON.stringify(defectCodes),
+          operator_id: userId,
+        })
+        .execute();
+    }
+
+    const rolling = await db.selectFrom('txn.crm6_rolling')
+      .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+    const skinpass = await db.selectFrom('txn.crm6_skinpass')
+      .select(['actual_weight_mt', 'output_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .select(['customer_name', 'grade_code', 'width_mm', 'shift_code', 'process_route_raw'])
+      .where('batch_id', '=', order.batch_id)
+      .executeTakeFirst();
+
+    const completionPayload = {
+      outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
+      actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
+      destination: rolling?.destination ?? undefined,
+      gradeCode: batch?.grade_code,
+      widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
+      customerName: batch?.customer_name,
+      shiftCode: batch?.shift_code,
+    };
+
+    if (batch?.process_route_raw) {
+      await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
+    } else {
+      const nextDest = order.sub_process === 'SKIN_PASS'
+        ? 'CTL'
+        : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
+      await db.updateTable('coil.coil')
+        .set({ status: 'DONE', next_dest: nextDest })
+        .where('coil_no', '=', order.coil_no)
+        .execute();
+    }
+
+    // Persist machine state event: RUNNING_ENDED → IDLE_STARTED
+    const ppcForMachine = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code'])
+      .where('batch_id', '=', order.batch_id)
+      .executeTakeFirst();
+    if (ppcForMachine) {
+      MachineStateEventService.recordEvent(ppcForMachine.machine_code, 'RUNNING_ENDED', {
+        orderId: order.order_id,
+        batchNumber: order.batch_number,
+        operatorId: order.logged_in_user_id ?? undefined,
+        shiftCode: ppcForMachine.shift_code,
+      }).then(() =>
+        MachineStateEventService.recordEvent(ppcForMachine.machine_code, 'IDLE_STARTED', {
+          operatorId: order.logged_in_user_id ?? undefined,
+          shiftCode: ppcForMachine.shift_code,
+        }),
+      ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async updateRolling(batchNumber: string, data: SixHiRollingData, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
+
+    await db.updateTable('txn.crm6_rolling')
+      .set({
+        actual_weight_mt: data.actualWeightMt ?? null,
+        destination: data.destination,
+        destination_override: data.destinationOverride ?? false,
+        associate_rw: data.associateRw ?? null,
+        etr: data.etr ?? null,
+        dtr: data.dtr ?? null,
+        total_passes: data.passes.length,
+        final_thk_mm: finalThk ?? null,
+      })
+      .where('order_id', '=', orderId)
+      .execute();
+
+    await db.deleteFrom('txn.crm6_rolling_pass').where('order_id', '=', orderId).execute();
+    if (data.passes.length > 0) {
+      await db.insertInto('txn.crm6_rolling_pass')
+        .values(data.passes.map((p) => ({
+          order_id: orderId,
+          pass_no: p.passNo,
+          thickness_mm: p.thicknessMm,
+        })))
+        .execute();
+    }
+
+    await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    await db.updateTable('txn.crm6_skinpass')
+      .set({
+        actual_weight_mt: data.actualWeightMt ?? null,
+        output_thk_mm: data.outputThkMm ?? null,
+        ann_hard: data.annHard ?? null,
+        rw_tension_1: data.rwTension1 ?? null,
+        rw_tension_2: data.rwTension2 ?? null,
+        operating_mode: data.operatingMode ?? null,
+        load_min_t: data.loadMinT ?? null,
+        load_max_t: data.loadMaxT ?? null,
+        stretch_pct: data.stretchPct ?? null,
+      })
+      .where('order_id', '=', orderId)
+      .execute();
+    await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async addStoppage(batchNumber: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    await db.insertInto('txn.order_stoppage')
+      .values({
+        order_id: orderId,
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+        operator_id: userId,
+      })
+      .execute();
+    await db.updateTable('txn.crm6_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
+
+    // Persist machine state event: RUNNING_ENDED → STOPPAGE_STARTED
+    const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
+    if (ppc) {
+      MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_STARTED', {
+        orderId,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: ppc.shift_code,
+        categoryCode,
+        reason: remarks ?? categoryCode,
+      }).catch((err) => console.error('[MachineStateEvent] STOPPAGE_STARTED failed:', err));
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async updateStoppage(batchNumber: string, stoppageId: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    await db.updateTable('txn.order_stoppage')
+      .set({
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+      })
+      .where('order_id', '=', orderId)
+      .where('stoppage_id', '=', stoppageId)
+      .execute();
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async endStoppage(batchNumber: string, stoppageId: string, userId: number) {
+    const order = await db.selectFrom('txn.crm6_order').select(['order_id', 'logged_in_user_id']).where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
+    const stop = await db.selectFrom('txn.order_stoppage').selectAll().where('stoppage_id', '=', stoppageId).executeTakeFirstOrThrow();
+    const endAt = new Date();
+    const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
+    await db.updateTable('txn.order_stoppage')
+      .set({ end_at: endAt, duration_min: durationMin })
+      .where('stoppage_id', '=', stoppageId)
+      .execute();
+    const openCount = await db.selectFrom('txn.order_stoppage')
+      .select(db.fn.count('stoppage_id').as('c'))
+      .where('order_id', '=', order.order_id)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+    if (Number(openCount?.c ?? 0) === 0) {
+      const hasStart = await db.selectFrom('txn.crm6_order').select('prod_start_at').where('order_id', '=', order.order_id).executeTakeFirst();
+      await db.updateTable('txn.crm6_order')
+        .set({ status: hasStart?.prod_start_at ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
+        .where('order_id', '=', order.order_id)
+        .execute();
+    }
+
+    // Persist machine state event: STOPPAGE_ENDED → RUNNING_STARTED
+    const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
+    if (ppc && Number(openCount?.c ?? 0) === 0) {
+      MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_ENDED', {
+        orderId: order.order_id,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: ppc.shift_code,
+      }).then(() =>
+        MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_STARTED', {
+          orderId: order.order_id,
+          batchNumber,
+          operatorId: userId,
+          shiftCode: ppc.shift_code,
+        }),
+      ).catch((err) => console.error('[MachineStateEvent] STOPPAGE_ENDED/RUNNING_STARTED failed:', err));
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async addRemark(batchNumber: string, text: string, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    await db.insertInto('txn.order_remark')
+      .values({ order_id: orderId, text, operator_id: userId })
+      .execute();
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async getStoppageCategories() {
+    const categories = await db.selectFrom('master.stoppage_category')
+      .selectAll()
+      .orderBy('category_code', 'asc')
+      .execute();
+    const codes = await db.selectFrom('master.stoppage_code')
+      .selectAll()
+      .orderBy('stoppage_code', 'asc')
+      .execute();
+    return {
+      categories: categories.map((c) => ({
+        categoryCode: c.category_code,
+        label: c.label,
+        requiresBreakdownCode: c.requires_breakdown_code,
+        isActive: true,
+      })),
+      breakdownCodes: codes.map((c) => ({
+        stoppageCode: c.stoppage_code,
+        description: c.description,
+        category: c.category,
+        isActive: c.is_active ?? true,
+      })),
+    };
+  }
+
+  static async saveStoppageCategory(data: { categoryCode: string; label: string; requiresBreakdownCode: boolean }) {
+    await db.insertInto('master.stoppage_category')
+      .values({
+        category_code: data.categoryCode,
+        label: data.label,
+        requires_breakdown_code: data.requiresBreakdownCode,
+      })
+      .onConflict(oc => oc.column('category_code').doUpdateSet({
+        label: data.label,
+        requires_breakdown_code: data.requiresBreakdownCode,
+      }))
+      .execute();
+    return this.getStoppageCategories();
+  }
+
+  static async toggleStoppageCategory(categoryCode: string, isActive: boolean) {
+    if (!isActive) {
+      await db.deleteFrom('master.stoppage_category')
+        .where('category_code', '=', categoryCode)
+        .execute();
+    }
+    return this.getStoppageCategories();
+  }
+
+  static async saveStoppageCode(data: { stoppageCode: string; description: string; category: string }) {
+    await db.insertInto('master.stoppage_code')
+      .values({
+        stoppage_code: data.stoppageCode,
+        description: data.description,
+        category: data.category,
+      })
+      .onConflict(oc => oc.column('stoppage_code').doUpdateSet({
+        description: data.description,
+        category: data.category,
+      }))
+      .execute();
+    return this.getStoppageCategories();
+  }
+
+  static async toggleStoppageCode(stoppageCode: string, isActive: boolean) {
+    await db.updateTable('master.stoppage_code')
+      .set({ is_active: isActive })
+      .where('stoppage_code', '=', stoppageCode)
+      .execute();
+    return this.getStoppageCategories();
+  }
+
+  static async getDefectCodes() {
+    const codes = await db.selectFrom('master.defect_code')
+      .selectAll()
+      .orderBy('applies_to', 'asc')
+      .orderBy('defect_code', 'asc')
+      .execute();
+    return codes.map(c => ({
+      defectCode: c.defect_code,
+      defectName: c.description,
+      category: c.applies_to,
+      isActive: c.is_active ?? true,
+    }));
+  }
+
+  static async saveDefectCode(data: { defectCode: string; defectName: string; category?: string | null }) {
+    await db.insertInto('master.defect_code')
+      .values({
+        defect_code: data.defectCode,
+        description: data.defectName,
+        applies_to: data.category ?? null,
+      })
+      .onConflict(oc => oc.column('defect_code').doUpdateSet({
+        description: data.defectName,
+        applies_to: data.category ?? null,
+      }))
+      .execute();
+    return this.getDefectCodes();
+  }
+
+  static async toggleDefectCode(defectCode: string, isActive: boolean) {
+    await db.updateTable('master.defect_code')
+      .set({ is_active: isActive })
+      .where('defect_code', '=', defectCode)
+      .execute();
+    return this.getDefectCodes();
+  }
+
+  static async rejectOrder(batchNumber: string, defectCodes: string[], remarks: string | undefined, userId: number) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    
+    // Create rejection record
+    await db.insertInto('txn.order_rejection')
+      .values({
+        order_id: orderId,
+        defect_codes: JSON.stringify(defectCodes),
+        remarks: remarks ?? null,
+        operator_id: userId,
+      })
+      .execute();
+
+    // End active stoppage if any
+    const activeStoppage = await db.selectFrom('txn.order_stoppage')
+      .select('stoppage_id')
+      .where('order_id', '=', orderId)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+    
+    if (activeStoppage) {
+      await db.updateTable('txn.order_stoppage')
+        .set({ end_at: new Date() })
+        .where('stoppage_id', '=', activeStoppage.stoppage_id)
+        .execute();
+    }
+
+    // Set order status to REJECTED
+    await db.updateTable('txn.crm6_order')
+      .set({ 
+        status: 'REJECTED', 
+        updated_at: new Date(),
+        prod_end_at: new Date() // End production duration
+      })
+      .where('order_id', '=', orderId)
+      .execute();
+
+    // Persist machine state event: RUNNING_ENDED -> IDLE
+    const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
+    if (ppc) {
+      MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_ENDED', {
+        orderId,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: ppc.shift_code,
+      }).catch((err) => console.error('[MachineStateEvent] REJECT RUNNING_ENDED failed:', err));
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async logRollChange(
+    batchNumber: string,
+    rollPosition: 'IN' | 'OUT',
+    newRollNo: string,
+    newRollCode: string | undefined,
+    reasonText: string | undefined,
+    userId: number,
+  ) {
+    const orderId = await this.ensureOrder(batchNumber, userId);
+    const rolling = await db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', '=', orderId).executeTakeFirst();
+    const prevNo = rollPosition === 'IN' ? rolling?.roll_in_no : rolling?.roll_out_no;
+    const prevCode = rollPosition === 'IN' ? rolling?.roll_in_code : rolling?.roll_out_code;
+
+    await db.insertInto('txn.crm_roll_change')
+      .values({
+        order_id: orderId,
+        roll_position: rollPosition,
+        prev_roll_no: prevNo,
+        prev_roll_code: prevCode,
+        new_roll_no: newRollNo,
+        new_roll_code: newRollCode ?? null,
+        reason_text: reasonText ?? null,
+        operator_id: userId,
+      })
+      .execute();
+
+    const patch = rollPosition === 'IN'
+      ? { roll_in_no: newRollNo, roll_in_code: newRollCode ?? null }
+      : { roll_out_no: newRollNo, roll_out_code: newRollCode ?? null };
+    await db.updateTable('txn.crm6_rolling').set(patch).where('order_id', '=', orderId).execute();
+    return this.getOrder(batchNumber, userId);
+  }
+
+  static async resolveOrderWeight(orderId: string, subProcess: string, ppcWeight: number): Promise<number> {
+    if (subProcess === 'ROLLING') {
+      const r = await db.selectFrom('txn.crm6_rolling')
+        .select('actual_weight_mt')
+        .where('order_id', '=', orderId)
+        .executeTakeFirst();
+      return r?.actual_weight_mt ? Number(r.actual_weight_mt) : ppcWeight;
+    }
+    const s = await db.selectFrom('txn.crm6_skinpass')
+      .select('actual_weight_mt')
+      .where('order_id', '=', orderId)
+      .executeTakeFirst();
+    return s?.actual_weight_mt ? Number(s.actual_weight_mt) : ppcWeight;
+  }
+
+  static async getShiftSummary(shiftLogId: string, machineCode?: string): Promise<SixHiShiftSummary> {
+    const completed = await db.selectFrom('txn.crm6_order')
+      .selectAll()
+      .where('shift_log_id', '=', shiftLogId)
+      .where('status', '=', 'COMPLETED')
+      .execute();
+
+    let totalRolling = 0;
+    let totalReroll = 0;
+    let totalSkinpass = 0;
+    const completedOrders: SixHiShiftSummary['completedOrders'] = [];
+
+    for (const o of completed) {
+      const wt = await this.resolveOrderWeight(String(o.order_id), o.sub_process, Number(o.ppc_weight_mt));
+      completedOrders.push({
+        batchNumber: o.batch_number,
+        subProcess: o.sub_process as SixHiSubProcess,
+        customer: o.customer_name,
+        weightMt: wt,
+        durationMin: o.prod_duration_min ?? undefined,
+      });
+      if (o.sub_process === 'ROLLING') {
+        totalRolling += wt;
+        const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
+        if (r?.rerolling) totalReroll += wt;
+      } else {
+        totalSkinpass += wt;
+      }
+    }
+
+    const saved = await db.selectFrom('txn.crm6_shift_summary')
+      .selectAll()
+      .where('shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+
+    const { ShiftAttributionService } = await import('./ShiftAttributionService');
+    const metrics = await ShiftAttributionService.getShiftMetrics(shiftLogId, machineCode);
+
+    return {
+      shiftLogId,
+      totalProdMt: totalRolling + totalSkinpass,
+      totalRollingMt: totalRolling,
+      totalRerollMt: totalReroll,
+      totalSkinpassMt: totalSkinpass,
+      scrapKg: saved?.scrap_kg ? Number(saved.scrap_kg) : undefined,
+      coolantTempDegC: saved?.coolant_temp_degc ? Number(saved.coolant_temp_degc) : undefined,
+      coolantPressKgCm2: saved?.coolant_press_kgcm2 ? Number(saved.coolant_press_kgcm2) : undefined,
+      completedOrders,
+      totalStoppageMinutes: metrics.totalStoppageMinutes,
+      totalBreakdownMinutes: metrics.totalBreakdownMinutes,
+      machineUtilizationPct: metrics.machineUtilizationPct,
+      ordersInProgress: metrics.ordersInProgress,
+    };
+  }
+
+  static async saveShiftSummary(
+    shiftLogId: string,
+    scrapKg: number | undefined,
+    coolantTempDegC: number | undefined,
+    coolantPressKgCm2: number | undefined,
+    userId: number,
+  ) {
+    const summary = await this.getShiftSummary(shiftLogId);
+    await db.insertInto('txn.crm6_shift_summary')
+      .values({
+        shift_log_id: shiftLogId,
+        total_prod_mt: summary.totalProdMt,
+        total_rolling_mt: summary.totalRollingMt,
+        total_reroll_mt: summary.totalRerollMt,
+        total_skinpass_mt: summary.totalSkinpassMt,
+        scrap_kg: scrapKg ?? null,
+        coolant_temp_degc: coolantTempDegC ?? null,
+        coolant_press_kgcm2: coolantPressKgCm2 ?? null,
+        submitted_at: new Date(),
+        submitted_by: userId,
+      })
+      .onConflict((oc) => oc.column('shift_log_id').doUpdateSet({
+        total_prod_mt: summary.totalProdMt,
+        total_rolling_mt: summary.totalRollingMt,
+        total_reroll_mt: summary.totalRerollMt,
+        total_skinpass_mt: summary.totalSkinpassMt,
+        scrap_kg: scrapKg ?? null,
+        coolant_temp_degc: coolantTempDegC ?? null,
+        coolant_press_kgcm2: coolantPressKgCm2 ?? null,
+        submitted_at: new Date(),
+        submitted_by: userId,
+      }))
+      .execute();
+    return this.getShiftSummary(shiftLogId);
+  }
+
+  static async getProducedMt(shiftLogId: string): Promise<number> {
+    const summary = await this.getShiftSummary(shiftLogId);
+    return summary.totalProdMt;
+  }
+}

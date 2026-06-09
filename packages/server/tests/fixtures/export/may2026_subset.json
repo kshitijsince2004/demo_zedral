@@ -1,0 +1,191 @@
+{
+  "month": "2026-05",
+  "description": "Subset aligned with spec §5.1 example — 4HI_R on 2026-05-01",
+  "runs": [
+    {
+      "runId": "txn.crm6_order:1",
+      "coilNo": "C-001",
+      "processCode": "6HI",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "A",
+      "operatorCode": null,
+      "timeFrom": null,
+      "timeTo": null,
+      "outputWeightMt": 12.22,
+      "outputThkMm": 0.8,
+      "status": "OK",
+      "sourceTable": "txn.crm6_order",
+      "sourceEntryId": "1"
+    },
+    {
+      "runId": "txn.crm6_order:2",
+      "coilNo": "C-002",
+      "processCode": "6HI",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "B",
+      "operatorCode": null,
+      "timeFrom": "14:00",
+      "timeTo": "15:10",
+      "outputWeightMt": 13.32,
+      "outputThkMm": 0.8,
+      "status": "OK",
+      "sourceTable": "txn.crm6_order",
+      "sourceEntryId": "2"
+    },
+    {
+      "runId": "txn.crm6_order:3",
+      "coilNo": "C-003",
+      "processCode": "6HI",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "C",
+      "operatorCode": null,
+      "timeFrom": "22:00",
+      "timeTo": "01:30",
+      "outputWeightMt": 43.7,
+      "outputThkMm": 0.8,
+      "status": "OK",
+      "sourceTable": "txn.crm6_order",
+      "sourceEntryId": "3"
+    },
+    {
+      "runId": "txn.prod_hrs:1",
+      "coilNo": "HR-001",
+      "processCode": "HRS",
+      "areaCode": "HRS",
+      "prodDate": "2026-05-01",
+      "shiftCode": "A",
+      "operatorCode": null,
+      "timeFrom": null,
+      "timeTo": null,
+      "outputWeightMt": 100,
+      "outputThkMm": 2.5,
+      "status": "OK",
+      "sourceTable": "txn.prod_hrs",
+      "sourceEntryId": "1"
+    },
+    {
+      "runId": "txn.prod_ctl:1",
+      "coilNo": "C-003",
+      "processCode": "CTL",
+      "areaCode": "CTL_1",
+      "prodDate": "2026-05-01",
+      "shiftCode": "C",
+      "operatorCode": null,
+      "timeFrom": null,
+      "timeTo": null,
+      "outputWeightMt": 94.31,
+      "outputThkMm": 0.8,
+      "status": "OK",
+      "sourceTable": "txn.prod_ctl",
+      "sourceEntryId": "1"
+    }
+  ],
+  "stoppages": [
+    {
+      "eventId": "shift:1",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "A",
+      "minutes": 15,
+      "agencyCode": "EL",
+      "reasonCode": "S_ELEC",
+      "reasonLabel": "Electrical Failure",
+      "dprCategory": "ELECTRICAL",
+      "remark": null
+    },
+    {
+      "eventId": "shift:2",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "A",
+      "minutes": 60,
+      "agencyCode": "OP",
+      "reasonCode": "S_SETUP",
+      "reasonLabel": "Line Setup",
+      "dprCategory": "OPERATIONAL",
+      "remark": null
+    },
+    {
+      "eventId": "shift:3",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "B",
+      "minutes": 410,
+      "agencyCode": "OP",
+      "reasonCode": "MATERIAL",
+      "reasonLabel": "Material Issue",
+      "dprCategory": "RM_SHORTAGE",
+      "remark": "RMS"
+    },
+    {
+      "eventId": "shift:4",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "C",
+      "minutes": 15,
+      "agencyCode": "EL",
+      "reasonCode": "S_ELEC",
+      "reasonLabel": "Electrical Failure",
+      "dprCategory": "ELECTRICAL",
+      "remark": null
+    },
+    {
+      "eventId": "shift:5",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "C",
+      "minutes": 255,
+      "agencyCode": "OP",
+      "reasonCode": "S_SETUP",
+      "reasonLabel": "Line Setup",
+      "dprCategory": "OPERATIONAL",
+      "remark": null
+    },
+    {
+      "eventId": "shift:6",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "B",
+      "minutes": 30,
+      "agencyCode": "OP",
+      "reasonCode": "LUNCH",
+      "reasonLabel": "Lunch Break",
+      "dprCategory": "OPERATIONAL",
+      "remark": null
+    },
+    {
+      "eventId": "shift:7",
+      "areaCode": "4HI_R",
+      "prodDate": "2026-05-01",
+      "shiftCode": "B",
+      "minutes": 40,
+      "agencyCode": "OP",
+      "reasonCode": "SETTING",
+      "reasonLabel": "Setting",
+      "dprCategory": "OPERATIONAL",
+      "remark": null
+    }
+  ],
+  "dispositions": [],
+  "targets": [
+    {
+      "areaCode": "4HI_R",
+      "period": "2026-05-01",
+      "targetMt": 260,
+      "targetRate": 13.76
+    }
+  ],
+  "expected": {
+    "areaCode": "4HI_R",
+    "date": "2026-05-01",
+    "prod": { "A": 12.22, "B": 13.32, "C": 43.7, "total": 69.24 },
+    "cumMt": 69.24,
+    "avgMt": 69.24,
+    "utilisationToday": 47.57,
+    "prodRate": { "B": 11.42, "C": 12.49, "today": 9.82 },
+    "rmShortage": 410
+  }
+}

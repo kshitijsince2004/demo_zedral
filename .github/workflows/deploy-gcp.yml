@@ -1,0 +1,81 @@
+name: Deploy to GCP VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_migrate:
+        description: Skip DB migrations on deploy
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-gcp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key: ${{ secrets.GCP_VM_SSH_KEY }}
+          port: ${{ secrets.GCP_VM_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.GCP_APP_DIR || '/opt/zedralv2' }}"
+            cd "$APP_DIR"
+            if [ "${{ github.event_name }}" = "workflow_run" ]; then
+              DEPLOY_SHA="${{ github.event.workflow_run.head_sha }}"
+              git fetch origin
+              git checkout "$DEPLOY_SHA"
+            else
+              git fetch origin main
+              git checkout main
+              git pull --ff-only origin main
+            fi
+            if [ "${{ github.event.inputs.skip_migrate }}" = "true" ]; then
+              export RUN_MIGRATIONS=false
+            fi
+            bash deploy/deploy.sh
+
+      - name: External smoke test
+        env:
+          PUBLIC_URL: ${{ secrets.GCP_PUBLIC_URL }}
+        run: |
+          if [ -z "${PUBLIC_URL}" ]; then
+            echo "GCP_PUBLIC_URL not set — skipping external smoke test"
+            exit 0
+          fi
+          BASE="${PUBLIC_URL%/}"
+          echo "Smoke testing ${BASE}/health …"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "${BASE}/health" | head -c 200; then
+              echo ""
+              echo "External smoke test passed"
+              exit 0
+            fi
+            echo "Attempt ${attempt} failed — retrying in 10s …"
+            sleep 10
+          done
+          echo "External smoke test failed after 5 attempts"
+          exit 1

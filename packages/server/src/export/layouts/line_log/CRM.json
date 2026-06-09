@@ -1,0 +1,41 @@
+{
+  "processCode": "CRM",
+  "documentNumber": "PQR/PRD/0903/02",
+  "title": "Cold Rolling Mill Log Sheet",
+  "version": "1",
+  "headerFields": [
+    { "header": "Date", "field": "prod_date", "mandatory": true },
+    { "header": "Shift", "field": "shift_code", "mandatory": true }
+  ],
+  "body": {
+    "title": "Production Entries",
+    "startRow": 8,
+    "columns": [
+      { "header": "Coil No", "field": "coil_no", "mandatory": true },
+      { "header": "Sub Process", "field": "sub_process", "mandatory": true },
+      { "header": "Input Thk (mm)", "field": "input_thk_mm", "mandatory": true, "unit": "mm" },
+      { "header": "Output Thk (mm)", "field": "output_thk_mm", "mandatory": true, "unit": "mm" },
+      { "header": "Weight (MT)", "field": "weight_mt", "mandatory": true, "unit": "MT" },
+      { "header": "Passes", "field": "total_passes", "mandatory": false }
+    ]
+  },
+  "stoppages": {
+    "title": "Stoppages",
+    "startRow": 40,
+    "columns": [
+      { "header": "Category", "field": "category_code", "mandatory": true },
+      { "header": "Code", "field": "breakdown_code", "mandatory": false },
+      { "header": "Min", "field": "duration_min", "mandatory": false },
+      { "header": "Remarks", "field": "remarks", "mandatory": false }
+    ]
+  },
+  "crew": {
+    "title": "Crew",
+    "startRow": 50,
+    "columns": [
+      { "header": "Operator", "field": "operator_name", "mandatory": true },
+      { "header": "Role", "field": "role_code", "mandatory": true }
+    ]
+  },
+  "signOff": { "row": 58, "roles": ["Line Incharge", "Shift Manager"] }
+}

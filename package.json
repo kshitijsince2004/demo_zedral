@@ -1,0 +1,24 @@
+{
+  "name": "m1-digital-data-collection",
+  "version": "1.0.0",
+  "private": true,
+  "description": "M1 Digital Data Collection for Hero Steels Limited",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "smoke:pilot": "npm run smoke:pilot -w @m1/server",
+    "smoke:api": "npm run smoke:api -w @m1/server",
+    "migrate": "npm run migrate -w @m1/server",
+    "seed:pilot": "npm run seed:pilot -w @m1/server",
+    "seed:admin": "npm run seed:admin -w @m1/server",
+    "lint": "npm run lint --workspaces --if-present",
+    "docker:prod": "docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

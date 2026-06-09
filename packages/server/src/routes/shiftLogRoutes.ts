@@ -1,0 +1,322 @@
+﻿import { Router } from 'express';
+import { ShiftLogService } from '../services/shiftLogService';
+import { requireAuth, requireLineAccess, requireRole } from '../middleware/authMiddleware';
+import { validateBadgePin } from '../services/authService';
+import { assertShiftLogAccess } from '../services/shiftLogAccessService';
+import { getScopedLineCodes } from '../auth/lineAccessPolicy';
+import { UserRole } from '@m1/shared-validation';
+import { db } from '../db';
+import {
+  ShiftLogValidationGateError,
+  ShiftLogValidationService,
+} from '../services/shiftLogValidationService';
+import { OverrideRequest } from '../services/overrideService';
+
+function validationErrorResponse(error: unknown) {
+  if (error instanceof ShiftLogValidationGateError) {
+    return {
+      status: 400,
+      body: {
+        error: 'Shift log validation failed',
+        validationResult: error.validationResult,
+      },
+    };
+  }
+  const message = error instanceof Error ? error.message : 'Request failed';
+  const status =
+    message.includes('Forbidden') || message.includes('read-only') ? 403 : 400;
+  return { status, body: { error: message } };
+}
+
+const router = Router();
+router.use(require('express').json());
+router.use(requireAuth);
+
+router.post('/', requireLineAccess('WRITE'), async (req, res) => {
+  try {
+    const id = await ShiftLogService.create({
+      ...req.body,
+      supervisorId: req.user!.id,
+    });
+    res.status(201).json({ id });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/', async (req, res) => {
+  try {
+    const state = req.query.state as string;
+    const requestedLines = req.query.line
+      ? (Array.isArray(req.query.line) ? req.query.line : [req.query.line])
+      : [];
+
+    const scopedLines = getScopedLineCodes(req.user!, 'READ');
+    let effectiveLines = requestedLines.map((l) => String(l).toUpperCase());
+
+    if (scopedLines !== null) {
+      if (effectiveLines.length > 0) {
+        effectiveLines = effectiveLines.filter((l) => scopedLines.includes(l));
+      } else {
+        effectiveLines = scopedLines;
+      }
+      if (effectiveLines.length === 0) {
+        return res.json([]);
+      }
+    }
+
+    let query = db.selectFrom('txn.shift_log as sl')
+      .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
+      .leftJoin('security.app_user as u', 'sl.shift_manager_id', 'u.user_id')
+      .select([
+        'sl.shift_log_id as id',
+        'sl.prod_date as shiftDate',
+        'sl.shift_code as shiftCode',
+        'p.code as processLine',
+        'u.full_name as submittedBy',
+        'sl.submitted_at as submittedAt',
+        'sl.state as state',
+        'sl.process_id as processId'
+      ]);
+
+    if (state) {
+      query = query.where('sl.state', '=', state);
+    }
+
+    if (effectiveLines.length > 0) {
+      query = query.where('p.code', 'in', effectiveLines);
+    }
+
+    const logs = await query.orderBy('sl.submitted_at', 'desc').execute();
+
+    const result = await Promise.all(logs.map(async (log) => {
+      const overrides = await db.selectFrom('txn.validation_overrides')
+        .select(db.fn.count<number>('override_id').as('count'))
+        .where('shift_log_id', '=', log.id)
+        .executeTakeFirst();
+
+      const processTable = ShiftLogService.getProcessTable(log.processId);
+      let entryCount = 0;
+      if (processTable) {
+        const countRes = await db.selectFrom(processTable as any)
+          .select(db.fn.count('entry_id').as('count'))
+          .where('shift_log_id', '=', log.id)
+          .executeTakeFirst();
+        entryCount = Number(countRes?.count || 0);
+      }
+
+      return {
+        id: String(log.id),
+        shiftDate: log.shiftDate,
+        shiftCode: log.shiftCode,
+        processLine: log.processLine,
+        submittedBy: log.submittedBy || 'Unknown',
+        submittedAt: log.submittedAt,
+        state: log.state,
+        entryCount,
+        overrideCount: Number(overrides?.count || 0)
+      };
+    }));
+
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) => {
+  try {
+    const processCode = req.params.processCode;
+    const process = await db.selectFrom('master.process').select('process_id').where('code', '=', processCode).executeTakeFirst();
+    if (!process) return res.status(404).json({ error: 'Process not found' });
+
+    const activeLog = await db.selectFrom('txn.shift_log')
+      .selectAll()
+      .where('process_id', '=', process.process_id)
+      .where('state', '=', 'DRAFT')
+      .orderBy('prod_date', 'desc')
+      .executeTakeFirst();
+
+    if (!activeLog) return res.status(404).json({ error: 'No active shift found' });
+
+    const stoppages = await db.selectFrom('txn.stoppage_entry as se')
+      .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+      .select([
+        'se.stoppage_id as id',
+        'sc.stoppage_code as code',
+        'sc.description as reason',
+        'se.time_from as fromTime',
+        'se.time_to as toTime',
+        'se.duration_min as durationMins',
+        'se.remarks'
+      ])
+      .where('se.shift_log_id', '=', activeLog.shift_log_id)
+      .execute();
+
+    let totalProducedMt = 0;
+    if (processCode === '6HI') {
+      const { SixHiService } = await import('../services/SixHiService');
+      totalProducedMt = await SixHiService.getProducedMt(String(activeLog.shift_log_id));
+    } else {
+      const prodEntries = await db.selectFrom('txn.prod_hrs')
+        .select('entry_id')
+        .where('shift_log_id', '=', activeLog.shift_log_id)
+        .execute();
+
+      if (prodEntries.length > 0) {
+        const entryIds = prodEntries.map(e => e.entry_id);
+        const slits = await db.selectFrom('txn.prod_hrs_slit')
+          .innerJoin('coil.coil', 'txn.prod_hrs_slit.child_coil_no', 'coil.coil.coil_no')
+          .select('coil.coil.weight_mt as weight_mt')
+          .where('entry_id', 'in', entryIds)
+          .execute();
+        totalProducedMt = slits.reduce((sum, s) => sum + Number(s.weight_mt || 0), 0);
+      }
+    }
+
+    res.json({
+      shiftLogId: String(activeLog.shift_log_id),
+      shiftDate: activeLog.prod_date,
+      shiftCode: activeLog.shift_code,
+      targetMt: Number(activeLog.target_mt || 0),
+      producedMt: totalProducedMt,
+      stoppages: stoppages.map(s => ({
+        id: String(s.id),
+        code: s.code,
+        reason: s.reason,
+        fromTime: s.fromTime,
+        toTime: s.toTime,
+        durationMins: s.durationMins,
+        remarks: s.remarks || ''
+      }))
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/:id/handover/summary', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'READ');
+    const summary = await ShiftLogService.getHandoverSummary(req.params.id);
+    res.json(summary);
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') ? 403 : 404;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+router.get('/:id/validation', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'READ');
+    const validationResult = await ShiftLogValidationService.validate(req.params.id);
+    res.json({ validationResult });
+  } catch (error: any) {
+    const { status, body } = validationErrorResponse(error);
+    res.status(status).json(body);
+  }
+});
+
+router.get('/:id/state', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'READ');
+    const log = await ShiftLogService.getById(req.params.id);
+    if (!log) {
+      return res.status(404).json({ error: 'Shift log not found' });
+    }
+    res.json({ state: log.state });
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 500;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+router.get('/:id', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'READ');
+    const log = await ShiftLogService.getById(req.params.id);
+    if (!log) {
+      return res.status(404).json({ error: 'Shift log not found' });
+    }
+
+    const overrides = await ShiftLogService.getOverrides(req.params.id);
+
+    res.json({
+      ...log,
+      overrides
+    });
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 500;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+router.put('/:id/submit', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
+    const overrides = (req.body?.overrides ?? []) as OverrideRequest[];
+    await ShiftLogService.submit(req.params.id, { overrides, user: req.user! });
+    res.json({ success: true });
+  } catch (error: any) {
+    const { status, body } = validationErrorResponse(error);
+    res.status(status).json(body);
+  }
+});
+
+router.put('/:id/approve', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await ShiftLogService.approve(req.params.id, req.user!.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    const { status, body } = validationErrorResponse(error);
+    res.status(status).json(body);
+  }
+});
+
+router.put('/:id/reject', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await ShiftLogService.reject(req.params.id, req.user!.id, req.body.note);
+    res.json({ success: true });
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+router.put('/:id/reopen', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await ShiftLogService.reopen(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+router.post('/:id/handover', async (req, res) => {
+  try {
+    const { incomingBadge, incomingPin, notes } = req.body;
+    if (!incomingBadge || !incomingPin) {
+      return res.status(400).json({ error: 'Missing incoming badge ID or PIN' });
+    }
+
+    await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
+
+    const incomingUser = await validateBadgePin(incomingBadge, incomingPin);
+    const newShiftLogId = await ShiftLogService.handover(req.params.id, {
+      incomingUserId: incomingUser.id,
+      outgoingUserId: req.user!.id,
+      notes,
+    });
+
+    res.json({ success: true, newShiftLogId });
+  } catch (error: any) {
+    const { status, body } = validationErrorResponse(error);
+    res.status(status).json({ ...body, error: body.error || 'Handover failed' });
+  }
+});
+
+export default router;

@@ -1,0 +1,39 @@
+{
+  "processCode": "CRS",
+  "documentNumber": "FOI/PRD/1302/00",
+  "title": "CR Slitter Log Sheet",
+  "version": "1",
+  "headerFields": [
+    { "header": "Date", "field": "prod_date", "mandatory": true },
+    { "header": "Shift", "field": "shift_code", "mandatory": true }
+  ],
+  "body": {
+    "title": "Production Entries",
+    "startRow": 8,
+    "columns": [
+      { "header": "Coil No", "field": "coil_no", "mandatory": true },
+      { "header": "Slit No", "field": "slit_no", "mandatory": false },
+      { "header": "Output Wt (MT)", "field": "output_wt_mt", "mandatory": true, "unit": "MT" },
+      { "header": "For CTL (MT)", "field": "for_ctl_mt", "mandatory": false, "unit": "MT" },
+      { "header": "Thk (mm)", "field": "nominal_thk_mm", "mandatory": true, "unit": "mm" },
+      { "header": "Hardness HRB", "field": "hardness_hrb", "mandatory": false }
+    ]
+  },
+  "stoppages": {
+    "title": "Stoppages",
+    "startRow": 40,
+    "columns": [
+      { "header": "Code", "field": "stoppage_code", "mandatory": true },
+      { "header": "Min", "field": "duration_min", "mandatory": false }
+    ]
+  },
+  "crew": {
+    "title": "Crew",
+    "startRow": 50,
+    "columns": [
+      { "header": "Operator", "field": "operator_name", "mandatory": true },
+      { "header": "Role", "field": "role_code", "mandatory": true }
+    ]
+  },
+  "signOff": { "row": 58, "roles": ["Line Incharge", "Shift Manager"] }
+}

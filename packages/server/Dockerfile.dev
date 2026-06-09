@@ -1,0 +1,23 @@
+FROM node:20-alpine
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+COPY packages/server/package*.json ./packages/server/
+COPY packages/shared-validation/package*.json ./packages/shared-validation/
+
+# Install dependencies for workspace
+RUN npm install
+
+# Copy source files
+COPY packages/server/ ./packages/server/
+COPY packages/shared-validation/ ./packages/shared-validation/
+COPY tsconfig.base.json ./
+
+# Build shared validation first
+WORKDIR /usr/src/app/packages/shared-validation
+RUN npm run build
+
+# Start server
+WORKDIR /usr/src/app/packages/server
+CMD ["npm", "run", "dev"]

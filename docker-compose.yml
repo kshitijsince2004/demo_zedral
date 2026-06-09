@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  db-primary:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: m1_user
+      POSTGRES_PASSWORD: m1_password
+      POSTGRES_DB: m1_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_primary_data:/var/lib/postgresql/data
+    networks:
+      - m1_network
+    command: postgres -c wal_level=logical
+
+  db-replica:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: m1_user
+      POSTGRES_PASSWORD: m1_password
+      POSTGRES_DB: m1_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_replica_data:/var/lib/postgresql/data
+    networks:
+      - m1_network
+    depends_on:
+      - db-primary
+
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - m1_network
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile.dev
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_HOST=db-primary
+      - DB_PORT=5432
+      - DB_USER=m1_user
+      - DB_PASSWORD=m1_password
+      - DB_NAME=m1_db
+      - DB_REPLICA_HOST=db-replica
+      - DB_REPLICA_PORT=5432
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - m1_network
+    depends_on:
+      - db-primary
+
+networks:
+  m1_network:
+    driver: bridge
+
+volumes:
+  pg_primary_data:
+  pg_replica_data:

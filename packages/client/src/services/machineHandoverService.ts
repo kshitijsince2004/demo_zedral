@@ -1,0 +1,229 @@
+import { apiClient } from '../lib/apiClient';
+
+export interface PendingHandover {
+  handover_id: string;
+  machine_code: string;
+  batch_number: string | null;
+  machine_status: string;
+  handover_priority: string;
+  remarks: string;
+  queue_snapshot: {
+    rolling?: QueueItem[];
+    skinpass?: QueueItem[];
+    pendingAllocation?: QueueItem[];
+  };
+  production_snapshot: HandoverProductionSnapshot;
+  open_stoppages: OpenStoppage[];
+  outgoing_shift_code: string;
+  incoming_shift_code: string;
+  outgoing_prod_date: string;
+  created_at: string;
+  clarification_notes?: string | null;
+}
+
+export interface QueueItem {
+  batchNumber: string;
+  status: string;
+  customer?: string;
+  weightMt?: number;
+  subProcess?: string;
+  queueSeq?: number;
+}
+
+export interface OpenStoppage {
+  stoppageId?: string;
+  startAt?: string;
+  reason?: string;
+  category?: string;
+  status?: string;
+}
+
+export interface ActiveOrderDetail {
+  batchNumber: string;
+  customer?: string;
+  grade?: string;
+  subProcess: string;
+  status: string;
+  startTime?: string;
+  runtimeMinutes?: number;
+  progressPct?: number;
+  producedWeightMt?: number;
+  remainingWeightMt?: number;
+  targetWeightMt?: number;
+  destinationProcess?: string;
+  currentPassNo?: number;
+  targetThkMm?: number;
+}
+
+export interface HandoverProductionSnapshot {
+  batchNumber?: string;
+  status?: string;
+  subProcess?: string;
+  orderSnapshot?: OrderSnapshot | null;
+  machineCondition?: string;
+  machineConditionRemarks?: string | null;
+  crewNotes?: string | null;
+  shiftManualFields?: {
+    scrapKg?: number | null;
+    coolantTempDegC?: number | null;
+    coolantPressKgCm2?: number | null;
+    shiftRemarks?: string | null;
+  };
+  shiftProductionSummary?: ShiftProductionSummary | null;
+  utilizationMetrics?: UtilizationMetrics | null;
+  activeOrderDetail?: ActiveOrderDetail | null;
+}
+
+export interface OrderSnapshot {
+  currentStage?: string;
+  currentPassNumber?: number;
+  currentThicknessMm?: number;
+  targetThicknessMm?: number;
+  nextActionRequired?: string;
+  orderRemarks?: string;
+}
+
+export interface ShiftProductionSummary {
+  totalProdMt: number;
+  totalRollingMt: number;
+  totalSkinpassMt: number;
+  totalRerollMt: number;
+  completedOrderCount: number;
+  inProgressOrderCount: number;
+  totalStoppageMinutes: number;
+  totalBreakdownMinutes: number;
+  machineUtilizationPct: number;
+}
+
+export interface UtilizationMetrics {
+  runningPct: number;
+  stopPagePct: number;
+  idlePct: number;
+  runningMin: number;
+  stoppageMin: number;
+  stoppageCount: number;
+}
+
+export interface CrewMember {
+  id: string;
+  operatorId: string;
+  empCode: string;
+  operatorName: string;
+  roleCode: string;
+}
+
+export interface HandoverPreview {
+  machineCode: string;
+  machineName: string;
+  processCode: string;
+  machineStatus: string;
+  runtimeMinutes: number | null;
+  processLabel: string;
+  activeOrder: { batchNumber: string; status: string; subProcess: string } | null;
+  activeOrderDetail: ActiveOrderDetail | null;
+  productionSnapshot: Record<string, unknown>;
+  openStoppages: OpenStoppage[];
+  queueSnapshot: {
+    rolling: QueueItem[];
+    skinpass: QueueItem[];
+    pendingAllocation: QueueItem[];
+  };
+  nextShift: { shiftCode: string; prodDate: string };
+  shift: {
+    shiftCode: string;
+    shiftName: string;
+    prodDate: string;
+    shiftLogId?: string | number | null;
+  };
+  shiftProductionSummary: ShiftProductionSummary | null;
+  crewList: CrewMember[];
+  utilizationMetrics: UtilizationMetrics | null;
+}
+
+export interface HandoverSubmitPayload {
+  machineStatus: string;
+  machineCondition?: string;
+  machineConditionRemarks?: string;
+  remarks: string;
+  handoverPriority?: string;
+  breakdownCode?: string;
+  breakdownDescription?: string;
+  downtimeMinutes?: number;
+  maintenanceStatus?: string;
+  scrapKg?: number;
+  coolantTempDegC?: number;
+  coolantPressKgCm2?: number;
+  shiftRemarks?: string;
+  orderSnapshot?: OrderSnapshot;
+  crewNotes?: string;
+}
+
+export interface HandoverOverviewRow {
+  handoverId: string;
+  machineCode: string;
+  batchNumber: string | null;
+  machineStatus: string;
+  status: string;
+  handoverPriority?: string;
+  outgoingShiftCode: string;
+  incomingShiftCode: string;
+  createdAt: string;
+  acceptedAt?: string;
+  outgoingUsername?: string;
+  incomingUsername?: string;
+  createdByBoundary?: boolean;
+}
+
+export interface HandoverOverview {
+  pending: HandoverOverviewRow[];
+  recent: HandoverOverviewRow[];
+  awaitingAcceptance: number;
+}
+
+export const machineHandoverService = {
+  getOverview: () => apiClient.get<HandoverOverview>('/machines/handover/overview'),
+
+  listPending: () =>
+    apiClient.get<{ pending: PendingHandover[] }>('/machines/handover/pending'),
+
+  getPending: (machineCode: string) =>
+    apiClient.get<{ pending: PendingHandover | null }>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/pending`,
+    ),
+
+  getDraft: (machineCode: string) =>
+    apiClient.get<{ draft: PendingHandover | null }>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/draft`,
+    ),
+
+  getPreview: (machineCode: string) =>
+    apiClient.get<HandoverPreview>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/preview`,
+    ),
+
+  ensureSession: (machineCode: string) =>
+    apiClient.post<{ session: unknown; pendingHandover: PendingHandover | null }>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/session`,
+      {},
+    ),
+
+  saveDraft: (machineCode: string, payload: Partial<HandoverSubmitPayload>) =>
+    apiClient.post<PendingHandover>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/draft`,
+      payload,
+    ),
+
+  submitOutgoing: (machineCode: string, payload: HandoverSubmitPayload) =>
+    apiClient.post<PendingHandover>(
+      `/machines/handover/${encodeURIComponent(machineCode)}/outgoing`,
+      payload,
+    ),
+
+  accept: (handoverId: string) =>
+    apiClient.post(`/machines/handover/accept/${encodeURIComponent(handoverId)}`, {}),
+
+  requestClarification: (handoverId: string, notes: string) =>
+    apiClient.post(`/machines/handover/clarification/${encodeURIComponent(handoverId)}`, {
+      notes,
+    }),
+};

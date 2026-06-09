@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  gateway:
+    image: zedral/m1-gateway:${IMAGE_TAG:-latest}
+    environment:
+      - DEPLOYMENT_MODE=edge
+      - DB_HOST=postgres
+      - VAULT_ADDR=http://vault:8200
+      - KEYCLOAK_URL=http://keycloak:8080
+    ports:
+      - "3005:3005"
+    depends_on:
+      - postgres
+      - vault
+      - keycloak
+      
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=m1_user
+      - POSTGRES_PASSWORD=m1_password
+      - POSTGRES_DB=m1_db
+    ports:
+      - "5432:5432"
+
+  vault:
+    image: vault:1.13.3
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-token
+    ports:
+      - "8200:8200"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0.1
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    command: start-dev
+    ports:
+      - "8080:8080"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.87.0
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.1.5
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
