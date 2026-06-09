@@ -22,13 +22,14 @@ describe('Property 1: Bug Condition exploration', () => {
     expect(canonical.split('-')).not.toContain('4');
   });
 
-  it('Test C — independent 4/6 steps map to 4HI and 6HI with correct rolling pass count', () => {
+  it('Test C — independent 4/6 steps preserve distinct rolling tokens with correct pass count', () => {
     const canonical = parseRouteForJourney('S-P-6-F-4-R-C');
     const steps = parseRouteString(canonical);
     const rolling = steps.filter((s) => s.routeCode === '4' || s.routeCode === '6');
     expect(rolling).toHaveLength(2);
     expect(rolling.find((s) => s.routeCode === '6')?.machineCode).toBe('6HI');
-    expect(rolling.find((s) => s.routeCode === '4')?.machineCode).toBe('4HI');
+    // Route code 4 is generic rolling — machine assigned at batch import, not on journey steps.
+    expect(rolling.find((s) => s.routeCode === '4')?.machineCode).toBeNull();
 
     const translated = translatePpcRoute('SP6F4RC');
     expect(translated.rollingPassCount).toBe(2);

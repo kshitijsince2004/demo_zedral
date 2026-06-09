@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { isAuditPersistenceEnabled } from '../audit/auditConfig';
 
 /** M1-08 baseline audit_log row shape (matches doc/M1_schema.sql). */
 export interface AuditLogEntry {
@@ -149,6 +150,10 @@ export class AuditTrailService {
     userId: number,
     changeRequestId?: number,
   ): Promise<void> {
+    if (!isAuditPersistenceEnabled()) {
+      return;
+    }
+
     const changes = this.buildEntries(
       tableName,
       recordPk,

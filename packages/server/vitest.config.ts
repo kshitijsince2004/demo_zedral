@@ -1,8 +1,5 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
+import unitConfig from './vitest.unit.config';
 
-export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'node',
-  },
-});
+/** Default vitest entry — runs unit tests (no PostgreSQL required). */
+export default mergeConfig(unitConfig, defineConfig({}));

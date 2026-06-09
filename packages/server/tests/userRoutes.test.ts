@@ -74,7 +74,8 @@ describe('userRoutes', () => {
         username: 'newop',
         emp_code: '7788',
         pin: '4321',
-      })
+      }),
+      1,
     );
   });
 
@@ -90,7 +91,11 @@ describe('userRoutes', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mockUpdate).toHaveBeenCalledWith('1', expect.objectContaining({ role: 'SUPERVISOR' }));
+    expect(mockUpdate).toHaveBeenCalledWith(
+      '1',
+      expect.objectContaining({ role: 'SUPERVISOR' }),
+      1,
+    );
   });
 
   it('PUT /users/:id/line-access updates line scope', async () => {

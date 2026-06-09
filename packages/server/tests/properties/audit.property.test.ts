@@ -78,7 +78,7 @@ describe('AuditTrailService & Routes (Tasks 12.3 - 12.5)', () => {
     const mockDbDate = new Date('2026-06-01T12:00:00.000Z');
     
     const mockRow = {
-      id: '100',
+      audit_id: '100',
       table_name: 'test_table',
       record_pk: 'rec-1',
       action: 'UPDATE',
@@ -86,7 +86,7 @@ describe('AuditTrailService & Routes (Tasks 12.3 - 12.5)', () => {
       old_value: 'pending',
       new_value: 'done',
       user_id: '42',
-      created_at: mockDbDate,
+      ts: mockDbDate,
     };
 
     const mockBuilder = {

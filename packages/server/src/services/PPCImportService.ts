@@ -274,7 +274,7 @@ export class PPCImportService {
       destination: row.destination ?? null,
       roll_finish: row.roll_finish ?? null,
       ppc_reroll_flag: row.ppc_reroll_flag ?? false,
-      queue_seq: null,
+      queue_seq: row.queue_seq ?? null,
       sap_order_no: row.sap_order_no ?? null,
       process_route_raw: row.process_route ?? null,
       import_batch_id: importBatchId,

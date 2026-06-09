@@ -1,4 +1,5 @@
 import { AuditTrailService } from '../services/AuditTrailService';
+import { isAuditPersistenceEnabled } from '../audit/auditConfig';
 
 export async function logAuthorizationDenied(
   userId: number,
@@ -6,12 +7,20 @@ export async function logAuthorizationDenied(
   operation: string,
   context?: string,
 ): Promise<void> {
-  await AuditTrailService.log(
-    'security.authorization_denial',
-    String(userId),
-    'INSERT',
-    null,
-    { role, operation, context: context ?? null },
-    userId,
-  );
+  if (!isAuditPersistenceEnabled()) {
+    return;
+  }
+
+  try {
+    await AuditTrailService.log(
+      'security.authorization_denial',
+      String(userId),
+      'INSERT',
+      null,
+      { role, operation, context: context ?? null },
+      userId,
+    );
+  } catch (err) {
+    console.error('Failed to persist authorization denial audit', err);
+  }
 }

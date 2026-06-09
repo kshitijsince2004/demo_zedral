@@ -25,12 +25,17 @@ export const rfc7807ErrorHandler = (err: ApiError, req: Request, res: Response, 
   res.status(status).json(problem);
 };
 
-// Helper for throwing standard RFC-7807 errors
-export function throwApiError(status: number, detail: string, title?: string, type?: string) {
+/** Build an RFC-7807 error for Express `next(err)` handlers (does not throw). */
+export function createApiError(status: number, detail: string, title?: string, type?: string): ApiError {
   const err: ApiError = new Error(detail);
   err.status = status;
   err.detail = detail;
   if (title) err.title = title;
   if (type) err.type = type;
-  throw err;
+  return err;
+}
+
+// Helper for throwing standard RFC-7807 errors
+export function throwApiError(status: number, detail: string, title?: string, type?: string): never {
+  throw createApiError(status, detail, title, type);
 }

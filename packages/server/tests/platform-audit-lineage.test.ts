@@ -23,20 +23,18 @@ describe('Platform Security: Audit & Lineage', () => {
   // Feature: platform-security, Property 19: Lineage round-trip
   it('Property 19: Lineage round-trip', async () => {
     await fc.assert(
-      fc.asyncProperty(fc.string(), fc.string(), fc.string(), async (batchId, sourceRowRef, mappingVersion) => {
-        // Just picking alphanumeric to avoid max length or parsing issues
-        const safeBatch = batchId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 36) || uuidv4();
+      fc.asyncProperty(fc.uuid(), fc.string(), fc.string(), async (batchId, sourceRowRef, mappingVersion) => {
         const safeSource = sourceRowRef.replace(/[^a-zA-Z0-9]/g, '').slice(0, 50) || 'row-1';
         const safeMapping = mappingVersion.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20) || 'v1';
 
         await requestContext.run({ tenant_id: tenantA }, async () => {
           const recordId = uuidv4();
           
-          await recordLineage(recordId, safeBatch, safeSource, safeMapping);
+          await recordLineage(recordId, batchId, safeSource, safeMapping);
           
           const lineage = await getLineageForRecord(recordId);
           expect(lineage).toBeDefined();
-          expect(lineage?.batch_id).toBe(safeBatch);
+          expect(lineage?.batch_id).toBe(batchId);
           expect(lineage?.source_row_ref).toBe(safeSource);
           expect(lineage?.mapping_version).toBe(safeMapping);
         });

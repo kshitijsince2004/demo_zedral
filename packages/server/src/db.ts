@@ -53,25 +53,42 @@ class RlsPostgresDialect extends PostgresDialect {
   }
 }
 
-// OLTP connection pool
-const primaryPool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432', 10),
-  user: process.env.DB_USER || 'm1_user',
-  password: process.env.DB_PASSWORD || 'm1_password',
-  database: process.env.DB_NAME || 'm1_db',
-  max: 20,
-});
+function resolvePrimaryPoolConfig(): ConstructorParameters<typeof Pool>[0] {
+  const url = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+  if (url) {
+    return { connectionString: url, max: 20 };
+  }
 
-// Read Replica connection pool
-const replicaPool = new Pool({
-  host: process.env.DB_REPLICA_HOST || 'localhost',
-  port: parseInt(process.env.DB_REPLICA_PORT || '5433', 10),
-  user: process.env.DB_USER || 'm1_user',
-  password: process.env.DB_PASSWORD || 'm1_password',
-  database: process.env.DB_NAME || 'm1_db',
-  max: 20,
-});
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USER || 'm1_user',
+    password: process.env.DB_PASSWORD || 'm1_password',
+    database: process.env.DB_NAME || 'm1_db',
+    max: 20,
+  };
+}
+
+function resolveReplicaPoolConfig(): ConstructorParameters<typeof Pool>[0] | null {
+  if (!process.env.DB_REPLICA_HOST) {
+    return null;
+  }
+
+  return {
+    host: process.env.DB_REPLICA_HOST,
+    port: parseInt(process.env.DB_REPLICA_PORT || '5432', 10),
+    user: process.env.DB_USER || 'm1_user',
+    password: process.env.DB_PASSWORD || 'm1_password',
+    database: process.env.DB_NAME || 'm1_db',
+    max: 20,
+  };
+}
+
+// OLTP connection pool
+const primaryPool = new Pool(resolvePrimaryPoolConfig());
+
+const replicaPoolConfig = resolveReplicaPoolConfig();
+const replicaPool = replicaPoolConfig ? new Pool(replicaPoolConfig) : primaryPool;
 
 export const db = new Kysely<Database>({
   dialect: new RlsPostgresDialect({
@@ -79,11 +96,13 @@ export const db = new Kysely<Database>({
   }),
 });
 
-export const readDb = new Kysely<Database>({
-  dialect: new RlsPostgresDialect({
-    pool: replicaPool,
-  }),
-});
+export const readDb = replicaPoolConfig
+  ? new Kysely<Database>({
+      dialect: new RlsPostgresDialect({
+        pool: replicaPool,
+      }),
+    })
+  : db;
 
 /**
  * Reporting/analytics queries use the read replica when DB_REPLICA_HOST is set.

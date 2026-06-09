@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { getDb } from '../../src/db';
 
 vi.mock('../../src/middleware/authMiddleware', () => ({
   requireAuth: (req: any, res: any, next: any) => {

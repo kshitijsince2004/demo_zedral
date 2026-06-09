@@ -65,8 +65,8 @@ describe('export phase 7 — authz & infra', () => {
     expect(req.type).toBe('DPR');
   });
 
-  it('ASYNC_ROW_THRESHOLD is 5000', () => {
-    expect(ASYNC_ROW_THRESHOLD).toBe(5000);
+  it('ASYNC_ROW_THRESHOLD is 10000', () => {
+    expect(ASYNC_ROW_THRESHOLD).toBe(10000);
   });
 
   it('removePartialArtifact deletes local temp file', () => {
