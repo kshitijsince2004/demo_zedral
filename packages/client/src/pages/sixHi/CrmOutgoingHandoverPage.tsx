@@ -164,7 +164,7 @@ export function CrmOutgoingHandoverPage() {
   const [draftSaved, setDraftSaved] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
 
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout>>();
+  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Load preview + draft ───────────────────────────────────────────────────
   useEffect(() => {
@@ -298,8 +298,8 @@ export function CrmOutgoingHandoverPage() {
   const queue = p.queueSnapshot;
   const allQueueItems = [...(queue.rolling ?? []), ...(queue.skinpass ?? [])].slice(0, 5);
 
-  const shiftStart = p.shift.windowStart ?? '—';
-  const shiftEnd = p.shift.windowEnd ?? '—';
+  const shiftStart = p.shift.prodDate ?? '—';
+  const shiftEnd = p.nextShift.prodDate ?? '—';
 
   function formatMin(min?: number) {
     if (min == null) return '—';

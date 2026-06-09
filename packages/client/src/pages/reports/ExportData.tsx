@@ -1,10 +1,11 @@
+import { AdminShell } from '../../components/layout/admin/AdminShell';
 /**
  * ExportData — Data Export Center (E4 RAW register)
  */
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExecutiveShell } from '../../components/layout/executive/ExecutiveShell';
+
 import { ChartPanel } from '../../components/analytics/ChartPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -110,7 +111,7 @@ export function ExportData() {
   const isValid = !dateError && (exportType === 'DPR' || true);
 
   return (
-    <ExecutiveShell title="Data export" subtitle="RAW register · scoped export jobs">
+    <AdminShell title="Data export" subtitle="RAW register · scoped export jobs">
       <div className="max-w-2xl flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
           RAW exports use the canonical register model. For monthly DPR workbooks, use{' '}
@@ -322,6 +323,6 @@ export function ExportData() {
           </div>
         </ChartPanel>
       </div>
-    </ExecutiveShell>
+    </AdminShell>
   );
 }

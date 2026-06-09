@@ -127,7 +127,7 @@ export function DrilldownPanel({ open, onClose, metric, windowDays }: DrilldownP
           </span>
           {records.length < total && (
             <ZButton
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={handleLoadMore}
               disabled={loading}

@@ -12,8 +12,7 @@ interface OperatorShellProps {
 }
 
 export function OperatorShell({ processCode = 'HRS', children }: OperatorShellProps) {
-  const { activeRole, logout } = useAuthStore();
-
+  const { logout } = useAuthStore();
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to log out?')) {
       logout();

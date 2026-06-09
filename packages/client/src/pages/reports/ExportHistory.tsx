@@ -1,10 +1,11 @@
+import { AdminShell } from '../../components/layout/admin/AdminShell';
 /**
  * ExportHistory — past export jobs with re-download (Phase 7)
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExecutiveShell } from '../../components/layout/executive/ExecutiveShell';
+
 import { ChartPanel } from '../../components/analytics/ChartPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -77,7 +78,7 @@ export function ExportHistory() {
   };
 
   return (
-    <ExecutiveShell title="Export history" subtitle="Audit trail · re-download past artifacts">
+    <AdminShell title="Export history" subtitle="Audit trail · re-download past artifacts">
       <div className="max-w-4xl flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
           Jobs are recorded in <code className="text-xs font-mono">audit.export_job</code> with sha256 and data version.
@@ -154,6 +155,6 @@ export function ExportHistory() {
           )}
         </ChartPanel>
       </div>
-    </ExecutiveShell>
+    </AdminShell>
   );
 }

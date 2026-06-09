@@ -1,10 +1,11 @@
+import { AdminShell } from '../../components/layout/admin/AdminShell';
 /**
  * DprExport — Monthly DPR auto-generation (E1)
  * Month picker → export job → poll → download XLSX
  */
 
 import { useState } from 'react';
-import { ExecutiveShell } from '../../components/layout/executive/ExecutiveShell';
+
 import { ChartPanel } from '../../components/analytics/ChartPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -61,7 +62,7 @@ export function DprExport() {
     : '—';
 
   return (
-    <ExecutiveShell title="DPR export" subtitle="Monthly production report · E1 auto-generation">
+    <AdminShell title="DPR export" subtitle="Monthly production report · E1 auto-generation">
       <div className="max-w-2xl flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
           Generates the monthly DPR workbook (month sheet + DELAY sheet) from captured M1 data.
@@ -106,6 +107,6 @@ export function DprExport() {
           </div>
         </ChartPanel>
       </div>
-    </ExecutiveShell>
+    </AdminShell>
   );
 }

@@ -1,6 +1,7 @@
+import { AdminShell } from '../../components/layout/admin/AdminShell';
 import { useCallback, useEffect, useState } from 'react';
 import type { MachineAccessEntry } from '@m1/shared-validation';
-import { ExecutiveShell } from '../../components/layout/executive/ExecutiveShell';
+
 import { ZButton } from '../../components/primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
 import { MACHINE_OPTIONS } from '../../lib/accessOptions';
@@ -56,7 +57,7 @@ export function MachineAssignmentPage() {
   };
 
   return (
-    <ExecutiveShell
+    <AdminShell
       title="User Access"
       subtitle="Assign mills and lines (syncs login scope automatically)"
       onRefresh={load}
@@ -108,6 +109,6 @@ export function MachineAssignmentPage() {
           ))}
         </div>
       )}
-    </ExecutiveShell>
+    </AdminShell>
   );
 }

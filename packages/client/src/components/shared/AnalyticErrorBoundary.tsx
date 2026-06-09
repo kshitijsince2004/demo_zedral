@@ -33,7 +33,7 @@ export class AnalyticErrorBoundary extends React.Component<Props, State> {
       return (
         <div className="flex flex-col items-center justify-center p-4 min-h-[100px] border border-destructive/20 bg-destructive/5 rounded-md">
           <p className="text-sm text-destructive mb-2">Could not load {this.props.analyticName}.</p>
-          <ZButton variant="outline" size="sm" onClick={this.handleRetry}>
+          <ZButton variant="secondary" size="sm" onClick={this.handleRetry}>
             Retry →
           </ZButton>
         </div>

@@ -143,6 +143,7 @@ export function SixHiLayout() {
         busy,
         onStart: handleStart,
         onEnd: handleEnd,
+        onReject: () => setRejectionOpen(true),
         onStoppage: () => setStoppageOpen(true),
         onRemark: () => setRemarkOpen(true),
         onViewOrder: () => openWorkspace(panelOrder.batchNumber),
