@@ -30,7 +30,7 @@ export function PPCInfoCards({ data, compact }: { data: PPCSource; compact?: boo
   const weight = 'ppcWeightMt' in data ? data.ppcWeightMt : ('weightMt' in data ? data.weightMt : 0);
 
   return (
-    <div className="bg-card border border-border rounded-xl shadow-sm p-4 flex flex-col">
+    <div className="bg-card text-card-foreground border border-border rounded-xl shadow p-4 flex flex-col">
       <div className="flex items-center justify-between mb-4 border-b border-border/50 pb-2">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-info flex items-center gap-2">
           <Package className="w-4 h-4" /> Current Order

@@ -123,7 +123,7 @@ export function Login() {
 
       <main className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
-          <div className="border border-border bg-background rounded-2xl shadow-sm overflow-hidden">
+          <div className="border border-border bg-background rounded-lg shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-border">
               <h1 className="text-base font-semibold tracking-tight">Terminal unlock</h1>
               <p className="text-xs text-muted-foreground mt-1">

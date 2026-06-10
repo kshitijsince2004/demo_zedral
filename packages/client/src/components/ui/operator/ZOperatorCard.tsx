@@ -21,7 +21,7 @@ export function ZOperatorCard({
   const hasHeader = title || meta || actions;
 
   return (
-    <div className={['bg-background border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0', className].join(' ')}>
+    <div className={['bg-background border border-border rounded-lg shadow-sm overflow-hidden flex flex-col min-h-0', className].join(' ')}>
       {hasHeader && (
         <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">

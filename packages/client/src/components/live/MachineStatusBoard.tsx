@@ -19,7 +19,7 @@ type StatusCfg = {
 
 const STATUS_CFG: Record<MachineLiveStatus, StatusCfg> = {
   RUNNING: {
-    headerBg: 'bg-emerald-600',
+    headerBg: 'bg-success',
     headerText: 'text-white',
     badgeBg: 'bg-white/20',
     badgeText: 'text-white',
@@ -27,15 +27,15 @@ const STATUS_CFG: Record<MachineLiveStatus, StatusCfg> = {
     label: 'Running',
   },
   IDLE: {
-    headerBg: 'bg-slate-500',
+    headerBg: 'bg-muted-foreground',
     headerText: 'text-white',
     badgeBg: 'bg-white/20',
     badgeText: 'text-white',
-    dotClass: 'bg-slate-300',
+    dotClass: 'bg-white/60',
     label: 'Idle',
   },
   STOPPAGE: {
-    headerBg: 'bg-amber-500',
+    headerBg: 'bg-warning',
     headerText: 'text-white',
     badgeBg: 'bg-white/20',
     badgeText: 'text-white',
@@ -43,7 +43,7 @@ const STATUS_CFG: Record<MachineLiveStatus, StatusCfg> = {
     label: 'Stoppage',
   },
   BREAKDOWN: {
-    headerBg: 'bg-red-600',
+    headerBg: 'bg-destructive',
     headerText: 'text-white',
     badgeBg: 'bg-white/20',
     badgeText: 'text-white',
@@ -51,7 +51,7 @@ const STATUS_CFG: Record<MachineLiveStatus, StatusCfg> = {
     label: 'Breakdown',
   },
   MAINTENANCE: {
-    headerBg: 'bg-blue-600',
+    headerBg: 'bg-info',
     headerText: 'text-white',
     badgeBg: 'bg-white/20',
     badgeText: 'text-white',
@@ -66,14 +66,14 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-mono font-bold text-emerald-600 tracking-tight">
+        <span className="text-2xl font-mono font-bold text-success tracking-tight">
           {m.stateSinceAt ? formatted : '—'}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-500">Runtime</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-success">Runtime</span>
       </div>
 
-      <div className="bg-emerald-50 rounded-lg px-3 py-2.5 border border-emerald-100">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-600 mb-1">Current Order</div>
+      <div className="bg-success/10 rounded-lg px-3 py-2.5 border border-success/20">
+        <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-1">Current Order</div>
         <div className="font-bold text-sm text-foreground leading-tight">{m.currentOrder || '—'}</div>
         {m.currentCoil && (
           <div className="text-[11px] text-muted-foreground font-mono mt-1">Coil {m.currentCoil}</div>
@@ -81,14 +81,14 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="bg-slate-50 rounded-lg px-2.5 py-2 border border-border/50">
+        <div className="bg-muted rounded-lg px-2.5 py-2 border border-border/50">
           <div className="flex items-center gap-1 mb-0.5">
             <User className="w-3 h-3 text-muted-foreground" />
             <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Operator</span>
           </div>
           <div className="text-xs font-semibold text-foreground truncate">{m.currentOperator || '—'}</div>
         </div>
-        <div className="bg-slate-50 rounded-lg px-2.5 py-2 border border-border/50">
+        <div className="bg-muted rounded-lg px-2.5 py-2 border border-border/50">
           <div className="flex items-center gap-1 mb-0.5">
             <Clock className="w-3 h-3 text-muted-foreground" />
             <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Shift</span>
@@ -98,9 +98,9 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
       </div>
 
       {m.productionWeightMt != null && (
-        <div className="bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-100">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-600 mb-0.5">Produced (shift)</div>
-          <div className="text-sm font-bold text-emerald-700">{m.productionWeightMt} MT</div>
+        <div className="bg-success/10 rounded-lg px-3 py-2 border border-success/20">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-0.5">Produced (shift)</div>
+          <div className="text-sm font-bold text-success">{m.productionWeightMt} MT</div>
         </div>
       )}
     </div>
@@ -113,17 +113,17 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-mono font-bold text-slate-500 tracking-tight">
+        <span className="text-2xl font-mono font-bold text-muted-foreground tracking-tight">
           {m.stateSinceAt ? formatted : '—'}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Idle For</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Idle For</span>
       </div>
       <div className="grid grid-cols-1 gap-2">
-        <div className="bg-slate-50 rounded-lg px-3 py-2 border border-border/50">
+        <div className="bg-muted rounded-lg px-3 py-2 border border-border/50">
           <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Last Order</div>
           <div className="text-xs font-medium text-foreground">{m.lastOrderBatchNumber || '—'}</div>
         </div>
-        <div className="bg-slate-50 rounded-lg px-3 py-2 border border-border/50">
+        <div className="bg-muted rounded-lg px-3 py-2 border border-border/50">
           <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Last Operator</div>
           <div className="text-xs font-medium text-foreground">{m.lastOperatorName || '—'}</div>
         </div>
@@ -135,8 +135,8 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
 function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDefect?: boolean }) {
   const isStoppage = m.status === 'STOPPAGE' || m.status === 'BREAKDOWN';
   const { formatted } = useLiveTimer(m.stateSinceAt, isStoppage);
-  const colorClass = isDefect ? 'text-red-600' : 'text-amber-600';
-  const bgClass = isDefect ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100';
+  const colorClass = isDefect ? 'text-destructive' : 'text-warning';
+  const bgClass = isDefect ? 'bg-destructive/10 border-destructive/20' : 'bg-warning/15 border-warning/30';
 
   return (
     <div className="flex flex-col gap-3">
@@ -161,12 +161,12 @@ function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDe
 
       <div className="grid grid-cols-2 gap-2">
         {m.currentOrder && (
-          <div className="bg-slate-50 rounded-lg px-2.5 py-2 border border-border/50 col-span-2">
+          <div className="bg-muted rounded-lg px-2.5 py-2 border border-border/50 col-span-2">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Order</div>
             <div className="text-xs font-mono font-bold text-foreground">{m.currentOrder}</div>
           </div>
         )}
-        <div className="bg-slate-50 rounded-lg px-2.5 py-2 border border-border/50">
+        <div className="bg-muted rounded-lg px-2.5 py-2 border border-border/50">
           <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Since</div>
           <div className="text-xs font-medium text-foreground">{formatUpdatedAt(m.stateSinceAt)}</div>
         </div>
@@ -181,15 +181,15 @@ function MaintenanceStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-mono font-bold text-blue-600 tracking-tight">
+        <span className="text-2xl font-mono font-bold text-info tracking-tight">
           {m.stateSinceAt ? formatted : '—'}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-widest text-blue-500">In Maint.</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-info">In Maint.</span>
       </div>
-      <div className="bg-blue-50 rounded-lg px-3 py-2.5 border border-blue-100">
+      <div className="bg-info/10 rounded-lg px-3 py-2.5 border border-info/20">
         <div className="flex items-center gap-1.5 mb-1">
-          <Wrench className="w-3.5 h-3.5 text-blue-500" />
-          <span className="text-[9px] font-bold uppercase tracking-wide text-blue-600">Maintenance</span>
+          <Wrench className="w-3.5 h-3.5 text-info" />
+          <span className="text-[9px] font-bold uppercase tracking-wide text-info">Maintenance</span>
         </div>
         <div className="text-xs text-muted-foreground">{m.lastOrderBatchNumber ? `Last order: ${m.lastOrderBatchNumber}` : 'Scheduled maintenance'}</div>
       </div>
@@ -205,7 +205,7 @@ interface MachineStatusBoardProps {
 export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardProps) {
   if (machines.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground py-10 text-center border border-dashed border-border rounded-2xl bg-white flex flex-col items-center gap-2">
+      <div className="text-sm text-muted-foreground py-10 text-center border border-dashed border-border rounded-lg bg-card flex flex-col items-center gap-2">
         <Cpu className="w-8 h-8 text-muted-foreground/40" />
         <span>No machines in scope</span>
       </div>
@@ -222,7 +222,7 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
             key={m.machineCode}
             type="button"
             onClick={() => onSelect?.(m.machineCode)}
-            className="border border-border rounded-2xl bg-white shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/30 overflow-hidden"
+            className="border border-border rounded-lg bg-card shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/30 overflow-hidden"
           >
             {/* Header */}
             <div className={`px-4 py-3 flex items-center justify-between ${cfg.headerBg}`}>
@@ -245,7 +245,7 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-2.5 border-t border-border/50 flex items-center justify-between bg-slate-50/60">
+            <div className="px-4 py-2.5 border-t border-border/50 flex items-center justify-between bg-muted/40">
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{m.machineCode}</span>
               <span className="text-[10px] text-muted-foreground">
                 Updated {formatUpdatedAt(m.lastUpdateAt ?? m.stateSinceAt)}

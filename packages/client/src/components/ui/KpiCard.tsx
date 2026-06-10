@@ -36,7 +36,7 @@ export function KpiCard({ label, value, sub, tone, onDrillDown, metric }: KpiCar
         type="button"
         onClick={onDrillDown}
         aria-label={`Drill down into ${metric ?? label}`}
-        className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm text-left w-full hover:border-primary/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer"
+        className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm text-left w-full hover:border-primary/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer"
       >
         {inner}
       </button>
@@ -44,7 +44,7 @@ export function KpiCard({ label, value, sub, tone, onDrillDown, metric }: KpiCar
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm">
+    <div className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm">
       {inner}
     </div>
   );

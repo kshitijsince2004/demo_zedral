@@ -2,6 +2,7 @@ import React from 'react';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { buildExecutiveInsights } from '../../lib/plantHeadInsights';
 import { DataUnavailable } from './DataUnavailable';
+import { ChartTooltip } from '../analytics/ChartTooltip';
 import { AlertCircle, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react';
 import {
   Area,
@@ -32,21 +33,7 @@ const C = {
   text: '#94a3b8',
 };
 
-function CustomTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-border rounded-xl shadow-lg px-4 py-3 text-xs">
-      <div className="font-semibold text-foreground mb-2">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.name} className="flex items-center gap-2 mb-1">
-          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-semibold text-foreground">{typeof p.value === 'number' ? p.value.toFixed(1) : p.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+
 
 export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
   const insights = buildExecutiveInsights(data);
@@ -56,17 +43,17 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
-      <div className="lg:col-span-7 bg-white border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-foreground">Production Performance</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Daily actual vs target · from shift logs</p>
+      <div className="lg:col-span-7 bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex flex-col space-y-1.5">
+            <h2 className="font-semibold leading-none tracking-tight text-foreground">Production Performance</h2>
+            <p className="text-sm text-muted-foreground">Daily actual vs target · from shift logs</p>
           </div>
           {data.productionTrend && (
             <div className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${
               data.productionTrend.startsWith('-')
-                ? 'bg-red-50 text-red-600'
-                : 'bg-emerald-50 text-emerald-700'
+                ? 'bg-destructive/10 text-destructive'
+                : 'bg-success/10 text-success'
             }`}>
               {data.productionTrend.startsWith('-')
                 ? <TrendingDown className="w-3 h-3" />
@@ -76,7 +63,7 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
           )}
         </div>
 
-        <div className="p-5 flex flex-col gap-6 flex-1">
+        <div className="p-6 pt-0 flex flex-col gap-6 flex-1">
           {hasDailyProduction ? (
             <div className="flex flex-col">
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
@@ -97,7 +84,7 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
                       axisLine={false}
                       tickLine={false}
                     />
-                    <Tooltip content={<CustomTooltip />} />
+                    <Tooltip content={<ChartTooltip />} />
                     <Legend
                       wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
                       iconType="circle"
@@ -149,7 +136,7 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
                       tickLine={false}
                       domain={[0, 100]}
                     />
-                    <Tooltip content={<CustomTooltip />} />
+                    <Tooltip content={<ChartTooltip />} />
                     <Area
                       type="monotone"
                       dataKey="oee"
@@ -167,10 +154,10 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
         </div>
       </div>
 
-      <div className="lg:col-span-3 bg-white border border-border rounded-xl shadow-sm flex flex-col">
-        <div className="px-5 py-4 border-b border-border/50">
-          <h2 className="font-semibold text-foreground">Executive Insights</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">From plant reporting API</p>
+      <div className="lg:col-span-3 bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col">
+        <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
+          <h2 className="font-semibold leading-none tracking-tight text-foreground">Executive Insights</h2>
+          <p className="text-sm text-muted-foreground">From plant reporting API</p>
         </div>
         <div className="flex-1 p-0">
           {hasInsight ? (
@@ -206,13 +193,13 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
 
         {(data.runningMachines != null || data.breakdownMachines != null) && (
           <div className="px-5 py-4 border-t border-border/50 grid grid-cols-2 gap-3">
-            <div className="bg-emerald-50 rounded-lg p-3 text-center">
-              <div className="text-xl font-bold text-emerald-700">{data.runningMachines ?? 0}</div>
-              <div className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide mt-0.5">Running</div>
+            <div className="bg-success/10 rounded-lg p-3 text-center border border-success/20">
+              <div className="text-xl font-bold text-success">{data.runningMachines ?? 0}</div>
+              <div className="text-[10px] font-semibold text-success uppercase tracking-wide mt-0.5">Running</div>
             </div>
-            <div className="bg-red-50 rounded-lg p-3 text-center">
-              <div className="text-xl font-bold text-red-600">{data.breakdownMachines ?? 0}</div>
-              <div className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mt-0.5">Breakdown</div>
+            <div className="bg-destructive/10 rounded-lg p-3 text-center border border-destructive/20">
+              <div className="text-xl font-bold text-destructive">{data.breakdownMachines ?? 0}</div>
+              <div className="text-[10px] font-semibold text-destructive uppercase tracking-wide mt-0.5">Breakdown</div>
             </div>
           </div>
         )}

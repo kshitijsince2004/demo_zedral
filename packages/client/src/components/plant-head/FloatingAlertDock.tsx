@@ -18,11 +18,10 @@ export function FloatingAlertDock({ data }: AlertDockProps) {
       {activeAlerts.map((alert, idx) => (
         <div 
           key={`${alert}-${idx}`}
-          className="bg-destructive text-destructive-foreground p-4 rounded-xl shadow-2xl border border-destructive/50 flex items-start gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300"
+          className="bg-destructive text-destructive-foreground p-4 rounded-lg shadow-2xl border border-destructive/50 flex items-start gap-3 animate-slide-in"
         >
-          <div className="pt-0.5 relative">
-            <span className="absolute -inset-1 rounded-full bg-background/20 animate-ping" />
-            <AlertTriangle className="w-5 h-5 relative z-10" />
+          <div className="pt-0.5">
+            <AlertTriangle className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-destructive-foreground/80 mb-0.5">Critical Alert</h4>

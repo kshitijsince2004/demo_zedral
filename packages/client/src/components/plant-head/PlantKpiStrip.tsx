@@ -60,9 +60,9 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
         return (
           <div
             key={kpi.label}
-            className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col"
+            className="bg-card text-card-foreground border border-border rounded-lg p-6 shadow-sm flex flex-col"
           >
-            <span className="text-xs font-semibold text-muted-foreground mb-1">{kpi.label}</span>
+            <span className="text-sm font-medium text-muted-foreground mb-1">{kpi.label}</span>
             <div className="flex items-baseline gap-2 mt-auto">
               <span className="text-2xl font-bold text-foreground">{kpi.value}</span>
               {kpi.trend && (

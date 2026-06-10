@@ -76,8 +76,7 @@ export function LiveDashboard() {
   return (
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+        <div>
           <span className="text-xs font-medium text-muted-foreground">Live — auto-refreshes every 8s</span>
         </div>
         {refreshedAt && (
@@ -113,8 +112,7 @@ export function LiveDashboard() {
 
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="bg-muted/30 px-5 py-3 border-b border-border/50 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+            <div className="bg-muted/30 px-5 py-3 border-b border-border/50">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 Live Queue
               </h2>

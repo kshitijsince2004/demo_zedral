@@ -34,18 +34,17 @@ export function SixHiOrderWorkspace({
     <div className={`flex flex-col gap-4 ${compact ? 'h-full min-h-0 overflow-hidden' : 'min-h-0'}`}>
 
       {(isRunning || isStoppageActive) && (
-        <div className={`flex items-center justify-between px-5 py-3 rounded-xl border shadow-sm transition-colors ${
+        <div className={`flex items-center justify-between px-6 py-4 rounded-xl border shadow-sm transition-colors ${
           isStoppageActive
-            ? 'bg-destructive/10 border-destructive/30 text-destructive'
-            : 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]'
+            ? 'bg-destructive text-white border-destructive'
+            : 'bg-success text-white border-success'
         }`}>
           <div className="flex items-center gap-3">
-            {isStoppageActive ? <AlertTriangle className="w-5 h-5 animate-pulse" /> : <Activity className="w-5 h-5" />}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+              <div className="text-xs font-medium uppercase tracking-wide opacity-80 mb-0.5">
                 {isStoppageActive ? 'Stoppage Active' : 'Production Active'}
               </div>
-              <div className="text-sm font-semibold opacity-90">
+              <div className="text-base font-semibold">
                 {isStoppageActive
                   ? `${order.activeStoppage?.categoryLabel ?? 'Stopped'} · ${order.activeStoppage?.remarks ?? 'No remarks'}`
                   : `Running since ${new Date(order.prodStartAt!).toLocaleTimeString()}`}
@@ -53,7 +52,6 @@ export function SixHiOrderWorkspace({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 opacity-70" />
             <span className="font-mono text-3xl font-bold tracking-tight">
               {isStoppageActive ? stopTime : runTime}
             </span>

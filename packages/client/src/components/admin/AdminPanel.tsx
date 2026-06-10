@@ -20,7 +20,7 @@ export function AdminPanel({
   const hasHeader = title || meta || actions;
 
   return (
-    <div className={`border border-border rounded-2xl overflow-hidden bg-background shadow-sm ${className}`}>
+    <div className={`border border-border rounded-xl overflow-hidden bg-card text-card-foreground shadow ${className}`}>
       {hasHeader && (
         <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">

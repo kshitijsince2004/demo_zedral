@@ -1,4 +1,4 @@
-﻿import type { SixHiShiftSummary } from '@m1/shared-validation';
+import type { SixHiShiftSummary } from '@m1/shared-validation';
 
 interface SixHiShiftSummaryPanelProps {
   summary: SixHiShiftSummary | null;
@@ -15,7 +15,7 @@ export function SixHiShiftSummaryPanel({ summary, loading, compact }: SixHiShift
   ];
 
   return (
-    <div className={`bg-white border border-border rounded-2xl shadow-sm flex flex-col ${compact ? 'p-3' : 'p-4'}`}>
+    <div className={`bg-card text-card-foreground border border-border rounded-xl shadow flex flex-col ${compact ? 'p-3' : 'p-4'}`}>
       <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
         Shift Summary
       </h2>

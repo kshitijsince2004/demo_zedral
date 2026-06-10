@@ -24,44 +24,6 @@ function useLiveClock() {
   return time;
 }
 
-function ShopfloorSummaryBar({
-  data,
-  liveMachines,
-  liveOrders,
-}: {
-  data: ExtendedPlantHeadDashboardData;
-  liveMachines: any[];
-  liveOrders: LiveOrderRow[];
-}) {
-  const running = liveMachines.filter(m => m.status === 'RUNNING').length;
-  const breakdown = liveMachines.filter(m => m.status === 'BREAKDOWN').length;
-  const stoppage = liveMachines.filter(m => m.status === 'STOPPAGE').length;
-  const activeOrders = liveOrders.filter(o => o.status === 'IN_PROGRESS').length;
-  const criticalAlerts = data.criticalAlerts?.length ?? 0;
-
-  const items = [
-    { label: 'Running', value: running, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-    { label: 'Breakdown', value: breakdown, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
-    { label: 'Stoppage', value: stoppage, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
-    { label: 'Active Orders', value: activeOrders, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
-    { label: 'Alerts', value: criticalAlerts, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' },
-  ];
-
-  return (
-    <div className="flex items-center gap-3 flex-wrap">
-      {items.map(item => (
-        <div
-          key={item.label}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold ${item.bg} ${item.border} ${item.color}`}
-        >
-          <span className="text-base font-bold leading-none">{item.value}</span>
-          <span className="text-[10px] font-medium opacity-80 uppercase tracking-wide">{item.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
   const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
@@ -140,52 +102,25 @@ export function PlantHeadDashboard() {
   const timeStr = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
-    <div className="flex flex-col w-full h-full pb-20 max-w-screen-2xl mx-auto">
+    <div className="flex flex-col w-full h-full pb-6 max-w-screen-2xl mx-auto">
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5 mt-2 px-1">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shrink-0">
-            <Factory className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground leading-tight">
-              Plant Command Center
-            </h1>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <CalendarDays className="w-3 h-3" />
-                {today}
-              </span>
-              <span className="text-muted-foreground/40">·</span>
-              <span className="text-xs font-mono font-semibold text-blue-600">{timeStr}</span>
-              {snapshot?.refreshedAt && (
-                <>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live · {new Date(snapshot.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+      <div className="flex justify-end gap-4 mb-3 px-1">
 
         <div className="flex items-center gap-3 flex-wrap">
           <button
             type="button"
             onClick={() => load(false)}
             disabled={loading || refreshing}
-            className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-white text-sm text-muted-foreground hover:bg-slate-50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-blue-500' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-info' : ''}`} />
             Refresh
           </button>
           <select
             value={windowDays}
             onChange={(e) => setWindowDays(Number(e.target.value) as 1 | 7 | 30 | 90)}
-            className="h-9 rounded-lg border border-input bg-white px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="h-9 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
           >
             <option value={1}>Last 24 Hours</option>
             <option value={7}>Last 7 Days</option>
@@ -195,12 +130,7 @@ export function PlantHeadDashboard() {
         </div>
       </div>
 
-      {/* Shopfloor summary bar (only when live data available) */}
-      {liveMachines.length > 0 && (
-        <div className="mb-4 px-1">
-          <ShopfloorSummaryBar data={data} liveMachines={liveMachines} liveOrders={liveOrders} />
-        </div>
-      )}
+
 
       <div className="flex flex-col gap-5 min-h-0">
 
@@ -212,12 +142,10 @@ export function PlantHeadDashboard() {
         {/* Live Machine Status Board */}
         {liveMachines.length > 0 && (
           <section className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 px-1">
-              <Activity className="w-3.5 h-3.5 text-emerald-500" />
+            <div className="px-1">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 Live Shopfloor Status
               </h2>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             </div>
             <MachineStatusBoard machines={liveMachines} />
           </section>

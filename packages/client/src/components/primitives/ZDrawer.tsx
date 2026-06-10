@@ -1,4 +1,4 @@
-import React, { type ReactNode } from 'react';
+import React, { type ReactNode, useEffect, useState, useRef, useCallback } from 'react';
 
 interface ZDrawerProps {
   open: boolean;
@@ -9,22 +9,55 @@ interface ZDrawerProps {
 }
 
 export function ZDrawer({ open, onClose, title, size = 'medium', children }: ZDrawerProps) {
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const widthClass = size === 'small' ? 'w-80' : size === 'large' ? 'w-[800px]' : 'w-96';
 
+  // Mount on open, then trigger visible for transition
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      // RAF to ensure mount happens before transition starts
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      setVisible(false);
+    }
+  }, [open]);
+
+  // Unmount after exit transition
+  const handleTransitionEnd = useCallback(() => {
+    if (!visible) {
+      setMounted(false);
+    }
+  }, [visible]);
+
+  if (!mounted) return null;
+
   return (
     <>
-      <div 
-        className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 transition-opacity" 
+      <div
+        className={[
+          'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-200',
+          visible ? 'opacity-100' : 'opacity-0',
+        ].join(' ')}
         onClick={onClose}
+        onTransitionEnd={handleTransitionEnd}
       />
-      <div 
-        className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-card border-l border-border shadow-xl transform transition-transform ${widthClass}`}
+      <div
+        ref={panelRef}
+        className={[
+          `fixed inset-y-0 right-0 z-50 flex flex-col bg-card border-l border-border shadow-xl transition-transform duration-200 ease-out ${widthClass}`,
+          visible ? 'translate-x-0' : 'translate-x-full',
+        ].join(' ')}
+        onTransitionEnd={handleTransitionEnd}
       >
         <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button 
+          <button
             onClick={onClose}
             className="p-1 rounded-sm opacity-70 hover:opacity-100 hover:bg-muted transition-colors"
           >

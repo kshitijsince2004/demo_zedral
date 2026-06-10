@@ -46,7 +46,7 @@ export function PlantOpsFeed({ data }: PlantOpsFeedProps) {
   const highCount = data.opsFeed.filter(e => e.priority === 'High').length;
 
   return (
-    <div className="bg-white border border-border rounded-xl shadow-sm flex flex-col overflow-hidden w-full">
+    <div className="bg-card border border-border rounded-lg shadow-sm flex flex-col overflow-hidden w-full">
       <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-foreground flex items-center gap-2">
@@ -83,7 +83,7 @@ export function PlantOpsFeed({ data }: PlantOpsFeedProps) {
               return (
                 <div
                   key={event.id}
-                  className={`flex items-start gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors border-l-4 ${cfg.row}`}
+                  className={`flex items-start gap-4 px-5 py-4 hover:bg-muted/30 transition-colors border-l-4 ${cfg.row}`}
                 >
                   <div className={`mt-0.5 ${cfg.badge.split(' ').find(c => c.startsWith('text-'))}`}>
                     {cfg.icon}

@@ -14,23 +14,23 @@ interface MachineDetailModalProps {
 
 function statusCardClass(status: string) {
   switch (status) {
-    case 'RUNNING': return 'bg-[#ECFDF5] border-[#10B981]/30 text-[#10B981]';
+    case 'RUNNING': return 'bg-success/10 border-success/30 text-success';
     case 'STOPPAGE': return 'bg-warning/10 border-warning/30 text-warning';
     case 'BREAKDOWN': return 'bg-destructive/10 border-destructive/30 text-destructive';
     case 'MAINTENANCE': return 'bg-info/10 border-info/30 text-info';
-    default: return 'bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-800/50 dark:border-slate-700';
+    default: return 'bg-muted border-border text-muted-foreground';
   }
 }
 
 function SummaryCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
   return (
-    <div className="bg-white border border-border rounded-xl p-4 shadow-sm">
-      <span className={`text-[10px] font-bold uppercase tracking-widest block mb-1 ${accent ?? 'text-muted-foreground'}`}>
+    <div className="bg-card text-card-foreground border border-border rounded-xl shadow p-5 flex flex-col">
+      <span className={`text-sm font-medium mb-1 ${accent ?? 'text-muted-foreground'}`}>
         {label}
       </span>
-      <div className="flex justify-between items-baseline gap-2">
-        <span className="font-mono text-xl font-bold text-foreground">{value}</span>
-        {sub && <span className={`font-bold text-sm ${accent ?? 'text-muted-foreground'}`}>{sub}</span>}
+      <div className="flex justify-between items-baseline gap-2 mt-auto">
+        <span className="font-mono text-2xl font-bold text-foreground">{value}</span>
+        {sub && <span className={`font-medium text-xs ${accent ?? 'text-muted-foreground'}`}>{sub}</span>}
       </div>
     </div>
   );
@@ -85,15 +85,14 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
-      <div className="fixed inset-y-4 right-4 z-50 w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between bg-muted/20">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-info animate-pulse" />
-              <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Machine Drill-down</h2>
+      <div className="fixed inset-y-4 right-4 z-50 w-full max-w-2xl bg-card text-card-foreground border border-border rounded-xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-border/50 flex items-center justify-between bg-muted/10">
+          <div className="flex flex-col space-y-1.5">
+            <div className="mb-1">
+              <h2 className="font-semibold text-muted-foreground text-sm uppercase tracking-wide">Machine Drill-down</h2>
             </div>
-            <h1 className="text-2xl font-bold text-foreground">{machineName}</h1>
-            <p className="text-xs font-mono text-muted-foreground mt-0.5">{machineCode}</p>
+            <h1 className="text-2xl font-bold leading-none tracking-tight text-foreground">{machineName}</h1>
+            <p className="text-sm font-mono text-muted-foreground">{machineCode}</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors">
             <X className="w-6 h-6 text-muted-foreground" />
@@ -118,35 +117,35 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">
+                <span className="text-xs font-semibold text-muted-foreground block mb-1">
                   {status === 'RUNNING' ? 'Runtime' : status === 'IDLE' ? 'Idle For' : 'Duration'}
                 </span>
                 <span className="font-mono text-xl font-bold">{liveDuration || '—'}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Production Status</span>
+                <span className="text-xs font-semibold text-muted-foreground block mb-1">Production Status</span>
                 <span className="font-bold">{currentOrder ? 'Active Order' : 'No Active Order'}</span>
               </div>
               {currentOrder && (
-                <div className="col-span-2 bg-white/60 dark:bg-black/20 rounded-lg p-3">
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Current Order</span>
+                <div className="col-span-2 bg-background border border-border/40 shadow-sm rounded-lg p-4 mt-2 mb-2">
+                  <span className="text-xs font-semibold text-muted-foreground block mb-1">Current Order</span>
                   <span className="font-mono text-lg font-bold">{currentOrder}</span>
                   {detail?.currentOrder?.customer && (
-                    <p className="text-xs mt-1 opacity-80">{detail.currentOrder.customer} · {detail.currentOrder.weightMt} MT</p>
+                    <p className="text-sm mt-1 text-muted-foreground">{detail.currentOrder.customer} · {detail.currentOrder.weightMt} MT</p>
                   )}
                 </div>
               )}
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Operator</span>
+                <span className="text-xs font-semibold text-muted-foreground block mb-1">Operator</span>
                 <span className="font-bold">{operator || '—'}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Shift</span>
+                <span className="text-xs font-semibold text-muted-foreground block mb-1">Shift</span>
                 <span className="font-bold">{shift || '—'}</span>
               </div>
               {detail?.activeStoppage && (
-                <div className="col-span-2">
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Stoppage Reason</span>
+                <div className="col-span-2 mt-2">
+                  <span className="text-xs font-semibold text-muted-foreground block mb-1">Stoppage Reason</span>
                   <span className="font-bold">{detail.activeStoppage.reason}</span>
                 </div>
               )}
@@ -155,8 +154,8 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
 
           {utilization && (
             <section>
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Runtime Utilization (24h)</h3>
-              <p className="text-xs text-muted-foreground mb-3">Running minutes as a share of the 24-hour event window</p>
+              <h3 className="text-sm font-semibold tracking-tight text-foreground mb-1">Runtime Utilization (24h)</h3>
+              <p className="text-sm text-muted-foreground mb-4">Running minutes as a share of the 24-hour event window</p>
               <div className="grid grid-cols-2 gap-4">
                 <SummaryCard label="Runtime" value={`${Math.round(utilization.runningMin)}m`} sub={`${utilization.runningPct}% of window`} accent="text-[#10B981]" />
                 <SummaryCard label="Idle Time" value={`${Math.round(utilization.idleMin)}m`} sub={`${utilization.idlePct}%`} />
@@ -167,19 +166,19 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
           )}
 
           {detail?.nextOrder && (
-            <section className="bg-white border border-border rounded-xl p-4 shadow-sm">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Next In Queue</h3>
-              <p className="font-mono font-bold">{detail.nextOrder.batchNumber}</p>
-              <p className="text-xs text-muted-foreground mt-1">{detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}</p>
+            <section className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow">
+              <h3 className="text-sm font-semibold tracking-tight mb-2">Next In Queue</h3>
+              <p className="font-mono text-lg font-semibold">{detail.nextOrder.batchNumber}</p>
+              <p className="text-sm text-muted-foreground mt-1">{detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}</p>
             </section>
           )}
 
           {timeline.length > 0 && (
             <section>
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Event History</h3>
-              <div className="border border-border rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted/30 border-b border-border text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              <h3 className="text-sm font-semibold tracking-tight text-foreground mb-3">Event History</h3>
+              <div className="border border-border rounded-xl overflow-hidden shadow">
+                <table className="w-full text-left text-sm bg-card text-card-foreground">
+                  <thead className="bg-muted/30 border-b border-border text-xs font-medium text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3">Event</th>
                       <th className="px-4 py-3">Start</th>
@@ -189,9 +188,9 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {timeline.slice(0, 20).map((evt) => (
-                      <tr key={evt.eventId} className="hover:bg-muted/10">
+                      <tr key={evt.eventId} className="hover:bg-muted/10 transition-colors">
                         <td className="px-4 py-3">
-                          <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border bg-muted/30 text-foreground">
+                          <span className="text-xs font-medium px-2 py-1 rounded-md border bg-muted/50 text-foreground">
                             {evt.eventType.replace(/_/g, ' ')}
                           </span>
                         </td>

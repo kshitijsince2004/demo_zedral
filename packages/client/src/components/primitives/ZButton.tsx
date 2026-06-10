@@ -12,15 +12,15 @@ interface ZButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClass: Record<ZButtonVariant, string> = {
   primary:
-    'bg-primary text-primary-foreground border border-primary hover:bg-primary/90 active:bg-primary/80',
+    'bg-primary text-primary-foreground shadow hover:bg-primary/90',
   secondary:
-    'bg-transparent text-foreground border border-border hover:bg-secondary/80 active:bg-secondary',
+    'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
   ghost:
-    'bg-transparent text-muted-foreground border border-transparent hover:text-foreground hover:bg-secondary/60',
+    'hover:bg-accent hover:text-accent-foreground',
   danger:
-    'bg-transparent text-destructive border border-destructive/40 hover:bg-destructive/10',
+    'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
   accent:
-    'bg-accent text-accent-foreground border border-accent hover:bg-accent/90',
+    'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
 };
 
 export function ZButton({
@@ -33,21 +33,23 @@ export function ZButton({
   ...props
 }: ZButtonProps) {
   const { isGloveMode } = useGloveModeStore();
-  const height =
-    size === 'lg' || isGloveMode ? 'h-14' : size === 'sm' ? 'h-9' : 'h-11';
-  const text = size === 'sm' ? 'text-xs' : 'text-sm';
+  const sizeClasses = {
+    sm: 'h-10 min-h-10 rounded-md px-3 text-xs md:h-8 md:min-h-0',
+    md: 'h-11 min-h-11 px-4 py-2 rounded-md md:h-9 md:min-h-0 text-sm',
+    lg: 'h-12 min-h-12 rounded-md px-8 md:h-10 md:min-h-0 text-sm',
+    touch: 'h-14 min-h-14 px-6 text-base rounded-lg',
+  };
+  
+  const currentSizeClass = isGloveMode ? sizeClasses.touch : sizeClasses[size];
 
   return (
     <button
       type={type}
       className={[
-        'inline-flex items-center justify-center gap-2 font-medium tracking-tight',
-        'rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-        'disabled:opacity-45 disabled:cursor-not-allowed',
-        height,
-        text,
+        'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+        currentSizeClass,
         variantClass[variant],
-        fullWidth ? 'w-full' : 'px-4',
+        fullWidth ? 'w-full' : '',
         className,
       ]
         .filter(Boolean)

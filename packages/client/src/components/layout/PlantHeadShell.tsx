@@ -83,14 +83,14 @@ export function PlantHeadShell() {
       <div className={`flex flex-col min-w-0 min-h-screen ${deskNavOffsetClass()}`}>
         <header className="shrink-0 border-b border-border bg-card px-4 md:px-5 py-4 flex flex-col gap-4">
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Plant Command Center</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-nav">Plant Command Center</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Executive overview and analytics</p>
           </div>
         </header>
 
         <OfflineBanner />
         
-        <main className="flex-1 overflow-auto p-4 md:p-5 flex flex-col gap-4">
+        <main className="flex-1 overflow-auto p-4 md:p-5 flex flex-col gap-4 animate-fade-in">
           <Outlet />
         </main>
       </div>

@@ -70,7 +70,7 @@ export function KpiDrilldownModal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       {/* Panel */}
-      <div className="w-full max-w-3xl max-h-[80vh] flex flex-col rounded-2xl border border-border bg-card shadow-xl overflow-hidden">
+      <div className="w-full max-w-3xl max-h-[80vh] flex flex-col rounded-lg border border-border bg-card shadow-xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div>
@@ -147,7 +147,7 @@ export function KpiDrilldownModal({
                   </thead>
                   <tbody>
                     {result.entries.map((entry) => (
-                      <tr key={entry.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                      <tr key={entry.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-2.5 text-sm font-mono font-medium">{entry.coilNo}</td>
                         <td className="px-4 py-2.5 text-sm">{entry.processId}</td>
                         <td className="px-4 py-2.5 text-sm text-muted-foreground">{entry.shiftCode}</td>

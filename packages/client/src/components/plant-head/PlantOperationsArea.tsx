@@ -34,11 +34,11 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
   const hasLiveOrders = liveOrders != null && liveOrders.length > 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-border/50">
-          <h2 className="font-semibold text-foreground">Machine Status</h2>
-          <p className="text-xs text-muted-foreground mt-1">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+        <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
+          <h2 className="font-semibold leading-none tracking-tight text-foreground">Machine Status</h2>
+          <p className="text-sm text-muted-foreground">
             {hasLiveMachines ? 'Live machine status from /live/snapshot' : 'Live machine feed unavailable'}
           </p>
         </div>
@@ -57,7 +57,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
                   const status = machineStatusLabel(m.status);
                   const progress = m.shiftProgressPct;
                   return (
-                    <tr key={m.machineCode} className="hover:bg-muted/10 transition-colors">
+                    <tr key={m.machineCode} className="hover:bg-muted/30 transition-colors">
                       <td className="px-5 py-3 align-middle text-sm font-medium text-foreground">
                         {m.machineName}
                       </td>
@@ -87,7 +87,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {data.lineAttainment.map((line) => (
-                    <tr key={line.lineId} className="hover:bg-muted/10 transition-colors">
+                    <tr key={line.lineId} className="hover:bg-muted/30 transition-colors">
                       <td className="px-5 py-3 align-middle text-sm font-medium text-foreground">
                         {line.lineName}
                       </td>
@@ -108,10 +108,10 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-border/50">
-          <h2 className="font-semibold text-foreground">Order Status</h2>
-          <p className="text-xs text-muted-foreground mt-1">
+      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+        <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
+          <h2 className="font-semibold leading-none tracking-tight text-foreground">Order Status</h2>
+          <p className="text-sm text-muted-foreground">
             {hasLiveOrders ? 'Active orders from /live/orders' : 'Live order feed unavailable'}
           </p>
         </div>
@@ -127,7 +127,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
               </thead>
               <tbody className="divide-y divide-border/50">
                 {liveOrders!.slice(0, 8).map((order) => (
-                  <tr key={order.batchNumber} className="hover:bg-muted/10 transition-colors">
+                  <tr key={order.batchNumber} className="hover:bg-muted/30 transition-colors">
                     <td className="px-5 py-3 align-middle">
                       <div className="text-sm font-mono font-medium text-foreground">{order.batchNumber}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
