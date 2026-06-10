@@ -3,13 +3,9 @@ import fs from 'fs';
 import path from 'path';
 
 describe('Plant Head dashboard — no mocked source', () => {
-  it('DashboardService does not define getPlantHeadDashboard', () => {
-    const src = fs.readFileSync(
-      path.join(process.cwd(), 'src/services/DashboardService.ts'),
-      'utf8',
-    );
-    expect(src).not.toContain('getPlantHeadDashboard');
-    expect(src).not.toContain('plantWideOee: 81.2');
+  it('legacy DashboardService stub is removed', () => {
+    const legacyPath = path.join(process.cwd(), 'src/services/DashboardService.ts');
+    expect(fs.existsSync(legacyPath)).toBe(false);
   });
 
   it('reportRoutes uses ReportingService for plant-head', () => {
