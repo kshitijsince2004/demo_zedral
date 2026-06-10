@@ -19,9 +19,6 @@ interface KpiTile {
 export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
   const strip = data.kpiStrip;
 
-  const utilizationPct = liveKpis?.utilizationPct ?? strip.utilizationPct;
-  const utilizationTrend = formatTrendPct(strip.utilizationTrendPct);
-
   const kpis: KpiTile[] = [
     {
       label: "Production Today",
@@ -49,9 +46,9 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
       trend: formatTrendPct(strip.qualityTrendPct),
     },
     {
-      label: 'Utilization',
-      value: `${utilizationPct}%`,
-      trend: utilizationTrend,
+      label: 'Machines Running',
+      value: liveKpis != null ? `${liveKpis.machinesRunningPct}%` : '—',
+      trend: null,
     },
   ];
 

@@ -41,8 +41,6 @@ const base: PlantHeadDashboardData = {
     performanceTrendPct: 0,
     qualityPct: 96,
     qualityTrendPct: 0,
-    utilizationPct: 88,
-    utilizationTrendPct: 0,
   },
 };
 

@@ -108,10 +108,20 @@ export interface LiveKpis {
   idleMachines: number;
   breakdownMachines: number;
   activeOrders: number;
-  currentProductionMt: number;
+  /** Sum of PPC weight for orders in the current shift queue (not completed output). */
+  queuedProductionMt: number;
   currentStoppages: number;
-  utilizationPct: number;
+  /** Share of scoped machines currently in RUNNING state (machine count, not runtime). */
+  machinesRunningPct: number;
   shiftPerformancePct: number;
+}
+
+/** Runtime utilization from machine state events: running minutes ÷ window minutes. */
+export interface MachineRuntimeUtilizationRow {
+  machineCode: string;
+  machineName: string;
+  runtimeUtilizationPct: number;
+  windowHours: number;
 }
 
 export interface LiveOrderRow {
@@ -201,10 +211,14 @@ export interface MachineHeadDashboardData {
     shiftCode: string;
     planDate: string;
     targetMt: number;
+    /** Completed production MT for the shift (actual weights from rolling/skin pass). */
     actualMt: number;
+    /** PPC weight MT still in the shift queue (not completed output). */
+    queuedMt: number;
     orderCount: number;
+    completedOrderCount: number;
   };
-  utilization: { machineCode: string; machineName: string; utilizationPct: number }[];
+  runtimeUtilization: MachineRuntimeUtilizationRow[];
   stoppages: MachineHeadStoppageRow[];
   operatorActivity: MachineHeadOperatorRow[];
   productionHistory: MachineHeadProductionRow[];

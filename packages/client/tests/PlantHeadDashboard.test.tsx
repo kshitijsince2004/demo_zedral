@@ -17,8 +17,6 @@ const defaultKpiStrip = {
   performanceTrendPct: 0,
   qualityPct: 98,
   qualityTrendPct: 0,
-  utilizationPct: 85,
-  utilizationTrendPct: 0,
 };
 
 const basePayload = {

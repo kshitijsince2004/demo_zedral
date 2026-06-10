@@ -237,7 +237,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
                   </div>
                   <div className="bg-secondary rounded-xl p-3 text-center">
                     <p className="text-xl font-black text-foreground">{shiftSummary.machineUtilizationPct}%</p>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Utilization</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Runtime Utilization</p>
                   </div>
                   <div className="bg-secondary rounded-xl p-3 text-center">
                     <p className="text-xl font-black text-foreground">{formatMin(shiftSummary.totalStoppageMinutes)}</p>

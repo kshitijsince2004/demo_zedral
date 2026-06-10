@@ -132,22 +132,28 @@ export function MachineHeadDashboard() {
           </Section>
 
           <Section title="Shift Summary">
-            <dl className="grid grid-cols-2 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-border">
+            <dl className="grid grid-cols-2 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-border">
               <StatCell label="Plan Date" value={dashboard.shiftSummary.planDate} mono />
               <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
               <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
-              <StatCell label="Queued MT" value={dashboard.shiftSummary.actualMt} mono />
-              <StatCell label="Orders" value={dashboard.shiftSummary.orderCount} />
+              <StatCell label="Completed MT" value={dashboard.shiftSummary.actualMt} mono />
+              <StatCell label="Queued MT" value={dashboard.shiftSummary.queuedMt} mono />
+              <StatCell label="Queue Orders" value={dashboard.shiftSummary.orderCount} />
             </dl>
           </Section>
 
-          <Section title="Machine Utilization" empty={dashboard.utilization.length === 0}>
-            {dashboard.utilization.length > 0 && (
+          <Section title="Runtime Utilization (24h)" empty={dashboard.runtimeUtilization.length === 0}>
+            {dashboard.runtimeUtilization.length > 0 && (
+              <div className="px-5 py-3 text-xs text-muted-foreground border-b border-border/50 bg-muted/20">
+                Running minutes ÷ 24h window from machine state events
+              </div>
+            )}
+            {dashboard.runtimeUtilization.length > 0 && (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
-                {dashboard.utilization.map((u) => (
+                {dashboard.runtimeUtilization.map((u) => (
                   <div key={u.machineCode} className="rounded-xl border border-border bg-secondary/30 p-4 text-sm">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{u.machineName}</p>
-                    <p className="text-2xl font-mono font-bold text-primary mt-2">{u.utilizationPct}%</p>
+                    <p className="text-2xl font-mono font-bold text-primary mt-2">{u.runtimeUtilizationPct}%</p>
                   </div>
                 ))}
               </div>

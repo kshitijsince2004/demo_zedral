@@ -379,7 +379,7 @@ export function CrmOutgoingHandoverPage() {
                   </div>
                   <div className="bg-emerald-50 rounded-xl p-3 text-center border border-emerald-100">
                     <p className="text-xl font-black text-emerald-700">{prod.machineUtilizationPct}%</p>
-                    <p className="text-[10px] font-bold uppercase text-emerald-500">Utilization</p>
+                    <p className="text-[10px] font-bold uppercase text-emerald-500">Runtime Utilization</p>
                   </div>
                   <LockedField label="Total Stoppage" value={formatMin(prod.totalStoppageMinutes)} />
                   <LockedField label="Total Breakdown" value={formatMin(prod.totalBreakdownMinutes)} />

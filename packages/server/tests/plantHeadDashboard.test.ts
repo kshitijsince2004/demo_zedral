@@ -76,8 +76,6 @@ function buildPayloadFromShifts(
       performanceTrendPct: 0,
       qualityPct: round1(Math.random() * 100),
       qualityTrendPct: 0,
-      utilizationPct: plantWideOee,
-      utilizationTrendPct: 0,
     },
   };
 }
@@ -119,8 +117,6 @@ describe('Plant Head dashboard payload validators', () => {
                 performanceTrendPct: 0,
                 qualityPct: 0,
                 qualityTrendPct: 0,
-                utilizationPct: 0,
-                utilizationTrendPct: 0,
               },
             };
             expect(validateDashboardPercentBounds(payload)).toBe(true);

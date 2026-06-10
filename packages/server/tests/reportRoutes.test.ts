@@ -74,8 +74,6 @@ describe('reportRoutes', () => {
         performanceTrendPct: 0,
         qualityPct: 0,
         qualityTrendPct: 0,
-        utilizationPct: 0,
-        utilizationTrendPct: 0,
       },
     });
 
@@ -107,8 +105,6 @@ describe('reportRoutes', () => {
         performanceTrendPct: 0,
         qualityPct: 0,
         qualityTrendPct: 0,
-        utilizationPct: 0,
-        utilizationTrendPct: 0,
       },
     });
 

@@ -37,7 +37,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
         <div className="px-5 py-4 border-b border-border/50">
-          <h2 className="font-semibold text-foreground">Machine Utilization</h2>
+          <h2 className="font-semibold text-foreground">Machine Status</h2>
           <p className="text-xs text-muted-foreground mt-1">
             {hasLiveMachines ? 'Live machine status from /live/snapshot' : 'Live machine feed unavailable'}
           </p>

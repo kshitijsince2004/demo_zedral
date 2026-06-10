@@ -133,7 +133,8 @@ export class ShiftAttributionService {
     const totalRuntime = rows.reduce((s, r) => s + Number(r.runtime_minutes), 0);
     const totalStoppage = rows.reduce((s, r) => s + Number(r.stoppage_minutes), 0);
     const totalBreakdown = rows.reduce((s, r) => s + Number(r.breakdown_minutes), 0);
-    const utilizationPct =
+    // Runtime utilization: productive runtime ÷ (runtime + stoppage)
+    const machineUtilizationPct =
       totalRuntime + totalStoppage > 0
         ? Math.round((totalRuntime / (totalRuntime + totalStoppage)) * 1000) / 10
         : 0;
@@ -150,7 +151,7 @@ export class ShiftAttributionService {
       totalRuntimeMinutes: totalRuntime,
       totalStoppageMinutes: totalStoppage,
       totalBreakdownMinutes: totalBreakdown,
-      machineUtilizationPct: utilizationPct,
+      machineUtilizationPct,
       shiftCapacityMinutes: SHIFT_DURATION_MIN,
       ordersInProgress: inProgress.map((o) => ({
         batchNumber: o.batch_number,
