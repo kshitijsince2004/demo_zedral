@@ -6,7 +6,7 @@ import {
   normalizeMillTab,
   type MillProcessTab,
 } from '../../lib/millConfig';
-import { Search } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiPillTabs } from '../../components/sixHi/SixHiPillTabs';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
@@ -334,6 +334,16 @@ export function SixHiHub() {
                 {isTransferMode ? 'Cancel Transfer' : 'Bulk Transfer'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                useSixHiStore.getState().requestQueueRefresh();
+              }}
+              title="Refresh Queue"
+              className="min-h-9 px-3 rounded-md border border-border bg-white text-muted-foreground hover:bg-secondary flex items-center justify-center transition-colors"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            </button>
             <SixHiPillTabs tabs={tabs} activeId={activeTab} onChange={setTab} />
           </div>
         }

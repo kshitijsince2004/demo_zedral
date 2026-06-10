@@ -13,17 +13,68 @@ import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQuali
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
+import { Activity, AlertTriangle, CalendarDays, Factory, RefreshCw } from 'lucide-react';
+
+function useLiveClock() {
+  const [time, setTime] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return time;
+}
+
+function ShopfloorSummaryBar({
+  data,
+  liveMachines,
+  liveOrders,
+}: {
+  data: ExtendedPlantHeadDashboardData;
+  liveMachines: any[];
+  liveOrders: LiveOrderRow[];
+}) {
+  const running = liveMachines.filter(m => m.status === 'RUNNING').length;
+  const breakdown = liveMachines.filter(m => m.status === 'BREAKDOWN').length;
+  const stoppage = liveMachines.filter(m => m.status === 'STOPPAGE').length;
+  const activeOrders = liveOrders.filter(o => o.status === 'IN_PROGRESS').length;
+  const criticalAlerts = data.criticalAlerts?.length ?? 0;
+
+  const items = [
+    { label: 'Running', value: running, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+    { label: 'Breakdown', value: breakdown, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+    { label: 'Stoppage', value: stoppage, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+    { label: 'Active Orders', value: activeOrders, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
+    { label: 'Alerts', value: criticalAlerts, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' },
+  ];
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      {items.map(item => (
+        <div
+          key={item.label}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold ${item.bg} ${item.border} ${item.color}`}
+        >
+          <span className="text-base font-bold leading-none">{item.value}</span>
+          <span className="text-[10px] font-medium opacity-80 uppercase tracking-wide">{item.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
   const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
   const { snapshot } = useLiveSnapshot();
+  const clock = useLiveClock();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     try {
       const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
@@ -32,12 +83,13 @@ export function PlantHeadDashboard() {
       setError(err?.message ?? 'Unable to load dashboard data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [windowDays]);
 
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 30000);
+    load(false);
+    const interval = setInterval(() => load(true), 30000);
     return () => clearInterval(interval);
   }, [load]);
 
@@ -45,48 +97,91 @@ export function PlantHeadDashboard() {
     let active = true;
     liveService
       .getOrders()
-      .then((res) => {
-        if (active) setLiveOrders(res.orders);
-      })
-      .catch(() => {
-        if (active) setLiveOrders([]);
-      });
-    return () => {
-      active = false;
-    };
+      .then((res) => { if (active) setLiveOrders(res.orders); })
+      .catch(() => { if (active) setLiveOrders([]); });
+    return () => { active = false; };
   }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
   const liveMachines = snapshot?.machines ?? [];
 
-  if (loading && !data) return <div className="p-6 text-muted-foreground">Loading Command Center...</div>;
-  if (error) {
+  if (loading && !data) {
     return (
-      <div className="flex flex-col gap-6 w-full p-6">
-        <div className="p-6 text-destructive bg-destructive/10 rounded-xl">{error}</div>
+      <div className="flex items-center justify-center min-h-[320px]">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Factory className="w-10 h-10 animate-pulse opacity-40" />
+          <span className="text-sm font-medium">Loading Command Center…</span>
+        </div>
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-6 w-full p-6">
+        <div className="flex items-start gap-3 p-5 text-red-700 bg-red-50 border border-red-200 rounded-xl">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold text-sm mb-1">Failed to load dashboard</div>
+            <div className="text-sm">{error}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return null;
+
+  const today = clock.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const timeStr = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
     <div className="flex flex-col w-full h-full pb-20 max-w-screen-2xl mx-auto">
-      
-      <div className="flex items-center justify-between mb-6 mt-2 px-1">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Plant Head Dashboard</h1>
-          <p className="text-sm font-medium text-muted-foreground mt-1">Enterprise Operations Overview</p>
-        </div>
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5 mt-2 px-1">
         <div className="flex items-center gap-3">
-          {snapshot?.refreshedAt && (
-            <span className="text-xs text-muted-foreground hidden sm:inline">
-              Live status · {new Date(snapshot.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
+          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shrink-0">
+            <Factory className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground leading-tight">
+              Plant Command Center
+            </h1>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <CalendarDays className="w-3 h-3" />
+                {today}
+              </span>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="text-xs font-mono font-semibold text-blue-600">{timeStr}</span>
+              {snapshot?.refreshedAt && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live · {new Date(snapshot.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => load(false)}
+            disabled={loading || refreshing}
+            className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-white text-sm text-muted-foreground hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-blue-500' : ''}`} />
+            Refresh
+          </button>
           <select
             value={windowDays}
             onChange={(e) => setWindowDays(Number(e.target.value) as 1 | 7 | 30 | 90)}
-            className="h-10 rounded-lg border border-input bg-background px-4 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            className="h-9 rounded-lg border border-input bg-white px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           >
             <option value={1}>Last 24 Hours</option>
             <option value={7}>Last 7 Days</option>
@@ -96,36 +191,50 @@ export function PlantHeadDashboard() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-6 min-h-0">
-        
+      {/* Shopfloor summary bar (only when live data available) */}
+      {liveMachines.length > 0 && (
+        <div className="mb-4 px-1">
+          <ShopfloorSummaryBar data={data} liveMachines={liveMachines} liveOrders={liveOrders} />
+        </div>
+      )}
+
+      <div className="flex flex-col gap-5 min-h-0">
+
+        {/* KPI Strip */}
         <section>
           <PlantKpiStrip data={data} liveKpis={liveKpis} />
         </section>
 
+        {/* Live Machine Status Board */}
         {liveMachines.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2 ml-1">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 px-1">
+              <Activity className="w-3.5 h-3.5 text-emerald-500" />
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Live Machine Status
+                Live Shopfloor Status
               </h2>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             </div>
             <MachineStatusBoard machines={liveMachines} />
           </section>
         )}
 
+        {/* Production + Insights */}
         <section>
           <PlantMainOpsArea data={data} />
         </section>
 
+        {/* Quality + Downtime */}
         <section>
           <PlantQualityDowntimeArea data={data} />
         </section>
 
+        {/* Machine Utilization + Orders */}
         <section>
           <PlantOperationsArea data={data} liveMachines={liveMachines} liveOrders={liveOrders} />
         </section>
 
+        {/* Ops Feed */}
         <section>
           <PlantOpsFeed data={data} />
         </section>

@@ -22,6 +22,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   } = useSixHiStore();
 
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (workspaceOpen && workspaceBatch) {
@@ -36,10 +37,14 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   const handleSaveRolling = async (data: SixHiRollingData) => {
     setSaveError(null);
+    setSaveSuccess(false);
     try {
       await runOrderAction(workspaceBatch, () =>
         apiClient.patch(`/6hi/orders/${encodeURIComponent(workspaceBatch)}/rolling`, data),
       );
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      useSixHiStore.getState().requestQueueRefresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save production data. Please try again.');
     }
@@ -47,10 +52,14 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   const handleSaveSkinPass = async (data: SixHiSkinPassData) => {
     setSaveError(null);
+    setSaveSuccess(false);
     try {
       await runOrderAction(workspaceBatch, () =>
         apiClient.patch(`/6hi/orders/${encodeURIComponent(workspaceBatch)}/skinpass`, data),
       );
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      useSixHiStore.getState().requestQueueRefresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save production data. Please try again.');
     }
@@ -94,6 +103,12 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span className="flex-1">{saveError}</span>
               <button type="button" className="underline text-xs" onClick={() => setSaveError(null)}>Dismiss</button>
+            </div>
+          )}
+
+          {saveSuccess && (
+            <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-green-500/10 border-b border-green-500/20 text-green-700 text-sm">
+              <span className="flex-1 font-semibold">Production data saved successfully.</span>
             </div>
           )}
 
