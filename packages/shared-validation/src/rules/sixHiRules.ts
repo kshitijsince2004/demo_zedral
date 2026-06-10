@@ -97,11 +97,24 @@ export const SixHiOrderStoppageSchema = z.object({
 
 
 
-export const SixHiRemarkSchema = z.object({
-
-  text: z.string().min(1).max(500),
-
+export const SixHiRemarkDefectSchema = z.object({
+  defectCode: z.string().min(1),
+  quantityAffected: z.number().min(0).optional(),
+  remarks: z.string().max(500).optional(),
 });
+
+export const SixHiRemarkSchema = z.object({
+  text: z.string().min(1).max(500),
+  defects: z.array(SixHiRemarkDefectSchema).optional(),
+});
+
+export const SixHiRejectionReasonSchema = z.enum([
+  'QUALITY_ISSUE',
+  'DEFECT_FOUND',
+  'MATERIAL_ISSUE',
+  'CUSTOMER_REQUIREMENT_FAILURE',
+  'OTHER',
+]);
 
 
 

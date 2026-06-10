@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { UserRole } from '@m1/shared-validation';
 import { useShiftStore } from '../store/shiftStore';
 import { useSixHiStore } from '../store/sixHiStore';
-import { getEffectiveMachineAccess } from './machineRouting';
+import { filterCrmMachines, getEffectiveMachineAccess, preferCrmMachine } from './machineRouting';
 import { isCrmMillCode } from './millConfig';
 
 function resetSessionStores() {
@@ -76,8 +76,8 @@ function loadActiveMachine(): string | null {
 }
 
 function pickDefaultMachine(role: Role | null, machineAccess: string[]): string | null {
-  const machines = getEffectiveMachineAccess(role, machineAccess);
-  return machines[0] ?? null;
+  const crm = filterCrmMachines(getEffectiveMachineAccess(role, machineAccess));
+  return preferCrmMachine(crm) ?? crm[0] ?? null;
 }
 
 // In a real app, this would be a secure JWT parser, but we mock it here.

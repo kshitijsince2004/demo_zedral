@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
+import { formatShiftDate, formatShiftWindowTime } from '../../../lib/dateFormat';
 import { Activity, CircleStop, Moon } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
 import { useAuthStore } from '../../../lib/authStore';
@@ -12,7 +13,6 @@ import type { Tone } from '../../../lib/tones';
 
 interface StatusRailProps {
   processCode?: string;
-  onLogout: () => void;
 }
 
 export function StatusRail({ processCode }: StatusRailProps) {
@@ -43,6 +43,16 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const activeStatus = panelOrder?.status ?? machineActive?.status;
   const processLabel = processTab === 'skinpass' ? 'Skin Pass' : 'Rolling';
 
+  const crmStoppageActive = isCrmMill && !!panelOrder?.activeStoppage;
+  const crmRunning = isCrmMill
+    ? activeStatus === 'IN_PROGRESS' && !crmStoppageActive
+    : !runningStoppage;
+
+  const displayDate = formatShiftDate(shiftDate);
+  const windowLabel = detectedShift
+    ? `${formatShiftWindowTime(detectedShift.windowStart)}–${formatShiftWindowTime(detectedShift.windowEnd)}`
+    : null;
+
   useEffect(() => {
     const tick = () => {
       setClock(
@@ -63,7 +73,7 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const handoverPath = isCrmMill ? `${basePath}/handover` : '/handover';
 
   return (
-    <header className="shrink-0 border-b border-border bg-background sticky top-0 z-30 shadow-sm">
+    <header className="shrink-0 border-b border-border bg-background z-30 shadow-sm">
       <div className="flex items-stretch min-h-[52px]">
         <div className="flex items-center gap-3 px-4 border-r border-border min-w-[140px]">
           <span className="font-mono text-lg font-semibold tracking-tight text-primary">{line}</span>
@@ -74,8 +84,8 @@ export function StatusRail({ processCode }: StatusRailProps) {
               {detectedShift?.source === 'OVERRIDE' ? ' *' : ''}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {shiftDate} · {shiftCode}
-              {detectedShift ? ` · ${detectedShift.windowStart}–${detectedShift.windowEnd}` : ''}
+              {displayDate} · {shiftCode}
+              {windowLabel ? ` · ${windowLabel}` : ''}
             </span>
             {isCrmMill && (
               <span className="text-[10px] text-muted-foreground mt-0.5">
@@ -89,11 +99,13 @@ export function StatusRail({ processCode }: StatusRailProps) {
         {isCrmMill && (
           <div className="hidden md:flex flex-col gap-0.5 px-4 border-r border-border min-w-[120px]">
             <span className="z-rail-label">Active Order</span>
-            <span className="font-mono text-xs text-foreground truncate max-w-[140px]">
+            <span className="font-mono text-xs text-foreground truncate max-w-[180px]">
               {activeBatch ?? '—'}
             </span>
             {activeStatus && (
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{activeStatus.replace('_', ' ')}</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {activeStatus.replace(/_/g, ' ')}
+              </span>
             )}
           </div>
         )}
@@ -134,10 +146,12 @@ export function StatusRail({ processCode }: StatusRailProps) {
         {isCrmMill && <div className="flex-1 min-w-0" />}
 
         <div className="flex items-center gap-3 px-4">
-          {runningStoppage ? (
+          {crmStoppageActive || runningStoppage ? (
             <ZBadge tone="destructive" label="STOPPED" dot />
-          ) : (
+          ) : crmRunning || !isCrmMill ? (
             <ZBadge tone="success" label="Running" dot />
+          ) : (
+            <ZBadge tone="muted" label="Idle" dot />
           )}
           <div className="hidden sm:flex items-center gap-1.5 text-muted-foreground">
             <Activity className="h-3.5 w-3.5 text-info" aria-hidden />
@@ -158,11 +172,15 @@ export function StatusRail({ processCode }: StatusRailProps) {
         </div>
       </div>
 
-      {runningStoppage && (
+      {(crmStoppageActive || runningStoppage) && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-destructive/30 bg-destructive/10 text-destructive text-sm">
           <CircleStop className="h-4 w-4 shrink-0" aria-hidden />
           <span className="truncate">
-            {runningStoppage.reason} — since {runningStoppage.fromTime}
+            {crmStoppageActive && panelOrder?.activeStoppage
+              ? `${panelOrder.activeStoppage.categoryLabel} — since ${new Date(panelOrder.activeStoppage.startAt).toLocaleTimeString()}`
+              : runningStoppage
+                ? `${runningStoppage.reason} — since ${runningStoppage.fromTime}`
+                : 'Stoppage active'}
           </span>
         </div>
       )}

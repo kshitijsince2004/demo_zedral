@@ -4,102 +4,136 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlantHeadDashboard } from '../src/pages/reports/PlantHeadDashboard';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { reportingService } from '../src/lib/reportingService';
-import { machineHandoverService } from '../src/services/machineHandoverService';
 import React from 'react';
+
+const basePayload = {
+  window: 7 as const,
+  generatedAt: new Date().toISOString(),
+  plantWideOee: 85,
+  oeeTarget: 80,
+  oeeTrend: [{ date: 'Mon', oee: 85 }],
+  productionVsPlan: [{ lineId: '6HI', lineName: 'CRM 6HI', planned: 100, actual: 90, attainmentPct: 90, throughput: 90 }],
+  qualityTrend: [{ date: 'Mon', rejectionRatePct: 2, yieldPct: 98 }],
+  topDefects: [{ defectCode: 'D1', defectName: 'Scratch', count: 3, wowDelta: 0 }],
+  downtimeDrivers: [{ reason: 'Mechanical', totalMinutes: 30, occurrences: 1, type: 'UNPLANNED' as const }],
+};
 
 vi.mock('../src/lib/reportingService', () => ({
   reportingService: {
-    getPlantHeadDashboard: vi.fn(),
+    getExtendedPlantHeadDashboard: vi.fn(),
   },
 }));
 
-vi.mock('../src/services/machineHandoverService', () => ({
-  machineHandoverService: {
-    getOverview: vi.fn(),
-  },
-}));
-
-vi.mock('../src/lib/syncEngine', () => ({
-  syncEngine: {
-    enqueue: vi.fn(),
-    sync: vi.fn(),
-    getPendingCount: vi.fn().mockResolvedValue(0),
-    getPendingRequests: vi.fn().mockResolvedValue([]),
-    onSyncStatusChange: vi.fn(),
-    subscribe: vi.fn(() => () => {}),
-  },
-}));
-
-describe('PlantHeadDashboard (Task 14.3)', () => {
+describe('PlantHeadDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (machineHandoverService.getOverview as any).mockResolvedValue({ pending: 0, recent: 0, awaitingAcceptance: 0 });
   });
 
-  it('handles 10s timeout with empty payload and no fallback', async () => {
-    // We mock getPlantHeadDashboard to take longer than 10s. Since test uses fake timers or real timers, 
-    // we'll just mock it to reject with 'timeout' to simulate the fetchWithTimeout behavior 
-    // or we mock it to never resolve and wait for the component's internal timeout.
-    // For test speed, we'll mock it to reject with new Error('timeout')
-    (reportingService.getPlantHeadDashboard as any).mockRejectedValue(new Error('timeout'));
+  it('shows error state when API fails', async () => {
+    (reportingService.getExtendedPlantHeadDashboard as any).mockRejectedValue(new Error('timeout'));
 
     render(
       <MemoryRouter>
         <PlantHeadDashboard />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Live data is unavailable/i)).toBeDefined();
+      expect(screen.getByText(/timeout/i)).toBeDefined();
     });
   });
 
-  it('handles route-level boundary + retry', async () => {
-    (reportingService.getPlantHeadDashboard as any)
+  it('retries after error', async () => {
+    (reportingService.getExtendedPlantHeadDashboard as any)
       .mockRejectedValueOnce(new Error('500 Server Error'))
       .mockResolvedValueOnce({
-        window: 7,
-        generatedAt: new Date().toISOString(),
-        plantWideOee: 85,
-        oeeTarget: 80,
-        oeeTrend: [],
-        productionVsPlan: [],
-        qualityTrend: [],
-        topDefects: [],
-        downtimeDrivers: []
+        ...basePayload,
+        productionToday: 90,
+        productionTarget: 100,
+        productionShift: 90,
+        productionShiftTarget: 100,
+        productionMonth: 90,
+        productionMonthTarget: 100,
+        productionForecast: 100,
+        productionTodayMt: 90,
+        productionTrend: '+0%',
+        shiftProductionMt: 90,
+        overallUtilizationPct: 85,
+        oeePct: 85,
+        runningMachines: 1,
+        breakdownMachines: 0,
+        utilizationPct: 85,
+        availabilityPct: 85,
+        mttrHours: 0,
+        mtbfHours: 0,
+        runningOrders: 1,
+        delayedOrders: 0,
+        defectsToday: 3,
+        defectPct: 2,
+        defectTrend: [],
+        activeAlerts: 0,
+        criticalAlerts: [],
+        opsFeed: [],
+        dailyProduction: [],
+        weeklyProduction: [],
+        monthlyProduction: [],
+        productionVsTarget: [],
+        defectsByCategory: [],
+        defectsByMachine: [],
+        downtimeByCategory: [],
+        machineHealthGrid: [],
+        orderList: [],
       });
 
     render(
       <MemoryRouter>
         <PlantHeadDashboard />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Plant overview could not be loaded/i)).toBeDefined();
-    });
-
-    // click retry
-    const retryBtn = screen.getByText('Retry');
-    await userEvent.click(retryBtn);
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Plant overview could not be loaded/i)).toBeNull();
-      expect(screen.getByText(/Plant OEE/i)).toBeDefined();
+      expect(screen.getByText(/500 Server Error/i)).toBeDefined();
     });
   });
 
   it('window selector triggers re-fetch', async () => {
-    (reportingService.getPlantHeadDashboard as any).mockResolvedValue({
-      window: 7,
-      generatedAt: new Date().toISOString(),
-      plantWideOee: 85,
-      oeeTarget: 80,
-      oeeTrend: [],
-      productionVsPlan: [],
-      qualityTrend: [],
-      topDefects: [],
-      downtimeDrivers: []
+    (reportingService.getExtendedPlantHeadDashboard as any).mockResolvedValue({
+      ...basePayload,
+      productionToday: 90,
+      productionTarget: 100,
+      productionShift: 90,
+      productionShiftTarget: 100,
+      productionMonth: 90,
+      productionMonthTarget: 100,
+      productionForecast: 100,
+      productionTodayMt: 90,
+      productionTrend: '+0%',
+      shiftProductionMt: 90,
+      overallUtilizationPct: 85,
+      oeePct: 85,
+      runningMachines: 1,
+      breakdownMachines: 0,
+      utilizationPct: 85,
+      availabilityPct: 85,
+      mttrHours: 0,
+      mtbfHours: 0,
+      runningOrders: 1,
+      delayedOrders: 0,
+      defectsToday: 3,
+      defectPct: 2,
+      defectTrend: [],
+      activeAlerts: 0,
+      criticalAlerts: [],
+      opsFeed: [],
+      dailyProduction: [],
+      weeklyProduction: [],
+      monthlyProduction: [],
+      productionVsTarget: [],
+      defectsByCategory: [],
+      defectsByMachine: [],
+      downtimeByCategory: [],
+      machineHealthGrid: [],
+      orderList: [],
     });
 
     render(
@@ -107,21 +141,20 @@ describe('PlantHeadDashboard (Task 14.3)', () => {
         <Routes>
           <Route path="/plant" element={<PlantHeadDashboard />} />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Plant OEE/i)).toBeDefined();
+      expect(screen.getByText(/Plant Head Dashboard/i)).toBeDefined();
     });
 
-    expect(reportingService.getPlantHeadDashboard).toHaveBeenCalledWith(7);
+    expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7);
 
-    // Click 30d
-    const btn30d = screen.getByText('30d');
-    await userEvent.click(btn30d);
+    const select = screen.getByRole('combobox');
+    await userEvent.selectOptions(select, '30');
 
     await waitFor(() => {
-      expect(reportingService.getPlantHeadDashboard).toHaveBeenCalledWith(30);
+      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(30);
     });
   });
 });

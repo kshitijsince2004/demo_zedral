@@ -822,6 +822,24 @@ export class SixHiService {
 
   static async addStoppage(batchNumber: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    const orderRow = await db.selectFrom('txn.crm6_order')
+      .select(['status'])
+      .where('order_id', '=', orderId)
+      .executeTakeFirstOrThrow();
+
+    if (orderRow.status !== 'IN_PROGRESS' && orderRow.status !== 'STOPPAGE') {
+      throw new Error('Stoppage can only be recorded while production is running');
+    }
+
+    const openCount = await db.selectFrom('txn.order_stoppage')
+      .select(db.fn.count('stoppage_id').as('c'))
+      .where('order_id', '=', orderId)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+    if (Number(openCount?.c ?? 0) > 0) {
+      throw new Error('A stoppage is already active on this order');
+    }
+
     await db.insertInto('txn.order_stoppage')
       .values({
         order_id: orderId,
@@ -906,12 +924,59 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
-  static async addRemark(batchNumber: string, text: string, userId: number) {
+  static async addRemark(
+    batchNumber: string,
+    text: string,
+    userId: number,
+    defects?: { defectCode: string; quantityAffected?: number; remarks?: string }[],
+  ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await db.insertInto('txn.order_remark')
-      .values({ order_id: orderId, text, operator_id: userId })
+      .values({
+        order_id: orderId,
+        text,
+        operator_id: userId,
+        defect_codes: defects?.length ? JSON.stringify(defects) : null,
+      })
       .execute();
     return this.getOrder(batchNumber, userId);
+  }
+
+  static async getShiftStoppages(shiftLogId: string, machineCode?: string) {
+    let query = db.selectFrom('txn.order_stoppage as os')
+      .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
+      .select([
+        'os.stoppage_id',
+        'os.category_code',
+        'sc.label',
+        'os.breakdown_code',
+        'os.start_at',
+        'os.end_at',
+        'os.duration_min',
+        'os.remarks',
+        'o.batch_number',
+      ])
+      .where('o.shift_log_id', '=', shiftLogId)
+      .orderBy('os.start_at', 'desc');
+
+    if (machineCode) {
+      query = query.where('pb.machine_code', '=', machineCode);
+    }
+
+    const rows = await query.execute();
+    return rows.map((s) => ({
+      id: String(s.stoppage_id),
+      batchNumber: s.batch_number,
+      categoryCode: s.category_code,
+      categoryLabel: s.label,
+      breakdownCode: s.breakdown_code ?? undefined,
+      startAt: s.start_at.toISOString(),
+      endAt: s.end_at?.toISOString(),
+      durationMin: s.duration_min ?? undefined,
+      remarks: s.remarks ?? undefined,
+    }));
   }
 
   static async getStoppageCategories() {
@@ -989,10 +1054,12 @@ export class SixHiService {
   static async getDefectCodes() {
     const codes = await db.selectFrom('master.defect_code')
       .selectAll()
-      .orderBy('applies_to', 'asc')
+      .where('is_active', 'is not', false)
       .orderBy('defect_code', 'asc')
       .execute();
-    return codes.map(c => ({
+    const crm6 = codes.filter((c) => !c.applies_to || c.applies_to.includes('CRM6') || c.applies_to.includes('CRM'));
+    const source = crm6.length > 0 ? crm6 : codes;
+    return source.map(c => ({
       defectCode: c.defect_code,
       defectName: c.description,
       category: c.applies_to,
@@ -1023,15 +1090,30 @@ export class SixHiService {
     return this.getDefectCodes();
   }
 
-  static async rejectOrder(batchNumber: string, defectCodes: string[], remarks: string | undefined, userId: number) {
+  static async rejectOrder(
+    batchNumber: string,
+    rejectionReason: string,
+    defectCodes: string[],
+    remarks: string,
+    userId: number,
+  ) {
+    const trimmedRemarks = remarks?.trim();
+    if (!rejectionReason?.trim()) {
+      throw new Error('Rejection reason is required');
+    }
+    if (!trimmedRemarks) {
+      throw new Error('Rejection remarks are required');
+    }
+
     const orderId = await this.ensureOrder(batchNumber, userId);
-    
-    // Create rejection record
+    const reasonLabel = rejectionReason.trim().slice(0, 100);
+
     await db.insertInto('txn.order_rejection')
       .values({
         order_id: orderId,
-        defect_codes: JSON.stringify(defectCodes),
-        remarks: remarks ?? null,
+        rejection_reason: reasonLabel,
+        defect_codes: defectCodes.length ? JSON.stringify(defectCodes) : null,
+        remarks: trimmedRemarks,
         operator_id: userId,
       })
       .execute();
@@ -1073,7 +1155,7 @@ export class SixHiService {
         orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code
       }))
       .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'ORDER_REJECTED', {
-        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, reason: remarks ?? 'Rejected'
+        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, reason: trimmedRemarks
       }))
       .then(async () => {
         for (const defectCode of defectCodes) {

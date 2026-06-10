@@ -8,7 +8,6 @@ interface SixHiGlobalProductionPanelProps {
   busy?: boolean;
   onStart: () => void;
   onEnd: () => void;
-  onStoppage: () => void;
   onRemark: () => void;
   onReject: () => void;
   onViewOrder: () => void;
@@ -24,7 +23,6 @@ export function SixHiGlobalProductionPanel({
   busy,
   onStart,
   onEnd,
-  onStoppage,
   onRemark,
   onReject,
   embedded,
@@ -37,7 +35,6 @@ export function SixHiGlobalProductionPanel({
       busy={busy}
       onStart={onStart}
       onEnd={onEnd}
-      onStoppage={onStoppage}
       onRemark={onRemark}
       onReject={onReject}
     />

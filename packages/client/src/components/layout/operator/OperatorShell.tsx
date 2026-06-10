@@ -6,29 +6,30 @@ import { OfflineBanner } from '../../ui/OfflineBanner';
 import { OperatorNavRail } from './OperatorNavRail';
 import { StatusRail } from './StatusRail';
 import { LogoutConfirmModal } from '../../ui/LogoutConfirmModal';
+import { useSixHiStore } from '../../../store/sixHiStore';
 
 interface OperatorShellProps {
   processCode?: string;
   children: React.ReactNode;
+  /** When true, skip the status header (e.g. nested inside SixHiLayout). */
+  bare?: boolean;
 }
 
-export function OperatorShell({ processCode = 'HRS', children }: OperatorShellProps) {
-  const { activeRole, logout } = useAuthStore();
+export function OperatorShell({ processCode = 'HRS', children, bare = false }: OperatorShellProps) {
+  const logout = useAuthStore((s) => s.logout);
   const [logoutOpen, setLogoutOpen] = React.useState(false);
-
-  const handleLogout = () => {
-    setLogoutOpen(true);
-  };
   const location = useLocation();
   const isCrmMill = isCrmMillPath(location.pathname);
+  const workspaceOpen = useSixHiStore((s) => s.workspaceOpen);
 
   const navOffset = isCrmMill ? 'ml-16' : 'ml-14';
+  const showStatusRail = !bare && !(isCrmMill && workspaceOpen);
 
   return (
-    <div className="theme-operator min-h-screen bg-background text-foreground">
-      <OperatorNavRail processCode={processCode} onLogout={handleLogout} />
-      <div className={`flex flex-col min-w-0 min-h-screen ${navOffset}`}>
-        <StatusRail processCode={processCode} onLogout={handleLogout} />
+    <div className="theme-operator h-screen overflow-hidden bg-background text-foreground">
+      <OperatorNavRail processCode={processCode} onLogout={() => setLogoutOpen(true)} />
+      <div className={`flex flex-col min-w-0 h-full overflow-hidden ${navOffset}`}>
+        {showStatusRail && <StatusRail processCode={processCode} />}
         <OfflineBanner />
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</main>
       </div>

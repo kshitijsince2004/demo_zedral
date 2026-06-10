@@ -145,7 +145,7 @@ router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE')
 router.get('/master/stoppage-categories', requireSixHi('READ'), async (_req, res) => {
   try {
     const data = await SixHiService.getStoppageCategories();
-    res.json(data);
+    res.json(data.categories);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load categories' });
   }
@@ -422,11 +422,21 @@ router.patch('/orders/:batchNo/stoppages/:stoppageId/end', requireSixHi('WRITE')
 
 router.post('/orders/:batchNo/reject', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const { defectCodes, remarks } = req.body;
-    if (!Array.isArray(defectCodes)) {
-      return res.status(400).json({ error: 'defectCodes must be an array of strings' });
+    const { defectCodes, remarks, rejectionReason } = req.body;
+    if (!rejectionReason || typeof rejectionReason !== 'string') {
+      return res.status(400).json({ error: 'rejectionReason is required' });
     }
-    const order = await SixHiService.rejectOrder(req.params.batchNo, defectCodes, remarks, req.user!.id);
+    if (!remarks || typeof remarks !== 'string' || !remarks.trim()) {
+      return res.status(400).json({ error: 'remarks are required' });
+    }
+    const codes = Array.isArray(defectCodes) ? defectCodes.filter((c): c is string => typeof c === 'string') : [];
+    const order = await SixHiService.rejectOrder(
+      req.params.batchNo,
+      rejectionReason,
+      codes,
+      remarks,
+      req.user!.id,
+    );
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Order rejection failed' });
@@ -437,7 +447,12 @@ router.post('/orders/:batchNo/remarks', requireSixHi('WRITE'), async (req, res) 
   const parsed = SixHiRemarkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.addRemark(req.params.batchNo, parsed.data.text, req.user!.id);
+    const order = await SixHiService.addRemark(
+      req.params.batchNo,
+      parsed.data.text,
+      req.user!.id,
+      parsed.data.defects,
+    );
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Remark failed' });
@@ -468,6 +483,16 @@ router.get('/shift-summary/:shiftLogId', requireSixHi('READ'), async (req, res) 
     res.json(summary);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Summary failed' });
+  }
+});
+
+router.get('/shift/:shiftLogId/stoppages', requireSixHi('READ'), async (req, res) => {
+  try {
+    const machine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
+    const stoppages = await SixHiService.getShiftStoppages(req.params.shiftLogId, machine);
+    res.json(stoppages);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load shift stoppages' });
   }
 });
 

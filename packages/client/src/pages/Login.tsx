@@ -21,8 +21,8 @@ function decodeToken(accessToken: string) {
 export function Login() {
   const { login } = useAuthStore();
   const navigate = useNavigate();
-  const [badgeId, setBadgeId] = useState(DEV_OPERATOR_BADGE);
-  const [pin, setPin] = useState(DEV_OPERATOR_PIN);
+  const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
+  const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
   const [error, setError] = useState('');
   const [clock, setClock] = useState('');
 

@@ -176,7 +176,9 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     res.json({
       shiftLogId: String(activeLog.shift_log_id),
-      shiftDate: activeLog.prod_date,
+      shiftDate: activeLog.prod_date instanceof Date
+        ? activeLog.prod_date.toISOString().slice(0, 10)
+        : String(activeLog.prod_date).slice(0, 10),
       shiftCode: activeLog.shift_code,
       targetMt: Number(activeLog.target_mt || 0),
       producedMt: totalProducedMt,

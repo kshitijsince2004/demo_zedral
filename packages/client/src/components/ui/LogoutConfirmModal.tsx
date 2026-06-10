@@ -21,10 +21,10 @@ export function LogoutConfirmModal({ open, onClose, onConfirm }: LogoutConfirmMo
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 id="logout-title" className="font-mono text-lg font-bold">
-              Sign Out
+              Confirm Logout
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Are you sure you want to log out?
+              Are you sure you want to logout?
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-md hover:bg-secondary" aria-label="Close">

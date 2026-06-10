@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { DeviceRegistrationService } from '../services/DeviceRegistrationService';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
+import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
 router.use(require('express').json());
@@ -18,7 +19,7 @@ router.post('/register', rateLimitMiddleware(10, 60_000), async (req, res) => {
   }
 });
 
-router.get('/status/:processCode', async (req, res) => {
+router.get('/status/:processCode', requireAuth, async (req, res) => {
   try {
     const device = await DeviceRegistrationService.getDeviceByProcess(req.params.processCode);
     if (!device) {

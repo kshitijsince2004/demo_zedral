@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
+import { assertMachineAccess } from '../auth/machineAccessPolicy';
 import { MachineHandoverService } from '../services/MachineHandoverService';
 
 const router = Router();
@@ -32,6 +33,7 @@ router.get('/pending', async (req, res) => {
 router.get('/:machineCode/preview', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const preview = await MachineHandoverService.buildOutgoingPreview(
       machineCode,
       req.user!.id,
@@ -46,6 +48,7 @@ router.get('/:machineCode/preview', async (req, res) => {
 router.get('/:machineCode/pending', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const pending = await MachineHandoverService.getPendingForMachine(machineCode);
     res.json({ pending: pending ?? null });
   } catch (error: unknown) {
@@ -57,6 +60,7 @@ router.get('/:machineCode/pending', async (req, res) => {
 router.get('/:machineCode/draft', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const draft = await MachineHandoverService.getDraftForMachine(machineCode, req.user!.id);
     res.json({ draft: draft ?? null });
   } catch (error: unknown) {
@@ -68,6 +72,7 @@ router.get('/:machineCode/draft', async (req, res) => {
 router.post('/:machineCode/session', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const result = await MachineHandoverService.ensureActiveSession(machineCode, req.user!.id);
     res.json(result);
   } catch (error: unknown) {
@@ -80,6 +85,7 @@ router.post('/:machineCode/session', async (req, res) => {
 router.post('/:machineCode/draft', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const {
       machineStatus,
       machineCondition,
@@ -130,6 +136,7 @@ router.post('/:machineCode/draft', async (req, res) => {
 router.post('/:machineCode/outgoing', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
+    assertMachineAccess(req.user!, machineCode);
     const {
       machineStatus,
       machineCondition,

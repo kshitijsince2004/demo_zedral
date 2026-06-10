@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
 import { assertLineWriteAccess } from '../services/authService';
+import { assertShiftLogAccess } from '../services/shiftLogAccessService';
 import {
   HRSService, PKLService, CRMService,
   ANNService, SKPService, RWDService,
@@ -83,12 +84,23 @@ router.post('/batch', async (req, res) => {
         domainEvents.publish('ENTRY_SYNCED', { entryId, payload, processCode });
         results.push({ timestamp, status: 'SUCCESS', id: entryId });
       } else if (kind === 'stoppage') {
+        if (!payload?.shiftLogId) throw new Error('shiftLogId is required for stoppage sync');
+        await assertShiftLogAccess(req.user!, String(payload.shiftLogId), 'WRITE');
         const id = await StoppageService.create(payload, userId);
         results.push({ timestamp, status: 'SUCCESS', id });
       } else if (kind === 'defect') {
+        if (payload?.shiftLogId) {
+          await assertShiftLogAccess(req.user!, String(payload.shiftLogId), 'WRITE');
+        } else if (payload?.processId) {
+          assertLineWriteAccess(req.user!, String(payload.processId));
+        } else {
+          throw new Error('shiftLogId or processId is required for defect sync');
+        }
         const id = await DefectService.create(payload, userId);
         results.push({ timestamp, status: 'SUCCESS', id });
       } else if (kind === 'crew') {
+        if (!payload?.shiftLogId) throw new Error('shiftLogId is required for crew sync');
+        await assertShiftLogAccess(req.user!, String(payload.shiftLogId), 'WRITE');
         const id = await CrewService.create(payload);
         results.push({ timestamp, status: 'SUCCESS', id });
       } else {

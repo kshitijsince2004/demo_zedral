@@ -1,14 +1,6 @@
-/**
- * App Router
- *
- * Single canonical capture route: /shift-log/:processId
- * Path B routes (9 standalone /shift-log/<process> routes) have been removed.
- * The process-section registry resolves valid codes; invalid codes render a
- * not-found state inside ShiftLogPage.
- *
- * Requirements: 1.1, 1.3, 1.4, 1.5
- */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthStore } from './lib/authStore';
+import { getRoleHomePath } from './lib/roleHome';
 
 import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
@@ -53,6 +45,12 @@ import { MachineHeadDashboard } from './pages/live/MachineHeadDashboard';
 import { LiveDashboard } from './pages/live/LiveDashboard';
 import { PlantHeadShell } from './components/layout/PlantHeadShell';
 
+function UnknownRouteRedirect() {
+  const { role, lineAccess, machineAccess, username, token } = useAuthStore();
+  if (!token) return <Navigate to="/login" replace />;
+  return <Navigate to={getRoleHomePath(role, lineAccess, machineAccess, username)} replace />;
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -83,17 +81,6 @@ function App() {
         {/* Shift handover */}
         <Route path="/handover" element={<ProtectedRoute><HandoverPage /></ProtectedRoute>} />
 
-        {/*
-         * Canonical parameterised capture route (Requirements 1.1, 1.3, 1.4, 1.5).
-         * ShiftLogPage resolves :processId via processSectionRegistry:
-         *   - valid canonical code  → renders the process section inside the shell
-         *   - invalid / unknown code → renders a not-found state, no capture form
-         *
-         * Path B routes (/shift-log/hrs, /shift-log/pkl, /shift-log/spm, etc.)
-         * have been removed. The sidebar links already use uppercase canonical codes
-         * (/shift-log/HRS, /shift-log/PKL, …) which match this route.
-         */}
-        {/* Legacy /reports mapped directly (or removed if obsolete) */}
         <Route path="/reports/plant-head" element={<PlantRoute><Navigate to="/plant" replace /></PlantRoute>} />
         <Route path="/plant" element={<PlantRoute><PlantHeadShell /></PlantRoute>}>
           <Route index element={<PlantHeadDashboard />} />
@@ -116,7 +103,7 @@ function App() {
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
-        <Route path="/admin/users" element={<PlantRoute><UsersAdmin /></PlantRoute>} />
+        <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
         <Route path="/admin/system" element={<AdminRoute><SystemAdmin /></AdminRoute>} />
         <Route path="/admin/validation-rules" element={<AdminRoute><ValidationRulesAdmin /></AdminRoute>} />
 
@@ -132,7 +119,7 @@ function App() {
           <Route path="skinpass/order/:batchNo" element={<SixHiOrderPage />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<UnknownRouteRedirect />} />
       </Routes>
     </BrowserRouter>
   );

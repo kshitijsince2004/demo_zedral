@@ -5,6 +5,8 @@ import {
   getEffectiveMachineAccess,
   canAccessMachine,
   getMachineNavItems,
+  preferCrmMachine,
+  filterCrmMachines,
 } from '../src/lib/machineRouting';
 import { MACHINE_OPTIONS } from '../src/lib/accessOptions';
 
@@ -19,19 +21,20 @@ describe('machineRouting', () => {
     expect(pathForMachine('4HI')).toBe('/4hi');
   });
 
-  it('routes built shift lines to shift-log capture', () => {
-    expect(pathForMachine('HRS')).toBe('/shift-log/HRS');
-    expect(pathForMachine('PKL')).toBe('/shift-log/PKL');
+  it('routes non-CRM lines to coming soon (6HI-only operator scope)', () => {
+    expect(pathForMachine('HRS')).toBe('/coming-soon/HRS');
+    expect(pathForMachine('PKL')).toBe('/coming-soon/PKL');
   });
 
-  it('routes unbuilt machines to coming soon', () => {
-    expect(pathForMachine('UNKNOWN')).toBe('/coming-soon/UNKNOWN');
+  it('prefers 6HI among CRM assignments', () => {
+    expect(preferCrmMachine(['4HI', '6HI', '2HI'])).toBe('6HI');
+    expect(preferCrmMachine(['PKL', 'HRS'])).toBe(null);
   });
 
-  it('uses first assigned machine — not 6HI by default', () => {
-    expect(resolvePrimaryMachinePath('OPERATOR', ['4HI'], ['6HI'])).toBe('/4hi');
-    expect(resolvePrimaryMachinePath('OPERATOR', ['2HI', '6HI'], ['6HI'])).toBe('/2hi');
-    expect(resolvePrimaryMachinePath('OPERATOR', ['HRS'], ['HRS'])).toBe('/shift-log/HRS');
+  it('resolves primary path to CRM mill only', () => {
+    expect(resolvePrimaryMachinePath('OPERATOR', ['4HI'], ['HRS'])).toBe('/4hi');
+    expect(resolvePrimaryMachinePath('OPERATOR', ['HRS'], ['HRS'])).toBe('/coming-soon/6HI');
+    expect(resolvePrimaryMachinePath('OPERATOR', ['6HI', '4HI'], [])).toBe('/6hi');
   });
 
   it('grants plant head and admin all machines', () => {
@@ -41,8 +44,13 @@ describe('machineRouting', () => {
     expect(canAccessMachine('OPERATOR', ['4HI'], '6HI')).toBe(false);
   });
 
-  it('builds nav items pointing to user scope for CRM', () => {
-    const items = getMachineNavItems('OPERATOR', ['4HI', '6HI'], ['6HI'], 'operator');
-    expect(items.map((i) => i.path)).toEqual(['/operator.operator', '/operator.operator']);
+  it('builds CRM-only nav items for operators', () => {
+    const items = getMachineNavItems('OPERATOR', ['4HI', '6HI', 'HRS'], ['HRS'], 'operator');
+    expect(items.map((i) => i.code)).toEqual(['6HI', '4HI']);
+    expect(items.every((i) => i.path === '/operator.operator')).toBe(true);
+  });
+
+  it('filters CRM machines from assignments', () => {
+    expect(filterCrmMachines(['6HI', 'HRS', 'PKL'])).toEqual(['6HI']);
   });
 });

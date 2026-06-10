@@ -8,6 +8,7 @@ import { useSixHiStore, shouldShowProductionPanel } from '../../store/sixHiStore
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
+import { formatShiftDate } from '../../lib/dateFormat';
 import { HandoverAcceptGate } from '../HandoverAcceptGate';
 import { machineHandoverService } from '../../services/machineHandoverService';
 import { SixHiWorkspaceModal } from './SixHiWorkspaceModal';
@@ -17,7 +18,7 @@ import { OrderRejectionModal } from './OrderRejectionModal';
 import { OrderEndModal } from './OrderEndModal';
 import { SixHiManualOrderModal } from './SixHiManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
-import { ZInput } from '../primitives/ZInput';
+import { OrderRemarkModal } from './OrderRemarkModal';
 
 export function SixHiLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,8 +46,7 @@ export function SixHiLayout() {
   const [rejectionOpen, setRejectionOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [remarkOpen, setRemarkOpen] = useState(false);
-  const [remarkText, setRemarkText] = useState('');
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<{ message: string; activeBatch?: string } | null>(null);
 
   useEffect(() => {
     setMachineCode(pathMill);
@@ -60,7 +60,7 @@ export function SixHiLayout() {
         const data = await apiClient.get(`/shift-logs/active/${CRM_SHIFT_PROCESS_CODE}`);
         useShiftStore.setState({
           shiftLogId: data.shiftLogId,
-          shiftDate: data.shiftDate,
+          shiftDate: formatShiftDate(data.shiftDate),
           shiftCode: data.shiftCode as 'A' | 'B' | 'C',
           targetMt: data.targetMt,
           producedMt: data.producedMt,
@@ -88,11 +88,19 @@ export function SixHiLayout() {
     useSixHiStore.setState({
       requestStoppageDialog: async (batchNo: string) => {
         const store = useSixHiStore.getState();
-        const order = store.panelOrder;
-        if (!order?.activeStoppage) {
-          // Immediate stoppage start
+        if (store.panelOrder?.batchNumber !== batchNo) {
+          await store.loadPanelOrder(batchNo);
+        }
+        const order = useSixHiStore.getState().panelOrder;
+        const canStartStoppage =
+          order?.status === 'IN_PROGRESS' ||
+          (order?.status === 'STOPPAGE' && !order?.activeStoppage);
+        if (!order || order.batchNumber !== batchNo || (!canStartStoppage && !order.activeStoppage)) {
+          return;
+        }
+        if (!order.activeStoppage) {
           await store.runOrderAction(batchNo, () =>
-            apiClient.post(`/6hi/orders/${encodeURIComponent(batchNo)}/stoppages/start`, {})
+            apiClient.post(`/6hi/orders/${encodeURIComponent(batchNo)}/stoppages/start`, {}),
           );
         }
         setStoppageOpen(true);
@@ -121,7 +129,11 @@ export function SixHiLayout() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as { activeBatchNumber?: string } | undefined;
-        setStartError(`Order ${body?.activeBatchNumber ?? 'unknown'} is already active. One machine — one order.`);
+        const activeBatchNumber = body?.activeBatchNumber;
+        setStartError({
+          message: `Order ${activeBatchNumber ?? 'unknown'} is already active on this machine. End or reject it before starting another.`,
+          activeBatch: activeBatchNumber,
+        });
       } else {
         throw err;
       }
@@ -144,7 +156,6 @@ export function SixHiLayout() {
         onStart: handleStart,
         onEnd: handleEnd,
         onReject: () => setRejectionOpen(true),
-        onStoppage: () => setStoppageOpen(true),
         onRemark: () => setRemarkOpen(true),
         onViewOrder: () => openWorkspace(panelOrder.batchNumber),
         onCloseWorkspace: workspaceOpen ? closeWorkspace : undefined,
@@ -194,12 +205,13 @@ export function SixHiLayout() {
           open={rejectionOpen}
           batchNumber={activeBatch}
           onClose={() => setRejectionOpen(false)}
-          onReject={async (batchNo, defectCodes, remarks) => {
+          onReject={async (batchNo, rejectionReason, defectCodes, remarks) => {
             await runOrderAction(batchNo, () =>
               apiClient.post(`/6hi/orders/${encodeURIComponent(batchNo)}/reject`, {
+                rejectionReason,
                 defectCodes,
                 remarks,
-              })
+              }),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
             closeWorkspace();
@@ -212,9 +224,23 @@ export function SixHiLayout() {
       )}
 
       {startError && (
-        <div className="fixed top-20 left-20 right-24 z-[105] max-w-lg mx-auto bg-destructive/10 border border-destructive text-destructive rounded-xl px-4 py-3 text-sm font-medium">
-          {startError}
-          <button type="button" className="ml-2 underline" onClick={() => setStartError(null)}>Dismiss</button>
+        <div className="fixed top-20 left-20 right-24 z-[105] max-w-lg mx-auto bg-destructive/10 border border-destructive text-destructive rounded-xl px-4 py-3 text-sm font-medium space-y-2">
+          <p>{startError.message}</p>
+          <div className="flex gap-2 flex-wrap">
+            {startError.activeBatch && (
+              <ZButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  openWorkspace(startError.activeBatch!);
+                  setStartError(null);
+                }}
+              >
+                Open {startError.activeBatch}
+              </ZButton>
+            )}
+            <button type="button" className="underline text-xs" onClick={() => setStartError(null)}>Dismiss</button>
+          </div>
         </div>
       )}
 
@@ -245,7 +271,7 @@ export function SixHiLayout() {
           }}
           onRollChange={async (data) => {
             await runOrderAction(activeBatch, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/roll-changes`, data)
+              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/roll-change`, data)
             );
           }}
         />
@@ -254,30 +280,18 @@ export function SixHiLayout() {
       <SixHiManualOrderModal />
 
       {remarkOpen && activeBatch && (
-        <>
-          <button type="button" className="fixed inset-0 z-[110] bg-background/70" onClick={() => setRemarkOpen(false)} />
-          <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] max-w-md mx-auto border border-border bg-card rounded-2xl p-4 space-y-3 shadow-xl">
-            <h3 className="font-semibold text-lg">Add Remark</h3>
-            <ZInput value={remarkText} onChange={(e) => setRemarkText(e.target.value)} placeholder="Enter remark…" className="min-h-14 text-lg" />
-            <div className="flex gap-2 justify-end">
-              <ZButton variant="ghost" onClick={() => setRemarkOpen(false)}>Cancel</ZButton>
-              <ZButton
-                variant="accent"
-                disabled={!remarkText.trim() || busy}
-                onClick={() =>
-                  runOrderAction(activeBatch, () =>
-                    apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/remarks`, { text: remarkText }),
-                  ).then(() => {
-                    setRemarkText('');
-                    setRemarkOpen(false);
-                  })
-                }
-              >
-                Save
-              </ZButton>
-            </div>
-          </div>
-        </>
+        <OrderRemarkModal
+          open={remarkOpen}
+          batchNumber={activeBatch}
+          busy={busy}
+          onClose={() => setRemarkOpen(false)}
+          onSave={async (text, defects) => {
+            await runOrderAction(activeBatch, () =>
+              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/remarks`, { text, defects }),
+            );
+            setRemarkOpen(false);
+          }}
+        />
       )}
       </OperatorShell>
     </HandoverAcceptGate>

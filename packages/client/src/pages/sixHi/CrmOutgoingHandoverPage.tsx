@@ -8,7 +8,6 @@ import {
   type HandoverPreview,
   type OrderSnapshot,
 } from '../../services/machineHandoverService';
-import { OperatorShell } from '../../components/layout/operator/OperatorShell';
 import { ZButton } from '../../components/primitives/ZButton';
 import {
   AlertTriangle, CheckCircle2, Clock, Package, Users, Wrench,
@@ -264,28 +263,24 @@ export function CrmOutgoingHandoverPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <OperatorShell processCode={machineCode}>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin mx-auto" />
-            <p className="text-sm text-muted-foreground">Loading handover console…</p>
-          </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">Loading handover console…</p>
         </div>
-      </OperatorShell>
+      </div>
     );
   }
 
   if (loadError) {
     return (
-      <OperatorShell processCode={machineCode}>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center space-y-4 max-w-sm">
-            <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
-            <p className="text-destructive font-semibold">{loadError}</p>
-            <ZButton variant="secondary" onClick={() => navigate(basePath)}>Go Back</ZButton>
-          </div>
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+          <p className="text-destructive font-semibold">{loadError}</p>
+          <ZButton variant="secondary" onClick={() => navigate(basePath)}>Go Back</ZButton>
         </div>
-      </OperatorShell>
+      </div>
     );
   }
 
@@ -308,8 +303,7 @@ export function CrmOutgoingHandoverPage() {
   }
 
   return (
-    <OperatorShell processCode={machineCode}>
-      <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Page Header ── */}
         <div className="shrink-0 bg-white border-b border-border/60 px-5 py-4">
@@ -789,6 +783,5 @@ Examples:
           </ZButton>
         </div>
       </div>
-    </OperatorShell>
   );
 }

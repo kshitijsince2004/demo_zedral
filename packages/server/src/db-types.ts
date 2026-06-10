@@ -541,10 +541,11 @@ export interface TxnCrmRollChange {
 export interface TxnOrderRejection {
   created_at: Generated<Timestamp>;
   defect_codes: JsonValue | null;
-  operator_id: number | null;
+  operator_id: number;
   order_id: Int8;
   rejection_id: Generated<Int8>;
-  remarks: string | null;
+  rejection_reason: string;
+  remarks: string;
 }
 
 export interface TxnOrderRemark {

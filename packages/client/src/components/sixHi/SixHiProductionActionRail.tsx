@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { AlertTriangle, Clock, MessageSquare, Play, Square } from 'lucide-react';
+import { Clock, MessageSquare, Play, Square } from 'lucide-react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
@@ -11,7 +11,6 @@ interface SixHiProductionActionRailProps {
   busy?: boolean;
   onStart: () => void;
   onEnd: () => void;
-  onStoppage: () => void;
   onRemark: () => void;
   onReject: () => void;
 }
@@ -61,7 +60,6 @@ export function SixHiProductionActionRail({
   busy,
   onStart,
   onEnd,
-  onStoppage,
   onRemark,
   onReject,
 }: SixHiProductionActionRailProps) {
@@ -107,16 +105,9 @@ export function SixHiProductionActionRail({
         {canEnd && (
           <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
         )}
-        <RailButton
-          label={hasActiveStoppage ? 'End Stoppage' : 'Stoppage'}
-          icon={AlertTriangle}
-          onClick={onStoppage}
-          disabled={busy || order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'COMPLETED'}
-          variant="warn"
-        />
         <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         {canReject && (
-          <RailButton label="Reject" icon={Square} onClick={onReject} disabled={busy} variant="danger" />
+          <RailButton label="Reject" icon={Square} onClick={onReject} disabled={busy} variant="end" />
         )}
       </div>
 

@@ -28,14 +28,16 @@ async function loadStoppageCodes(): Promise<SixHiStoppageCodeDef[]> {
   if (_loadPromise) return _loadPromise;
 
   _loadPromise = apiClient
-    .get<Array<{ category_code: string; label: string; requires_breakdown_code?: boolean }>>('/6hi/master/stoppage-categories')
+    .get<Array<{ categoryCode: string; label: string; requiresBreakdownCode?: boolean }>>('/6hi/master/stoppage-categories')
     .then((data) => {
-      const codes: SixHiStoppageCodeDef[] = data.map((cat, idx) => ({
-        displayCode: String(idx + 1).padStart(2, '0'),
-        categoryCode: cat.category_code,
+      const numeric = data.filter((cat) => /^\d{1,2}$/.test(cat.categoryCode));
+      const source = numeric.length > 0 ? numeric : data;
+      const codes: SixHiStoppageCodeDef[] = source.map((cat) => ({
+        displayCode: /^\d{1,2}$/.test(cat.categoryCode) ? cat.categoryCode.padStart(2, '0') : cat.categoryCode,
+        categoryCode: cat.categoryCode,
         label: cat.label,
         requiresReason: true,
-        requiresRollChange: cat.category_code === 'WR_CHANGE',
+        requiresRollChange: cat.categoryCode === '04',
       }));
       _cachedCodes = codes;
       return codes;

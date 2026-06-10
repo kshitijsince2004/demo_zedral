@@ -3,9 +3,10 @@ import { useAuthStore } from '../lib/authStore';
 import { getRoleHomePath } from '../lib/roleHome';
 import { ZButton } from '../components/primitives/ZButton';
 
-export function MachineComingSoon() {
+export function MachineComingSoon({ machineCode: machineCodeProp }: { machineCode?: string } = {}) {
   const navigate = useNavigate();
-  const { machineCode = '—' } = useParams<{ machineCode: string }>();
+  const { machineCode: routeCode = '—' } = useParams<{ machineCode: string }>();
+  const machineCode = machineCodeProp ?? routeCode;
   const { role, lineAccess, machineAccess, username, logout } = useAuthStore();
   const home = getRoleHomePath(role, lineAccess, machineAccess, username);
 
@@ -31,7 +32,7 @@ export function MachineComingSoon() {
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Coming soon</p>
         <h1 className="text-2xl font-bold font-mono text-foreground">{machineCode}</h1>
         <p className="text-sm text-muted-foreground">
-          This machine workspace is not available yet. Use your assigned CRM mill or line capture screen.
+          No CRM mill (6HI) is assigned to this account. Contact your supervisor to get machine access.
         </p>
         <ZButton variant="accent" onClick={handleAction}>
           {isAlreadyHome ? 'Logout' : 'Back to home'}

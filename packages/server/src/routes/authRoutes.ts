@@ -9,6 +9,7 @@ import {
   verifyToken,
   getUserWithRolesAndAccess,
 } from '../services/authService';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { db } from '../db';
 
 const router = Router();
@@ -75,7 +76,7 @@ function authRouteError(res: import('express').Response, error: unknown) {
   return res.status(500).json({ error: message });
 }
 
-router.post('/badge-pin', async (req, res) => {
+router.post('/badge-pin', rateLimitMiddleware(20, 60_000), async (req, res) => {
   try {
     const { badgeId, pin } = req.body;
     if (!badgeId || !pin) {

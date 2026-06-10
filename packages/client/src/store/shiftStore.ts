@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { formatShiftDate } from '../lib/dateFormat';
 
 export type CoilStatus = 'planned' | 'open' | 'done';
 export type ProcessLine = 'HRS' | 'PKL' | 'CRM' | '6HI' | 'ANN' | 'SKP' | 'RWD' | 'CRS' | 'CTL' | 'GLV';
@@ -171,7 +172,7 @@ export const useShiftStore = create<ShiftState>((set, get) => ({
 
   applyDetectedShift: (shift) =>
     set({
-      shiftDate: shift.prodDate,
+      shiftDate: formatShiftDate(shift.prodDate),
       shiftCode: shift.shiftCode as 'A' | 'B' | 'C',
       detectedShift: {
         shiftName: shift.shiftName,

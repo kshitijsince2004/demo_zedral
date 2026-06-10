@@ -60,7 +60,7 @@ export function SetupPage() {
       setStatus(`Success — device bound to ${data.processCode}. Redirecting…`);
 
       setTimeout(() => {
-        navigate(`/shift-log/${data.processCode}`);
+        navigate('/login');
       }, 2000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -98,7 +98,7 @@ export function SetupPage() {
             </div>
 
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground text-center">
-              Expected format: BIND-HRS, BIND-PKL, …
+              Expected format: BIND-6HI, BIND-4HI, …
             </p>
 
             {error && (

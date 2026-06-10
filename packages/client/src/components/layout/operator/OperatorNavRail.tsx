@@ -4,7 +4,6 @@ import { useAuthStore } from '../../../lib/authStore';
 import { getMachineNavItems } from '../../../lib/machineRouting';
 import { useSixHiStore } from '../../../store/sixHiStore';
 import { isMillPath, millBasePath, millCodeFromPath } from '../../../lib/millPath';
-import { isCrmMillPath } from '../../../lib/millConfig';
 import { ProcessLineSwitcher } from '../../capture/ProcessLineSwitcher';
 import ZedralLogo from '../../../assets/white logo.png';
 
@@ -13,47 +12,35 @@ interface OperatorNavRailProps {
   onLogout: () => void;
 }
 
+/** CRM (6HI) operator navigation — orders, capture, manual order. */
 export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { role, lineAccess, machineAccess, username, activeMachine } = useAuthStore();
+  const { role, machineAccess, lineAccess, username, activeMachine } = useAuthStore();
   const openManualOrder = useSixHiStore((s) => s.openManualOrder);
 
   const machineNav = getMachineNavItems(role, machineAccess, lineAccess, username);
-  const defaultLine = machineNav[0]?.code ?? processCode ?? 'HRS';
-  const activeProcess = processCode || defaultLine;
-  const isCrmMill = isCrmMillPath(location.pathname);
   const millBase = millBasePath(
-    (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname),
+    (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname) ?? '6HI',
     username && role ? { username, role } : null,
   );
 
-  const items = isCrmMill
-    ? [
-        {
-          id: 'orders',
-          label: 'Orders',
-          icon: ListOrdered,
-          path: millBase,
-          match: (p: string) => isMillPath(p) && !p.includes('/capture') && !p.includes('/handover'),
-        },
-        {
-          id: 'capture',
-          label: 'Capture',
-          icon: ClipboardList,
-          path: `${millBase}/capture`,
-          match: (p: string) => p.endsWith('/capture'),
-        },
-      ]
-    : [
-        {
-          id: 'capture',
-          label: 'Capture',
-          icon: ClipboardList,
-          path: `/shift-log/${activeProcess}`,
-          match: (p: string) => p.startsWith('/shift-log') || p === '/handover',
-        },
-      ];
+  const items = [
+    {
+      id: 'orders',
+      label: 'Orders',
+      icon: ListOrdered,
+      path: millBase,
+      match: (p: string) => isMillPath(p) && !p.includes('/capture') && !p.includes('/handover'),
+    },
+    {
+      id: 'capture',
+      label: 'Capture',
+      icon: ClipboardList,
+      path: `${millBase}/capture`,
+      match: (p: string) => p.endsWith('/capture'),
+    },
+  ];
 
   const itemActiveClass = 'bg-white/20 text-white border border-white/30';
   const itemIdleClass = 'text-white/70 hover:text-white hover:bg-white/10 border border-transparent';
@@ -89,17 +76,15 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
           );
         })}
 
-        {isCrmMill && (
-          <button
-            type="button"
-            title="New Order"
-            onClick={openManualOrder}
-            className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-sm transition-colors text-accent hover:bg-white/10 border border-accent/40"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-            <span className="text-[8px] uppercase tracking-wider font-bold">New</span>
-          </button>
-        )}
+        <button
+          type="button"
+          title="New Order"
+          onClick={openManualOrder}
+          className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-sm transition-colors text-accent hover:bg-white/10 border border-accent/40"
+        >
+          <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+          <span className="text-[8px] uppercase tracking-wider font-bold">New</span>
+        </button>
       </div>
 
       <div className="flex-1 min-h-4" />
@@ -107,7 +92,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
       {machineNav.length > 1 && (
         <div className="px-1 pb-2 w-full hidden xl:block shrink-0">
           <ProcessLineSwitcher
-            activeCode={isCrmMill ? (activeMachine ?? millCodeFromPath(location.pathname)) : activeProcess}
+            activeCode={activeMachine ?? millCodeFromPath(location.pathname) ?? processCode}
             className="flex-col items-stretch [&>button]:w-full [&>button]:text-left"
           />
         </div>
