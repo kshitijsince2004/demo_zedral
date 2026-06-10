@@ -274,12 +274,12 @@ export class PPCImportService {
       destination: row.destination ?? null,
       roll_finish: row.roll_finish ?? null,
       ppc_reroll_flag: row.ppc_reroll_flag ?? false,
-      queue_seq: row.queue_seq ?? null,
+      queue_seq: null,
       sap_order_no: row.sap_order_no ?? null,
       process_route_raw: row.process_route ?? null,
       import_batch_id: importBatchId,
       raw_row_json: JSON.stringify(row),
-      machine_allocated: true,
+      machine_allocated: false,
     };
 
     let batchId: number;
@@ -586,7 +586,7 @@ export class PPCImportService {
       roll_finish: row.rollFinish ?? null,
       ppc_reroll_flag: row.ppcRerollFlag,
       coil_count: row.coilCount,
-      queue_seq: queueSeq,
+      queue_seq: null,
       sap_order_no: row.sapOrderNo ?? null,
       item_no: row.itemNo ?? null,
       from_work_center: row.fromWorkCenter ?? null,
@@ -599,7 +599,7 @@ export class PPCImportService {
       process_route_canonical: row.processRouteCanonical,
       import_batch_id: importBatchId,
       raw_row_json: JSON.stringify(row),
-      machine_allocated: true,
+      machine_allocated: false,
     };
 
     let batchId: number;

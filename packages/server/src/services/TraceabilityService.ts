@@ -2,6 +2,85 @@ import { db } from '../db';
 
 export class TraceabilityService {
   /**
+   * Resolves production identifiers (batch, coil, SAP order, etc.) and returns trace data.
+   */
+  static async search(query: string) {
+    const q = query.trim();
+    if (!q) throw new Error('Search query is required');
+
+    const batch = await db.selectFrom('planning.ppc_batch as pb')
+      .selectAll('pb')
+      .where((eb) => eb.or([
+        eb('pb.batch_number', 'ilike', q),
+        eb('pb.coil_no', 'ilike', q),
+        eb('pb.sap_order_no', 'ilike', q),
+        eb('pb.slit_id', 'ilike', q),
+      ]))
+      .orderBy('pb.batch_id', 'desc')
+      .executeTakeFirst();
+
+    const coilFromBatch = batch?.coil_no ?? null;
+    const tree = await this.getTraceabilityTree(coilFromBatch ?? q);
+
+    let orderInfo: Record<string, unknown> | null = null;
+    let machineJourney: Record<string, unknown>[] = [];
+
+    if (batch) {
+      const crmOrder = await db.selectFrom('txn.crm6_order')
+        .selectAll()
+        .where('batch_id', '=', batch.batch_id)
+        .executeTakeFirst();
+
+      orderInfo = {
+        batchNumber: batch.batch_number,
+        coilNo: batch.coil_no,
+        slitId: batch.slit_id,
+        customer: batch.customer_name,
+        grade: batch.grade_code,
+        subProcess: batch.sub_process,
+        machineCode: batch.machine_code,
+        machineAllocated: batch.machine_allocated ?? false,
+        planDate: batch.plan_date,
+        shiftCode: batch.shift_code,
+        weightMt: Number(batch.ppc_weight_mt),
+        targetThkMm: Number(batch.ppc_thk_mm),
+        inputThkMm: batch.input_thk_mm != null ? Number(batch.input_thk_mm) : null,
+        sapOrderNo: batch.sap_order_no,
+        status: crmOrder?.status ?? 'PENDING',
+        importBatchId: batch.import_batch_id,
+      };
+
+      const journeySteps = await db.selectFrom('planning.order_journey_step as ojs')
+        .select([
+          'ojs.step_no as stepSeq',
+          'ojs.process_code as processCode',
+          'ojs.display_label as displayLabel',
+          'ojs.machine_code as machineCode',
+          'ojs.status as stepStatus',
+          'ojs.completed_at as completedAt',
+        ])
+        .where('ojs.queue_batch_id', '=', batch.batch_id)
+        .orderBy('ojs.step_no', 'asc')
+        .execute();
+
+      machineJourney = journeySteps.map((s) => ({
+        step: s.stepSeq,
+        process: s.processCode,
+        machine: s.machineCode,
+        status: s.stepStatus,
+        completedAt: s.completedAt,
+      }));
+    }
+
+    return {
+      ...tree,
+      orderInfo,
+      machineJourney,
+      searchedBy: q,
+    };
+  }
+
+  /**
    * Retrieves the full traceability tree for a given coil or bundle number.
    * Steps backward from the query to the original HR coil.
    */

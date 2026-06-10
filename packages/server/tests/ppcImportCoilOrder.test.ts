@@ -52,8 +52,8 @@ describe('PPC rolling import coil provisioning', () => {
       .select(['machine_allocated', 'queue_seq'])
       .where('batch_number', '=', batchNo)
       .executeTakeFirst();
-    expect(batch?.machine_allocated).toBe(true);
-    expect(Number(batch?.queue_seq)).toBeGreaterThan(0);
+    expect(batch?.machine_allocated).toBe(false);
+    expect(batch?.queue_seq).toBeNull();
 
     const order = await db.selectFrom('txn.crm6_order')
       .select('status')

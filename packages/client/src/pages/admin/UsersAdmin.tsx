@@ -12,7 +12,7 @@ import { adminService, type UserAccess, type UserStatus } from '../../services/a
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { hasImplicitAllMachines, MACHINE_OPTIONS, resolveMachineAccess } from '../../lib/accessOptions';
 
-export function UsersAdmin() {
+export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   const [users, setUsers] = useState<UserAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,13 +75,8 @@ export function UsersAdmin() {
     }
   };
 
-  return (
-    <AdminShell
-      title="User Management"
-      subtitle="Accounts, roles, and mill/line access"
-      onRefresh={loadUsers}
-      refreshing={loading}
-    >
+  const content = (
+    <>
       {error && (
         <div className="p-3 rounded-sm border border-destructive/30 bg-destructive/10 text-destructive text-sm">
           {error}
@@ -307,6 +302,34 @@ export function UsersAdmin() {
           </form>
         </AdminPanel>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">User Management</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Accounts, roles, and mill/line access</p>
+          </div>
+          <ZButton variant="secondary" size="sm" onClick={() => void loadUsers()} disabled={loading}>
+            Refresh
+          </ZButton>
+        </div>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <AdminShell
+      title="User Management"
+      subtitle="Accounts, roles, and mill/line access"
+      onRefresh={loadUsers}
+      refreshing={loading}
+    >
+      {content}
     </AdminShell>
   );
 }

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
-import { Activity, ArrowRightLeft, LayoutDashboard, Search, Shield, Users } from 'lucide-react';
+import { Outlet } from 'react-router-dom';
+import { Activity, ArrowRightLeft, Brain, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem, deskNavOffsetClass } from './shared/DeskSideNav';
 import { OfflineBanner } from '../ui/OfflineBanner';
 
@@ -27,6 +27,13 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     match: (p) => p === '/plant/order-assignment',
   },
   {
+    id: 'lines',
+    label: 'Line Status',
+    icon: Activity,
+    path: '/plant/lines',
+    match: (p) => p === '/plant/lines',
+  },
+  {
     id: 'traceability',
     label: 'Traceability',
     icon: Search,
@@ -34,24 +41,36 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     match: (p) => p === '/plant/orders',
   },
   {
+    id: 'defect-intelligence',
+    label: 'Defect Intelligence',
+    icon: Brain,
+    path: '/plant/defect-intelligence',
+    match: (p) => p === '/plant/defect-intelligence',
+  },
+  {
+    id: 'downtime-intelligence',
+    label: 'Downtime Intelligence',
+    icon: Timer,
+    path: '/plant/downtime-intelligence',
+    match: (p) => p === '/plant/downtime-intelligence',
+  },
+  {
     id: 'audit',
     label: 'Audit Logs',
     icon: Shield,
-    path: '/audit',
-    match: (p) => p === '/audit' || p.startsWith('/audit/'),
+    path: '/plant/audit',
+    match: (p) => p === '/plant/audit' || p.startsWith('/plant/audit/'),
   },
   {
     id: 'users',
     label: 'Users',
     icon: Users,
-    path: '/admin/users',
-    match: (p) => p === '/admin/users',
+    path: '/plant/users',
+    match: (p) => p === '/plant/users',
   },
 ];
 
 export function PlantHeadShell() {
-  const navigate = useNavigate();
-
   return (
     <div className="theme-operator min-h-screen bg-background text-foreground">
       <DeskSideNav

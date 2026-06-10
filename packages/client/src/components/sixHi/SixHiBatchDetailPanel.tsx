@@ -1,15 +1,16 @@
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { ZButton } from '../primitives/ZButton';
-import { Play } from 'lucide-react';
+import { ArrowRightLeft, Play } from 'lucide-react';
 
 interface SixHiBatchDetailPanelProps {
   batch: SixHiQueueCard | null;
   subProcessLabel: string;
   onOpen: () => void;
+  onMoveToMachine?: () => void;
 }
 
-export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen }: SixHiBatchDetailPanelProps) {
+export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveToMachine }: SixHiBatchDetailPanelProps) {
   if (!batch) {
     return (
       <div className="bg-white border border-border rounded-2xl p-6 h-full flex items-center justify-center text-muted-foreground text-base">
@@ -88,8 +89,24 @@ export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen }: SixHiB
           disabled={isCompleted}
         >
           <Play className="h-5 w-5" aria-hidden />
-          {isCompleted ? 'Order Completed' : batch.machineAllocated === false ? 'Move to Production…' : 'Open Production'}
+          {isCompleted
+            ? 'Order Completed'
+            : batch.machineAllocated === false
+              ? 'Move to Production…'
+              : 'Open Production'}
         </ZButton>
+        {!isCompleted && batch.machineAllocated !== false && onMoveToMachine && (
+          <ZButton
+            variant="secondary"
+            size="lg"
+            fullWidth
+            className="min-h-12 text-base font-bold"
+            onClick={onMoveToMachine}
+          >
+            <ArrowRightLeft className="h-5 w-5" aria-hidden />
+            Move to Machine
+          </ZButton>
+        )}
       </div>
     </div>
   );

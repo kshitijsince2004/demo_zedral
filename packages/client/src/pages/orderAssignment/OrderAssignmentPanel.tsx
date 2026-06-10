@@ -86,6 +86,8 @@ export function OrderAssignmentPanel() {
 
   useEffect(() => {
     void load();
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
   }, [load]);
 
   const filteredOrders = useMemo(() => {

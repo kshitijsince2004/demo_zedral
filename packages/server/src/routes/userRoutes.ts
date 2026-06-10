@@ -6,7 +6,7 @@ import { UserService } from '../services/UserService';
 const router = Router();
 router.use(require('express').json());
 router.use(requireAuth);
-router.use(requireRole([UserRole.ADMIN]));
+router.use(requireRole([UserRole.ADMIN, UserRole.PLANT_HEAD]));
 
 function mapClientPayload(body: any) {
   return {

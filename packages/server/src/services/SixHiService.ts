@@ -527,21 +527,26 @@ export class SixHiService {
 
     const orders = [];
     for (const b of batches) {
+      if (b.machine_allocated ?? true) continue;
+
       const subProcess = b.sub_process as SixHiSubProcess;
       const crmOrder = await db.selectFrom('txn.crm6_order')
         .select(['status'])
         .where('batch_id', '=', b.batch_id)
         .executeTakeFirst();
+      const status = (crmOrder?.status as string) ?? 'PENDING';
+      if (['COMPLETED', 'REJECTED', 'IN_PROGRESS', 'STOPPAGE'].includes(status)) continue;
+
       orders.push({
         batchNumber: b.batch_number,
         customer: b.customer_name,
         product: b.grade_code,
         quantityMt: Number(b.ppc_weight_mt),
-        currentMachine: (b.machine_allocated ?? true) ? b.machine_code : null,
-        suggestedMachine: !(b.machine_allocated ?? true) ? b.machine_code : undefined,
+        currentMachine: null,
+        suggestedMachine: b.machine_code ?? undefined,
         subProcess,
-        status: (crmOrder?.status as string) ?? 'PENDING',
-        machineAllocated: b.machine_allocated ?? true,
+        status,
+        machineAllocated: false,
       });
     }
 

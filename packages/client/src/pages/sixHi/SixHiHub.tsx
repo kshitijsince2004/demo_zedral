@@ -129,7 +129,7 @@ export function SixHiHub() {
 
   useEffect(() => {
     loadQueue();
-    const id = setInterval(loadQueue, 30000);
+    const id = setInterval(loadQueue, 15_000);
     return () => clearInterval(id);
   }, [loadQueue, queueRefreshToken]);
 
@@ -179,7 +179,18 @@ export function SixHiHub() {
 
   const moveToProduction = (card: SixHiQueueCard) => {
     if (card.status === 'COMPLETED') return;
+    if (card.machineAllocated === false) {
+      setAllocBatches([card]);
+      setAllocOpen(true);
+      return;
+    }
     openWorkspace(card.batchNumber);
+  };
+
+  const moveToMachine = (card: SixHiQueueCard) => {
+    if (card.status === 'COMPLETED' || card.machineAllocated === false) return;
+    setAllocBatches([card]);
+    setAllocOpen(true);
   };
 
   const handleAllocate = async (machineCode: CrmMillCode) => {
@@ -322,6 +333,7 @@ export function SixHiHub() {
             batch={selected}
             subProcessLabel={subProcessLabel}
             onOpen={() => selected && moveToProduction(selected)}
+            onMoveToMachine={() => selected && moveToMachine(selected)}
           />
         </aside>
       </div>

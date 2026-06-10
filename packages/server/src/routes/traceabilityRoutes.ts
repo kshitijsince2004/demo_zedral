@@ -14,7 +14,7 @@ router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.
       return res.status(400).json({ error: 'Query parameter q is required' });
     }
 
-    const result = await TraceabilityService.getTraceabilityTree(query);
+    const result = await TraceabilityService.search(query);
     res.json(result);
   } catch (error: any) {
     res.status(404).json({ error: error.message });

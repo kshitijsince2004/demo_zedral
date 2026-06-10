@@ -29,12 +29,15 @@ export function AuditTrailView() {
   }, []);
 
   return (
-    <div className="theme-operator min-h-screen bg-background p-4 md:p-5">
-      <h1 className="text-lg font-semibold tracking-tight mb-4">Audit Trail</h1>
+    <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">Audit Trail</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Platform activity and change history</p>
+      </div>
       {loading && <p className="text-sm text-muted-foreground">Loading audit records…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
       {!loading && !error && (
-        <div className="overflow-x-auto rounded-xl border border-border">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-secondary/60 text-left">
               <tr>

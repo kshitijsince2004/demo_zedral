@@ -27,6 +27,7 @@ import { PlantLineStatus } from './pages/reports/PlantLineStatus';
 import { PlantDefects } from './pages/reports/PlantDefects';
 import { PlantStoppages } from './pages/reports/PlantStoppages';
 import { PlantAlerts } from './pages/reports/PlantAlerts';
+import { IntelligenceComingSoon } from './pages/reports/IntelligenceComingSoon';
 import { AuditTrailView } from './pages/audit/AuditTrailView';
 
 // Admin
@@ -91,12 +92,16 @@ function App() {
           <Route path="production" element={<PlantProduction />} />
           <Route path="orders" element={<PlantOrderTracking />} />
           <Route path="lines" element={<PlantLineStatus />} />
+          <Route path="defect-intelligence" element={<IntelligenceComingSoon title="Defect Intelligence" />} />
+          <Route path="downtime-intelligence" element={<IntelligenceComingSoon title="Downtime Intelligence" />} />
+          <Route path="audit" element={<AuditTrailView />} />
+          <Route path="users" element={<UsersAdmin embedded />} />
           <Route path="defects" element={<PlantDefects />} />
           <Route path="stoppages" element={<PlantStoppages />} />
           <Route path="alerts" element={<PlantAlerts />} />
           <Route path="order-assignment" element={<OrderAssignmentPanel />} />
         </Route>
-        <Route path="/audit" element={<PlantRoute><AuditTrailView /></PlantRoute>} />
+        <Route path="/audit" element={<PlantRoute><Navigate to="/plant/audit" replace /></PlantRoute>} />
         <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
         <Route path="/reports/exports/history" element={<SupervisorRoute><ExportHistory /></SupervisorRoute>} />
         <Route path="/reports/dpr" element={<SupervisorRoute><DprExport /></SupervisorRoute>} />

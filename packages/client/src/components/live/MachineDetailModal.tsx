@@ -1,7 +1,8 @@
-import React from 'react';
-import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
+import { useEffect, useState } from 'react';
+import type { MachineCommandCenterData, MachineStatusCard } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
-import { Activity, Power, AlertTriangle, ShieldAlert, X } from 'lucide-react';
+import { Activity, AlertTriangle, Power, ShieldAlert, X } from 'lucide-react';
+import { liveService } from '../../lib/liveService';
 
 interface MachineDetailModalProps {
   open: boolean;
@@ -10,150 +11,202 @@ interface MachineDetailModalProps {
   machineData?: MachineStatusCard;
 }
 
-export function MachineDetailModal({ open, onClose, machineCode, machineData }: MachineDetailModalProps) {
-  if (!open || !machineCode || !machineData) return null;
+function statusCardClass(status: string) {
+  switch (status) {
+    case 'RUNNING': return 'bg-[#ECFDF5] border-[#10B981]/30 text-[#10B981]';
+    case 'STOPPAGE': return 'bg-warning/10 border-warning/30 text-warning';
+    case 'BREAKDOWN': return 'bg-destructive/10 border-destructive/30 text-destructive';
+    case 'MAINTENANCE': return 'bg-info/10 border-info/30 text-info';
+    default: return 'bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-800/50 dark:border-slate-700';
+  }
+}
 
-  // Render a mock comprehensive 24-hour history
-  const historyEvents = [
-    { id: 1, type: 'RUNNING', start: '10:15 AM', end: '11:45 AM', duration: '1h 30m', reason: 'Order B-2026-SP002' },
-    { id: 2, type: 'STOPPAGE', start: '11:45 AM', end: '12:20 PM', duration: '35m', reason: 'Material Change' },
-    { id: 3, type: 'RUNNING', start: '12:20 PM', end: '03:10 PM', duration: '2h 50m', reason: 'Order B-2026-R001' },
-    { id: 4, type: 'DEFECT', start: '03:10 PM', end: '03:22 PM', duration: '12m', reason: 'Edge Crack Detected' },
-    { id: 5, type: 'IDLE', start: '03:22 PM', end: 'Present', duration: 'Ongoing', reason: 'Waiting for Material' },
-  ];
+function SummaryCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="bg-white border border-border rounded-xl p-4 shadow-sm">
+      <span className={`text-[10px] font-bold uppercase tracking-widest block mb-1 ${accent ?? 'text-muted-foreground'}`}>
+        {label}
+      </span>
+      <div className="flex justify-between items-baseline gap-2">
+        <span className="font-mono text-xl font-bold text-foreground">{value}</span>
+        {sub && <span className={`font-bold text-sm ${accent ?? 'text-muted-foreground'}`}>{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+export function MachineDetailModal({ open, onClose, machineCode, machineData }: MachineDetailModalProps) {
+  const [detail, setDetail] = useState<MachineCommandCenterData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const status = detail?.currentStatus ?? machineData?.status ?? 'IDLE';
+  const stateSince = machineData?.stateSinceAt ?? detail?.currentOrder?.runningSinceAt;
+  const { formatted: liveDuration } = useLiveTimer(stateSince, status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN');
+
+  useEffect(() => {
+    if (!open || !machineCode) {
+      setDetail(null);
+      setError(null);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    void liveService.getMachineState(machineCode)
+      .then((data) => { if (active) setDetail(data); })
+      .catch((err) => { if (active) setError((err as Error).message ?? 'Failed to load machine data'); })
+      .finally(() => { if (active) setLoading(false); });
+
+    const id = setInterval(() => {
+      void liveService.getMachineState(machineCode)
+        .then((data) => { if (active) setDetail(data); })
+        .catch(() => {});
+    }, 12_000);
+
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [open, machineCode]);
+
+  if (!open || !machineCode) return null;
+
+  const machineName = detail?.machineName ?? machineData?.machineName ?? machineCode;
+  const currentOrder = detail?.currentOrder?.batchNumber ?? machineData?.currentOrder;
+  const operator = detail?.currentOperator ?? machineData?.currentOperator;
+  const shift = detail?.shiftCode ?? machineData?.shiftCode;
+  const utilization = detail?.utilization;
+  const timeline = detail?.timeline ?? [];
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
       <div className="fixed inset-y-4 right-4 z-50 w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        
-        {/* Header */}
         <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between bg-muted/20">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-info" />
+              <span className="w-2 h-2 rounded-full bg-info animate-pulse" />
               <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Machine Drill-down</h2>
             </div>
-            <h1 className="text-2xl font-bold text-foreground">{machineData.machineName}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{machineName}</h1>
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">{machineCode}</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors">
+          <button type="button" onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors">
             <X className="w-6 h-6 text-muted-foreground" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-8">
-          
-          {/* Live State Section */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Current Status</h3>
-            <div className={`rounded-xl p-6 border ${
-              machineData.status === 'RUNNING' ? 'bg-[#10B981]/10 border-[#10B981]/20 text-[#10B981]' :
-              machineData.status === 'IDLE' ? 'bg-slate-100 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700' :
-              machineData.status === 'STOPPAGE' ? 'bg-warning/10 border-warning/20 text-warning' :
-              'bg-destructive/10 border-destructive/20 text-destructive'
-            }`}>
-              <div className="flex justify-between items-start mb-4">
-                <span className="text-3xl font-bold uppercase tracking-wider">{machineData.status}</span>
-                {machineData.status === 'RUNNING' && <Activity className="w-8 h-8 opacity-50" />}
-                {machineData.status === 'IDLE' && <Power className="w-8 h-8 opacity-50" />}
-                {machineData.status === 'STOPPAGE' && <AlertTriangle className="w-8 h-8 opacity-50 animate-pulse" />}
-                {machineData.status === 'BREAKDOWN' && <ShieldAlert className="w-8 h-8 opacity-50 animate-pulse" />}
+        <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6">
+          {loading && !detail && (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading live machine data…</p>
+          )}
+          {error && (
+            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-4 py-3">{error}</p>
+          )}
+
+          <section className={`rounded-xl p-5 border ${statusCardClass(status)}`}>
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-2xl font-bold uppercase tracking-wider">{status}</span>
+              {status === 'RUNNING' && <Activity className="w-7 h-7 opacity-60" />}
+              {status === 'IDLE' && <Power className="w-7 h-7 opacity-60" />}
+              {status === 'STOPPAGE' && <AlertTriangle className="w-7 h-7 opacity-60 animate-pulse" />}
+              {status === 'BREAKDOWN' && <ShieldAlert className="w-7 h-7 opacity-60 animate-pulse" />}
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">
+                  {status === 'RUNNING' ? 'Runtime' : status === 'IDLE' ? 'Idle For' : 'Duration'}
+                </span>
+                <span className="font-mono text-xl font-bold">{liveDuration || '—'}</span>
               </div>
-              
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Production Status</span>
+                <span className="font-bold">{currentOrder ? 'Active Order' : 'No Active Order'}</span>
+              </div>
+              {currentOrder && (
+                <div className="col-span-2 bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Current Order</span>
+                  <span className="font-mono text-lg font-bold">{currentOrder}</span>
+                  {detail?.currentOrder?.customer && (
+                    <p className="text-xs mt-1 opacity-80">{detail.currentOrder.customer} · {detail.currentOrder.weightMt} MT</p>
+                  )}
+                </div>
+              )}
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Operator</span>
+                <span className="font-bold">{operator || '—'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Shift</span>
+                <span className="font-bold">{shift || '—'}</span>
+              </div>
+              {detail?.activeStoppage && (
+                <div className="col-span-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Stoppage Reason</span>
+                  <span className="font-bold">{detail.activeStoppage.reason}</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {utilization && (
+            <section>
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Last 24 Hours Summary</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Live Duration</span>
-                  <span className="font-mono text-2xl font-bold">1h 42m 15s</span> {/* Simulated Live Timer */}
-                </div>
-                {machineData.status === 'RUNNING' && (
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Current Order</span>
-                    <span className="font-mono text-lg font-bold">{machineData.currentOrder || '—'}</span>
-                  </div>
-                )}
-                {(machineData.status === 'STOPPAGE' || machineData.status === 'BREAKDOWN') && (
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-70 block mb-1">Reason</span>
-                    <span className="text-lg font-bold">Material Jam</span>
-                  </div>
-                )}
+                <SummaryCard label="Runtime" value={`${Math.round(utilization.runningMin)}m`} sub={`${utilization.runningPct}%`} accent="text-[#10B981]" />
+                <SummaryCard label="Idle Time" value={`${Math.round(utilization.idleMin)}m`} sub={`${utilization.idlePct}%`} />
+                <SummaryCard label="Stoppages" value={`${Math.round(utilization.stoppageMin)}m`} sub={`${utilization.stoppageCount} incidents`} accent="text-warning" />
+                <SummaryCard label="Maintenance" value={`${Math.round(utilization.maintenanceMin)}m`} sub={`${utilization.maintenancePct}%`} accent="text-info" />
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
-          {/* Last 24 Hours Summary Cards */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Last 24 Hours Summary</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#10B981] block mb-1">Runtime</span>
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-xl font-bold">18h 45m</span>
-                  <span className="font-bold text-sm text-[#10B981]">78%</span>
-                </div>
-              </div>
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Idle Time</span>
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-xl font-bold">2h 15m</span>
-                  <span className="font-bold text-sm text-slate-500">9%</span>
-                </div>
-              </div>
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-warning block mb-1">Stoppages</span>
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-xl font-bold">1h 30m</span>
-                  <span className="font-bold text-sm text-warning">4 Incidents</span>
-                </div>
-              </div>
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-destructive block mb-1">Defects</span>
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-xl font-bold">1h 30m</span>
-                  <span className="font-bold text-sm text-destructive">2 Incidents</span>
-                </div>
-              </div>
-            </div>
-          </section>
+          {detail?.nextOrder && (
+            <section className="bg-white border border-border rounded-xl p-4 shadow-sm">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Next In Queue</h3>
+              <p className="font-mono font-bold">{detail.nextOrder.batchNumber}</p>
+              <p className="text-xs text-muted-foreground mt-1">{detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}</p>
+            </section>
+          )}
 
-          {/* Detailed Event History */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Chronological Event History</h3>
-            <div className="border border-border rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full text-left">
-                <thead className="bg-muted/30 border-b border-border text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">Event Type</th>
-                    <th className="px-4 py-3">Start</th>
-                    <th className="px-4 py-3">End</th>
-                    <th className="px-4 py-3">Duration</th>
-                    <th className="px-4 py-3">Details / Reason</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50 text-sm">
-                  {historyEvents.map((evt) => (
-                    <tr key={evt.id} className="hover:bg-muted/10 transition-colors">
-                      <td className="px-4 py-3">
-                        <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${
-                          evt.type === 'RUNNING' ? 'bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20' :
-                          evt.type === 'IDLE' ? 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400' :
-                          evt.type === 'STOPPAGE' ? 'bg-warning/10 text-warning border-warning/20' :
-                          'bg-destructive/10 text-destructive border-destructive/20'
-                        }`}>
-                          {evt.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-muted-foreground">{evt.start}</td>
-                      <td className="px-4 py-3 font-mono text-muted-foreground">{evt.end}</td>
-                      <td className="px-4 py-3 font-mono font-bold text-foreground">{evt.duration}</td>
-                      <td className="px-4 py-3 font-medium text-foreground">{evt.reason}</td>
+          {timeline.length > 0 && (
+            <section>
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Event History</h3>
+              <div className="border border-border rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted/30 border-b border-border text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3">Event</th>
+                      <th className="px-4 py-3">Start</th>
+                      <th className="px-4 py-3">Duration</th>
+                      <th className="px-4 py-3">Details</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {timeline.slice(0, 20).map((evt) => (
+                      <tr key={evt.eventId} className="hover:bg-muted/10">
+                        <td className="px-4 py-3">
+                          <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border bg-muted/30 text-foreground">
+                            {evt.eventType.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-muted-foreground text-xs">
+                          {new Date(evt.occurredAt).toLocaleTimeString()}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-xs">
+                          {evt.durationMin != null ? `${Math.round(evt.durationMin)}m` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-xs">{evt.reason ?? evt.batchNumber ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </>
