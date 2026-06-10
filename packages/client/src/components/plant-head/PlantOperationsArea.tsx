@@ -1,12 +1,38 @@
 import React from 'react';
+import type { MachineStatusCard } from '@m1/shared-validation';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
+import { machineStatusLabel } from '../../hooks/useLiveSnapshot';
 import { ZBadge } from '../primitives/ZBadge';
 
 interface PlantOperationsAreaProps {
   data: ExtendedPlantHeadDashboardData;
+  liveMachines?: MachineStatusCard[];
 }
 
-export function PlantOperationsArea({ data }: PlantOperationsAreaProps) {
+function liveStatusTone(status: ReturnType<typeof machineStatusLabel>) {
+  if (status === 'Running') return 'success' as const;
+  if (status === 'Stopped') return 'warning' as const;
+  if (status === 'Maintenance') return 'info' as const;
+  return 'muted' as const;
+}
+
+export function PlantOperationsArea({ data, liveMachines }: PlantOperationsAreaProps) {
+  const machineRows = liveMachines && liveMachines.length > 0
+    ? liveMachines.map((m) => ({
+        machineId: m.machineCode,
+        machineName: m.machineName,
+        status: machineStatusLabel(m.status),
+        currentOrder: m.currentOrder ?? '—',
+        efficiencyPct: m.shiftProgressPct ?? (m.status === 'RUNNING' ? 75 : m.status === 'IDLE' ? 0 : 40),
+      }))
+    : data.machineHealthGrid.map((m) => ({
+        machineId: m.machineId,
+        machineName: m.machineName,
+        status: m.status,
+        currentOrder: m.currentOrder,
+        efficiencyPct: m.efficiencyPct,
+      }));
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       
@@ -25,31 +51,30 @@ export function PlantOperationsArea({ data }: PlantOperationsAreaProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {data.machineHealthGrid.map((m) => (
+              {machineRows.map((m) => (
                 <tr key={m.machineId} className="hover:bg-muted/10 transition-colors">
                   <td className="px-5 py-3 align-middle text-sm font-medium text-foreground">{m.machineName}</td>
                   <td className="px-5 py-3 align-middle">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      m.status === 'Running' ? 'bg-success/10 text-success' :
-                      m.status === 'Idle' ? 'bg-muted text-muted-foreground' :
-                      'bg-warning/10 text-warning'
-                    }`}>
-                      {m.status}
-                    </span>
+                    <ZBadge tone={liveStatusTone(m.status as ReturnType<typeof machineStatusLabel>)} label={m.status} />
                   </td>
                   <td className="px-5 py-3 align-middle text-right">
                     <div className="flex items-center justify-end gap-3">
                       <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full ${m.efficiencyPct > 80 ? 'bg-success' : m.efficiencyPct > 50 ? 'bg-warning' : 'bg-destructive'}`} 
-                          style={{ width: `${m.efficiencyPct}%` }} 
+                        <div
+                          className={`h-full ${m.efficiencyPct > 80 ? 'bg-success' : m.efficiencyPct > 50 ? 'bg-warning' : 'bg-destructive'}`}
+                          style={{ width: `${Math.min(100, m.efficiencyPct)}%` }}
                         />
                       </div>
-                      <span className="text-sm font-semibold text-foreground w-8">{m.efficiencyPct}%</span>
+                      <span className="text-sm font-semibold text-foreground w-8">{Math.round(m.efficiencyPct)}%</span>
                     </div>
                   </td>
                 </tr>
               ))}
+              {machineRows.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-8 text-center text-sm text-muted-foreground">No machines</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

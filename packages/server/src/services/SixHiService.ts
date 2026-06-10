@@ -311,9 +311,9 @@ export class SixHiService {
       inputThkMm: inputThk,
       targetThkMm: Number(b.ppc_thk_mm),
       finishThkMm: finishThk,
-      machineCode: b.machine_code,
+      machineCode: allocated ? b.machine_code : undefined,
       machineAllocated: allocated,
-      suggestedMachineCode: allocated ? undefined : b.machine_code,
+      suggestedMachineCode: allocated ? undefined : (b.machine_code ?? undefined),
       rollingPassNo: b.active_rolling_pass_no ? Number(b.active_rolling_pass_no) : undefined,
       weightMt: Number(b.ppc_weight_mt),
       destination: b.destination ? mapDestination(b.destination) : undefined,
@@ -473,6 +473,7 @@ export class SixHiService {
       }, trx);
     });
 
+    MachineRegistryService.invalidateCache();
     return this.getOrder(batchNumber, userId);
   }
 

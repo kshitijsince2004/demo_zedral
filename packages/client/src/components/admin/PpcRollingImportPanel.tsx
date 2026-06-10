@@ -18,6 +18,10 @@ const SHEET_TYPE_OPTIONS: { value: PpcXlsxSheetType; label: string }[] = [
   { value: 'ANNEALING', label: 'Annealing' },
 ];
 
+const OP_LABEL = 'block text-[10px] uppercase tracking-[0.14em] font-medium text-muted-foreground mb-1';
+const OP_SELECT =
+  'h-11 w-full rounded-sm border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:border-accent/50';
+
 export function PpcRollingImportPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [sheetType, setSheetType] = useState<PpcXlsxSheetType>('ROLLING');
@@ -127,11 +131,11 @@ export function PpcRollingImportPanel() {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium mb-1">Sheet to import</label>
+          <label className={OP_LABEL}>Sheet to import</label>
           <select
             value={sheetType}
             onChange={(e) => setSheetType(e.target.value as PpcXlsxSheetType)}
-            className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className={OP_SELECT}
           >
             {SHEET_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -141,11 +145,11 @@ export function PpcRollingImportPanel() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium mb-1">Shift (when not in file)</label>
+          <label className={OP_LABEL}>Shift (when not in file)</label>
           <select
             value={shiftCode}
             onChange={(e) => setShiftCode(e.target.value)}
-            className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className={OP_SELECT}
           >
             <option value="A">A</option>
             <option value="B">B</option>
@@ -159,7 +163,7 @@ export function PpcRollingImportPanel() {
         accept=".xlsx,.xls"
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         className="block w-full text-sm text-muted-foreground
-          file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0
+          file:mr-4 file:py-2 file:px-4 file:rounded-sm file:border-0
           file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground"
       />
 
@@ -169,13 +173,13 @@ export function PpcRollingImportPanel() {
       </ZButton>
 
       {error && (
-        <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
       {commitResult && (
-        <div className="text-sm space-y-2 rounded-md border border-border p-3">
+        <div className="text-sm space-y-2 rounded-2xl border border-border bg-secondary/30 p-4">
           <p>
             Sync status: <span className="font-semibold text-success">{commitResult.status}</span>
             {' — '}{commitResult.loaded} batch{commitResult.loaded === 1 ? '' : 'es'} queued to machine orders
@@ -213,7 +217,7 @@ export function PpcRollingImportPanel() {
 
       {rows.length > 0 && (
         <>
-          <div className="text-xs text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1">
+          <div className="text-xs text-muted-foreground rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1">
             <p>
               Tab: <span className="font-mono">{parsedSheetName || '—'}</span>
               {' · '}
@@ -230,11 +234,11 @@ export function PpcRollingImportPanel() {
             )}
           </div>
 
-          <div className="overflow-auto max-h-96 border border-border rounded-lg">
+          <div className="overflow-auto max-h-96 border border-border rounded-2xl bg-white shadow-sm">
             <table className="w-full text-xs">
-              <thead className="bg-muted/50 sticky top-0">
-                <tr>
-                  <th className="p-2 text-left">
+              <thead className="bg-muted/30 sticky top-0">
+                <tr className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <th className="p-3 text-left">
                     <input
                       type="checkbox"
                       checked={selected.size === validRows.length && validRows.length > 0}
@@ -242,21 +246,21 @@ export function PpcRollingImportPanel() {
                       aria-label="Select all"
                     />
                   </th>
-                  <th className="p-2 text-left">Batch</th>
-                  <th className="p-2 text-left">Coil</th>
-                  <th className="p-2 text-left">Machine</th>
-                  <th className="p-2 text-left">Process</th>
-                  <th className="p-2 text-left">Date</th>
-                  <th className="p-2 text-right">Pass</th>
-                  <th className="p-2 text-right">Finish</th>
-                  <th className="p-2 text-left">Route</th>
-                  <th className="p-2 text-left">Errors</th>
+                  <th className="p-3 text-left">Batch</th>
+                  <th className="p-3 text-left">Coil</th>
+                  <th className="p-3 text-left">Machine</th>
+                  <th className="p-3 text-left">Process</th>
+                  <th className="p-3 text-left">Date</th>
+                  <th className="p-3 text-right">Pass</th>
+                  <th className="p-3 text-right">Finish</th>
+                  <th className="p-3 text-left">Route</th>
+                  <th className="p-3 text-left">Errors</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.batchNumber} className="border-t border-border hover:bg-muted/30">
-                    <td className="p-2">
+                  <tr key={row.batchNumber} className="border-t border-border hover:bg-secondary transition-colors">
+                    <td className="p-3">
                       {row.errors.length === 0 && (
                         <input
                           type="checkbox"
@@ -266,17 +270,17 @@ export function PpcRollingImportPanel() {
                         />
                       )}
                     </td>
-                    <td className="p-2 font-mono">{row.batchNumber}</td>
-                    <td className="p-2 font-mono">{row.coilNo}</td>
-                    <td className="p-2">
+                    <td className="p-3 font-mono">{row.batchNumber}</td>
+                    <td className="p-3 font-mono">{row.coilNo}</td>
+                    <td className="p-3">
                       <span className="font-semibold text-foreground">{row.machineCode}</span>
                     </td>
-                    <td className="p-2">{row.subProcess ?? 'ROLLING'}</td>
-                    <td className="p-2 font-mono">{row.planDate}</td>
-                    <td className="p-2 text-right font-mono">{row.rollingPassNo}</td>
-                    <td className="p-2 text-right font-mono">{row.finishThkMm}</td>
-                    <td className="p-2 font-mono text-[10px]">{row.processRouteRaw}</td>
-                    <td className="p-2 text-destructive">{row.errors.join('; ')}</td>
+                    <td className="p-3">{row.subProcess ?? 'ROLLING'}</td>
+                    <td className="p-3 font-mono">{row.planDate}</td>
+                    <td className="p-3 text-right font-mono">{row.rollingPassNo}</td>
+                    <td className="p-3 text-right font-mono">{row.finishThkMm}</td>
+                    <td className="p-3 font-mono text-[10px]">{row.processRouteRaw}</td>
+                    <td className="p-3 text-destructive">{row.errors.join('; ')}</td>
                   </tr>
                 ))}
               </tbody>

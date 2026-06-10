@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LiveOrderRow, LiveSnapshot } from '@m1/shared-validation';
-// Removed Shell import
+import type { LiveOrderRow } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
 import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { ZBadge } from '../../components/primitives/ZBadge';
+import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
-
-const POLL_MS = 12_000;
 
 function statusTone(status: string) {
   if (status === 'IN_PROGRESS' || status === 'PREPARING') return 'info' as const;
@@ -18,40 +16,30 @@ function statusTone(status: string) {
 }
 
 export function LiveDashboard() {
-  const [snapshot, setSnapshot] = useState<LiveSnapshot | null>(null);
+  const { snapshot, loading, error } = useLiveSnapshot();
   const [orders, setOrders] = useState<LiveOrderRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
 
-  // Modal State
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [detailData, setDetailData] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  // Machine Detail Modal State
   const [selectedMachineCode, setSelectedMachineCode] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const loadOrders = useCallback(async () => {
     try {
-      const [snap, ordersRes] = await Promise.all([
-        liveService.getSnapshot(),
-        liveService.getOrders(),
-      ]);
-      setSnapshot(snap);
+      const ordersRes = await liveService.getOrders();
       setOrders(ordersRes.orders);
-      setError(null);
+      setOrdersError(null);
     } catch (err: unknown) {
-      setError((err as Error)?.message ?? 'Unable to load live dashboard');
-    } finally {
-      setLoading(false);
+      setOrdersError((err as Error)?.message ?? 'Unable to load orders');
     }
   }, []);
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, POLL_MS);
+    void loadOrders();
+    const id = setInterval(() => void loadOrders(), LIVE_POLL_MS);
     return () => clearInterval(id);
-  }, [load]);
+  }, [loadOrders]);
 
   const loadDetail = useCallback(async (batchNo: string) => {
     setSelectedBatch(batchNo);
@@ -81,45 +69,48 @@ export function LiveDashboard() {
 
   const kpis = snapshot?.kpis;
   const machines = snapshot?.machines ?? [];
+  const refreshedAt = snapshot?.refreshedAt
+    ? new Date(snapshot.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
-      {error && <p className="text-sm text-destructive bg-destructive/10 p-4 rounded-xl mb-6">{error}</p>}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+          <span className="text-xs font-medium text-muted-foreground">Live — auto-refreshes every 8s</span>
+        </div>
+        {refreshedAt && (
+          <span className="text-xs text-muted-foreground">Updated {refreshedAt}</span>
+        )}
+      </div>
+
+      {(error || ordersError) && (
+        <p className="text-sm text-destructive bg-destructive/10 p-4 rounded-xl">
+          {error ?? ordersError}
+        </p>
+      )}
 
       {kpis && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Running', value: kpis.runningMachines, color: 'text-[#10B981]' },
-            { label: 'Idle', value: kpis.idleMachines, color: 'text-slate-500' },
-            { label: 'Stoppages', value: kpis.currentStoppages, color: 'text-amber-500' },
-            { label: 'Active Orders', value: kpis.activeOrders, color: 'text-blue-500' },
-          ].map((kpi) => (
-            <div key={kpi.label} className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm flex flex-col">
-              <div className="bg-muted/30 px-4 py-2 border-b border-border/50">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{kpi.label}</span>
-              </div>
-              <div className="px-4 py-4">
-                <span className={`font-mono text-3xl font-bold ${kpi.color}`}>{kpi.value}</span>
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
+          <CommandMetric label="Running" value={String(kpis.runningMachines)} tone="success" />
+          <CommandMetric label="Idle" value={String(kpis.idleMachines)} tone="muted" />
+          <CommandMetric label="Stoppages" value={String(kpis.currentStoppages)} tone="warning" />
+          <CommandMetric label="Active Orders" value={String(kpis.activeOrders)} tone="info" />
         </div>
       )}
 
       <div className="flex flex-col gap-8 w-full">
-        
-        {/* Machine Line Status Board */}
         <div className="space-y-4">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
-            Line Status Board
+            Machine Status Board
           </h2>
-          <MachineStatusBoard 
-            machines={machines} 
-            onSelect={(code) => setSelectedMachineCode(code)} 
+          <MachineStatusBoard
+            machines={machines}
+            onSelect={(code) => setSelectedMachineCode(code)}
           />
         </div>
 
-        {/* Live Orders */}
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
             <div className="bg-muted/30 px-5 py-3 border-b border-border/50 flex items-center gap-2">
@@ -128,7 +119,7 @@ export function LiveDashboard() {
                 Live Queue
               </h2>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -142,8 +133,8 @@ export function LiveDashboard() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {orders.map((o) => (
-                    <tr 
-                      key={o.batchNumber} 
+                    <tr
+                      key={o.batchNumber}
                       className="hover:bg-muted/30 cursor-pointer transition-colors"
                       onClick={() => loadDetail(o.batchNumber)}
                     >
@@ -185,21 +176,20 @@ export function LiveDashboard() {
             </div>
           </div>
         </div>
-
       </div>
 
-      <OrderDetailModal 
-        open={!!selectedBatch} 
-        onClose={closeDetail} 
-        order={detailData} 
-        loading={detailLoading} 
+      <OrderDetailModal
+        open={!!selectedBatch}
+        onClose={closeDetail}
+        order={detailData}
+        loading={detailLoading}
       />
 
       <MachineDetailModal
         open={!!selectedMachineCode}
         onClose={() => setSelectedMachineCode(null)}
         machineCode={selectedMachineCode}
-        machineData={machines.find(m => m.machineCode === selectedMachineCode)}
+        machineData={machines.find((m) => m.machineCode === selectedMachineCode)}
       />
     </div>
   );

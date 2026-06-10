@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { traceabilityService, type TraceabilitySearchResult } from '../../lib/traceabilityService';
+import { formatTraceabilityRecordDetails } from '../../lib/traceabilityFormat';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -143,17 +144,34 @@ export function PlantOrderTracking() {
                       </td>
                     </tr>
                   )}
-                  {result.history.map((entry, idx) => (
+                  {result.history.map((entry, idx) => {
+                    const details = formatTraceabilityRecordDetails(entry.process, entry.record, {
+                      stoppages: entry.stoppages,
+                      siblings: entry.siblings,
+                    });
+                    return (
                     <tr key={`${entry.process}-${entry.coilNo}-${idx}`}>
                       <td className="px-4 py-3">
                         <StatusBadge tone="muted" label={entry.process} />
                       </td>
                       <td className="px-4 py-3 font-mono">{entry.coilNo}</td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs font-mono truncate max-w-md">
-                        {JSON.stringify(entry.record).slice(0, 120)}…
+                      <td className="px-4 py-3 text-xs">
+                        {details.length > 0 ? (
+                          <dl className="flex flex-wrap gap-x-4 gap-y-1">
+                            {details.map(({ label, value }) => (
+                              <div key={label} className="flex gap-1.5">
+                                <dt className="text-muted-foreground">{label}</dt>
+                                <dd className="font-medium text-foreground">{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

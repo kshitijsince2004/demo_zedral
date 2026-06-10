@@ -24,6 +24,12 @@ vi.mock('../src/lib/reportingService', () => ({
   },
 }));
 
+vi.mock('../src/hooks/useLiveSnapshot', () => ({
+  useLiveSnapshot: () => ({ snapshot: null, loading: false, error: null, refresh: vi.fn() }),
+  LIVE_POLL_MS: 8000,
+  machineStatusLabel: (s: string) => s,
+}));
+
 describe('PlantHeadDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();

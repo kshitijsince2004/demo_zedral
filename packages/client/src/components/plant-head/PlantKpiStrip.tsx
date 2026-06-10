@@ -1,18 +1,26 @@
 import React from 'react';
+import type { LiveKpis } from '@m1/shared-validation';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 
 interface PlantKpiStripProps {
   data: ExtendedPlantHeadDashboardData;
+  liveKpis?: LiveKpis;
 }
 
-export function PlantKpiStrip({ data }: PlantKpiStripProps) {
+export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
+  const runningOrders = liveKpis?.activeOrders ?? data.runningOrders;
+  const utilizationPct = liveKpis?.utilizationPct ?? data.overallUtilizationPct;
+  const activeAlerts = liveKpis
+    ? liveKpis.breakdownMachines + liveKpis.currentStoppages
+    : data.activeAlerts;
+
   const kpis = [
     { label: "Today's Production", value: `${data.productionTodayMt} MT`, trend: data.productionTrend },
     { label: "Current Shift", value: `${data.shiftProductionMt} MT`, trend: '+1.2%' },
-    { label: "Plant Utilization", value: `${data.overallUtilizationPct}%`, trend: '+0.5%' },
+    { label: "Plant Utilization", value: `${utilizationPct}%`, trend: liveKpis ? 'Live' : '+0.5%' },
     { label: "OEE", value: `${data.oeePct}%`, trend: '-0.3%' },
-    { label: "Running Orders", value: data.runningOrders, trend: null },
-    { label: "Active Alerts", value: data.activeAlerts, trend: null },
+    { label: "Running Orders", value: runningOrders, trend: liveKpis ? `${liveKpis.runningMachines} machines` : null },
+    { label: "Active Alerts", value: activeAlerts, trend: liveKpis ? `${liveKpis.currentStoppages} stoppages` : null },
   ];
 
   return (

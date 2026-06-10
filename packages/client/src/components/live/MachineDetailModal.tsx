@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { MachineCommandCenterData, MachineStatusCard } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { Activity, AlertTriangle, Power, ShieldAlert, X } from 'lucide-react';
 import { liveService } from '../../lib/liveService';
 
@@ -64,7 +65,7 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
       void liveService.getMachineState(machineCode)
         .then((data) => { if (active) setDetail(data); })
         .catch(() => {});
-    }, 12_000);
+    }, LIVE_POLL_MS);
 
     return () => {
       active = false;

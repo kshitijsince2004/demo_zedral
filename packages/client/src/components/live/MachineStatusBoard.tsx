@@ -2,16 +2,22 @@ import React from 'react';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
+import { toneRail, toneText, type Tone } from '../../lib/tones';
 
-function getHeaderConfig(status: MachineLiveStatus) {
-  switch (status) {
-    case 'RUNNING': return { bg: 'bg-[#10B981]', text: 'text-white', badgeText: 'text-[#10B981]' };
-    case 'IDLE': return { bg: 'bg-[#8CA0B9]', text: 'text-white', badgeText: 'text-slate-600' };
-    case 'BREAKDOWN': return { bg: 'bg-destructive', text: 'text-white', badgeText: 'text-destructive' };
-    case 'STOPPAGE': return { bg: 'bg-warning', text: 'text-white', badgeText: 'text-warning' };
-    case 'MAINTENANCE': return { bg: 'bg-info', text: 'text-white', badgeText: 'text-info' };
-    default: return { bg: 'bg-[#8CA0B9]', text: 'text-white', badgeText: 'text-slate-600' };
-  }
+function getHeaderConfig(status: MachineLiveStatus): { bg: string; text: string; badgeText: string } {
+  const toneMap: Record<MachineLiveStatus, Tone> = {
+    RUNNING: 'success',
+    IDLE: 'muted',
+    BREAKDOWN: 'destructive',
+    STOPPAGE: 'warning',
+    MAINTENANCE: 'info',
+  };
+  const tone = toneMap[status] ?? 'muted';
+  return {
+    bg: toneRail[tone],
+    text: 'text-white',
+    badgeText: toneText[tone],
+  };
 }
 
 function formatUpdatedAt(iso?: string): string {
@@ -25,30 +31,30 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <>
       <div className="flex justify-between items-baseline mb-4">
-        <span className="text-3xl font-mono font-bold tracking-tight text-[#10B981]">{formatted}</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#10B981]">Runtime</span>
+        <span className="text-3xl font-mono font-bold tracking-tight text-success">{formatted}</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-success">Runtime</span>
       </div>
 
-      <div className="bg-[#ECFDF5] rounded-xl p-3 mb-4">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-[#10B981] mb-1">Current Order</div>
-        <div className="font-bold text-sm text-gray-900">{m.currentOrder || '—'}</div>
+      <div className="bg-success/10 rounded-xl p-3 mb-4">
+        <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-1">Current Order</div>
+        <div className="font-bold text-sm text-foreground">{m.currentOrder || '—'}</div>
         {m.currentCoil && (
-          <div className="text-xs text-slate-500 mt-1 font-mono">Coil {m.currentCoil}</div>
+          <div className="text-xs text-muted-foreground mt-1 font-mono">Coil {m.currentCoil}</div>
         )}
       </div>
 
       <div className="grid grid-cols-2 gap-y-3">
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Operator</div>
-          <div className="text-xs font-bold text-gray-900">{m.currentOperator || '—'}</div>
+          <div className="text-[11px] text-muted-foreground mb-0.5">Operator</div>
+          <div className="text-xs font-bold text-foreground">{m.currentOperator || '—'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Shift</div>
-          <div className="text-xs font-bold text-gray-900">{m.shiftCode || '—'}</div>
+          <div className="text-[11px] text-muted-foreground mb-0.5">Shift</div>
+          <div className="text-xs font-bold text-foreground">{m.shiftCode || '—'}</div>
         </div>
         <div className="col-span-2">
-          <div className="text-[11px] text-slate-500 mb-0.5">Produced</div>
-          <div className="text-xs font-bold text-[#10B981]">
+          <div className="text-[11px] text-muted-foreground mb-0.5">Produced</div>
+          <div className="text-xs font-bold text-success">
             {m.productionWeightMt != null ? `${m.productionWeightMt} MT` : '—'}
           </div>
         </div>
@@ -63,20 +69,20 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <>
       <div className="flex justify-between items-baseline mb-4">
-        <span className="text-3xl font-mono font-bold tracking-tight text-slate-600">
+        <span className="text-3xl font-mono font-bold tracking-tight text-muted-foreground">
           {m.stateSinceAt ? formatted : '—'}
         </span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Idle For</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Idle For</span>
       </div>
 
       <div className="grid grid-cols-1 gap-y-4">
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Last Order</div>
-          <div className="text-xs font-medium text-gray-900">{m.lastOrderBatchNumber || '—'}</div>
+          <div className="text-[11px] text-muted-foreground mb-0.5">Last Order</div>
+          <div className="text-xs font-medium text-foreground">{m.lastOrderBatchNumber || '—'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Last Operator</div>
-          <div className="text-xs font-medium text-gray-900">{m.lastOperatorName || '—'}</div>
+          <div className="text-[11px] text-muted-foreground mb-0.5">Last Operator</div>
+          <div className="text-xs font-medium text-foreground">{m.lastOperatorName || '—'}</div>
         </div>
       </div>
     </>
@@ -91,28 +97,28 @@ function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDe
     <>
       <div className="flex justify-between items-baseline mb-4">
         <span className={`text-3xl font-mono font-bold tracking-tight ${colorClass}`}>{formatted}</span>
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${colorClass}`}>
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${colorClass}`}>
           {isDefect ? 'Breakdown' : 'Stoppage'}
         </span>
       </div>
 
       <div className="grid grid-cols-1 gap-y-4">
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Reason</div>
-          <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+          <div className="text-[11px] text-muted-foreground mb-0.5">Reason</div>
+          <div className="text-sm font-semibold text-foreground flex items-center gap-1.5">
             {isDefect ? <ShieldAlert className={`w-4 h-4 ${colorClass}`} /> : <AlertTriangle className={`w-4 h-4 ${colorClass}`} />}
             {m.activeStoppageReason || '—'}
           </div>
         </div>
         {m.currentOrder && (
           <div>
-            <div className="text-[11px] text-slate-500 mb-0.5">Order</div>
-            <div className="text-xs font-mono font-bold text-gray-900">{m.currentOrder}</div>
+            <div className="text-[11px] text-muted-foreground mb-0.5">Order</div>
+            <div className="text-xs font-mono font-bold text-foreground">{m.currentOrder}</div>
           </div>
         )}
         <div>
-          <div className="text-[11px] text-slate-500 mb-0.5">Since</div>
-          <div className="text-xs font-medium text-gray-900">{formatUpdatedAt(m.stateSinceAt)}</div>
+          <div className="text-[11px] text-muted-foreground mb-0.5">Since</div>
+          <div className="text-xs font-medium text-foreground">{formatUpdatedAt(m.stateSinceAt)}</div>
         </div>
       </div>
     </>
@@ -127,7 +133,7 @@ interface MachineStatusBoardProps {
 export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardProps) {
   if (machines.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground py-8 text-center border border-dashed border-border rounded-2xl">
+      <p className="text-sm text-muted-foreground py-8 text-center border border-dashed border-border rounded-2xl bg-white">
         No machines in scope
       </p>
     );
@@ -138,15 +144,14 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
       {machines.map((m) => {
         const header = getHeaderConfig(m.status);
         const isRunning = m.status === 'RUNNING';
-        
+
         return (
           <button
             key={m.machineCode}
             type="button"
             onClick={() => onSelect?.(m.machineCode)}
-            className="border-x border-b border-t-0 border-border rounded-2xl bg-white shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/40 overflow-hidden relative min-h-[320px]"
+            className="border border-border rounded-2xl bg-white shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/40 overflow-hidden relative min-h-[320px]"
           >
-            {/* Colored Header */}
             <div className={`px-4 py-3 flex items-center justify-between ${header.bg} ${header.text}`}>
               <div className="flex items-center gap-2">
                 {isRunning && <div className="w-2 h-2 rounded-full bg-white/80" />}
@@ -157,7 +162,6 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
               </div>
             </div>
 
-            {/* Dynamic Content Area */}
             <div className="p-5 flex-1 flex flex-col">
               {m.status === 'RUNNING' && <RunningStateInfo m={m} />}
               {m.status === 'IDLE' && <IdleStateInfo m={m} />}
@@ -165,11 +169,10 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
               {m.status === 'BREAKDOWN' && <StoppageStateInfo m={m} isDefect={true} />}
               {m.status === 'MAINTENANCE' && <IdleStateInfo m={m} />}
             </div>
-            
-            {/* Footer */}
+
             <div className="px-5 py-3 border-t border-border/50 flex justify-between items-center">
-              <span className="text-[10px] font-bold text-slate-400 uppercase">{m.machineCode}</span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase">{m.machineCode}</span>
+              <span className="text-[10px] text-muted-foreground">
                 Updated {formatUpdatedAt(m.lastUpdateAt ?? m.stateSinceAt)}
               </span>
             </div>

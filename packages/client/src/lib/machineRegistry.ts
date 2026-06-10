@@ -30,11 +30,17 @@ export function invalidateMachineRegistryCache(): void {
   cache = null;
 }
 
+const ALLOWED_ROLLING = ['6HI', '4HI'];
+const ALLOWED_SKIN_PASS = ['2HI', '4HI', '6HI'];
+
 export async function millsForSubProcessFromRegistry(
   subProcess: 'ROLLING' | 'SKIN_PASS',
 ): Promise<string[]> {
+  const allowed = subProcess === 'ROLLING' ? ALLOWED_ROLLING : ALLOWED_SKIN_PASS;
   const machines = await fetchMachineRegistry();
-  const filtered = machines.filter((m) => (subProcess === 'ROLLING' ? m.rolling : m.skinPass));
+  const filtered = machines.filter(
+    (m) => (subProcess === 'ROLLING' ? m.rolling : m.skinPass) && allowed.includes(m.machineCode),
+  );
   if (filtered.length > 0) return filtered.map((m) => m.machineCode);
-  return subProcess === 'ROLLING' ? ['6HI', '4HI'] : ['2HI', '4HI', '6HI'];
+  return allowed;
 }

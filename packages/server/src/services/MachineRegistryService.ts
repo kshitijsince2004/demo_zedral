@@ -101,14 +101,15 @@ export class MachineRegistryService {
   }
 
   static async getMillsForSubProcess(subProcess: CrmSubProcess, includeOffline = false): Promise<string[]> {
+    const allowed = subProcess === 'ROLLING' ? [...FALLBACK_ROLLING] : [...FALLBACK_SKIN_PASS];
     const all = await this.getAll(includeOffline);
     const filtered = all.filter((m) =>
-      subProcess === 'ROLLING' ? m.rolling : m.skinPass,
+      (subProcess === 'ROLLING' ? m.rolling : m.skinPass) && allowed.includes(m.machineCode),
     );
     if (filtered.length > 0) {
       return filtered.map((m) => m.machineCode);
     }
-    return subProcess === 'ROLLING' ? [...FALLBACK_ROLLING] : [...FALLBACK_SKIN_PASS];
+    return allowed;
   }
 
   static async resolveMachineCode(raw: string): Promise<string | null> {

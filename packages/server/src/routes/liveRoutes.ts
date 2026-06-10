@@ -82,6 +82,13 @@ router.get('/machines', async (req, res) => {
 /** GET /live/machines/:machineCode/state — current machine state + active event */
 router.get('/machines/:machineCode/state', async (req, res) => {
   try {
+    const roles = req.user?.roles ?? [];
+    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    if (filter !== null) {
+      if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
+        return res.status(403).json({ error: 'Machine not in your scope' });
+      }
+    }
     const data = await LiveService.getMachineCommandCenterData(req.params.machineCode);
     if (!data) return res.status(404).json({ error: 'Machine not found' });
     res.json(data);
@@ -94,6 +101,13 @@ router.get('/machines/:machineCode/state', async (req, res) => {
 /** GET /live/machines/:machineCode/timeline?hours=24 — event log */
 router.get('/machines/:machineCode/timeline', async (req, res) => {
   try {
+    const roles = req.user?.roles ?? [];
+    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    if (filter !== null) {
+      if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
+        return res.status(403).json({ error: 'Machine not in your scope' });
+      }
+    }
     const hours = Math.min(168, Math.max(1, Number(req.query.hours ?? 24)));
     const timeline = await MachineStateEventService.getTimeline(req.params.machineCode, hours);
     res.json({ machineCode: req.params.machineCode, hours, timeline, refreshedAt: new Date().toISOString() });
@@ -106,6 +120,13 @@ router.get('/machines/:machineCode/timeline', async (req, res) => {
 /** GET /live/machines/:machineCode/analytics?hours=24 — utilization summary */
 router.get('/machines/:machineCode/analytics', async (req, res) => {
   try {
+    const roles = req.user?.roles ?? [];
+    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    if (filter !== null) {
+      if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
+        return res.status(403).json({ error: 'Machine not in your scope' });
+      }
+    }
     const hours = Math.min(168, Math.max(1, Number(req.query.hours ?? 24)));
     const utilization = await MachineStateEventService.getUtilizationSummary(req.params.machineCode, hours);
     res.json(utilization);
@@ -148,9 +169,9 @@ router.get('/stream', async (req, res) => {
     }
   };
 
-  // Send immediately on connect, then every 15 seconds
+  // Send immediately on connect, then every 8 seconds (matches client poll)
   await sendEvent();
-  const interval = setInterval(sendEvent, 15_000);
+  const interval = setInterval(sendEvent, 8_000);
 
   // Heartbeat to keep connection alive through proxies
   const heartbeat = setInterval(() => {

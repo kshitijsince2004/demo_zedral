@@ -11,7 +11,8 @@ import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiPillTabs } from '../../components/sixHi/SixHiPillTabs';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { SixHiBatchDetailPanel } from '../../components/sixHi/SixHiBatchDetailPanel';
-import { MachineAllocationModal, type CrmMillCode } from '../../components/sixHi/MachineAllocationModal';
+import { MachineAllocationModal, type CrmMillCode, type MachineAllocationMode } from '../../components/sixHi/MachineAllocationModal';
+import { invalidateMachineRegistryCache } from '../../lib/machineRegistry';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
 import { useShiftStore } from '../../store/shiftStore';
@@ -62,8 +63,10 @@ export function SixHiHub() {
   const subProcessLabel = activeTab === 'rolling' ? 'Rolling' : 'Skin Pass';
 
   const [queue, setQueue] = useState<SixHiQueueCard[]>([]);
+  const [pendingQueue, setPendingQueue] = useState<SixHiQueueCard[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
+  const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
   const [allocBatches, setAllocBatches] = useState<SixHiQueueCard[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -103,6 +106,7 @@ export function SixHiHub() {
         `/6hi/queue?subProcess=${apiSubProcess}&date=${date}&shift=${shift}&machine=${queueMachine}`,
       );
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
+      const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
       if (!Array.isArray(res) && res.planDate) {
         useShiftStore.setState({
           shiftDate: res.planDate,
@@ -110,6 +114,7 @@ export function SixHiHub() {
         });
       }
       setQueue(items);
+      setPendingQueue(pending);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         logout();
@@ -122,6 +127,7 @@ export function SixHiHub() {
         setQueueError(err instanceof Error ? err.message : 'Failed to load queue');
       }
       setQueue([]);
+      setPendingQueue([]);
     } finally {
       setLoading(false);
     }
@@ -133,8 +139,10 @@ export function SixHiHub() {
     return () => clearInterval(id);
   }, [loadQueue, queueRefreshToken]);
 
+  const allOrders = useMemo(() => [...pendingQueue, ...queue], [pendingQueue, queue]);
+
   useEffect(() => {
-    const filtered = statusFilter === 'ALL' ? queue : queue.filter((c) => matchesFilter(c, statusFilter));
+    const filtered = statusFilter === 'ALL' ? allOrders : allOrders.filter((c) => matchesFilter(c, statusFilter));
     if (filtered.length > 0 && !selectedBatch) {
       setSelectedBatch(filtered[0].batchNumber);
     } else if (filtered.length > 0 && !filtered.find((c) => c.batchNumber === selectedBatch)) {
@@ -142,7 +150,7 @@ export function SixHiHub() {
     } else if (filtered.length === 0) {
       setSelectedBatch(null);
     }
-  }, [queue, statusFilter, selectedBatch]);
+  }, [allOrders, statusFilter, selectedBatch]);
 
   const setTab = (id: string) => {
     setSearchParams({ tab: id, status: statusFilter });
@@ -155,31 +163,45 @@ export function SixHiHub() {
   };
 
   const filteredQueue = useMemo(
+    () => allOrders.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
+    [allOrders, statusFilter, search],
+  );
+
+  const filteredPending = useMemo(
+    () => pendingQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
+    [pendingQueue, statusFilter, search],
+  );
+
+  const filteredAssigned = useMemo(
     () => queue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
     [queue, statusFilter, search],
   );
 
   const selected = filteredQueue.find((c) => c.batchNumber === selectedBatch)
-    ?? queue.find((c) => c.batchNumber === selectedBatch)
+    ?? allOrders.find((c) => c.batchNumber === selectedBatch)
     ?? null;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {
-      ALL: queue.length,
+      ALL: allOrders.length,
       PENDING: 0,
       PREPARING: 0,
       IN_PROGRESS: 0,
       COMPLETED: 0,
     };
-    for (const card of queue) {
+    for (const card of allOrders) {
       c[card.status] = (c[card.status] ?? 0) + 1;
     }
     return c;
-  }, [queue]);
+  }, [allOrders]);
+
+  const needsMachineSelection = (card: SixHiQueueCard) =>
+    card.machineAllocated === false || !card.machineCode || card.machineCode !== queueMachine;
 
   const moveToProduction = (card: SixHiQueueCard) => {
     if (card.status === 'COMPLETED') return;
-    if (card.machineAllocated === false) {
+    if (needsMachineSelection(card)) {
+      setAllocMode('production');
       setAllocBatches([card]);
       setAllocOpen(true);
       return;
@@ -189,21 +211,105 @@ export function SixHiHub() {
 
   const moveToMachine = (card: SixHiQueueCard) => {
     if (card.status === 'COMPLETED' || card.machineAllocated === false) return;
+    setAllocMode('transfer');
     setAllocBatches([card]);
     setAllocOpen(true);
   };
 
   const handleAllocate = async (machineCode: CrmMillCode) => {
     if (allocBatches.length === 0) return;
+
+    if (allocMode === 'production') {
+      for (const batch of allocBatches) {
+        await apiClient.post(
+          `/6hi/orders/${encodeURIComponent(batch.batchNumber)}/allocate-machine`,
+          { machineCode },
+        );
+      }
+      invalidateMachineRegistryCache();
+      const targetBatch = allocBatches[0]?.batchNumber;
+      setAllocOpen(false);
+      setAllocBatches([]);
+      useSixHiStore.getState().requestQueueRefresh();
+      await loadQueue();
+      if (targetBatch && machineCode === queueMachine) {
+        openWorkspace(targetBatch);
+      }
+      return;
+    }
+
     await apiClient.post(
-      `/6hi/orders/transfer-machines`,
-      { machineCode, batchNumbers: allocBatches.map(b => b.batchNumber) },
+      '/6hi/orders/transfer-machines',
+      { machineCode, batchNumbers: allocBatches.map((b) => b.batchNumber) },
     );
+    invalidateMachineRegistryCache();
     setAllocOpen(false);
     setIsTransferMode(false);
     setSelectedForTransfer(new Set());
     useSixHiStore.getState().requestQueueRefresh();
     setAllocBatches([]);
+    await loadQueue();
+  };
+
+  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean }) => {
+    const isSelected = isTransferMode
+      ? selectedForTransfer.has(card.batchNumber)
+      : card.batchNumber === selectedBatch;
+    const isActive = machineActive?.batchNumber === card.batchNumber;
+    const routeCode = card.subProcess === 'ROLLING' ? '4' : 'X';
+
+    return (
+      <button
+        key={card.batchNumber}
+        type="button"
+        onClick={() => {
+          if (isTransferMode) {
+            const next = new Set(selectedForTransfer);
+            if (next.has(card.batchNumber)) next.delete(card.batchNumber);
+            else next.add(card.batchNumber);
+            setSelectedForTransfer(next);
+          } else {
+            setSelectedBatch(card.batchNumber);
+          }
+        }}
+        className={[
+          'w-full text-left border-b border-border px-5 py-4 transition-colors min-h-[88px]',
+          'hover:bg-secondary active:bg-secondary',
+          isSelected && !isTransferMode ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
+          isSelected && isTransferMode ? 'bg-primary/5 border-l-4 border-l-primary' : '',
+          isActive ? 'ring-1 ring-inset ring-warning/30' : '',
+          opts?.pending ? 'bg-secondary/40' : '',
+        ].join(' ')}
+      >
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <span className="font-mono text-base font-bold text-foreground">{card.batchNumber}</span>
+          <div className="flex items-center gap-2">
+            {opts?.pending && (
+              <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-warning/15 text-warning">
+                Awaiting mill
+              </span>
+            )}
+            <SixHiStatusPill status={card.status} prepReady={card.prepReady} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span className="truncate">{card.customer}</span>
+          <span className="font-mono truncate">{card.motherCoil}</span>
+          <span className="font-mono">
+            {card.inputThkMm}→{card.targetThkMm} mm
+            {card.finishThkMm != null && card.finishThkMm !== card.targetThkMm ? ` (fin ${card.finishThkMm})` : ''}
+            {card.rollingPassNo && card.rollingPassNo > 1 ? ` · P${card.rollingPassNo}` : ''}
+          </span>
+          <span className="font-mono">{card.weightMt} MT</span>
+          <span className="font-mono text-[10px] uppercase tracking-wide">Route {routeCode}</span>
+          <span className="font-semibold text-foreground col-span-1 md:col-span-3">
+            {card.machineAllocated === false
+              ? `Unassigned${card.suggestedMachineCode ? ` · hint ${card.suggestedMachineCode}` : ''}`
+              : `Mill ${card.machineCode}`}
+          </span>
+        </div>
+      </button>
+    );
   };
 
   return (
@@ -276,55 +382,24 @@ export function SixHiHub() {
                 <p className="text-muted-foreground text-base mb-2">No orders match this filter</p>
               </div>
             )}
-            {!loading && filteredQueue.map((card) => {
-              const isSelected = isTransferMode 
-                ? selectedForTransfer.has(card.batchNumber)
-                : card.batchNumber === selectedBatch;
-              const isActive = machineActive?.batchNumber === card.batchNumber;
-              return (
-                <button
-                  key={card.batchNumber}
-                  type="button"
-                  onClick={() => {
-                    if (isTransferMode) {
-                      const next = new Set(selectedForTransfer);
-                      if (next.has(card.batchNumber)) next.delete(card.batchNumber);
-                      else next.add(card.batchNumber);
-                      setSelectedForTransfer(next);
-                    } else {
-                      setSelectedBatch(card.batchNumber);
-                    }
-                  }}
-                  className={[
-                    'w-full text-left border-b border-border px-5 py-4 transition-colors min-h-[88px]',
-                    'hover:bg-secondary active:bg-secondary',
-                    isSelected && !isTransferMode ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
-                    isSelected && isTransferMode ? 'bg-primary/5 border-l-4 border-l-primary' : '',
-                    isActive ? 'ring-1 ring-inset ring-warning/30' : '',
-                  ].join(' ')}
-                >
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <span className="font-mono text-base font-bold text-foreground">{card.batchNumber}</span>
-                    <SixHiStatusPill status={card.status} prepReady={card.prepReady} />
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                    <span className="truncate">{card.customer}</span>
-                    <span className="font-mono truncate">{card.motherCoil}</span>
-                    <span className="font-mono">
-                      {card.inputThkMm}→{card.targetThkMm} mm
-                      {card.finishThkMm != null && card.finishThkMm !== card.targetThkMm ? ` (fin ${card.finishThkMm})` : ''}
-                      {card.rollingPassNo && card.rollingPassNo > 1 ? ` · P${card.rollingPassNo}` : ''}
-                    </span>
-                    <span className="font-mono">{card.weightMt} MT</span>
-                    <span className="font-semibold text-foreground">
-                      {card.machineAllocated === false
-                        ? `Unassigned${card.suggestedMachineCode ? ` · hint ${card.suggestedMachineCode}` : ''}`
-                        : card.machineCode}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+            {!loading && filteredPending.length > 0 && (
+              <>
+                <div className="px-5 py-2 bg-secondary/60 border-b border-border">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Awaiting machine · {filteredPending.length}
+                  </p>
+                </div>
+                {filteredPending.map((card) => renderQueueRow(card, { pending: true }))}
+              </>
+            )}
+            {!loading && filteredAssigned.length > 0 && filteredPending.length > 0 && (
+              <div className="px-5 py-2 bg-muted/30 border-b border-border">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  {queueMachine} queue · {filteredAssigned.length}
+                </p>
+              </div>
+            )}
+            {!loading && filteredAssigned.map((card) => renderQueueRow(card))}
           </div>
         </div>
 
@@ -332,6 +407,7 @@ export function SixHiHub() {
           <SixHiBatchDetailPanel
             batch={selected}
             subProcessLabel={subProcessLabel}
+            currentMill={queueMachine}
             onOpen={() => selected && moveToProduction(selected)}
             onMoveToMachine={() => selected && moveToMachine(selected)}
           />
@@ -345,7 +421,8 @@ export function SixHiHub() {
             type="button"
             className="bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-bold px-4 py-2 rounded-full transition-colors"
             onClick={() => {
-              setAllocBatches(queue.filter((c) => selectedForTransfer.has(c.batchNumber)));
+              setAllocMode('transfer');
+              setAllocBatches(allOrders.filter((c) => selectedForTransfer.has(c.batchNumber)));
               setAllocOpen(true);
             }}
           >
@@ -356,6 +433,7 @@ export function SixHiHub() {
 
       <MachineAllocationModal
         open={allocOpen}
+        mode={allocMode}
         batches={allocBatches}
         onClose={() => { setAllocOpen(false); setAllocBatches([]); }}
         onConfirm={handleAllocate}

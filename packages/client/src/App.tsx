@@ -23,7 +23,6 @@ import { DprExport } from './pages/reports/DprExport';
 import { PlantHeadDashboard } from './pages/reports/PlantHeadDashboard';
 import { PlantProduction } from './pages/reports/PlantProduction';
 import { PlantOrderTracking } from './pages/reports/PlantOrderTracking';
-import { PlantLineStatus } from './pages/reports/PlantLineStatus';
 import { PlantDefects } from './pages/reports/PlantDefects';
 import { PlantStoppages } from './pages/reports/PlantStoppages';
 import { PlantAlerts } from './pages/reports/PlantAlerts';
@@ -91,7 +90,6 @@ function App() {
           <Route path="live" element={<LiveDashboard />} />
           <Route path="production" element={<PlantProduction />} />
           <Route path="orders" element={<PlantOrderTracking />} />
-          <Route path="lines" element={<PlantLineStatus />} />
           <Route path="defect-intelligence" element={<IntelligenceComingSoon title="Defect Intelligence" />} />
           <Route path="downtime-intelligence" element={<IntelligenceComingSoon title="Downtime Intelligence" />} />
           <Route path="audit" element={<AuditTrailView />} />

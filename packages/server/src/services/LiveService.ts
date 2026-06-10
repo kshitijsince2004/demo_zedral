@@ -15,6 +15,52 @@ import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
 const QUEUE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED'] as const;
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
+const ORDER_STATUS_PRIORITY: Record<string, number> = {
+  STOPPAGE: 4,
+  IN_PROGRESS: 3,
+  PREPARING: 2,
+  PENDING: 1,
+};
+
+function statusFromActiveOrder(
+  orderStatus: string,
+  stoppageCategory?: string | null,
+): MachineLiveStatus | null {
+  if (orderStatus === 'STOPPAGE') {
+    return stoppageCategory === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
+  }
+  if (orderStatus === 'IN_PROGRESS' || orderStatus === 'PREPARING' || orderStatus === 'PENDING') {
+    return 'RUNNING';
+  }
+  return null;
+}
+
+function resolveMachineLiveStatus(
+  masterStatus: string | null | undefined,
+  event: {
+    event_type: string;
+    category_code?: string | null;
+  } | undefined,
+  activeOrder: {
+    status: string;
+    stoppage_category?: string | null;
+  } | undefined,
+): MachineLiveStatus {
+  if (masterStatus === 'MAINTENANCE' || event?.event_type === 'MAINTENANCE_STARTED') {
+    return 'MAINTENANCE';
+  }
+  if (event?.event_type === 'STOPPAGE_STARTED') {
+    return event.category_code === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
+  }
+  if (event?.event_type === 'RUNNING_STARTED') {
+    return 'RUNNING';
+  }
+  if (activeOrder) {
+    const fromOrder = statusFromActiveOrder(activeOrder.status, activeOrder.stoppage_category);
+    if (fromOrder) return fromOrder;
+  }
+  return 'IDLE';
+}
 
 function mapSixHiStatus(raw: string, prepReady?: boolean): LiveOrderRow['status'] {
   if (raw === 'PENDING' && prepReady) return 'PREPARING';
@@ -217,29 +263,55 @@ export class LiveService {
       eventsByMachine.set(ev.machine_code, ev);
     }
 
-    // 2. Fetch active order weights for the batch numbers referenced in the current events
-    const activeBatchNumbers = Array.from(eventsByMachine.values())
-      .map(e => e.batch_number)
-      .filter((b): b is string => b !== null);
-
-    const activeOrders = activeBatchNumbers.length > 0
-      ? await db.selectFrom('txn.crm6_order as o')
-          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+    // 2. Active allocated orders per machine (canonical fallback when state events are missing)
+    const machineCodes = machines.map((m) => m.machine_code);
+    const activeOrderRows = machineCodes.length > 0
+      ? await db.selectFrom('planning.ppc_batch as pb')
+          .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+          .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
           .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
           .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+          .leftJoin('txn.order_stoppage as os', (join) =>
+            join.onRef('os.order_id', '=', 'o.order_id').on('os.end_at', 'is', null))
+          .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
           .select([
+            'pb.machine_code',
             'o.batch_number',
+            'o.status',
+            'o.prod_start_at',
             'o.updated_at',
             'pb.coil_no',
+            'pb.queue_seq',
+            'u.full_name as operator_name',
+            'os.category_code as stoppage_category',
+            'sc.label as stoppage_label',
             'r.actual_weight_mt as rolling_weight',
             's.actual_weight_mt as skinpass_weight',
           ])
-          .where('o.batch_number', 'in', activeBatchNumbers)
+          .where('pb.machine_allocated', '=', true)
+          .where('pb.machine_code', 'in', machineCodes)
+          .where('o.status', 'in', ACTIVE_STATUSES)
+          .orderBy('pb.queue_seq', 'asc')
           .execute()
       : [];
 
-    const orderStatsByBatch = new Map<string, typeof activeOrders[0]>();
-    for (const o of activeOrders) {
+    const activeOrderByMachine = new Map<string, typeof activeOrderRows[0]>();
+    for (const row of activeOrderRows) {
+      if (!row.machine_code) continue;
+      const existing = activeOrderByMachine.get(row.machine_code);
+      if (!existing) {
+        activeOrderByMachine.set(row.machine_code, row);
+        continue;
+      }
+      const existingPri = ORDER_STATUS_PRIORITY[existing.status] ?? 0;
+      const rowPri = ORDER_STATUS_PRIORITY[row.status] ?? 0;
+      if (rowPri > existingPri) {
+        activeOrderByMachine.set(row.machine_code, row);
+      }
+    }
+
+    const orderStatsByBatch = new Map<string, typeof activeOrderRows[0]>();
+    for (const o of activeOrderRows) {
       orderStatsByBatch.set(o.batch_number, o);
     }
 
@@ -265,38 +337,45 @@ export class LiveService {
     // 4. Map to cards
     return machines.map((m): MachineStatusCard => {
       const ev = eventsByMachine.get(m.machine_code);
+      const activeOrder = activeOrderByMachine.get(m.machine_code);
       const rejects = rejectsByMachine.get(m.machine_code) ?? { count: 0, weightMt: 0 };
-      const orderStats = ev?.batch_number ? orderStatsByBatch.get(ev.batch_number) : undefined;
+      const orderStats = ev?.batch_number
+        ? orderStatsByBatch.get(ev.batch_number)
+        : activeOrder;
 
-      let status: MachineLiveStatus = 'IDLE';
-      if (m.machine_status === 'MAINTENANCE' || ev?.event_type === 'MAINTENANCE_STARTED') {
-        status = 'MAINTENANCE';
-      } else if (ev?.event_type === 'STOPPAGE_STARTED') {
-        status = ev.category_code === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
-      } else if (ev?.event_type === 'RUNNING_STARTED') {
-        status = 'RUNNING';
-      }
+      const status = resolveMachineLiveStatus(m.machine_status, ev, activeOrder);
 
       const weight = orderStats?.skinpass_weight ?? orderStats?.rolling_weight;
       let runtimeMin: number | undefined;
-      
-      if (status === 'RUNNING' && ev?.occurred_at) {
-        runtimeMin = Math.round((Date.now() - new Date(ev.occurred_at).getTime()) / 60000);
+
+      const stateSince = ev?.occurred_at
+        ?? activeOrder?.prod_start_at
+        ?? (status !== 'IDLE' ? activeOrder?.updated_at : undefined);
+
+      if (status === 'RUNNING' && stateSince) {
+        runtimeMin = Math.round((Date.now() - new Date(stateSince).getTime()) / 60000);
       }
+
+      const batchNumber = ev?.batch_number ?? activeOrder?.batch_number;
+      const isActive = status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN';
 
       return {
         machineCode: m.machine_code,
         machineName: m.name,
         status,
-        currentOrder: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (ev?.batch_number ?? undefined) : undefined,
-        currentCoil: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (orderStats?.coil_no ?? undefined) : undefined,
-        currentOperator: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (ev?.operator_name ?? undefined) : undefined,
-        stateSinceAt: ev?.occurred_at ? new Date(ev.occurred_at).toISOString() : undefined,
-        activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
-          ? (ev?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? undefined)
+        currentOrder: isActive ? (batchNumber ?? undefined) : undefined,
+        currentCoil: isActive ? (orderStats?.coil_no ?? undefined) : undefined,
+        currentOperator: isActive
+          ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
           : undefined,
-        lastOrderBatchNumber: status === 'IDLE' ? (ev?.batch_number ?? undefined) : undefined,
-        lastOperatorName: status === 'IDLE' ? (ev?.operator_name ?? undefined) : undefined,
+        stateSinceAt: stateSince ? new Date(stateSince).toISOString() : undefined,
+        activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
+          ? (ev?.stoppage_label ?? activeOrder?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? activeOrder?.stoppage_category ?? undefined)
+          : undefined,
+        lastOrderBatchNumber: status === 'IDLE' ? (batchNumber ?? undefined) : undefined,
+        lastOperatorName: status === 'IDLE'
+          ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
+          : undefined,
         runtimeMin,
         productionWeightMt: weight ? Number(weight) : undefined,
         shiftProgressPct: undefined,
@@ -335,6 +414,7 @@ export class LiveService {
         's.actual_weight_mt as skinpass_actual',
       ])
       .where('pb.machine_code', '=', machineCode)
+      .where('pb.machine_allocated', '=', true)
       .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'PENDING', 'PREPARING'])
       .orderBy('pb.queue_seq', 'asc')
       .executeTakeFirst();
@@ -361,7 +441,7 @@ export class LiveService {
 
     // Active stoppage
     let activeStoppage: MachineCommandCenterData['activeStoppage'] | undefined;
-    if (card.status === 'STOPPAGE' && activeOrder) {
+    if ((card.status === 'STOPPAGE' || card.status === 'BREAKDOWN') && activeOrder) {
       const stop = await db.selectFrom('txn.order_stoppage as os')
         .leftJoin('security.app_user as u', 'u.user_id', 'os.operator_id')
         .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')

@@ -6,11 +6,18 @@ import { ArrowRightLeft, Play } from 'lucide-react';
 interface SixHiBatchDetailPanelProps {
   batch: SixHiQueueCard | null;
   subProcessLabel: string;
+  currentMill?: string;
   onOpen: () => void;
   onMoveToMachine?: () => void;
 }
 
-export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveToMachine }: SixHiBatchDetailPanelProps) {
+export function SixHiBatchDetailPanel({
+  batch,
+  subProcessLabel,
+  currentMill,
+  onOpen,
+  onMoveToMachine,
+}: SixHiBatchDetailPanelProps) {
   if (!batch) {
     return (
       <div className="bg-white border border-border rounded-2xl p-6 h-full flex items-center justify-center text-muted-foreground text-base">
@@ -20,10 +27,14 @@ export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveTo
   }
 
   const isCompleted = batch.status === 'COMPLETED';
-
   const routeCode = batch.subProcess === 'ROLLING' ? '4' : 'X';
+  const assignedToCurrentMill = batch.machineAllocated !== false
+    && !!batch.machineCode
+    && !!currentMill
+    && batch.machineCode === currentMill;
+
   const fields: [string, string, boolean?][] = [
-    ['Process', `${subProcessLabel} (route ${routeCode})`],
+    ['Process Route', `${subProcessLabel} (route ${routeCode})`],
     ['Customer', batch.customer],
     ['Grade', batch.grade, true],
     ['Mother Coil', `${batch.motherCoil}${batch.slitId ? `/${batch.slitId}` : ''}`, true],
@@ -37,15 +48,15 @@ export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveTo
   ];
 
   if (batch.machineAllocated === false) {
-    const hint = batch.suggestedMachineCode ?? batch.machineCode;
-    fields.splice(1, 0, ['Machine', hint ? `${hint} (awaiting assignment)` : 'Awaiting assignment']);
+    const hint = batch.suggestedMachineCode;
+    fields.splice(1, 0, ['Assigned Mill', hint ? `Unassigned · hint ${hint}` : 'Unassigned — select mill']);
   } else if (batch.machineCode) {
     fields.splice(1, 0, ['Assigned Mill', batch.machineCode]);
   }
+
   if (batch.rollingPassNo && batch.rollingPassNo > 1) {
     fields.push(['Rolling Pass', `Pass ${batch.rollingPassNo}`]);
   }
-
   if (batch.destination) {
     fields.push(['Destination', batch.destination === 'REWINDING' ? 'Rewinding' : 'Annealing']);
   }
@@ -55,6 +66,12 @@ export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveTo
   if (batch.rerollFlag != null) {
     fields.push(['Re-Roll', batch.rerollFlag ? 'Yes' : 'No']);
   }
+
+  const primaryLabel = isCompleted
+    ? 'Order Completed'
+    : assignedToCurrentMill
+      ? 'Open Production'
+      : 'Move to Production…';
 
   return (
     <div className="bg-white border border-border rounded-2xl h-full flex flex-col shadow-sm overflow-hidden">
@@ -89,11 +106,7 @@ export function SixHiBatchDetailPanel({ batch, subProcessLabel, onOpen, onMoveTo
           disabled={isCompleted}
         >
           <Play className="h-5 w-5" aria-hidden />
-          {isCompleted
-            ? 'Order Completed'
-            : batch.machineAllocated === false
-              ? 'Move to Production…'
-              : 'Open Production'}
+          {primaryLabel}
         </ZButton>
         {!isCompleted && batch.machineAllocated !== false && onMoveToMachine && (
           <ZButton

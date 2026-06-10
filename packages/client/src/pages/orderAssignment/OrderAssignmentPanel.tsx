@@ -4,6 +4,7 @@ import { apiClient } from '../../lib/apiClient';
 import { useShiftStore } from '../../store/shiftStore';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
+import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
 
 type AssignmentOrder = {
@@ -46,6 +47,12 @@ type AssignmentBoard = {
   machines: AssignmentMachine[];
   recentTransfers: TransferAudit[];
 };
+
+const FILTER_OPTIONS = [
+  { id: 'ALL' as const, label: 'All Orders' },
+  { id: 'ROLLING' as const, label: 'Rolling' },
+  { id: 'SKIN_PASS' as const, label: 'Skin Pass' },
+];
 
 const NON_TRANSFERABLE = new Set(['IN_PROGRESS', 'STOPPAGE', 'COMPLETED', 'REJECTED']);
 
@@ -179,29 +186,34 @@ export function OrderAssignmentPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-4 min-h-0">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Plan {board?.planDate ?? date} · Shift {board?.shiftCode ?? shift}
-          </p>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Assign or bulk-transfer orders using live machine registry data.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ZButton
-            variant={bulkMode ? 'accent' : 'secondary'}
-            size="sm"
-            onClick={() => { setBulkMode(!bulkMode); setSelectedBatches(new Set()); }}
-          >
-            {bulkMode ? 'Exit Bulk Mode' : 'Bulk Transfer'}
+    <div className="flex flex-col gap-4 min-h-0 flex-1">
+      <div className="shrink-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Plan {board?.planDate ?? date} · Shift {board?.shiftCode ?? shift}
+        </p>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Assign or bulk-transfer orders using live machine registry data.
+        </p>
+      </div>
+
+      <div className="shrink-0 flex flex-wrap gap-2 items-center">
+        <ZFilterPills options={FILTER_OPTIONS} activeId={filter} onChange={setFilter} />
+        <ZButton
+          variant={bulkMode ? 'accent' : 'secondary'}
+          size="sm"
+          onClick={() => { setBulkMode(!bulkMode); setSelectedBatches(new Set()); }}
+        >
+          {bulkMode ? 'Exit Bulk Mode' : 'Bulk Transfer'}
+        </ZButton>
+        <ZButton variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </ZButton>
+        {bulkMode && (
+          <ZButton variant="secondary" size="sm" onClick={selectAllTransferable}>
+            Select All Transferable
           </ZButton>
-          <ZButton variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </ZButton>
-        </div>
+        )}
       </div>
 
       {error && (
@@ -210,35 +222,10 @@ export function OrderAssignmentPanel() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {(['ALL', 'ROLLING', 'SKIN_PASS'] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setFilter(id)}
-            className={[
-              'px-3 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wide',
-              filter === id ? 'bg-primary text-primary-foreground border-primary' : 'border-border bg-card',
-            ].join(' ')}
-          >
-            {id === 'ALL' ? 'All Orders' : id === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
-          </button>
-        ))}
-        {bulkMode && (
-          <button
-            type="button"
-            onClick={selectAllTransferable}
-            className="px-3 py-1.5 rounded-lg border border-border text-xs font-bold uppercase tracking-wide bg-card hover:bg-secondary"
-          >
-            Select All Transferable
-          </button>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 min-h-0 flex-1">
-        <section className="xl:col-span-2 bg-card border border-border rounded-2xl flex flex-col min-h-[320px] overflow-hidden">
-          <div className="shrink-0 px-4 py-3 border-b border-border flex justify-between items-center">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+        <section className="xl:col-span-2 bg-white border border-border rounded-2xl shadow-sm flex flex-col min-h-[320px] overflow-hidden">
+          <div className="shrink-0 px-5 py-3 border-b border-border flex justify-between items-center">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               Available Orders ({filteredOrders.length})
             </h2>
             {bulkMode && selectedBatches.size > 0 && (
@@ -263,8 +250,8 @@ export function OrderAssignmentPanel() {
                 <div
                   key={order.batchNumber}
                   className={[
-                    'w-full text-left px-4 py-3 border-b border-border transition-colors flex gap-3',
-                    isSelected ? 'bg-primary/5 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent hover:bg-secondary/40',
+                    'w-full text-left px-5 py-4 border-b border-border transition-colors flex gap-3 min-h-[88px]',
+                    isSelected ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent hover:bg-secondary active:bg-secondary',
                   ].join(' ')}
                 >
                   {bulkMode && (
@@ -312,8 +299,8 @@ export function OrderAssignmentPanel() {
         </section>
 
         <aside className="space-y-4">
-          <section className="bg-card border border-border rounded-2xl p-4 space-y-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          <section className="bg-white border border-border rounded-2xl shadow-sm p-4 space-y-4">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               {selectedOrders.length > 1 ? `Bulk Transfer (${selectedOrders.length})` : 'Assign / Transfer'}
             </h2>
             {selectedOrders.length === 0 ? (
@@ -386,11 +373,11 @@ export function OrderAssignmentPanel() {
             )}
           </section>
 
-          <section className="bg-card border border-border rounded-2xl p-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">Available Machines</h2>
+          <section className="bg-white border border-border rounded-2xl shadow-sm p-4">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Available Machines</h2>
             <div className="space-y-2">
               {(board?.machines ?? []).map((m) => (
-                <div key={m.code} className="flex items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
+                <div key={m.code} className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-3 py-2.5 text-sm">
                   <div>
                     <p className="font-bold">{m.code}{m.name ? ` · ${m.name}` : ''}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -409,14 +396,14 @@ export function OrderAssignmentPanel() {
       </div>
 
       {board && board.recentTransfers.length > 0 && (
-        <section className="bg-card border border-border rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Assignment Audit Log</h2>
+        <section className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-border">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Assignment Audit Log</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <tr className="text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-border bg-muted/30">
                   <th className="px-4 py-2 font-bold">Order</th>
                   <th className="px-4 py-2 font-bold">From</th>
                   <th className="px-4 py-2 font-bold">To</th>

@@ -27,13 +27,6 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     match: (p) => p === '/plant/order-assignment',
   },
   {
-    id: 'lines',
-    label: 'Line Status',
-    icon: Activity,
-    path: '/plant/lines',
-    match: (p) => p === '/plant/lines',
-  },
-  {
     id: 'traceability',
     label: 'Traceability',
     icon: Search,

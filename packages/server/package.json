@@ -16,6 +16,7 @@
     "migrate:down": "node-pg-migrate --migrations-dir migrations down",
     "smoke:pilot": "node scripts/pilot-smoke.mjs",
     "clear:data": "node scripts/clear-pilot-data.mjs",
+    "clear:orders": "node scripts/clear-order-data.mjs",
     "seed:pilot": "node scripts/seed-pilot.mjs",
     "seed:users": "node scripts/seed-pilot-users.mjs",
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
