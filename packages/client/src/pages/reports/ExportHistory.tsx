@@ -26,7 +26,7 @@ function statusTone(status: ExportJobView['status']) {
   return 'info' as const;
 }
 
-export function ExportHistory() {
+export function ExportHistory({ embedded = false }: { embedded?: boolean }) {
   const [type, setType] = useState<'' | ExportType>('');
   const [page, setPage] = useState(1);
   const [jobs, setJobs] = useState<ExportJobView[]>([]);
@@ -77,13 +77,14 @@ export function ExportHistory() {
     URL.revokeObjectURL(objectUrl);
   };
 
-  return (
-    <AdminShell title="Export history" subtitle="Audit trail · re-download past artifacts">
-      <div className="max-w-4xl flex flex-col gap-4">
+  const content = (
+    <div className="max-w-4xl flex flex-col gap-4">
+      {!embedded && (
         <p className="text-sm text-muted-foreground">
           Jobs are recorded in <code className="text-xs font-mono">audit.export_job</code> with sha256 and data version.
           {' '}<Link to="/reports/export" className="text-primary underline-offset-2 hover:underline">New export</Link>
         </p>
+      )}
 
         <ChartPanel title="Filters">
           <div className="flex flex-wrap gap-3 items-end">
@@ -155,6 +156,13 @@ export function ExportHistory() {
           )}
         </ChartPanel>
       </div>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <AdminShell title="Export history" subtitle="Audit trail · re-download past artifacts">
+      {content}
     </AdminShell>
   );
 }

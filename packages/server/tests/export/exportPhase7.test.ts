@@ -55,6 +55,25 @@ describe('export phase 7 — authz & infra', () => {
     expect(filterRunsByAreaAccess(adminUser, rows)).toHaveLength(2);
   });
 
+  it('machine head is scoped to assigned machine areas', () => {
+    const mh = {
+      id: 4,
+      roles: ['MACHINE_HEAD'],
+      lineAccess: [],
+      lineScopes: [],
+      machineAccess: ['4HI'],
+    } as any;
+    expect(() => assertExportPermission(mh, 'DPR', {})).not.toThrow();
+    const areas = getScopedDprAreaCodes(mh);
+    expect(areas).toContain('4HI_R');
+    expect(areas).not.toContain('HRS');
+  });
+
+  it('plant head has unrestricted DPR area filter', () => {
+    const ph = { id: 5, roles: ['PLANT_HEAD'], lineAccess: [], lineScopes: [] } as any;
+    expect(getScopedDprAreaCodes(ph)).toBeNull();
+  });
+
   it('parseExportRequest stores format for worker replay', () => {
     const req = parseExportRequest({
       type: 'DPR',

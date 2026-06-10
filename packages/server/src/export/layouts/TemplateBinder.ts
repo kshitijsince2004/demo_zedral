@@ -173,7 +173,7 @@ function bindDelaySheet(
       cell(row, ds.cols.line, entry.areaLabel),
       cell(row, ds.cols.date, entry.date),
       cell(row, ds.cols.shift, entry.shift),
-      cell(row, ds.cols.minutes, entry.minutes ?? 'NIL'),
+      cell(row, ds.cols.minutes, entry.minutes ?? 0),
       cell(row, ds.cols.agency, entry.agency),
       cell(row, ds.cols.reason, entry.reason),
     );

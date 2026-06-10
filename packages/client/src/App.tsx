@@ -20,6 +20,8 @@ import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 import { ExportData } from './pages/reports/ExportData';
 import { ExportHistory } from './pages/reports/ExportHistory';
 import { DprExport } from './pages/reports/DprExport';
+import { PlantDprExport } from './pages/reports/PlantDprExport';
+import { MachineDprExport } from './pages/reports/MachineDprExport';
 import { PlantHeadDashboard } from './pages/reports/PlantHeadDashboard';
 import { PlantProduction } from './pages/reports/PlantProduction';
 import { PlantOrderTracking } from './pages/reports/PlantOrderTracking';
@@ -98,6 +100,8 @@ function App() {
           <Route path="stoppages" element={<PlantStoppages />} />
           <Route path="alerts" element={<PlantAlerts />} />
           <Route path="order-assignment" element={<OrderAssignmentPanel />} />
+          <Route path="dpr-export" element={<PlantDprExport />} />
+          <Route path="exports/history" element={<ExportHistory embedded />} />
         </Route>
         <Route path="/audit" element={<PlantRoute><Navigate to="/plant/audit" replace /></PlantRoute>} />
         <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
@@ -108,6 +112,8 @@ function App() {
         <Route path="/order-assignment" element={<MachineHeadRoute><OrderAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
         <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
+        <Route path="/machine-head/exports/history" element={<MachineHeadRoute><ExportHistory embedded /></MachineHeadRoute>} />
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />

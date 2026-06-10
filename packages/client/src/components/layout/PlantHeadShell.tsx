@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
-import { Activity, ArrowRightLeft, Brain, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
+import { Activity, ArrowRightLeft, Brain, FileSpreadsheet, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem, deskNavOffsetClass } from './shared/DeskSideNav';
 import { OfflineBanner } from '../ui/OfflineBanner';
 
@@ -46,6 +46,13 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     icon: Timer,
     path: '/plant/downtime-intelligence',
     match: (p) => p === '/plant/downtime-intelligence',
+  },
+  {
+    id: 'dpr-export',
+    label: 'DPR Export',
+    icon: FileSpreadsheet,
+    path: '/plant/dpr-export',
+    match: (p) => p === '/plant/dpr-export' || p.startsWith('/plant/exports'),
   },
   {
     id: 'audit',

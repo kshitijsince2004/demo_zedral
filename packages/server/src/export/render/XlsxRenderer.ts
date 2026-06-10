@@ -30,10 +30,8 @@ function applyGridCells(
 
     const cell = ws.getCell(row, col);
 
-    if (value === null || value === 'NIL') {
-
-      cell.value = value === 'NIL' ? 'NIL' : null;
-
+    if (value === null) {
+      cell.value = null;
     } else if (typeof value === 'number') {
 
       cell.value = value;
@@ -116,6 +114,12 @@ export async function renderXlsx(
   result: ReportExecutionResult,
 
 ): Promise<{ filePath: string; sha256: string; bytes: number }> {
+
+  if (result.templateBuffer) {
+    const filePath = artifactPath(jobId, 'XLSX' as ExportFormat);
+    const meta = writeArtifact(filePath, result.templateBuffer);
+    return { filePath, ...meta };
+  }
 
   const workbook = new ExcelJS.Workbook();
 

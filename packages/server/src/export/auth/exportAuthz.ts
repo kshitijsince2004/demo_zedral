@@ -3,15 +3,25 @@ import type { AuthUser } from '../../services/authService';
 import { getScopedLineCodes } from '../../auth/lineAccessPolicy';
 import type { ExportType } from '../types';
 import { DPR_LINE_AREAS } from '../aggregation/lineAreas';
+import { dprAreasForMachines } from '../dpr/areaGeometry';
 
 const EXPORT_ROLES = [
   UserRole.SUPERVISOR,
   UserRole.PLANT_HEAD,
+  UserRole.MACHINE_HEAD,
   UserRole.ADMIN,
 ] as string[];
 
 /** DPR area codes visible to a scoped user; null = all areas. */
 export function getScopedDprAreaCodes(user: AuthUser): string[] | null {
+  if (user.roles.includes(UserRole.PLANT_HEAD as string)) return null;
+
+  if (user.roles.includes(UserRole.MACHINE_HEAD as string)) {
+    const machines = (user.machineAccess ?? []).map((m) => m.toUpperCase());
+    if (machines.length === 0) return [];
+    return dprAreasForMachines(machines);
+  }
+
   const scoped = getScopedLineCodes(user, 'READ');
   if (scoped === null) return null;
 
@@ -46,13 +56,22 @@ export function assertExportPermission(
   _scope: Record<string, unknown>,
 ): void {
   if (!user.roles.some((r) => EXPORT_ROLES.includes(r))) {
-    throw new Error('Forbidden: export requires supervisor, plant head, or admin role');
+    throw new Error('Forbidden: export requires supervisor, plant head, machine head, or admin role');
   }
 
   const scoped = getScopedLineCodes(user, 'READ');
+  const isMachineHead = user.roles.includes(UserRole.MACHINE_HEAD as string);
+  const machineAreas = isMachineHead ? getScopedDprAreaCodes(user) : null;
 
   switch (type) {
     case 'DPR':
+      if (user.roles.includes(UserRole.PLANT_HEAD as string)) break;
+      if (isMachineHead) {
+        if (!machineAreas || machineAreas.length === 0) {
+          throw new Error('Forbidden: no machine access for DPR export');
+        }
+        break;
+      }
       if (scoped !== null && scoped.length === 0) {
         throw new Error('Forbidden: no line read access for DPR export');
       }

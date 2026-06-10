@@ -73,6 +73,8 @@ export interface ReportExecutionResult {
   filename: string;
   sheets?: RenderSheet[];
   gridSheets?: RenderGridSheet[];
+  /** Pre-rendered XLSX from template injection (preserves styles/formulas). */
+  templateBuffer?: Buffer;
   dataVersion?: string;
   /** When true, renderer uses fixed metadata timestamp for reproducible sha256. */
   deterministic?: boolean;

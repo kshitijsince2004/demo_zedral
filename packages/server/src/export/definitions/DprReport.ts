@@ -1,7 +1,8 @@
 import type { AuthUser } from '../../services/authService';
-import { filterRunsByAreaAccess } from '../auth/exportAuthz';
+import { filterRunsByAreaAccess, getScopedDprAreaCodes } from '../auth/exportAuthz';
 import { DprAggregator } from '../aggregation/DprAggregator';
 import { bindDprWorkbook, dprFilename, loadDprLayout } from '../layouts/TemplateBinder';
+import { injectDprTemplate } from '../dpr/DprTemplateInjector';
 import {
   ExportReadRepository,
   scopeFromMonth,
@@ -66,24 +67,37 @@ export const DprReport: ReportDefinition = {
     const month = parseMonth(scope);
     const input = await loadMonthData(month, user);
     const rdm = DprAggregator.aggregate(input);
-    const layout = loadDprLayout();
-    const bound = bindDprWorkbook(rdm, layout);
     const sourceRecordCount = input.runs.length + input.stoppages.length + input.dispositions.length;
+    const scopedAreas = getScopedDprAreaCodes(user);
 
-    return {
-      rows: bound.delayRows,
-      filename: dprFilename(month),
-      sheets: [
-        { name: bound.delaySheetName, rows: bound.delayRows },
-      ],
-      gridSheets: [
-        { name: bound.monthSheetName, cells: bound.monthCells },
-        { name: bound.delaySheetName, cells: bound.delayCells },
-      ],
-      dataVersion: `DPR:${month}:${rdm.days.length}:${rdm.delayLog.length}`,
-      sourceRecordCount,
-      deterministic: true,
-    };
+    try {
+      const injected = await injectDprTemplate(rdm, {
+        allowedAreaCodes: scopedAreas,
+      });
+      return {
+        rows: rdm.delayLog.map((e) => ({ ...e })),
+        filename: injected.filename,
+        templateBuffer: injected.buffer,
+        dataVersion: `DPR:${month}:${rdm.days.length}:${rdm.delayLog.length}:template`,
+        sourceRecordCount,
+        deterministic: true,
+      };
+    } catch {
+      const layout = loadDprLayout();
+      const bound = bindDprWorkbook(rdm, layout);
+      return {
+        rows: bound.delayRows,
+        filename: dprFilename(month),
+        sheets: [{ name: bound.delaySheetName, rows: bound.delayRows }],
+        gridSheets: [
+          { name: bound.monthSheetName, cells: bound.monthCells },
+          { name: bound.delaySheetName, cells: bound.delayCells },
+        ],
+        dataVersion: `DPR:${month}:${rdm.days.length}:${rdm.delayLog.length}`,
+        sourceRecordCount,
+        deterministic: true,
+      };
+    }
   },
 };
 
