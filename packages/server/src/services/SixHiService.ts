@@ -8,6 +8,7 @@ import type {
   SixHiSubProcess,
 } from '@m1/shared-validation';
 import { db } from '../db';
+import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
 import { ShiftLogState } from '@m1/shared-validation';
 import { ProcessRouteService } from './ProcessRouteService';
@@ -18,7 +19,6 @@ import {
   loadRecentOrderMachineTransfers,
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
-import { MachineRegistryService } from './MachineRegistryService';
 
 
 const SIX_HI_PROCESS_CODE = '6HI';
@@ -66,7 +66,7 @@ export class SixHiService {
   }
 
   private static async totalStoppageMinutes(orderId: number | string, asOf: Date = new Date()): Promise<number> {
-    const id = Number(orderId);
+    const id = String(orderId);
     const stops = await db.selectFrom('txn.order_stoppage')
       .select(['start_at', 'end_at', 'duration_min'])
       .where('order_id', '=', id)
@@ -85,7 +85,7 @@ export class SixHiService {
   }
 
   private static async assertNoOpenStoppage(orderId: number | string): Promise<void> {
-    const id = Number(orderId);
+    const id = String(orderId);
     const open = await db.selectFrom('txn.order_stoppage')
       .select(db.fn.count('stoppage_id').as('c'))
       .where('order_id', '=', id)
@@ -462,7 +462,7 @@ export class SixHiService {
         .execute();
 
       await recordOrderMachineTransfer({
-        orderId: order?.order_id ?? null,
+        orderId: order?.order_id ? Number(order.order_id) : null,
         batchNumber,
         sourceMachine,
         destinationMachine: machine,
@@ -1393,6 +1393,7 @@ export class SixHiService {
         defect_codes: defectCodes.length ? JSON.stringify(defectCodes) : null,
         remarks: trimmedRemarks,
         operator_id: userId,
+        tenant_id: getTenantId() || '00000000-0000-0000-0000-000000000001',
       })
       .execute();
 
@@ -1493,13 +1494,13 @@ export class SixHiService {
         .select('actual_weight_mt')
         .where('order_id', '=', orderId)
         .executeTakeFirst();
-      return r?.actual_weight_mt ? Number(r.actual_weight_mt) : 0;
+      return r?.actual_weight_mt ? Number(r.actual_weight_mt) : ppcWeight;
     }
     const s = await db.selectFrom('txn.crm6_skinpass')
       .select('actual_weight_mt')
       .where('order_id', '=', orderId)
       .executeTakeFirst();
-    return s?.actual_weight_mt ? Number(s.actual_weight_mt) : 0;
+    return s?.actual_weight_mt ? Number(s.actual_weight_mt) : ppcWeight;
   }
 
   static async getShiftSummary(shiftLogId: string, machineCode?: string): Promise<SixHiShiftSummary> {

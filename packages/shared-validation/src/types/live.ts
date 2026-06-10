@@ -23,7 +23,9 @@ export type MachineStateEventType =
   | 'IDLE_ENDED'
   | 'MAINTENANCE_STARTED'
   | 'MAINTENANCE_ENDED'
-  | 'DEFECT_REPORTED';
+  | 'DEFECT_REPORTED'
+  | 'DEFECT_CLOSED'
+  | 'ORDER_REJECTED';
 
 export interface MachineStateEvent {
   eventId: string;

@@ -24,6 +24,7 @@ const USERS = [
   { username: 'supervisor', emp_code: '2000', full_name: 'Line Supervisor', role_id: 2, lines: ['HRS', 'PKL', 'CRM', '6HI'] },
   { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', '6HI'] },
   { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['6HI', '4HI', '2HI'] },
+  { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', '6HI'] },
 ];
 
 const PIN = '1234';

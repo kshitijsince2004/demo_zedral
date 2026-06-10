@@ -8,6 +8,7 @@
  * as the single source of truth.
  */
 import { db } from '../db';
+import { getTenantId } from '../context';
 
 export type MachineStateEventType =
   | 'RUNNING_STARTED'
@@ -96,6 +97,7 @@ export class MachineStateEventService {
           reason: opts.reason ?? null,
           category_code: opts.categoryCode ?? null,
           meta: opts.meta ? JSON.stringify(opts.meta) : null,
+          tenant_id: getTenantId() || '00000000-0000-0000-0000-000000000001',
         })
         .execute();
     });
@@ -176,10 +178,10 @@ export class MachineStateEventService {
   /**
    * Get utilization summary for a machine over the last N hours.
    */
-  static async getUtilizationSummary(machineCode: string, hours = 24) {
-    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+  static async getUtilizationSummary(machineCode: string, hours = 24, sinceOverride?: Date) {
+    const since = sinceOverride || new Date(Date.now() - hours * 60 * 60 * 1000);
     const now = new Date();
-    const windowMin = hours * 60;
+    const windowMin = sinceOverride ? Math.max(1, (now.getTime() - since.getTime()) / 60000) : hours * 60;
 
     const events = await db
       .selectFrom('txn.machine_state_event')
@@ -194,6 +196,7 @@ export class MachineStateEventService {
     let maintenanceMin = 0;
     let stoppageCount = 0;
     let orderCount = 0;
+    let breakdownMin = 0;
 
     const stoppageReasonMap = new Map<string, { count: number; totalMin: number }>();
 
@@ -210,6 +213,7 @@ export class MachineStateEventService {
       } else if (ev.event_type === 'STOPPAGE_STARTED') {
         stoppageMin += min;
         stoppageCount++;
+        if (ev.category_code === 'BREAKDOWN') breakdownMin += min;
         const key = ev.reason ?? ev.category_code ?? 'Unknown';
         const existing = stoppageReasonMap.get(key) ?? { count: 0, totalMin: 0 };
         stoppageReasonMap.set(key, { count: existing.count + 1, totalMin: existing.totalMin + min });
@@ -229,6 +233,7 @@ export class MachineStateEventService {
       runningMin: Math.round(runningMin),
       idleMin: Math.round(idleMin),
       stoppageMin: Math.round(stoppageMin),
+      breakdownMin: Math.round(breakdownMin),
       maintenanceMin: Math.round(maintenanceMin),
       runningPct: Math.round((runningMin / windowMin) * 100),
       idlePct: Math.round((idleMin / windowMin) * 100),

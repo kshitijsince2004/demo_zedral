@@ -147,7 +147,7 @@ export class MachineMasterService {
   }
 
   private static async syncRouteCapabilities(
-    trx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    trx: any,
     machineCode: string,
     processCode: string | null,
     caps: { rolling: boolean; skinPass: boolean },
