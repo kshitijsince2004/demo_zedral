@@ -69,6 +69,7 @@ router.get('/machines', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
     const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    const ctx = await LiveService.getShiftQueueContext(req.user!.id);
     const machines = await LiveService.getMachineCards(filter);
     res.json({ machines, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {

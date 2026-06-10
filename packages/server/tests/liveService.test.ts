@@ -13,7 +13,7 @@ vi.mock('../src/services/SixHiService', () => ({
   },
 }));
 
-import { LiveService } from '../src/services/LiveService';
+import { LiveService, resolveMachineLiveStatus, resolveStateSinceAt } from '../src/services/LiveService';
 import { db } from '../src/db';
 import { SixHiService } from '../src/services/SixHiService';
 
@@ -49,5 +49,48 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
     const result = await LiveService.getShiftCompletedProductionMt([], '2026-06-10', 'A');
     expect(result).toEqual({ actualMt: 0, completedOrderCount: 0 });
     expect(db.selectFrom).not.toHaveBeenCalled();
+  });
+});
+
+describe('LiveService machine status resolution', () => {
+  it('treats queued PENDING orders as idle', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, undefined, { status: 'PENDING', stoppage_category: null }),
+    ).toBe('IDLE');
+  });
+
+  it('uses IN_PROGRESS order as running when no event exists', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, undefined, { status: 'IN_PROGRESS', stoppage_category: null }),
+    ).toBe('RUNNING');
+  });
+
+  it('prefers open stoppage order over stale running event', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, { event_type: 'RUNNING_STARTED' }, {
+        status: 'STOPPAGE',
+        stoppage_category: 'MECH',
+      }),
+    ).toBe('STOPPAGE');
+  });
+
+  it('ignores stale running event without in-progress order', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, { event_type: 'RUNNING_STARTED' }, undefined),
+    ).toBe('IDLE');
+  });
+
+  it('uses stoppage start for stoppage timer', () => {
+    const since = resolveStateSinceAt('STOPPAGE', undefined, {
+      stoppage_start_at: '2026-06-10T10:00:00.000Z',
+    });
+    expect(since?.toISOString()).toBe('2026-06-10T10:00:00.000Z');
+  });
+
+  it('uses prod start for running timer', () => {
+    const since = resolveStateSinceAt('RUNNING', undefined, {
+      prod_start_at: '2026-06-10T09:00:00.000Z',
+    });
+    expect(since?.toISOString()).toBe('2026-06-10T09:00:00.000Z');
   });
 });

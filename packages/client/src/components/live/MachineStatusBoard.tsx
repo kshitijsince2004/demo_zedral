@@ -66,7 +66,9 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-mono font-bold text-emerald-600 tracking-tight">{formatted}</span>
+        <span className="text-2xl font-mono font-bold text-emerald-600 tracking-tight">
+          {m.stateSinceAt ? formatted : '—'}
+        </span>
         <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-500">Runtime</span>
       </div>
 
@@ -131,14 +133,17 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
 }
 
 function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDefect?: boolean }) {
-  const { formatted } = useLiveTimer(m.stateSinceAt, !!m.stateSinceAt);
+  const isStoppage = m.status === 'STOPPAGE' || m.status === 'BREAKDOWN';
+  const { formatted } = useLiveTimer(m.stateSinceAt, isStoppage);
   const colorClass = isDefect ? 'text-red-600' : 'text-amber-600';
   const bgClass = isDefect ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100';
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
-        <span className={`text-2xl font-mono font-bold tracking-tight ${colorClass}`}>{formatted}</span>
+        <span className={`text-2xl font-mono font-bold tracking-tight ${colorClass}`}>
+          {m.stateSinceAt ? formatted : '—'}
+        </span>
         <span className={`text-[9px] font-bold uppercase tracking-widest ${colorClass}`}>
           {isDefect ? 'Down' : 'Stopped'}
         </span>

@@ -4,7 +4,7 @@ import {
   reportingService,
   type ExtendedPlantHeadDashboardData,
 } from '../../lib/reportingService';
-import { useLiveSnapshot } from '../../hooks/useLiveSnapshot';
+import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
@@ -95,11 +95,15 @@ export function PlantHeadDashboard() {
 
   useEffect(() => {
     let active = true;
-    liveService
-      .getOrders()
-      .then((res) => { if (active) setLiveOrders(res.orders); })
-      .catch(() => { if (active) setLiveOrders([]); });
-    return () => { active = false; };
+    const loadOrders = () => {
+      liveService
+        .getOrders()
+        .then((res) => { if (active) setLiveOrders(res.orders); })
+        .catch(() => { if (active) setLiveOrders([]); });
+    };
+    loadOrders();
+    const interval = setInterval(loadOrders, LIVE_POLL_MS);
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;

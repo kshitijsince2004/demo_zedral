@@ -22,6 +22,7 @@ import {
 import {
   assertCanStartOrderStoppage,
   validateOrderStoppageInterval,
+  validateOrderStoppageStart,
 } from '../validation/orderStoppageValidation';
 import {
   assertCrm6DefectQuantities,
@@ -775,6 +776,15 @@ export class SixHiService {
 
     const activeStoppage = stoppages.find((s) => !s.end_at);
 
+    let resolvedStatus = order.status;
+    if (order.status === 'STOPPAGE' && !activeStoppage) {
+      resolvedStatus = order.prod_start_at ? 'IN_PROGRESS' : 'PENDING';
+      await db.updateTable('txn.crm6_order')
+        .set({ status: resolvedStatus, updated_at: new Date() })
+        .where('order_id', '=', order.order_id)
+        .execute();
+    }
+
     let rolling: SixHiRollingData | undefined;
     let skinPass: SixHiSkinPassData | undefined;
 
@@ -851,7 +861,7 @@ export class SixHiService {
       ppcThkMm: targetThk,
       ppcWeightMt: Number(order.ppc_weight_mt),
       subProcess: order.sub_process as SixHiSubProcess,
-      status: order.status as SixHiOrderDetail['status'],
+      status: resolvedStatus as SixHiOrderDetail['status'],
       ppcDestination: ppcBatch?.destination ? mapDestination(ppcBatch.destination) : undefined,
       ppcRollFinish: ppcBatch?.roll_finish ? mapRollFinish(ppcBatch.roll_finish) : undefined,
       ppcRerollFlag: ppcBatch?.ppc_reroll_flag ?? false,
@@ -896,6 +906,7 @@ export class SixHiService {
         categoryLabel: activeStoppage.label,
         breakdownCode: activeStoppage.breakdown_code ?? undefined,
         startAt: activeStoppage.start_at.toISOString(),
+        remarks: activeStoppage.remarks ?? undefined,
       } : undefined,
     };
   }
@@ -955,6 +966,18 @@ export class SixHiService {
         .set({ status: 'IN_PROGRESS', updated_at: new Date() })
         .where('order_id', '=', orderId)
         .execute();
+      const batch = await db.selectFrom('planning.ppc_batch')
+        .select(['machine_code', 'shift_code'])
+        .where('batch_number', '=', batchNumber)
+        .executeTakeFirst();
+      if (batch) {
+        await MachineStateEventService.recordEvent(batch.machine_code, 'RUNNING_STARTED', {
+          orderId,
+          batchNumber,
+          operatorId: userId,
+          shiftCode: batch.shift_code,
+        }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+      }
       return this.getOrder(batchNumber, userId);
     }
     if (status !== 'PENDING' && status !== 'PREPARING') {
@@ -1162,6 +1185,9 @@ export class SixHiService {
 
     await assertCanStartOrderStoppage(orderId);
 
+    const startAt = new Date();
+    await validateOrderStoppageStart(orderId, startAt);
+
     await db.insertInto('txn.order_stoppage')
       .values({
         order_id: orderId,
@@ -1169,6 +1195,7 @@ export class SixHiService {
         breakdown_code: breakdownCode ?? null,
         remarks: remarks ?? null,
         operator_id: userId,
+        start_at: startAt,
       })
       .execute();
     await db.updateTable('txn.crm6_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
@@ -1204,8 +1231,23 @@ export class SixHiService {
   }
 
   static async endStoppage(batchNumber: string, stoppageId: string, userId: number) {
-    const order = await db.selectFrom('txn.crm6_order').select(['order_id', 'logged_in_user_id']).where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
-    const stop = await db.selectFrom('txn.order_stoppage').selectAll().where('stoppage_id', '=', stoppageId).executeTakeFirstOrThrow();
+    await this.ensureOrder(batchNumber, userId);
+    const order = await db.selectFrom('txn.crm6_order')
+      .select(['order_id', 'logged_in_user_id', 'prod_start_at'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirstOrThrow();
+    const stop = await db.selectFrom('txn.order_stoppage')
+      .selectAll()
+      .where('stoppage_id', '=', stoppageId)
+      .executeTakeFirstOrThrow();
+
+    if (String(stop.order_id) !== String(order.order_id)) {
+      throw new Error('Stoppage does not belong to this order');
+    }
+    if (stop.end_at) {
+      return this.getOrder(batchNumber, userId);
+    }
+
     const endAt = new Date();
     await validateOrderStoppageInterval(order.order_id, stop.start_at, endAt, stoppageId);
     const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
@@ -1218,30 +1260,36 @@ export class SixHiService {
       .where('order_id', '=', order.order_id)
       .where('end_at', 'is', null)
       .executeTakeFirst();
+    const resumingToRunning = !!order.prod_start_at;
     if (Number(openCount?.c ?? 0) === 0) {
-      const hasStart = await db.selectFrom('txn.crm6_order').select('prod_start_at').where('order_id', '=', order.order_id).executeTakeFirst();
       await db.updateTable('txn.crm6_order')
-        .set({ status: hasStart?.prod_start_at ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
+        .set({ status: resumingToRunning ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
         .where('order_id', '=', order.order_id)
         .execute();
     }
 
-    // Persist machine state event: STOPPAGE_ENDED → RUNNING_STARTED
-    const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
+    const ppc = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
     if (ppc && Number(openCount?.c ?? 0) === 0) {
-      MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_ENDED', {
-        orderId: order.order_id,
-        batchNumber,
-        operatorId: userId,
-        shiftCode: ppc.shift_code,
-      }).then(() =>
-        MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_STARTED', {
+      try {
+        await MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_ENDED', {
           orderId: order.order_id,
           batchNumber,
           operatorId: userId,
           shiftCode: ppc.shift_code,
-        }),
-      ).catch((err) => console.error('[MachineStateEvent] STOPPAGE_ENDED/RUNNING_STARTED failed:', err));
+        });
+        const nextEvent = resumingToRunning ? 'RUNNING_STARTED' : 'IDLE_STARTED';
+        await MachineStateEventService.recordEvent(ppc.machine_code, nextEvent, {
+          orderId: resumingToRunning ? order.order_id : undefined,
+          batchNumber: resumingToRunning ? batchNumber : undefined,
+          operatorId: userId,
+          shiftCode: ppc.shift_code,
+        });
+      } catch (err) {
+        console.error('[MachineStateEvent] STOPPAGE_ENDED follow-up failed:', err);
+      }
     }
 
     return this.getOrder(batchNumber, userId);

@@ -78,6 +78,21 @@ export function assertWithinShiftWindow(
   }
 }
 
+/** Validate stoppage start is inside shift; allow end after shift closes so operators can always end active stops. */
+export function assertStoppageStartWithinShift(
+  intervalStart: Date,
+  shiftStart: Date,
+  shiftEnd: Date,
+): void {
+  const toleranceMs = 60_000;
+  if (intervalStart.getTime() < shiftStart.getTime() - toleranceMs) {
+    throw new ManufacturingValidationError('Stoppage start is outside the shift window');
+  }
+  if (intervalStart.getTime() > shiftEnd.getTime() + toleranceMs) {
+    throw new ManufacturingValidationError('Stoppage start is outside the shift window');
+  }
+}
+
 export function clockRangeMinutes(from: string, to: string): number {
   const parse = (t: string) => {
     const parts = t.trim().slice(0, 8).split(':').map(Number);

@@ -2,12 +2,17 @@ import { db } from '../db';
 import {
   assertEndAfterStart,
   assertNoOverlappingIntervals,
-  assertWithinShiftWindow,
+  assertStoppageStartWithinShift,
   ManufacturingValidationError,
   resolveShiftWindowBounds,
 } from './manufacturingValidation';
 
-async function loadOrderShiftContext(orderId: string | number) {
+function localCalendarDate(value: Date | string): Date {
+  const d = value instanceof Date ? value : new Date(value);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+async function loadOrderShiftContext(orderId: string | number, anchorDate?: Date) {
   const row = await db
     .selectFrom('txn.crm6_order as o')
     .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -25,7 +30,10 @@ async function loadOrderShiftContext(orderId: string | number) {
     return null;
   }
 
-  const prodDate = row.plan_date instanceof Date ? row.plan_date : new Date(row.plan_date);
+  const prodDate = anchorDate
+    ? localCalendarDate(anchorDate)
+    : localCalendarDate(row.plan_date instanceof Date ? row.plan_date : String(row.plan_date));
+
   return resolveShiftWindowBounds(
     prodDate,
     String(row.start_time).slice(0, 5),
@@ -59,6 +67,16 @@ export async function assertCanStartOrderStoppage(orderId: string | number): Pro
   }
 }
 
+export async function validateOrderStoppageStart(
+  orderId: string | number,
+  startAt: Date,
+): Promise<void> {
+  const shift = await loadOrderShiftContext(orderId, startAt);
+  if (shift) {
+    assertStoppageStartWithinShift(startAt, shift.start, shift.end);
+  }
+}
+
 export async function validateOrderStoppageInterval(
   orderId: string | number,
   startAt: Date,
@@ -66,11 +84,6 @@ export async function validateOrderStoppageInterval(
   excludeStoppageId?: string,
 ): Promise<void> {
   assertEndAfterStart(startAt, endAt, 'Stoppage');
-
-  const shift = await loadOrderShiftContext(orderId);
-  if (shift) {
-    assertWithinShiftWindow(startAt, endAt, shift.start, shift.end);
-  }
 
   const existing = await loadOrderStoppages(orderId, excludeStoppageId);
   const intervals = [

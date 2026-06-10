@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
-import { useSixHiStoppageCodes, findStoppageCodeDef } from './SixHiStoppageCodes';
+import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode } from './SixHiStoppageCodes';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
 
@@ -41,6 +41,7 @@ export function OrderStoppageModal({
   const [rollNo, setRollNo] = useState('');
   const [rollCode, setRollCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const selected = findStoppageCodeDef(displayCode);
   const needsRollChange = !!selected?.requiresRollChange;
@@ -48,8 +49,9 @@ export function OrderStoppageModal({
 
   useEffect(() => {
     if (!open) return;
+    setError(null);
     if (activeStoppage) {
-      setDisplayCode(activeStoppage.categoryCode || '12');
+      setDisplayCode(resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode));
       setRemarks(activeStoppage.remarks || '');
     } else {
       setDisplayCode('12');
@@ -61,20 +63,27 @@ export function OrderStoppageModal({
 
   if (!open) return null;
 
+  const canSubmitStart = !!selected && (!needsRollChange || rollNo.trim().length > 0);
+  const canSubmitEnd = !!selected;
+
   const handleStart = async () => {
-    if (!selected || !onStart) return;
+    if (!selected || !onStart || !canSubmitStart) return;
     setBusy(true);
+    setError(null);
     try {
       await onStart(selected.categoryCode, selected.breakdownCode, remarks.trim() || undefined);
       onClose();
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to start stoppage');
     } finally {
       setBusy(false);
     }
   };
 
   const handleUpdate = async () => {
-    if (!selected || !activeStoppage) return;
+    if (!selected || !activeStoppage || !canSubmitStart) return;
     setBusy(true);
+    setError(null);
     try {
       await onUpdate(activeStoppage.id, selected.categoryCode, selected.breakdownCode, remarks || undefined);
       if (needsRollChange && onRollChange && rollNo.trim()) {
@@ -86,14 +95,17 @@ export function OrderStoppageModal({
         });
       }
       onClose();
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to update stoppage');
     } finally {
       setBusy(false);
     }
   };
 
   const handleEnd = async () => {
-    if (!selected || !activeStoppage) return;
+    if (!selected || !activeStoppage || !canSubmitEnd) return;
     setBusy(true);
+    setError(null);
     try {
       await onEnd(activeStoppage.id, selected.categoryCode, selected.breakdownCode, remarks || undefined);
       if (needsRollChange && onRollChange && rollNo.trim()) {
@@ -105,12 +117,12 @@ export function OrderStoppageModal({
         });
       }
       onClose();
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to end stoppage');
     } finally {
       setBusy(false);
     }
   };
-
-  const canSubmit = !!selected && (!needsRollChange || rollNo.trim().length > 0);
 
   return (
     <>
@@ -130,6 +142,11 @@ export function OrderStoppageModal({
               </div>
               <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>
             </div>
+          )}
+          {error && (
+            <p className="mt-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">
+              {error}
+            </p>
           )}
         </div>
 
@@ -188,15 +205,15 @@ export function OrderStoppageModal({
         <div className="flex gap-2 justify-end pt-2 shrink-0 border-t border-border mt-2">
           <ZButton variant="ghost" onClick={onClose} className="min-h-14 flex-1">Cancel</ZButton>
           {!hasActiveStoppage ? (
-            <ZButton variant="accent" onClick={handleStart} disabled={busy || !canSubmit || !onStart} className="min-h-14 flex-1">
+            <ZButton variant="accent" onClick={handleStart} disabled={busy || !canSubmitStart || !onStart} className="min-h-14 flex-1">
               Confirm Stoppage
             </ZButton>
           ) : (
             <>
-              <ZButton variant="primary" onClick={handleUpdate} disabled={busy || !canSubmit} className="min-h-14 flex-1">
+              <ZButton variant="primary" onClick={handleUpdate} disabled={busy || !canSubmitStart} className="min-h-14 flex-1">
                 Save Details
               </ZButton>
-              <ZButton variant="accent" onClick={handleEnd} disabled={busy || !canSubmit} className="min-h-14 flex-1">
+              <ZButton variant="accent" onClick={handleEnd} disabled={busy || !canSubmitEnd} className="min-h-14 flex-1">
                 End Stoppage
               </ZButton>
             </>

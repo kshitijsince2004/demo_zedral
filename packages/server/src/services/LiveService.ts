@@ -22,6 +22,15 @@ const ORDER_STATUS_PRIORITY: Record<string, number> = {
   PENDING: 1,
 };
 
+const PRODUCTION_ORDER_STATUSES = ['IN_PROGRESS', 'STOPPAGE'] as const;
+
+const OPEN_EVENT_PRIORITY: Record<string, number> = {
+  MAINTENANCE_STARTED: 50,
+  STOPPAGE_STARTED: 40,
+  RUNNING_STARTED: 30,
+  IDLE_STARTED: 20,
+};
+
 function statusFromActiveOrder(
   orderStatus: string,
   stoppageCategory?: string | null,
@@ -29,7 +38,7 @@ function statusFromActiveOrder(
   if (orderStatus === 'STOPPAGE') {
     return stoppageCategory === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
   }
-  if (orderStatus === 'IN_PROGRESS' || orderStatus === 'PREPARING' || orderStatus === 'PENDING') {
+  if (orderStatus === 'IN_PROGRESS') {
     return 'RUNNING';
   }
   return null;
@@ -49,17 +58,67 @@ function resolveMachineLiveStatus(
   if (masterStatus === 'MAINTENANCE' || event?.event_type === 'MAINTENANCE_STARTED') {
     return 'MAINTENANCE';
   }
+
+  const fromOrder = activeOrder
+    ? statusFromActiveOrder(activeOrder.status, activeOrder.stoppage_category)
+    : null;
+
+  if (fromOrder === 'STOPPAGE' || fromOrder === 'BREAKDOWN') {
+    return fromOrder;
+  }
   if (event?.event_type === 'STOPPAGE_STARTED') {
     return event.category_code === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
   }
-  if (event?.event_type === 'RUNNING_STARTED') {
+
+  if (fromOrder === 'RUNNING') {
     return 'RUNNING';
   }
-  if (activeOrder) {
-    const fromOrder = statusFromActiveOrder(activeOrder.status, activeOrder.stoppage_category);
-    if (fromOrder) return fromOrder;
+  if (event?.event_type === 'RUNNING_STARTED' && activeOrder?.status === 'IN_PROGRESS') {
+    return 'RUNNING';
   }
+  if (event?.event_type === 'IDLE_STARTED') {
+    return 'IDLE';
+  }
+
   return 'IDLE';
+}
+
+function resolveStateSinceAt(
+  status: MachineLiveStatus,
+  event: { occurred_at: Date | string; event_type: string } | undefined,
+  activeOrder: {
+    prod_start_at?: Date | string | null;
+    stoppage_start_at?: Date | string | null;
+  } | undefined,
+): Date | undefined {
+  if (status === 'STOPPAGE' || status === 'BREAKDOWN') {
+    const raw = event?.event_type === 'STOPPAGE_STARTED'
+      ? event.occurred_at
+      : activeOrder?.stoppage_start_at;
+    return raw ? new Date(raw) : undefined;
+  }
+  if (status === 'RUNNING') {
+    const raw = event?.event_type === 'RUNNING_STARTED'
+      ? event.occurred_at
+      : activeOrder?.prod_start_at;
+    return raw ? new Date(raw) : undefined;
+  }
+  if (status === 'IDLE' || status === 'MAINTENANCE') {
+    return event?.occurred_at ? new Date(event.occurred_at) : undefined;
+  }
+  return undefined;
+}
+
+function pickOpenEvent(
+  events: Array<{ event_type: string; occurred_at: Date | string; [key: string]: unknown }>,
+): typeof events[0] | undefined {
+  if (events.length === 0) return undefined;
+  return [...events].sort((a, b) => {
+    const priA = OPEN_EVENT_PRIORITY[a.event_type] ?? 0;
+    const priB = OPEN_EVENT_PRIORITY[b.event_type] ?? 0;
+    if (priB !== priA) return priB - priA;
+    return new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime();
+  })[0];
 }
 
 function mapSixHiStatus(raw: string, prepReady?: boolean): LiveOrderRow['status'] {
@@ -104,6 +163,8 @@ async function formatShiftWindow(shiftCode?: string | null): Promise<string | un
   const fmt = (t: string) => String(t).slice(0, 5);
   return `${shift.name} - ${fmt(String(shift.start_time))} to ${fmt(String(shift.end_time))}`;
 }
+export { resolveMachineLiveStatus, resolveStateSinceAt, statusFromActiveOrder };
+
 export class LiveService {
   static async getMachineScope(userId: number, roles: string[]): Promise<string[] | null> {
     if (roles.includes('PLANT_HEAD') || roles.includes('ADMIN')) return null;
@@ -237,7 +298,9 @@ export class LiveService {
     }
     return orders;
   }
-  static async getMachineCards(machineFilter: string[] | null): Promise<MachineStatusCard[]> {
+  static async getMachineCards(
+    machineFilter: string[] | null,
+  ): Promise<MachineStatusCard[]> {
     let machinesQ = db.selectFrom('master.machine').selectAll().orderBy('machine_code', 'asc');
     if (machineFilter !== null) {
       if (machineFilter.length === 0) return [];
@@ -264,12 +327,18 @@ export class LiveService {
       .execute();
 
     const eventsByMachine = new Map<string, typeof currentEvents[0]>();
+    const eventsGrouped = new Map<string, typeof currentEvents>();
     for (const ev of currentEvents) {
-      // Prioritize events if multiple are somehow open (shouldn't happen, but just in case)
-      eventsByMachine.set(ev.machine_code, ev);
+      const bucket = eventsGrouped.get(ev.machine_code) ?? [];
+      bucket.push(ev);
+      eventsGrouped.set(ev.machine_code, bucket);
+    }
+    for (const [machineCode, evs] of eventsGrouped) {
+      const picked = pickOpenEvent(evs);
+      if (picked) eventsByMachine.set(machineCode, picked);
     }
 
-    // 2. Active allocated orders per machine (canonical fallback when state events are missing)
+    // 2. In-production orders per machine (any shift/plan — reflects true live state)
     const machineCodes = machines.map((m) => m.machine_code);
     const activeOrderRows = machineCodes.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
@@ -290,14 +359,15 @@ export class LiveService {
             'pb.queue_seq',
             'u.full_name as operator_name',
             'os.category_code as stoppage_category',
+            'os.start_at as stoppage_start_at',
             'sc.label as stoppage_label',
             'r.actual_weight_mt as rolling_weight',
             's.actual_weight_mt as skinpass_weight',
           ])
           .where('pb.machine_allocated', '=', true)
           .where('pb.machine_code', 'in', machineCodes)
-          .where('o.status', 'in', ACTIVE_STATUSES)
-          .orderBy('pb.queue_seq', 'asc')
+          .where('o.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+          .orderBy('o.updated_at', 'desc')
           .execute()
       : [];
 
@@ -345,24 +415,24 @@ export class LiveService {
       const ev = eventsByMachine.get(m.machine_code);
       const activeOrder = activeOrderByMachine.get(m.machine_code);
       const rejects = rejectsByMachine.get(m.machine_code) ?? { count: 0, weightMt: 0 };
-      const orderStats = ev?.batch_number
+      const orderStats = activeOrder ?? (ev?.batch_number
         ? orderStatsByBatch.get(ev.batch_number)
-        : activeOrder;
+        : undefined);
 
       const status = resolveMachineLiveStatus(m.machine_status, ev, activeOrder);
 
       const weight = orderStats?.skinpass_weight ?? orderStats?.rolling_weight;
+      const stateSinceDate = resolveStateSinceAt(status, ev, activeOrder);
+      const stateSince = stateSinceDate?.toISOString();
+
       let runtimeMin: number | undefined;
-
-      const stateSince = ev?.occurred_at
-        ?? activeOrder?.prod_start_at
-        ?? (status !== 'IDLE' ? activeOrder?.updated_at : undefined);
-
-      if (status === 'RUNNING' && stateSince) {
-        runtimeMin = Math.round((Date.now() - new Date(stateSince).getTime()) / 60000);
+      if (status === 'RUNNING' && stateSinceDate) {
+        runtimeMin = Math.round((Date.now() - stateSinceDate.getTime()) / 60000);
       }
 
-      const batchNumber = ev?.batch_number ?? activeOrder?.batch_number;
+      const batchNumber = (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN')
+        ? (activeOrder?.batch_number ?? ev?.batch_number)
+        : undefined;
       const isActive = status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN';
 
       return {
@@ -372,13 +442,13 @@ export class LiveService {
         currentOrder: isActive ? (batchNumber ?? undefined) : undefined,
         currentCoil: isActive ? (orderStats?.coil_no ?? undefined) : undefined,
         currentOperator: isActive
-          ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
+          ? (activeOrder?.operator_name ?? ev?.operator_name ?? undefined)
           : undefined,
-        stateSinceAt: stateSince ? new Date(stateSince).toISOString() : undefined,
+        stateSinceAt: stateSince,
         activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
           ? (ev?.stoppage_label ?? activeOrder?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? activeOrder?.stoppage_category ?? undefined)
           : undefined,
-        lastOrderBatchNumber: status === 'IDLE' ? (batchNumber ?? undefined) : undefined,
+        lastOrderBatchNumber: status === 'IDLE' ? (ev?.batch_number ?? activeOrder?.batch_number ?? undefined) : undefined,
         lastOperatorName: status === 'IDLE'
           ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
           : undefined,
@@ -524,15 +594,15 @@ export class LiveService {
 
   static async getSnapshot(userId: number, roles: string[]): Promise<LiveSnapshot> {
     const machineFilter = await this.getMachineScope(userId, roles);
-    const machines = await this.getMachineCards(machineFilter);
     const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const machines = await this.getMachineCards(machineFilter);
     const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
 
     const running = machines.filter((m) => m.status === 'RUNNING').length;
     const idle = machines.filter((m) => m.status === 'IDLE').length;
     const breakdown = machines.filter((m) => m.status === 'BREAKDOWN' || m.status === 'STOPPAGE').length;
     const queuedProductionMt = orders.reduce((s, o) => s + o.weightMt, 0);
-    const stoppages = orders.filter((o) => o.status === 'STOPPAGE').length;
+    const stoppages = machines.filter((m) => m.status === 'STOPPAGE' || m.status === 'BREAKDOWN').length;
     const total = machines.length || 1;
 
     const kpis: LiveKpis = {
@@ -722,10 +792,9 @@ export class LiveService {
     const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
     const { SixHiService } = await import('./SixHiService');
     const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
-    const machines = await this.getMachineCards(machineFilter);
-
     const primaryMachine = machineFilter?.[0] ?? orders[0]?.machineCode ?? '6HI';
     const queueCtx = await SixHiService.resolveMachinePlanContext(planDate, shiftCode, primaryMachine);
+    const machines = await this.getMachineCards(machineFilter);
 
     const shiftLog = await db.selectFrom('txn.shift_log')
       .select(['target_mt'])
