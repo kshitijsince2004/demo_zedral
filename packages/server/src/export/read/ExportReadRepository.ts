@@ -60,6 +60,8 @@ type ShiftRow = {
   process_code: string;
 };
 
+type ShiftCtx = ReturnType<typeof shiftCtx>;
+
 async function fetchShiftLogs(scope: ExportReadScope): Promise<ShiftRow[]> {
   let q = db
     .selectFrom('txn.shift_log as sl')
@@ -97,137 +99,161 @@ function shiftCtx(row: ShiftRow) {
   };
 }
 
+function groupShiftIdsByProcess(shifts: ShiftRow[]): Map<string, string[]> {
+  const byProcess = new Map<string, string[]>();
+  for (const shift of shifts) {
+    const ids = byProcess.get(shift.process_code) ?? [];
+    ids.push(shift.shift_log_id);
+    byProcess.set(shift.process_code, ids);
+  }
+  return byProcess;
+}
+
+function pushMappedRuns(
+  runs: ProcessRunRow[],
+  scope: ExportReadScope,
+  rows: Record<string, unknown>[],
+  ctxByShiftId: Map<string, ShiftCtx>,
+  mapper: (ctx: ShiftCtx, row: Record<string, unknown>) => ProcessRunRow,
+) {
+  for (const row of rows) {
+    const ctx = ctxByShiftId.get(String(row.shift_log_id));
+    if (!ctx) continue;
+    const mapped = mapper(ctx, row);
+    if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
+  }
+}
+
 export class ExportReadRepository {
   static async fetchRuns(scopeInput: ExportReadScope): Promise<ProcessRunRow[]> {
     const scope = parseScope(scopeInput);
     const shifts = await fetchShiftLogs(scope);
+    if (shifts.length === 0) return [];
+
+    const ctxByShiftId = new Map(shifts.map((s) => [s.shift_log_id, shiftCtx(s)]));
+    const shiftIdsByProcess = groupShiftIdsByProcess(shifts);
     const runs: ProcessRunRow[] = [];
 
-    for (const shift of shifts) {
-      const ctx = shiftCtx(shift);
-      const sid = shift.shift_log_id;
+    const hrsIds = shiftIdsByProcess.get('HRS') ?? [];
+    if (hrsIds.length > 0) {
+      let q = db.selectFrom('txn.prod_hrs').selectAll().where('shift_log_id', 'in', hrsIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapHrsRow);
+    }
 
-      if (shift.process_code === 'HRS') {
-        let q = db.selectFrom('txn.prod_hrs').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapHrsRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
+    const pklIds = shiftIdsByProcess.get('PKL') ?? [];
+    if (pklIds.length > 0) {
+      let q = db.selectFrom('txn.prod_pkl').selectAll().where('shift_log_id', 'in', pklIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapPklRow);
+    }
+
+    const annIds = shiftIdsByProcess.get('ANN') ?? [];
+    if (annIds.length > 0) {
+      const charges = await db
+        .selectFrom('txn.ann_charge')
+        .selectAll()
+        .where('shift_log_id', 'in', annIds)
+        .execute();
+
+      if (charges.length > 0) {
+        const chargeNos = charges.map((c) => c.charge_no);
+        let coilQ = db
+          .selectFrom('txn.ann_charge_coil')
+          .select(['charge_no', 'coil_no'])
+          .where('charge_no', 'in', chargeNos);
+        if (scope.coilNo) coilQ = coilQ.where('coil_no', '=', scope.coilNo);
+        const coils = await coilQ.execute();
+
+        const coilsByCharge = new Map<string, string[]>();
+        for (const { charge_no, coil_no } of coils) {
+          const bucket = coilsByCharge.get(charge_no);
+          if (bucket) bucket.push(coil_no);
+          else coilsByCharge.set(charge_no, [coil_no]);
         }
-      }
-
-      if (shift.process_code === 'PKL') {
-        let q = db.selectFrom('txn.prod_pkl').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapPklRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
-        }
-      }
-
-      if (shift.process_code === 'ANN') {
-        const charges = await db
-          .selectFrom('txn.ann_charge')
-          .selectAll()
-          .where('shift_log_id', '=', sid)
-          .execute();
 
         for (const charge of charges) {
-          let coilQ = db
-            .selectFrom('txn.ann_charge_coil')
-            .select('coil_no')
-            .where('charge_no', '=', charge.charge_no);
-          if (scope.coilNo) coilQ = coilQ.where('coil_no', '=', scope.coilNo);
-          const coils = await coilQ.execute();
-
-          for (const { coil_no } of coils) {
-            const mapped = mapAnnCoilRow(ctx, coil_no, charge as Record<string, unknown>);
+          const ctx = ctxByShiftId.get(String(charge.shift_log_id));
+          if (!ctx) continue;
+          for (const coilNo of coilsByCharge.get(charge.charge_no) ?? []) {
+            const mapped = mapAnnCoilRow(ctx, coilNo, charge as Record<string, unknown>);
             if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
           }
         }
       }
+    }
 
-      if (shift.process_code === 'SKP') {
-        let q = db.selectFrom('txn.prod_skp').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapSkpRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
-        }
-      }
+    const skpIds = shiftIdsByProcess.get('SKP') ?? [];
+    if (skpIds.length > 0) {
+      let q = db.selectFrom('txn.prod_skp').selectAll().where('shift_log_id', 'in', skpIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapSkpRow);
+    }
 
-      if (shift.process_code === 'RWD') {
-        let q = db.selectFrom('txn.prod_rwd').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapRwdRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
-        }
-      }
+    const rwdIds = shiftIdsByProcess.get('RWD') ?? [];
+    if (rwdIds.length > 0) {
+      let q = db.selectFrom('txn.prod_rwd').selectAll().where('shift_log_id', 'in', rwdIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapRwdRow);
+    }
 
-      if (shift.process_code === 'CRS') {
-        let q = db.selectFrom('txn.prod_crs').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapCrsRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
-        }
-      }
+    const crsIds = shiftIdsByProcess.get('CRS') ?? [];
+    if (crsIds.length > 0) {
+      let q = db.selectFrom('txn.prod_crs').selectAll().where('shift_log_id', 'in', crsIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapCrsRow);
+    }
 
-      if (shift.process_code === 'CTL') {
-        let q = db.selectFrom('txn.prod_ctl').selectAll().where('shift_log_id', '=', sid);
-        if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-        const rows = await q.execute();
-        for (const row of rows) {
-          const mapped = mapCtlRow(ctx, row as Record<string, unknown>);
-          if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
-        }
-      }
+    const ctlIds = shiftIdsByProcess.get('CTL') ?? [];
+    if (ctlIds.length > 0) {
+      let q = db.selectFrom('txn.prod_ctl').selectAll().where('shift_log_id', 'in', ctlIds);
+      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
+      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapCtlRow);
+    }
 
-      if (shift.process_code === '6HI') {
-        let orderQ = db
-          .selectFrom('txn.crm6_order as o')
-          .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
-          .select([
-            'o.order_id',
-            'o.coil_no',
-            'o.batch_number',
-            'o.sub_process',
-            'o.ppc_weight_mt',
-            'o.ppc_thk_mm',
-            'o.production_day',
-            'o.grade_code',
-            'pb.machine_code',
-          ])
-          .where('o.shift_log_id', '=', sid);
+    const sixHiIds = shiftIdsByProcess.get('6HI') ?? [];
+    if (sixHiIds.length > 0) {
+      let orderQ = db
+        .selectFrom('txn.crm6_order as o')
+        .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
+        .select([
+          'o.order_id',
+          'o.coil_no',
+          'o.batch_number',
+          'o.sub_process',
+          'o.ppc_weight_mt',
+          'o.ppc_thk_mm',
+          'o.production_day',
+          'o.grade_code',
+          'o.shift_log_id',
+          'pb.machine_code',
+        ])
+        .where('o.shift_log_id', 'in', sixHiIds);
 
-        if (scope.coilNo) orderQ = orderQ.where('o.coil_no', '=', scope.coilNo);
+      if (scope.coilNo) orderQ = orderQ.where('o.coil_no', '=', scope.coilNo);
 
-        const orders = await orderQ.execute();
+      const orders = await orderQ.execute();
+      if (orders.length > 0) {
+        const orderIds = orders.map((o) => String(o.order_id));
+        const [rollingRows, skinpassRows] = await Promise.all([
+          db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', 'in', orderIds).execute(),
+          db.selectFrom('txn.crm6_skinpass').selectAll().where('order_id', 'in', orderIds).execute(),
+        ]);
+
+        const rollingByOrder = new Map(rollingRows.map((r) => [String(r.order_id), r]));
+        const skinpassByOrder = new Map(skinpassRows.map((r) => [String(r.order_id), r]));
+
         for (const order of orders) {
+          const ctx = ctxByShiftId.get(String(order.shift_log_id));
+          if (!ctx) continue;
+          const orderId = String(order.order_id);
           const machineCode = order.machine_code ?? '6HI';
-          const rolling = await db
-            .selectFrom('txn.crm6_rolling')
-            .selectAll()
-            .where('order_id', '=', String(order.order_id))
-            .executeTakeFirst();
-          const skinpass = await db
-            .selectFrom('txn.crm6_skinpass')
-            .selectAll()
-            .where('order_id', '=', String(order.order_id))
-            .executeTakeFirst();
-
           const mapped = mapCrm6OrderRow(
             ctx,
             order as Record<string, unknown>,
             machineCode,
-            rolling as Record<string, unknown> | null,
-            skinpass as Record<string, unknown> | null,
+            (rollingByOrder.get(orderId) ?? null) as Record<string, unknown> | null,
+            (skinpassByOrder.get(orderId) ?? null) as Record<string, unknown> | null,
           );
           if (areaMatches(scope, mapped.areaCode)) runs.push(mapped);
         }
@@ -252,17 +278,23 @@ export class ExportReadRepository {
     if (scope.processCode) shiftQ = shiftQ.where('p.code', '=', scope.processCode);
 
     const shifts = await shiftQ.execute();
-
-    for (const shift of shifts) {
+    const eligibleShifts = shifts.filter((shift) => {
       const areaCode = resolveProcessArea(shift.process_code, shift.mill_type);
-      if (!areaMatches(scope, areaCode)) continue;
-      if (!shiftMatches(scope, shift.shift_code)) continue;
+      return areaMatches(scope, areaCode) && shiftMatches(scope, shift.shift_code);
+    });
 
+    const shiftIds = eligibleShifts.map((s) => String(s.shift_log_id));
+    const shiftById = new Map(
+      eligibleShifts.map((s) => [String(s.shift_log_id), s]),
+    );
+
+    if (shiftIds.length > 0) {
       const entries = await db
         .selectFrom('txn.stoppage_entry as se')
         .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
         .select([
           'se.stoppage_id',
+          'se.shift_log_id',
           'se.duration_min',
           'se.remarks',
           'se.stoppage_code',
@@ -271,10 +303,13 @@ export class ExportReadRepository {
           'sc.agency_code',
           'sc.category',
         ])
-        .where('se.shift_log_id', '=', String(shift.shift_log_id))
+        .where('se.shift_log_id', 'in', shiftIds)
         .execute();
 
       for (const e of entries) {
+        const shift = shiftById.get(String(e.shift_log_id));
+        if (!shift) continue;
+        const areaCode = resolveProcessArea(shift.process_code, shift.mill_type);
         events.push({
           eventId: `shift:${e.stoppage_id}`,
           areaCode,

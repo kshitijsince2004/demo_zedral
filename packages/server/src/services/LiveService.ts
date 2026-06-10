@@ -135,12 +135,15 @@ export class LiveService {
       machines = machineFilter;
     }
 
-    const machineContexts = await Promise.all(
-      machines.map(async (machineCode) => {
-        const ctx = await SixHiService.resolveMachinePlanContext(defaultDate, defaultShift, machineCode);
-        return { machineCode, ...ctx };
-      }),
+    const machineContextsMap = await SixHiService.resolveMachinePlanContexts(
+      defaultDate,
+      defaultShift,
+      machines,
     );
+    const machineContexts = machines.map((machineCode) => ({
+      machineCode,
+      ...(machineContextsMap.get(machineCode) ?? { planDate: defaultDate, shiftCode: defaultShift }),
+    }));
 
     if (machineContexts.length === 0) return [];
 
@@ -197,6 +200,9 @@ export class LiveService {
         return QUEUE_STATUSES.includes(st as typeof QUEUE_STATUSES[number]) || st === 'PENDING';
       });
 
+    const coilNos = filtered.map((r) => r.coil_no);
+    const journeysByCoil = await ProcessRouteService.getJourneysByCoils(coilNos);
+
     const orders: LiveOrderRow[] = [];
     for (const r of filtered) {
       const prepReady = (r.status === 'PENDING' || r.status === 'PREPARING') && (
@@ -208,7 +214,7 @@ export class LiveService {
       if (!runtimeMin && r.prod_start_at) {
         runtimeMin = Math.round((Date.now() - new Date(r.prod_start_at).getTime()) / 60000);
       }
-      const journey = await ProcessRouteService.getJourneyByCoil(r.coil_no);
+      const journey = journeysByCoil.get(r.coil_no) ?? null;
       const progress = journeyProgress(journey);
       orders.push({
         batchNumber: r.batch_number,

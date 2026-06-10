@@ -152,45 +152,100 @@ export class SixHiService {
     return this.countMachineBatches(planDate, shiftCode, machineCode, subProcess);
   }
 
+  /** Resolve plan date + shift for multiple machines in a fixed query count. */
+  static async resolveMachinePlanContexts(
+    planDate: string,
+    shiftCode: string,
+    machineCodes: string[],
+  ): Promise<Map<string, { planDate: string; shiftCode: string }>> {
+    const result = new Map<string, { planDate: string; shiftCode: string }>();
+    const unique = [...new Set(machineCodes.filter(Boolean))];
+    if (unique.length === 0) return result;
+
+    const planDateObj = this.toPlanDate(planDate);
+
+    const exactCounts = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', planDateObj)
+      .where('shift_code', '=', shiftCode)
+      .where('machine_code', 'in', unique)
+      .where('machine_allocated', '=', true)
+      .groupBy('machine_code')
+      .execute();
+
+    const unresolved: string[] = [];
+    for (const machineCode of unique) {
+      const count = Number(exactCounts.find((r) => r.machine_code === machineCode)?.n ?? 0);
+      if (count > 0) {
+        result.set(machineCode, { planDate, shiftCode });
+      } else {
+        unresolved.push(machineCode);
+      }
+    }
+
+    if (unresolved.length === 0) return result;
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', planDateObj)
+      .where('machine_code', 'in', unresolved)
+      .where('machine_allocated', '=', true)
+      .groupBy(['machine_code', 'shift_code'])
+      .orderBy('machine_code', 'asc')
+      .orderBy('shift_code', 'asc')
+      .execute();
+
+    const stillUnresolved: string[] = [];
+    for (const machineCode of unresolved) {
+      const row = sameDateShifts.find(
+        (r) => r.machine_code === machineCode && Number(r.n ?? 0) > 0,
+      );
+      if (row) {
+        result.set(machineCode, { planDate, shiftCode: row.shift_code });
+      } else {
+        stillUnresolved.push(machineCode);
+      }
+    }
+
+    if (stillUnresolved.length === 0) return result;
+
+    const latestBatchRows = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'plan_date', 'shift_code'])
+      .where('machine_code', 'in', stillUnresolved)
+      .where('machine_allocated', '=', true)
+      .orderBy('machine_code', 'asc')
+      .orderBy('plan_date', 'desc')
+      .orderBy('queue_seq', 'asc')
+      .execute();
+
+    const seenLatest = new Set<string>();
+    for (const row of latestBatchRows) {
+      if (seenLatest.has(row.machine_code)) continue;
+      seenLatest.add(row.machine_code);
+      if (!row.plan_date) continue;
+      result.set(row.machine_code, {
+        planDate: this.formatPlanDate(row.plan_date),
+        shiftCode: row.shift_code,
+      });
+    }
+
+    for (const machineCode of stillUnresolved) {
+      if (!result.has(machineCode)) {
+        result.set(machineCode, { planDate, shiftCode });
+      }
+    }
+
+    return result;
+  }
+
   /** Resolve plan date + shift for a machine (all sub-processes). Used by machine head + operator queue. */
   static async resolveMachinePlanContext(
     planDate: string,
     shiftCode: string,
     machineCode: string,
   ): Promise<{ planDate: string; shiftCode: string }> {
-    if (await this.countMachineBatches(planDate, shiftCode, machineCode) > 0) {
-      return { planDate, shiftCode };
-    }
-
-    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
-      .select(['shift_code', db.fn.count('batch_id').as('n')])
-      .where('plan_date', '=', this.toPlanDate(planDate))
-      .where('machine_code', '=', machineCode)
-      .where('machine_allocated', '=', true)
-      .groupBy('shift_code')
-      .orderBy('shift_code', 'asc')
-      .execute();
-    for (const row of sameDateShifts) {
-      if (Number(row.n ?? 0) > 0) {
-        return { planDate, shiftCode: row.shift_code };
-      }
-    }
-
-    const latest = await db.selectFrom('planning.ppc_batch')
-      .select(['plan_date', 'shift_code'])
-      .where('machine_code', '=', machineCode)
-      .where('machine_allocated', '=', true)
-      .orderBy('plan_date', 'desc')
-      .orderBy('queue_seq', 'asc')
-      .limit(1)
-      .executeTakeFirst();
-    if (latest?.plan_date) {
-      return {
-        planDate: this.formatPlanDate(latest.plan_date),
-        shiftCode: latest.shift_code,
-      };
-    }
-    return { planDate, shiftCode };
+    const contexts = await this.resolveMachinePlanContexts(planDate, shiftCode, [machineCode]);
+    return contexts.get(machineCode) ?? { planDate, shiftCode };
   }
 
   /** Resolve plan date + shift when the UI shift context does not match seeded PPC rows. */
