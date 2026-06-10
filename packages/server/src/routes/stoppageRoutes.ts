@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
 import { assertShiftLogAccess } from '../services/shiftLogAccessService';
-import { StoppageService } from '../services/ancillaryServices';
+import { StoppageService } from '../services/StoppageService';
 import { AuthError } from '../services/authService';
 
 const router = Router();

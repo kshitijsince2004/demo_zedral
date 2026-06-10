@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
 import { reportingDb } from '../db';
 import {
+  buildShiftDurationMap,
   calcOee,
   calcPerformance,
   calcQuality,
@@ -8,6 +9,7 @@ import {
   pctChange,
   PLANT_OEE_TARGET,
   REJECTION_COST_PER_MT,
+  resolveShiftMinutes,
   round1,
   round2,
 } from '../utils/kpiCalculator';
@@ -175,6 +177,22 @@ async function fetchDowntimeByShift(shiftIds: string[]): Promise<Record<string, 
   return map;
 }
 
+async function fetchShiftDurationMap(): Promise<Record<string, number>> {
+  const rows = await reportingDb
+    .selectFrom('master.shift')
+    .select(['shift_code', 'start_time', 'end_time'])
+    .orderBy('start_time', 'asc')
+    .execute();
+
+  return buildShiftDurationMap(
+    rows.map((row) => ({
+      shiftCode: row.shift_code,
+      startTime: String(row.start_time).slice(0, 5),
+      endTime: String(row.end_time).slice(0, 5),
+    })),
+  );
+}
+
 async function fetchLossByShift(shiftIds: string[]): Promise<Record<string, number>> {
   if (shiftIds.length === 0) return {};
 
@@ -222,23 +240,34 @@ function aggregateLineOee(
   shifts: ShiftRow[],
   downtime: Record<string, number>,
   loss: Record<string, number>,
+  shiftDurationMap: Record<string, number>,
 ): Array<{ lineId: string; oee: number; availability: number; performance: number; quality: number }> {
-  const byLine: Record<string, { target: number; prod: number; downtime: number; loss: number }> = {};
+  const byLine: Record<
+    string,
+    { target: number; prod: number; downtime: number; loss: number; shiftMinutes: number }
+  > = {};
 
   for (const shift of shifts) {
     if (!byLine[shift.lineId]) {
-      byLine[shift.lineId] = { target: 0, prod: 0, downtime: 0, loss: 0 };
+      byLine[shift.lineId] = { target: 0, prod: 0, downtime: 0, loss: 0, shiftMinutes: 0 };
     }
     const bucket = byLine[shift.lineId];
     bucket.target += shift.target_mt;
     bucket.prod += shift.total_prod_mt;
     bucket.downtime += downtime[shift.shift_log_id] || 0;
     bucket.loss += loss[shift.shift_log_id] || 0;
+    bucket.shiftMinutes += resolveShiftMinutes(shift.shift_code, shiftDurationMap);
   }
 
   return Object.entries(byLine).map(([lineId, totals]) => ({
     lineId,
-    ...lineOeeFromTotals(totals.target, totals.prod, totals.downtime, totals.loss),
+    ...lineOeeFromTotals(
+      totals.target,
+      totals.prod,
+      totals.downtime,
+      totals.loss,
+      totals.shiftMinutes,
+    ),
   }));
 }
 
@@ -427,12 +456,15 @@ export class ReportingService {
 
     const recentFrom = new Date();
     recentFrom.setDate(recentFrom.getDate() - 30);
-    const recentShifts = await fetchShiftRows(lines, recentFrom, new Date());
+    const [recentShifts, shiftDurationMap] = await Promise.all([
+      fetchShiftRows(lines, recentFrom, new Date()),
+      fetchShiftDurationMap(),
+    ]);
     const shiftIds = recentShifts.map((s) => s.shift_log_id);
     const downtime = await fetchDowntimeByShift(shiftIds);
     const loss = await fetchLossByShift(shiftIds);
 
-    const lineOee = aggregateLineOee(recentShifts, downtime, loss);
+    const lineOee = aggregateLineOee(recentShifts, downtime, loss, shiftDurationMap);
     const filteredLineOee =
       lines.length > 0 ? lineOee.filter((o) => lines.includes(o.lineId)) : lineOee;
 
@@ -488,25 +520,32 @@ export class ReportingService {
   static async getPlantHeadDashboard(windowDays: PlantHeadWindow = 7, filters: PlantHeadFilters = {}) {
     const now = new Date();
     const trendFrom = windowStart(windowDays, now);
-    const shifts = await fetchShiftRows(filters.lines || [], trendFrom, now, undefined, filters);
+    const [shifts, shiftDurationMap] = await Promise.all([
+      fetchShiftRows(filters.lines || [], trendFrom, now, undefined, filters),
+      fetchShiftDurationMap(),
+    ]);
     const shiftIds = shifts.map((s) => s.shift_log_id);
     const downtime = await fetchDowntimeByShift(shiftIds);
     const loss = await fetchLossByShift(shiftIds);
 
-    const lineOee = aggregateLineOee(shifts, downtime, loss);
+    const lineOee = aggregateLineOee(shifts, downtime, loss, shiftDurationMap);
     const plantWideOeeValue = plantWideOee(lineOee);
 
-    const oeeByDate: Record<string, { target: number; prod: number; downtime: number; loss: number }> = {};
+    const oeeByDate: Record<
+      string,
+      { target: number; prod: number; downtime: number; loss: number; shiftMinutes: number }
+    > = {};
     for (const shift of shifts) {
       const key = formatDateKey(shift.prod_date);
       if (!oeeByDate[key]) {
-        oeeByDate[key] = { target: 0, prod: 0, downtime: 0, loss: 0 };
+        oeeByDate[key] = { target: 0, prod: 0, downtime: 0, loss: 0, shiftMinutes: 0 };
       }
       const bucket = oeeByDate[key];
       bucket.target += shift.target_mt;
       bucket.prod += shift.total_prod_mt;
       bucket.downtime += downtime[shift.shift_log_id] || 0;
       bucket.loss += loss[shift.shift_log_id] || 0;
+      bucket.shiftMinutes += resolveShiftMinutes(shift.shift_code, shiftDurationMap);
     }
 
     const oeeTrend = Object.entries(oeeByDate)
@@ -517,6 +556,7 @@ export class ReportingService {
           totals.prod,
           totals.downtime,
           totals.loss,
+          totals.shiftMinutes,
         );
         return {
           date: formatDayLabel(new Date(dateKey)),
@@ -617,6 +657,7 @@ export class ReportingService {
       previousWindowShifts,
       previousWindowDowntime,
       previousWindowLoss,
+      shiftDurationMap,
     );
     const previousApq = plantWideApq(previousLineOee);
     const previousPlantOee = plantWideOee(previousLineOee);
@@ -667,8 +708,6 @@ export class ReportingService {
         performanceTrendPct: pctChange(currentApq.performance, previousApq.performance),
         qualityPct: currentApq.quality,
         qualityTrendPct: pctChange(currentApq.quality, previousApq.quality),
-        utilizationPct: currentApq.availability,
-        utilizationTrendPct: pctChange(currentApq.availability, previousApq.availability),
       },
     };
   }
@@ -676,8 +715,11 @@ export class ReportingService {
   static async getManagementDashboard(period: ReportingPeriod) {
     const ranges = resolvePeriodRanges(period);
 
-    const currentShifts = await fetchShiftRows([], ranges.currentFrom, ranges.currentTo);
-    const previousShifts = await fetchShiftRows([], ranges.previousFrom, ranges.previousTo);
+    const [currentShifts, previousShifts, shiftDurationMap] = await Promise.all([
+      fetchShiftRows([], ranges.currentFrom, ranges.currentTo),
+      fetchShiftRows([], ranges.previousFrom, ranges.previousTo),
+      fetchShiftDurationMap(),
+    ]);
 
     const currentIds = currentShifts.map((s) => s.shift_log_id);
     const previousIds = previousShifts.map((s) => s.shift_log_id);
@@ -698,13 +740,15 @@ export class ReportingService {
       let prod = 0;
       let downtime = 0;
       let loss = 0;
+      let shiftMinutes = 0;
       for (const shift of shifts) {
         target += shift.target_mt;
         prod += shift.total_prod_mt;
         downtime += downtimeMap[shift.shift_log_id] || 0;
         loss += lossMap[shift.shift_log_id] || 0;
+        shiftMinutes += resolveShiftMinutes(shift.shift_code, shiftDurationMap);
       }
-      const { oee } = lineOeeFromTotals(target, prod, downtime, loss);
+      const { oee } = lineOeeFromTotals(target, prod, downtime, loss, shiftMinutes);
       const yieldPct = calcQuality(Math.max(prod - loss, 0), prod);
       const onTimePct = calcPerformance(prod, target);
       return { target, prod, downtime, loss, oee, yieldPct, onTimePct };
@@ -798,7 +842,10 @@ export class ReportingService {
   ) {
     const now = new Date();
     const from = windowStart(windowDays, now);
-    const shifts = await fetchShiftRows([], from, now);
+    const [shifts, shiftDurationMap] = await Promise.all([
+      fetchShiftRows([], from, now),
+      fetchShiftDurationMap(),
+    ]);
     const shiftIds = shifts.map((s) => s.shift_log_id);
     const downtime = await fetchDowntimeByShift(shiftIds);
     const loss = await fetchLossByShift(shiftIds);
@@ -820,11 +867,13 @@ export class ReportingService {
 
       case 'oee':
         allRecords = shifts.map((shift) => {
+          const shiftMinutes = resolveShiftMinutes(shift.shift_code, shiftDurationMap);
           const metrics = lineOeeFromTotals(
             shift.target_mt,
             shift.total_prod_mt,
             downtime[shift.shift_log_id] || 0,
             loss[shift.shift_log_id] || 0,
+            shiftMinutes,
           );
           return {
             shiftLogId: shift.shift_log_id,

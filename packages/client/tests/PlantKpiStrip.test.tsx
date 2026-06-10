@@ -27,8 +27,6 @@ function buildData(overrides: Partial<ExtendedPlantHeadDashboardData> = {}): Ext
       performanceTrendPct: -0.4,
       qualityPct: 96,
       qualityTrendPct: 0.3,
-      utilizationPct: 88,
-      utilizationTrendPct: 0.8,
     },
     productionToday: 120,
     productionTarget: 150,
@@ -79,7 +77,8 @@ describe('PlantKpiStrip', () => {
     expect(screen.getByText('Availability')).toBeDefined();
     expect(screen.getByText('Performance')).toBeDefined();
     expect(screen.getByText('Quality')).toBeDefined();
-    expect(screen.getByText('Utilization')).toBeDefined();
+    expect(screen.getByText('Machines Running')).toBeDefined();
+    expect(screen.getByText('—')).toBeDefined();
   });
 
   it('does not render hardcoded placeholder trends', () => {
@@ -90,7 +89,7 @@ describe('PlantKpiStrip', () => {
     expect(screen.queryByText('-0.3%')).toBeNull();
   });
 
-  it('uses live utilization value when live KPIs are present', () => {
+  it('uses live machines-running pct when live KPIs are present', () => {
     render(
       <PlantKpiStrip
         data={buildData()}
@@ -99,9 +98,9 @@ describe('PlantKpiStrip', () => {
           idleMachines: 1,
           breakdownMachines: 0,
           activeOrders: 5,
-          currentProductionMt: 50,
+          queuedProductionMt: 50,
           currentStoppages: 1,
-          utilizationPct: 75,
+          machinesRunningPct: 75,
           shiftPerformancePct: 60,
         }}
       />,

@@ -19,6 +19,17 @@ import {
   loadRecentOrderMachineTransfers,
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
+import {
+  assertCanStartOrderStoppage,
+  validateOrderStoppageInterval,
+} from '../validation/orderStoppageValidation';
+import {
+  assertCrm6DefectQuantities,
+  assertCrm6OutputWeight,
+  assertCrm6ScrapKg,
+  assertOrderRuntimeAccounting,
+  assertShiftLogRuntimeAccounting,
+} from '../validation/crm6ProductionValidation';
 
 
 const SIX_HI_PROCESS_CODE = '6HI';
@@ -141,45 +152,100 @@ export class SixHiService {
     return this.countMachineBatches(planDate, shiftCode, machineCode, subProcess);
   }
 
+  /** Resolve plan date + shift for multiple machines in a fixed query count. */
+  static async resolveMachinePlanContexts(
+    planDate: string,
+    shiftCode: string,
+    machineCodes: string[],
+  ): Promise<Map<string, { planDate: string; shiftCode: string }>> {
+    const result = new Map<string, { planDate: string; shiftCode: string }>();
+    const unique = [...new Set(machineCodes.filter(Boolean))];
+    if (unique.length === 0) return result;
+
+    const planDateObj = this.toPlanDate(planDate);
+
+    const exactCounts = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', planDateObj)
+      .where('shift_code', '=', shiftCode)
+      .where('machine_code', 'in', unique)
+      .where('machine_allocated', '=', true)
+      .groupBy('machine_code')
+      .execute();
+
+    const unresolved: string[] = [];
+    for (const machineCode of unique) {
+      const count = Number(exactCounts.find((r) => r.machine_code === machineCode)?.n ?? 0);
+      if (count > 0) {
+        result.set(machineCode, { planDate, shiftCode });
+      } else {
+        unresolved.push(machineCode);
+      }
+    }
+
+    if (unresolved.length === 0) return result;
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', planDateObj)
+      .where('machine_code', 'in', unresolved)
+      .where('machine_allocated', '=', true)
+      .groupBy(['machine_code', 'shift_code'])
+      .orderBy('machine_code', 'asc')
+      .orderBy('shift_code', 'asc')
+      .execute();
+
+    const stillUnresolved: string[] = [];
+    for (const machineCode of unresolved) {
+      const row = sameDateShifts.find(
+        (r) => r.machine_code === machineCode && Number(r.n ?? 0) > 0,
+      );
+      if (row) {
+        result.set(machineCode, { planDate, shiftCode: row.shift_code });
+      } else {
+        stillUnresolved.push(machineCode);
+      }
+    }
+
+    if (stillUnresolved.length === 0) return result;
+
+    const latestBatchRows = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'plan_date', 'shift_code'])
+      .where('machine_code', 'in', stillUnresolved)
+      .where('machine_allocated', '=', true)
+      .orderBy('machine_code', 'asc')
+      .orderBy('plan_date', 'desc')
+      .orderBy('queue_seq', 'asc')
+      .execute();
+
+    const seenLatest = new Set<string>();
+    for (const row of latestBatchRows) {
+      if (seenLatest.has(row.machine_code)) continue;
+      seenLatest.add(row.machine_code);
+      if (!row.plan_date) continue;
+      result.set(row.machine_code, {
+        planDate: this.formatPlanDate(row.plan_date),
+        shiftCode: row.shift_code,
+      });
+    }
+
+    for (const machineCode of stillUnresolved) {
+      if (!result.has(machineCode)) {
+        result.set(machineCode, { planDate, shiftCode });
+      }
+    }
+
+    return result;
+  }
+
   /** Resolve plan date + shift for a machine (all sub-processes). Used by machine head + operator queue. */
   static async resolveMachinePlanContext(
     planDate: string,
     shiftCode: string,
     machineCode: string,
   ): Promise<{ planDate: string; shiftCode: string }> {
-    if (await this.countMachineBatches(planDate, shiftCode, machineCode) > 0) {
-      return { planDate, shiftCode };
-    }
-
-    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
-      .select(['shift_code', db.fn.count('batch_id').as('n')])
-      .where('plan_date', '=', this.toPlanDate(planDate))
-      .where('machine_code', '=', machineCode)
-      .where('machine_allocated', '=', true)
-      .groupBy('shift_code')
-      .orderBy('shift_code', 'asc')
-      .execute();
-    for (const row of sameDateShifts) {
-      if (Number(row.n ?? 0) > 0) {
-        return { planDate, shiftCode: row.shift_code };
-      }
-    }
-
-    const latest = await db.selectFrom('planning.ppc_batch')
-      .select(['plan_date', 'shift_code'])
-      .where('machine_code', '=', machineCode)
-      .where('machine_allocated', '=', true)
-      .orderBy('plan_date', 'desc')
-      .orderBy('queue_seq', 'asc')
-      .limit(1)
-      .executeTakeFirst();
-    if (latest?.plan_date) {
-      return {
-        planDate: this.formatPlanDate(latest.plan_date),
-        shiftCode: latest.shift_code,
-      };
-    }
-    return { planDate, shiftCode };
+    const contexts = await this.resolveMachinePlanContexts(planDate, shiftCode, [machineCode]);
+    return contexts.get(machineCode) ?? { planDate, shiftCode };
   }
 
   /** Resolve plan date + shift when the UI shift context does not match seeded PPC rows. */
@@ -937,6 +1003,7 @@ export class SixHiService {
       const totalStoppageMin = await this.totalStoppageMinutes(order.order_id, endAt);
       const wallMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
       durationMin = Math.max(0, wallMin - totalStoppageMin);
+      await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
     }
     await db.updateTable('txn.crm6_order')
       .set({
@@ -1029,6 +1096,7 @@ export class SixHiService {
 
   static async updateRolling(batchNumber: string, data: SixHiRollingData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
 
     await db.updateTable('txn.crm6_rolling')
@@ -1062,6 +1130,7 @@ export class SixHiService {
 
   static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     await db.updateTable('txn.crm6_skinpass')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
@@ -1091,14 +1160,7 @@ export class SixHiService {
       throw new Error('Stoppage can only be recorded while production is running');
     }
 
-    const openCount = await db.selectFrom('txn.order_stoppage')
-      .select(db.fn.count('stoppage_id').as('c'))
-      .where('order_id', '=', orderId)
-      .where('end_at', 'is', null)
-      .executeTakeFirst();
-    if (Number(openCount?.c ?? 0) > 0) {
-      throw new Error('A stoppage is already active on this order');
-    }
+    await assertCanStartOrderStoppage(orderId);
 
     await db.insertInto('txn.order_stoppage')
       .values({
@@ -1145,6 +1207,7 @@ export class SixHiService {
     const order = await db.selectFrom('txn.crm6_order').select(['order_id', 'logged_in_user_id']).where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
     const stop = await db.selectFrom('txn.order_stoppage').selectAll().where('stoppage_id', '=', stoppageId).executeTakeFirstOrThrow();
     const endAt = new Date();
+    await validateOrderStoppageInterval(order.order_id, stop.start_at, endAt, stoppageId);
     const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
     await db.updateTable('txn.order_stoppage')
       .set({ end_at: endAt, duration_min: durationMin })
@@ -1191,6 +1254,7 @@ export class SixHiService {
     defects?: { defectCode: string; quantityAffected?: number; remarks?: string }[],
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6DefectQuantities(orderId, defects);
     await db.insertInto('txn.order_remark')
       .values({
         order_id: orderId,
@@ -1410,6 +1474,7 @@ export class SixHiService {
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .executeTakeFirstOrThrow();
       const endAt = new Date();
+      await validateOrderStoppageInterval(orderId, stop.start_at, endAt, String(activeStoppage.stoppage_id));
       const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
       await db.updateTable('txn.order_stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
@@ -1565,6 +1630,8 @@ export class SixHiService {
     coolantPressKgCm2: number | undefined,
     userId: number,
   ) {
+    await assertCrm6ScrapKg(shiftLogId, scrapKg);
+    await assertShiftLogRuntimeAccounting(shiftLogId);
     const summary = await this.getShiftSummary(shiftLogId);
     await db.insertInto('txn.crm6_shift_summary')
       .values({

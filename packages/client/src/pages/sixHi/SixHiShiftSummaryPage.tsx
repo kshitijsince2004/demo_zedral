@@ -125,7 +125,7 @@ export function SixHiShiftSummaryPage() {
                     <div>Breakdown: <strong className="font-mono">{summary.totalBreakdownMinutes} min</strong></div>
                   )}
                   {summary.machineUtilizationPct != null && (
-                    <div>Utilization: <strong className="font-mono">{summary.machineUtilizationPct}%</strong></div>
+                    <div>Runtime utilization: <strong className="font-mono">{summary.machineUtilizationPct}%</strong></div>
                   )}
                 </div>
               </div>

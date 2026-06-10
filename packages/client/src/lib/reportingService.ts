@@ -95,8 +95,6 @@ export interface PlantHeadKpiStrip {
   performanceTrendPct: number;
   qualityPct: number;
   qualityTrendPct: number;
-  utilizationPct: number;
-  utilizationTrendPct: number;
 }
 
 export interface PlantHeadDashboardData {
@@ -417,11 +415,11 @@ export const reportingService = {
       productionTodayMt: Math.round(strip.productionTodayMt),
       productionTrend: formatTrendPct(strip.productionTodayTrendPct) ?? '0%',
       shiftProductionMt: Math.round(strip.productionTodayMt),
-      overallUtilizationPct: Math.round(strip.utilizationPct),
+      overallUtilizationPct: Math.round(strip.availabilityPct),
       oeePct: Math.round(strip.oeePct),
       runningMachines: runningLines,
       breakdownMachines: 0,
-      utilizationPct: strip.utilizationPct,
+      utilizationPct: strip.availabilityPct,
       availabilityPct: strip.availabilityPct,
       mttrHours: 0,
       mtbfHours: 0,

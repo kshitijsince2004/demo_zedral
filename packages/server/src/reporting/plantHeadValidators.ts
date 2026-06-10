@@ -9,8 +9,6 @@ export interface PlantHeadKpiStrip {
   performanceTrendPct: number;
   qualityPct: number;
   qualityTrendPct: number;
-  utilizationPct: number;
-  utilizationTrendPct: number;
 }
 
 export interface PlantHeadDashboardPayload {

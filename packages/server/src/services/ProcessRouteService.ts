@@ -217,14 +217,79 @@ export class ProcessRouteService {
       .execute();
   }
 
-  static async getJourneyByCoil(coilNo: string): Promise<OrderJourneyView | null> {
-    const journey = await db.selectFrom('planning.order_journey')
+  private static mapSteps(steps: Awaited<ReturnType<typeof db.selectFrom<'planning.order_journey_step'>>>): ProcessRouteStepView[] {
+    return steps.map((s): ProcessRouteStepView => ({
+      stepNo: s.step_no,
+      label: s.display_label,
+      status: s.status as ProcessRouteStepView['status'],
+      processCode: s.process_code ?? undefined,
+      machineCode: s.machine_code ?? undefined,
+      subProcess: s.sub_process ?? undefined,
+      completedAt: s.completed_at ? new Date(s.completed_at).toISOString() : undefined,
+      startedAt: s.started_at ? new Date(s.started_at).toISOString() : undefined,
+    }));
+  }
+
+  private static buildView(
+    journey: { journey_id: string | number | bigint; coil_no: string; status: string; current_step_no: number },
+    steps: Awaited<ReturnType<typeof db.selectFrom<'planning.order_journey_step'>>>,
+  ): OrderJourneyView {
+    return {
+      journeyId: String(journey.journey_id),
+      coilNo: journey.coil_no,
+      status: journey.status as OrderJourneyView['status'],
+      currentStepNo: journey.current_step_no,
+      steps: this.mapSteps(steps),
+    };
+  }
+
+  /** Batch-fetch latest journey per coil (2 queries regardless of coil count). */
+  static async getJourneysByCoils(coilNos: string[]): Promise<Map<string, OrderJourneyView>> {
+    const unique = [...new Set(coilNos.filter(Boolean))];
+    const result = new Map<string, OrderJourneyView>();
+    if (unique.length === 0) return result;
+
+    const journeys = await db.selectFrom('planning.order_journey')
       .selectAll()
-      .where('coil_no', '=', coilNo)
+      .where('coil_no', 'in', unique)
+      .orderBy('coil_no', 'asc')
       .orderBy('journey_id', 'desc')
-      .executeTakeFirst();
-    if (!journey) return null;
-    return this.toView(Number(journey.journey_id));
+      .execute();
+
+    const latestByCoil = new Map<string, typeof journeys[0]>();
+    for (const journey of journeys) {
+      if (!latestByCoil.has(journey.coil_no)) {
+        latestByCoil.set(journey.coil_no, journey);
+      }
+    }
+
+    const journeyIds = [...latestByCoil.values()].map((j) => String(j.journey_id));
+    if (journeyIds.length === 0) return result;
+
+    const steps = await db.selectFrom('planning.order_journey_step')
+      .selectAll()
+      .where('journey_id', 'in', journeyIds)
+      .orderBy('step_no', 'asc')
+      .execute();
+
+    const stepsByJourney = new Map<string, typeof steps>();
+    for (const step of steps) {
+      const journeyId = String(step.journey_id);
+      const bucket = stepsByJourney.get(journeyId);
+      if (bucket) bucket.push(step);
+      else stepsByJourney.set(journeyId, [step]);
+    }
+
+    for (const [coilNo, journey] of latestByCoil) {
+      const journeyId = String(journey.journey_id);
+      result.set(coilNo, this.buildView(journey, stepsByJourney.get(journeyId) ?? []));
+    }
+    return result;
+  }
+
+  static async getJourneyByCoil(coilNo: string): Promise<OrderJourneyView | null> {
+    const journeys = await this.getJourneysByCoils([coilNo]);
+    return journeys.get(coilNo) ?? null;
   }
 
   static async getJourneyByBatch(batchNumber: string): Promise<OrderJourneyView | null> {
@@ -248,22 +313,7 @@ export class ProcessRouteService {
       .orderBy('step_no', 'asc')
       .execute();
 
-    return {
-      journeyId: String(journey.journey_id),
-      coilNo: journey.coil_no,
-      status: journey.status as OrderJourneyView['status'],
-      currentStepNo: journey.current_step_no,
-      steps: steps.map((s): ProcessRouteStepView => ({
-        stepNo: s.step_no,
-        label: s.display_label,
-        status: s.status as ProcessRouteStepView['status'],
-        processCode: s.process_code ?? undefined,
-        machineCode: s.machine_code ?? undefined,
-        subProcess: s.sub_process ?? undefined,
-        completedAt: s.completed_at ? new Date(s.completed_at).toISOString() : undefined,
-        startedAt: s.started_at ? new Date(s.started_at).toISOString() : undefined,
-      })),
-    };
+    return this.buildView(journey, steps);
   }
 
   static async advanceJourneyByCoil(coilNo: string, payload: CompletionPayload): Promise<OrderJourneyView | null> {

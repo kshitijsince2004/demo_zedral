@@ -1,41 +1,7 @@
 import { db } from '../db';
-import { calculateStoppageDuration } from '@m1/shared-validation';
+import { assertQuantityWithinProduction } from '../validation/manufacturingValidation';
 
-function parseTimeToDate(time: string): Date {
-  return new Date(`1970-01-01T${time}`);
-}
-
-export class StoppageService {
-  static async create(payload: any, _userId: string) {
-    const fromTime = payload.fromTime ?? payload.startTime;
-    const toTime = payload.toTime ?? payload.endTime ?? fromTime;
-
-    if (!payload.shiftLogId) throw new Error('shiftLogId is required');
-    if (!payload.stoppageCode) throw new Error('stoppageCode is required');
-    if (!fromTime) throw new Error('fromTime is required');
-
-    const durationMin =
-      payload.durationMins ??
-      (toTime
-        ? calculateStoppageDuration(parseTimeToDate(fromTime), parseTimeToDate(toTime))
-        : null);
-
-    const row = await db
-      .insertInto('txn.stoppage_entry')
-      .values({
-        shift_log_id: payload.shiftLogId,
-        stoppage_code: payload.stoppageCode,
-        time_from: fromTime,
-        time_to: toTime,
-        duration_min: durationMin,
-        remarks: payload.remarks ?? null,
-      })
-      .returning('stoppage_id')
-      .executeTakeFirstOrThrow();
-
-    return String(row.stoppage_id);
-  }
-}
+export { StoppageService } from './StoppageService';
 
 export class CrewService {
   static async resolveOperatorId(operatorId: string | number): Promise<number> {
@@ -118,6 +84,17 @@ export class DefectService {
     if (!processId) throw new Error('processId or shiftLogId is required');
     if (!entryId) throw new Error('entryId is required');
     if (!payload.defectCode) throw new Error('defectCode is required');
+
+    const qtyMt = payload.quantityMt ?? payload.qty_mt ?? null;
+    if (qtyMt != null && payload.shiftLogId) {
+      const log = await db
+        .selectFrom('txn.shift_log')
+        .select(['total_prod_mt', 'target_mt'])
+        .where('shift_log_id', '=', payload.shiftLogId)
+        .executeTakeFirst();
+      const productionMt = Number(log?.total_prod_mt ?? log?.target_mt ?? 0);
+      assertQuantityWithinProduction(Number(qtyMt), productionMt, 'Defect quantity');
+    }
 
     const row = await db
       .insertInto('txn.defect_entry')

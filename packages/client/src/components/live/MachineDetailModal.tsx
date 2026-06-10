@@ -155,9 +155,10 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
 
           {utilization && (
             <section>
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Last 24 Hours Summary</h3>
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Runtime Utilization (24h)</h3>
+              <p className="text-xs text-muted-foreground mb-3">Running minutes as a share of the 24-hour event window</p>
               <div className="grid grid-cols-2 gap-4">
-                <SummaryCard label="Runtime" value={`${Math.round(utilization.runningMin)}m`} sub={`${utilization.runningPct}%`} accent="text-[#10B981]" />
+                <SummaryCard label="Runtime" value={`${Math.round(utilization.runningMin)}m`} sub={`${utilization.runningPct}% of window`} accent="text-[#10B981]" />
                 <SummaryCard label="Idle Time" value={`${Math.round(utilization.idleMin)}m`} sub={`${utilization.idlePct}%`} />
                 <SummaryCard label="Stoppages" value={`${Math.round(utilization.stoppageMin)}m`} sub={`${utilization.stoppageCount} incidents`} accent="text-warning" />
                 <SummaryCard label="Maintenance" value={`${Math.round(utilization.maintenanceMin)}m`} sub={`${utilization.maintenancePct}%`} accent="text-info" />
