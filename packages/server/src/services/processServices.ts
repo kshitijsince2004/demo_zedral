@@ -6,6 +6,7 @@ import {
 } from '@m1/shared-validation';
 import { CoilTraceabilityService } from './CoilTraceabilityService';
 import { AuditTrailService } from './AuditTrailService';
+import { ProcessRouteService } from './ProcessRouteService';
 
 /**
  * Helper to implement M1-01 §3.1: Last-writer-with-audit conflict resolution.
@@ -126,6 +127,8 @@ export class HRSService {
         .where('coil_no', '=', payload.coilNo)
         .execute();
 
+      await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+
       return entryId;
     });
   }
@@ -164,6 +167,8 @@ export class PKLService {
       
       // Update coil status
       await trx.updateTable('coil.coil').set({ status: 'DONE', next_dest: 'CRM' }).where('coil_no', '=', payload.coilNo).execute();
+
+      await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
 
       return entryId;
     });
@@ -250,6 +255,8 @@ export class CRMService {
         .where('coil_no', '=', payload.coilNo)
         .execute();
 
+      await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+
       return entryId;
     });
   }
@@ -300,6 +307,11 @@ export class ANNService {
           seq_no: c.seqNo
         }));
         await trx.insertInto('txn.ann_charge_coil').values(coilData).execute();
+
+        // Advance journey for all coils
+        for (const c of payload.coils) {
+          await ProcessRouteService.advanceJourneyByCoil(c.coilNo, payload);
+        }
       }
       return payload.chargeNo;
     });
@@ -350,6 +362,8 @@ export class SKPService {
         .where('coil_no', '=', payload.coilNo)
         .execute();
 
+      await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+
       return entryId;
     });
   }
@@ -373,6 +387,9 @@ export class RWDService {
       time_to: payload.timeTo,
       remarks: payload.remarks
     }).returning('entry_id').executeTakeFirstOrThrow();
+    
+    await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+    
     return String(result.entry_id);
   }
 }
@@ -451,6 +468,8 @@ export class CRSService {
           .execute();
       }
 
+      await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+
       return entryId;
     });
   }
@@ -478,6 +497,9 @@ export class CTLService {
       time_to: payload.timeTo,
       remarks: payload.remarks
     }, userId);
+    
+    await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+    
     return entryId;
   }
 }
@@ -496,6 +518,9 @@ export class GLVService {
       time_to: payload.timeTo,
       remarks: payload.remarks
     }, userId);
+    
+    await ProcessRouteService.advanceJourneyByCoil(payload.coilNo, payload);
+    
     return entryId;
   }
 }

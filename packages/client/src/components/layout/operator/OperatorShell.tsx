@@ -5,6 +5,7 @@ import { isCrmMillPath } from '../../../lib/millConfig';
 import { OfflineBanner } from '../../ui/OfflineBanner';
 import { OperatorNavRail } from './OperatorNavRail';
 import { StatusRail } from './StatusRail';
+import { LogoutConfirmModal } from '../../ui/LogoutConfirmModal';
 
 interface OperatorShellProps {
   processCode?: string;
@@ -12,11 +13,11 @@ interface OperatorShellProps {
 }
 
 export function OperatorShell({ processCode = 'HRS', children }: OperatorShellProps) {
-  const { logout } = useAuthStore();
+  const { activeRole, logout } = useAuthStore();
+  const [logoutOpen, setLogoutOpen] = React.useState(false);
+
   const handleLogout = () => {
-    if (window.confirm('Are you sure you want to log out?')) {
-      logout();
-    }
+    setLogoutOpen(true);
   };
   const location = useLocation();
   const isCrmMill = isCrmMillPath(location.pathname);
@@ -31,6 +32,12 @@ export function OperatorShell({ processCode = 'HRS', children }: OperatorShellPr
         <OfflineBanner />
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</main>
       </div>
+
+      <LogoutConfirmModal
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={logout}
+      />
     </div>
   );
 }

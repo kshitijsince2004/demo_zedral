@@ -7,24 +7,18 @@
  * Requirements: 1.2, 5.1, 5.3
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { syncEngine } from '../../lib/syncEngine';
 import { useGloveModeClasses } from '../../hooks/useGloveModeClasses';
-
-// ─── Defect codes (will be sourced from master data in task 12.1) ─────────────
-
-const DEFECT_CODES = [
-  { code: 'SCR-01', description: 'Scratch' },
-  { code: 'RST-01', description: 'Rust' },
-  { code: 'DEN-01', description: 'Dent' },
-  { code: 'EDG-01', description: 'Edge Crack' },
-  { code: 'SLT-01', description: 'Slit Burr' },
-  { code: 'OIL-01', description: 'Oil Stain' },
-  { code: 'WAV-01', description: 'Waviness' },
-  { code: 'CAM-01', description: 'Camber' },
-] as const;
+import { apiClient } from '../../lib/apiClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface MasterDefectCode {
+  defect_code: string;
+  description: string;
+  is_active?: boolean;
+}
 
 export interface DefectSubFormProps {
   /** The shift log ID this defect is associated with. */
@@ -40,10 +34,29 @@ interface DefectEntry {
 
 type SaveState = 'idle' | 'saving' | 'queued' | 'transmitted' | 'failed';
 
+// ─── Hook: Load defect codes from master data ─────────────────────────────────
+
+function useDefectCodes() {
+  const [codes, setCodes] = useState<MasterDefectCode[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<MasterDefectCode[]>('/master-data/defect_codes')
+      .then((data) => { if (!cancelled) setCodes(data); })
+      .catch(() => { /* will render empty list */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return { codes, loading };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function DefectSubForm({ shiftLogId }: DefectSubFormProps) {
   const { inputFieldHeight, saveHeight, controlGap } = useGloveModeClasses();
+  const { codes: DEFECT_CODES, loading: codesLoading } = useDefectCodes();
 
   const [defectCode, setDefectCode] = useState('');
   const [location, setLocation] = useState('');
@@ -99,7 +112,7 @@ export function DefectSubForm({ shiftLogId }: DefectSubFormProps) {
   };
 
   const descriptionFor = (code: string) =>
-    DEFECT_CODES.find((d) => d.code === code)?.description ?? code;
+    DEFECT_CODES.find((d) => d.defect_code === code)?.description ?? code;
 
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
@@ -156,10 +169,10 @@ export function DefectSubForm({ shiftLogId }: DefectSubFormProps) {
             }}
             className={`${inputFieldHeight} rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 w-full`}
           >
-            <option value="">Select Defect Code…</option>
+            <option value="">{codesLoading ? 'Loading…' : 'Select Defect Code…'}</option>
             {DEFECT_CODES.map((d) => (
-              <option key={d.code} value={d.code}>
-                {d.code} — {d.description}
+              <option key={d.defect_code} value={d.defect_code}>
+                {d.defect_code} — {d.description}
               </option>
             ))}
           </select>

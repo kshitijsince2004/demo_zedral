@@ -158,59 +158,61 @@ export class LiveService {
     }
     const machines = await machinesQ.execute();
 
-    const activeOrders = await db.selectFrom('txn.crm6_order as o')
-      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
-      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-      .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
-      .leftJoin('txn.order_stoppage as os', (join) =>
-        join.onRef('os.order_id', '=', 'o.order_id').on('os.end_at', 'is', null),
-      )
-      .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
-      .select([
-        'pb.machine_code',
-        'pb.batch_number',
-        'pb.shift_code',
-        'o.status',
-        'o.prod_start_at',
-        'u.full_name as operator_name',
-        'r.actual_weight_mt as rolling_weight',
-        's.actual_weight_mt as skinpass_weight',
-        'sc.category_code as stoppage_category',
-        'sc.label as stoppage_label',
-        'os.start_at as stoppage_start_at',
-        'o.updated_at',
-      ])
-      .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'PREPARING', 'PENDING'])
-      .execute();
-
-    const activeByMachine = new Map<string, typeof activeOrders[0]>();
-    for (const o of activeOrders) {
-      if (!activeByMachine.has(o.machine_code)) activeByMachine.set(o.machine_code, o);
-    }
-
-    // Fetch recent idle events for machines that are currently IDLE
-    const idleEvents = await db.selectFrom('txn.machine_state_event as mse')
+    // 1. Get the current active state event for each machine
+    const currentEvents = await db.selectFrom('txn.machine_state_event as mse')
       .leftJoin('security.app_user as u', 'u.user_id', 'mse.operator_id')
+      .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'mse.category_code')
       .select([
         'mse.machine_code',
+        'mse.event_type',
         'mse.occurred_at',
         'mse.batch_number',
+        'mse.category_code',
+        'mse.reason',
+        'mse.shift_code',
         'u.full_name as operator_name',
+        'sc.label as stoppage_label',
       ])
-      .where('mse.event_type', '=', 'IDLE_STARTED')
       .where('mse.ended_at', 'is', null)
       .execute();
-    const idleByMachine = new Map<string, typeof idleEvents[0]>();
-    for (const ev of idleEvents) idleByMachine.set(ev.machine_code, ev);
 
+    const eventsByMachine = new Map<string, typeof currentEvents[0]>();
+    for (const ev of currentEvents) {
+      // Prioritize events if multiple are somehow open (shouldn't happen, but just in case)
+      eventsByMachine.set(ev.machine_code, ev);
+    }
+
+    // 2. Fetch active order weights for the batch numbers referenced in the current events
+    const activeBatchNumbers = Array.from(eventsByMachine.values())
+      .map(e => e.batch_number)
+      .filter((b): b is string => b !== null);
+
+    const activeOrders = activeBatchNumbers.length > 0
+      ? await db.selectFrom('txn.crm6_order as o')
+          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+          .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
+          .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+          .select([
+            'o.batch_number',
+            'o.updated_at',
+            'pb.coil_no',
+            'r.actual_weight_mt as rolling_weight',
+            's.actual_weight_mt as skinpass_weight',
+          ])
+          .where('o.batch_number', 'in', activeBatchNumbers)
+          .execute()
+      : [];
+
+    const orderStatsByBatch = new Map<string, typeof activeOrders[0]>();
+    for (const o of activeOrders) {
+      orderStatsByBatch.set(o.batch_number, o);
+    }
+
+    // 3. Rejects for today (for shift summary)
     const today = new Date().toISOString().slice(0, 10);
     const rejectedOrders = await db.selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .select([
-        'pb.machine_code',
-        'pb.ppc_weight_mt',
-      ])
+      .select(['pb.machine_code', 'pb.ppc_weight_mt'])
       .where('o.status', '=', 'REJECTED')
       .where('o.updated_at', '>=', new Date(today))
       .execute();
@@ -225,53 +227,49 @@ export class LiveService {
       });
     }
 
+    // 4. Map to cards
     return machines.map((m): MachineStatusCard => {
-      const active = activeByMachine.get(m.machine_code);
+      const ev = eventsByMachine.get(m.machine_code);
+      const rejects = rejectsByMachine.get(m.machine_code) ?? { count: 0, weightMt: 0 };
+      const orderStats = ev?.batch_number ? orderStatsByBatch.get(ev.batch_number) : undefined;
+
       let status: MachineLiveStatus = 'IDLE';
-      if (m.machine_status === 'MAINTENANCE') status = 'MAINTENANCE';
-      else if (active?.status === 'STOPPAGE') {
-        status = active.stoppage_category === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
-      } else if (active && ['IN_PROGRESS', 'PREPARING', 'PENDING'].includes(active.status ?? '')) {
+      if (m.machine_status === 'MAINTENANCE' || ev?.event_type === 'MAINTENANCE_STARTED') {
+        status = 'MAINTENANCE';
+      } else if (ev?.event_type === 'STOPPAGE_STARTED') {
+        status = ev.category_code === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
+      } else if (ev?.event_type === 'RUNNING_STARTED') {
         status = 'RUNNING';
       }
 
-      const weight = active?.skinpass_weight ?? active?.rolling_weight;
+      const weight = orderStats?.skinpass_weight ?? orderStats?.rolling_weight;
       let runtimeMin: number | undefined;
-      let stateSinceAt: string | undefined;
-
-      if (status === 'RUNNING' && active?.prod_start_at) {
-        runtimeMin = Math.round((Date.now() - new Date(active.prod_start_at).getTime()) / 60000);
-        stateSinceAt = new Date(active.prod_start_at).toISOString();
-      } else if (status === 'STOPPAGE' && active?.stoppage_start_at) {
-        stateSinceAt = new Date(active.stoppage_start_at).toISOString();
-      } else if (status === 'IDLE') {
-        const idleEv = idleByMachine.get(m.machine_code);
-        if (idleEv) stateSinceAt = new Date(idleEv.occurred_at).toISOString();
+      
+      if (status === 'RUNNING' && ev?.occurred_at) {
+        runtimeMin = Math.round((Date.now() - new Date(ev.occurred_at).getTime()) / 60000);
       }
-
-      const idleEv = idleByMachine.get(m.machine_code);
-      const rejects = rejectsByMachine.get(m.machine_code) ?? { count: 0, weightMt: 0 };
 
       return {
         machineCode: m.machine_code,
         machineName: m.name,
         status,
-        currentOrder: active?.batch_number,
-        currentOperator: active?.operator_name ?? undefined,
-        stateSinceAt,
-        activeStoppageReason: status === 'STOPPAGE'
-          ? (active?.stoppage_label ?? active?.stoppage_category ?? undefined)
+        currentOrder: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (ev?.batch_number ?? undefined) : undefined,
+        currentCoil: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (orderStats?.coil_no ?? undefined) : undefined,
+        currentOperator: (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN') ? (ev?.operator_name ?? undefined) : undefined,
+        stateSinceAt: ev?.occurred_at ? new Date(ev.occurred_at).toISOString() : undefined,
+        activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
+          ? (ev?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? undefined)
           : undefined,
-        lastOrderBatchNumber: status === 'IDLE' ? (idleEv?.batch_number ?? undefined) : undefined,
-        lastOperatorName: status === 'IDLE' ? (idleEv?.operator_name ?? undefined) : undefined,
+        lastOrderBatchNumber: status === 'IDLE' ? (ev?.batch_number ?? undefined) : undefined,
+        lastOperatorName: status === 'IDLE' ? (ev?.operator_name ?? undefined) : undefined,
         runtimeMin,
         productionWeightMt: weight ? Number(weight) : undefined,
         shiftProgressPct: undefined,
         rejectedCount: rejects.count,
         rejectedWeightMt: rejects.weightMt,
-        lastUpdateAt: active?.updated_at ? new Date(active.updated_at).toISOString() : undefined,
+        lastUpdateAt: orderStats?.updated_at ? new Date(orderStats.updated_at).toISOString() : undefined,
         processCode: m.process_code ?? undefined,
-        shiftCode: active?.shift_code ?? undefined,
+        shiftCode: ev?.shift_code ?? undefined,
       };
     });
   }
@@ -624,14 +622,22 @@ export class LiveService {
         actualMt: Math.round(actualMt * 10) / 10,
         orderCount: orders.length,
       },
-      utilization: machines.map((m) => ({
-        machineCode: m.machineCode,
-        machineName: m.machineName,
-        utilizationPct:
-          m.status === 'RUNNING' ? 85
-          : m.status === 'STOPPAGE' ? 35
-          : m.status === 'MAINTENANCE' ? 10
-          : 0,
+      utilization: await Promise.all(machines.map(async (m) => {
+        try {
+          const summary = await MachineStateEventService.getUtilizationSummary(m.machineCode, 24);
+          return {
+            machineCode: m.machineCode,
+            machineName: m.machineName,
+            utilizationPct: summary.runningPct,
+          };
+        } catch {
+          // Fallback: no event data yet — report 0
+          return {
+            machineCode: m.machineCode,
+            machineName: m.machineName,
+            utilizationPct: 0,
+          };
+        }
       })),
       stoppages: stoppageRows.map((s) => ({
         batchNumber: s.batch_number,

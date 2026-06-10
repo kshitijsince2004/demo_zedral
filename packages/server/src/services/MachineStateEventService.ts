@@ -17,7 +17,10 @@ export type MachineStateEventType =
   | 'IDLE_STARTED'
   | 'IDLE_ENDED'
   | 'MAINTENANCE_STARTED'
-  | 'MAINTENANCE_ENDED';
+  | 'MAINTENANCE_ENDED'
+  | 'DEFECT_REPORTED'
+  | 'DEFECT_CLOSED'
+  | 'ORDER_REJECTED';
 
 export interface RecordEventOptions {
   orderId?: string | number | bigint;
@@ -51,6 +54,7 @@ export class MachineStateEventService {
       IDLE_ENDED:      ['IDLE_STARTED'],
       MAINTENANCE_STARTED: ['RUNNING_STARTED', 'IDLE_STARTED', 'STOPPAGE_STARTED'],
       MAINTENANCE_ENDED: ['MAINTENANCE_STARTED'],
+      DEFECT_CLOSED: ['DEFECT_REPORTED'],
     };
 
     const toClose = closeMap[eventType] ?? [];

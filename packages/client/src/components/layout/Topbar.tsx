@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/authStore';
 import { GloveModeToggle } from '../ui/GloveModeToggle';
+import { LogoutConfirmModal } from '../ui/LogoutConfirmModal';
 
 interface TopbarProps {
   title: string;
@@ -10,6 +11,7 @@ interface TopbarProps {
 export function Topbar({ title, eyebrow }: TopbarProps) {
   const { logout } = useAuthStore();
   const [clock, setClock] = useState('');
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     const tick = () => {
@@ -63,13 +65,19 @@ export function Topbar({ title, eyebrow }: TopbarProps) {
 
           {/* Logout */}
           <button
-            onClick={() => logout()}
+            onClick={() => setLogoutOpen(true)}
             className="h-9 rounded-md border border-input text-foreground text-sm font-medium hover:bg-secondary px-3 transition-colors"
           >
             Logout
           </button>
         </div>
       </div>
+
+      <LogoutConfirmModal
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={logout}
+      />
     </header>
   );
 }

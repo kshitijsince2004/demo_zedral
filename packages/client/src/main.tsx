@@ -6,7 +6,9 @@ import { registerSW } from 'virtual:pwa-register'
 
 const updateSW = registerSW({
   onNeedRefresh() {
-    updateSW(true)
+    if (confirm('New content available. Reload?')) {
+      updateSW(true)
+    }
   },
   onOfflineReady() {
     console.log('App is ready to work offline.')

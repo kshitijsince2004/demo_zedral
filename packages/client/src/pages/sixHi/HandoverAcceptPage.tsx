@@ -20,9 +20,8 @@ import {
 
 const PRIORITY_STYLES: Record<string, string> = {
   LOW: 'bg-slate-100 text-slate-600 border-slate-300',
-  NORMAL: 'bg-blue-100 text-blue-700 border-blue-300',
+  MEDIUM: 'bg-blue-100 text-blue-700 border-blue-300',
   HIGH: 'bg-amber-100 text-amber-700 border-amber-300',
-  CRITICAL: 'bg-red-100 text-red-700 border-red-400',
 };
 
 const STATUS_DOT: Record<string, string> = {
@@ -113,7 +112,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
   }>;
   const hasActiveStoppage = openStoppages.length > 0;
 
-  const priority = handover.handover_priority ?? 'NORMAL';
+  const priority = handover.handover_priority ?? 'MEDIUM';
 
   const runtimeTimer = useElapsedTimer(activeOrder?.startTime ?? undefined);
 

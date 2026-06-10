@@ -136,7 +136,7 @@ export interface HandoverPreview {
     shiftLogId?: string | number | null;
   };
   shiftProductionSummary: ShiftProductionSummary | null;
-  crewList: CrewMember[];
+  crewSnapshot: CrewMember[];
   utilizationMetrics: UtilizationMetrics | null;
 }
 

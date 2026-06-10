@@ -50,7 +50,7 @@ export function SixHiCapturePage() {
 
   const order = activeBatch && panelOrder?.batchNumber === activeBatch ? panelOrder : null;
 
-  const { data: queueData } = useSWR(machineCode ? `/6hi/queue?machine=${machineCode}` : null, async (url: string) => {
+  const { data: queueData } = useSWR(machineCode ? `/6hi/queue?machine=${machineCode}` : null, async (url) => {
     return apiClient.get(url);
   });
   const allQueueItems = [...(queueData?.queue ?? queueData ?? [])];

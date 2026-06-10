@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ProcessSectionProps } from '../../lib/processSectionRegistry';
 
-/** Legacy /shift-log/6HI route redirects to the 6HI hub. */
+/** Legacy /shift-log/SixHi route redirects to the SixHi hub. */
 export function SixHiRedirect(_props: ProcessSectionProps) {
   const navigate = useNavigate();
   useEffect(() => {

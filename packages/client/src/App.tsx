@@ -29,6 +29,12 @@ import { ExportData } from './pages/reports/ExportData';
 import { ExportHistory } from './pages/reports/ExportHistory';
 import { DprExport } from './pages/reports/DprExport';
 import { PlantHeadDashboard } from './pages/reports/PlantHeadDashboard';
+import { PlantProduction } from './pages/reports/PlantProduction';
+import { PlantOrderTracking } from './pages/reports/PlantOrderTracking';
+import { PlantLineStatus } from './pages/reports/PlantLineStatus';
+import { PlantDefects } from './pages/reports/PlantDefects';
+import { PlantStoppages } from './pages/reports/PlantStoppages';
+import { PlantAlerts } from './pages/reports/PlantAlerts';
 import { AuditTrailView } from './pages/audit/AuditTrailView';
 
 // Admin
@@ -44,6 +50,8 @@ import { UserScopeShell } from './components/UserScopeShell';
 import { UserScopeIndex } from './pages/UserScopeIndex';
 import { LegacyMillRedirect } from './components/LegacyMillRedirect';
 import { MachineHeadDashboard } from './pages/live/MachineHeadDashboard';
+import { LiveDashboard } from './pages/live/LiveDashboard';
+import { PlantHeadShell } from './components/layout/PlantHeadShell';
 
 function App() {
   return (
@@ -84,20 +92,31 @@ function App() {
          * Path B routes (/shift-log/hrs, /shift-log/pkl, /shift-log/spm, etc.)
          * have been removed. The sidebar links already use uppercase canonical codes
          * (/shift-log/HRS, /shift-log/PKL, …) which match this route.
+         */}
         {/* Legacy /reports mapped directly (or removed if obsolete) */}
-        <Route path="/plant" element={<PlantRoute><PlantHeadDashboard /></PlantRoute>} />
+        <Route path="/reports/plant-head" element={<PlantRoute><Navigate to="/plant" replace /></PlantRoute>} />
+        <Route path="/plant" element={<PlantRoute><PlantHeadShell /></PlantRoute>}>
+          <Route index element={<PlantHeadDashboard />} />
+          <Route path="live" element={<LiveDashboard />} />
+          <Route path="production" element={<PlantProduction />} />
+          <Route path="orders" element={<PlantOrderTracking />} />
+          <Route path="lines" element={<PlantLineStatus />} />
+          <Route path="defects" element={<PlantDefects />} />
+          <Route path="stoppages" element={<PlantStoppages />} />
+          <Route path="alerts" element={<PlantAlerts />} />
+        </Route>
         <Route path="/audit" element={<PlantRoute><AuditTrailView /></PlantRoute>} />
         <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
         <Route path="/reports/exports/history" element={<SupervisorRoute><ExportHistory /></SupervisorRoute>} />
         <Route path="/reports/dpr" element={<SupervisorRoute><DprExport /></SupervisorRoute>} />
 
         <Route path="/import/rolling" element={<MachineHeadRoute><RollingImportPage /></MachineHeadRoute>} />
-        <Route path="/admin/machine-assignment" element={<PlantRoute><MachineAssignmentPage /></PlantRoute>} />
+        <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
         <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
-        <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
+        <Route path="/admin/users" element={<PlantRoute><UsersAdmin /></PlantRoute>} />
         <Route path="/admin/system" element={<AdminRoute><SystemAdmin /></AdminRoute>} />
         <Route path="/admin/validation-rules" element={<AdminRoute><ValidationRulesAdmin /></AdminRoute>} />
 

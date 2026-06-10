@@ -665,7 +665,7 @@ export class SixHiService {
 
   static async endProduction(batchNumber: string, userId: number, defectCodes?: string[]) {
     const batchPre = await db.selectFrom('planning.ppc_batch')
-      .select(['machine_code'])
+      .select(['machine_code', 'shift_code'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     const machineCode = batchPre?.machine_code ?? '6HI';
@@ -697,6 +697,17 @@ export class SixHiService {
           operator_id: userId,
         })
         .execute();
+      
+      for (const defectCode of defectCodes) {
+        MachineStateEventService.recordEvent(machineCode, 'DEFECT_REPORTED', {
+          orderId: order.order_id,
+          batchNumber,
+          operatorId: userId,
+          shiftCode: batchPre?.shift_code ?? undefined,
+          categoryCode: defectCode,
+          reason: 'Minor defect logged at completion',
+        }).catch((err) => console.error('[MachineStateEvent] DEFECT_REPORTED failed:', err));
+      }
     }
 
     const rolling = await db.selectFrom('txn.crm6_rolling')
@@ -1049,7 +1060,7 @@ export class SixHiService {
       .where('order_id', '=', orderId)
       .execute();
 
-    // Persist machine state event: RUNNING_ENDED -> IDLE
+    // Persist machine state event: RUNNING_ENDED -> IDLE + ORDER_REJECTED
     const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
     if (ppc) {
       MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_ENDED', {
@@ -1057,7 +1068,21 @@ export class SixHiService {
         batchNumber,
         operatorId: userId,
         shiftCode: ppc.shift_code,
-      }).catch((err) => console.error('[MachineStateEvent] REJECT RUNNING_ENDED failed:', err));
+      })
+      .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'IDLE_STARTED', {
+        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code
+      }))
+      .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'ORDER_REJECTED', {
+        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, reason: remarks ?? 'Rejected'
+      }))
+      .then(async () => {
+        for (const defectCode of defectCodes) {
+          await MachineStateEventService.recordEvent(ppc.machine_code, 'DEFECT_REPORTED', {
+            orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, categoryCode: defectCode, reason: 'Defect causing rejection'
+          });
+        }
+      })
+      .catch((err) => console.error('[MachineStateEvent] REJECT events failed:', err));
     }
 
     return this.getOrder(batchNumber, userId);
@@ -1102,13 +1127,13 @@ export class SixHiService {
         .select('actual_weight_mt')
         .where('order_id', '=', orderId)
         .executeTakeFirst();
-      return r?.actual_weight_mt ? Number(r.actual_weight_mt) : ppcWeight;
+      return r?.actual_weight_mt ? Number(r.actual_weight_mt) : 0;
     }
     const s = await db.selectFrom('txn.crm6_skinpass')
       .select('actual_weight_mt')
       .where('order_id', '=', orderId)
       .executeTakeFirst();
-    return s?.actual_weight_mt ? Number(s.actual_weight_mt) : ppcWeight;
+    return s?.actual_weight_mt ? Number(s.actual_weight_mt) : 0;
   }
 
   static async getShiftSummary(shiftLogId: string, machineCode?: string): Promise<SixHiShiftSummary> {

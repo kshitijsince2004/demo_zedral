@@ -9,7 +9,6 @@ import { AdminPanel } from '../../components/admin/AdminPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { adminService, type ImportSource, type ImportBatch } from '../../services/adminService';
 import { StatusBadge } from '../../components/ui/StatusBadge';
-import { PpcRollingImportPanel } from '../../components/admin/PpcRollingImportPanel';
 
 export function PlanningAdmin() {
   const [source, setSource] = useState<ImportSource>('CSV');
@@ -132,14 +131,11 @@ export function PlanningAdmin() {
           </div>
         </AdminPanel>
 
-        <AdminPanel title="PPC Plan Workbook (XLSX)">
-          <PpcRollingImportPanel />
-        </AdminPanel>
-
-        <AdminPanel title="CRM PPC CSV (legacy)">
+        <AdminPanel title="CRM 6HI PPC Upload">
           <div className="p-4 space-y-4">
             <p className="text-xs text-muted-foreground">
-              Legacy CSV import with batch_number, date, shift, machine, process, and coil fields.
+              Upload PPC sheet with batch_number, date, shift, machine, process, and coil fields.
+              Phase 1: machine must be 6HI.
             </p>
             <input
               type="file"
@@ -151,7 +147,7 @@ export function PlanningAdmin() {
                 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground"
             />
             <ZButton variant="accent" fullWidth onClick={handlePpcUpload} disabled={!ppcFile || ppcLoading}>
-              {ppcLoading ? 'Uploading…' : 'Upload PPC CSV'}
+              {ppcLoading ? 'Uploading…' : 'Upload PPC'}
             </ZButton>
             {ppcResult && (
               <div className="text-sm space-y-1">

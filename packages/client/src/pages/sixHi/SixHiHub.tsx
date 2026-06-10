@@ -74,8 +74,8 @@ export function SixHiHub() {
   const date = shiftDate || new Date().toISOString().slice(0, 10);
   const shift = shiftCode || 'A';
   const queueMachine = pathMachine;
-  const userRole = useAuthStore((s) => s.role);
-  const canTransfer = userRole === 'ADMIN' || userRole === 'MACHINE_HEAD';
+  const userRoles = useAuthStore((s) => s.user?.roles || []);
+  const canTransfer = userRoles.includes('ADMIN') || userRoles.includes('MACHINE_HEAD');
 
   useEffect(() => {
     setMachineCode(pathMachine);

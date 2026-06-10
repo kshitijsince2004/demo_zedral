@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
-import { SixHi_STOPPAGE_CODES, findStoppageCodeDef } from './SixHiStoppageCodes';
+import { useSixHiStoppageCodes, findStoppageCodeDef } from './SixHiStoppageCodes';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
 
 export interface RollChangePayload {
@@ -31,6 +31,7 @@ export function OrderStoppageModal({
   onEnd,
   onRollChange,
 }: OrderStoppageModalProps) {
+  const { codes: SixHi_STOPPAGE_CODES } = useSixHiStoppageCodes();
   const [displayCode, setDisplayCode] = useState('12'); // Default to Operational
   const [remarks, setRemarks] = useState('');
   const [rollPosition, setRollPosition] = useState<'IN' | 'OUT'>('OUT');

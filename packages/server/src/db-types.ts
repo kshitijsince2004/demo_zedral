@@ -877,6 +877,7 @@ export interface TxnMachineShiftSession {
 
 export interface TxnMachineHandover {
   handover_id: Generated<string>;
+  handover_priority: Generated<string>;
   machine_code: string;
   process_code: string;
   order_id: Int8 | null;

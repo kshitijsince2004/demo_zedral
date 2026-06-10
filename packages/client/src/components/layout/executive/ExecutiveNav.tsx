@@ -15,8 +15,8 @@ const NAV_ITEMS: DeskNavItem[] = [
     id: 'live',
     label: 'Live',
     icon: Activity,
-    path: '/live',
-    match: (p) => p === '/live' || p === '/machine-head-dashboard',
+    path: '/plant/live',
+    match: (p) => p === '/plant/live' || p === '/machine-head-dashboard',
   },
   {
     id: 'import',

@@ -179,7 +179,7 @@ export class MachineHandoverService {
 
     // Shift production summary — use SixHiService if shiftLogId available
     let shiftProductionSummary: Record<string, unknown> | null = null;
-    let crewList: unknown[] = [];
+    let crewSnapshot: unknown[] = [];
 
     if (shiftLogIdResolved) {
       try {
@@ -194,8 +194,11 @@ export class MachineHandoverService {
           totalStoppageMinutes: summary.totalStoppageMinutes ?? 0,
           totalBreakdownMinutes: summary.totalBreakdownMinutes ?? 0,
           machineUtilizationPct: summary.machineUtilizationPct ?? 0,
+          coolantTempDegC: summary.coolantTempDegC,
+          coolantPressKgCm2: summary.coolantPressKgCm2,
+          scrapKg: summary.scrapKg,
         };
-        crewList = await CrewService.listByShiftLog(shiftLogIdResolved);
+        crewSnapshot = await CrewService.listByShiftLog(shiftLogIdResolved);
       } catch {
         // Non-fatal — shift log may not exist yet
       }
@@ -237,7 +240,7 @@ export class MachineHandoverService {
       productionSnapshot,
       openStoppages,
       shiftProductionSummary,
-      crewList,
+      crewSnapshot,
       utilizationMetrics,
       queueSnapshot: {
         rolling: rollingQueue.queue.slice(0, 5),
@@ -293,6 +296,7 @@ export class MachineHandoverService {
       },
       shiftProductionSummary: preview.shiftProductionSummary,
       utilizationMetrics: preview.utilizationMetrics,
+      queueSnapshot: preview.queueSnapshot,
     };
 
     const existingDraft = await this.getDraftForMachine(machineCode, operatorUserId);
@@ -309,7 +313,6 @@ export class MachineHandoverService {
           downtime_minutes: input.downtimeMinutes ?? null,
           maintenance_status: input.maintenanceStatus ?? null,
           production_snapshot: enrichedProductionSnapshot,
-          queue_snapshot: preview.queueSnapshot,
           open_stoppages: preview.openStoppages,
           batch_number: active?.batchNumber ?? null,
           order_id: orderId,
@@ -338,7 +341,6 @@ export class MachineHandoverService {
         maintenance_status: input.maintenanceStatus ?? null,
         remarks: input.remarks?.trim() ?? '',
         handover_priority: input.handoverPriority ?? 'NORMAL',
-        queue_snapshot: preview.queueSnapshot,
         production_snapshot: enrichedProductionSnapshot,
         open_stoppages: preview.openStoppages,
         status: 'DRAFT',
@@ -395,6 +397,7 @@ export class MachineHandoverService {
       shiftProductionSummary: preview.shiftProductionSummary,
       utilizationMetrics: preview.utilizationMetrics,
       activeOrderDetail: preview.activeOrderDetail,
+      queueSnapshot: preview.queueSnapshot,
     };
 
     const handover = await db.transaction().execute(async (trx) => {
@@ -425,7 +428,6 @@ export class MachineHandoverService {
           maintenance_status: input.maintenanceStatus ?? null,
           remarks: input.remarks.trim(),
           handover_priority: input.handoverPriority ?? 'NORMAL',
-          queue_snapshot: preview.queueSnapshot,
           production_snapshot: enrichedProductionSnapshot,
           open_stoppages: preview.openStoppages,
           status: 'PENDING',

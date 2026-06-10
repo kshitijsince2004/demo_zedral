@@ -29,11 +29,7 @@ router.get('/me', requireRole([UserRole.MACHINE_HEAD, UserRole.SUPERVISOR, UserR
 router.put('/:userId', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const machineCodes: string[] = req.body.machine_codes ?? req.body.machineCodes ?? [];
-    await MachineAccessService.setForUser(
-      Number(req.params.userId),
-      machineCodes,
-      req.user!.id,
-    );
+    await MachineAccessService.setForUser(Number(req.params.userId), machineCodes, req.user!.id);
     res.json({ ok: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to update assignment';

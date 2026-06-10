@@ -50,21 +50,24 @@ export class QueueTransferService {
     payload: CompletionPayload,
   ): Promise<number | null> {
     const genericCrm = nextStep.route_code === '4' || nextStep.route_code === 'X';
-    if (!nextStep.machine_code && !genericCrm) {
+    
+    if (!nextStep.machine_code && !genericCrm && nextStep.route_code !== 'PKG') {
+      // For some reason, neither machine code nor generic CRM is specified, and it's not packaging
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null);
+      return null;
+    }
+
+    if (nextStep.route_code === 'PKG') {
+      // Packaging doesn't have a queue yet
       await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null);
       return null;
     }
 
     const queueSubProcess = (nextStep.sub_process
-      ?? (nextStep.route_code === '4' ? 'ROLLING' : nextStep.route_code === 'X' ? 'SKIN_PASS' : nextStep.process_code)) as SixHiSubProcess | null;
-    if (!queueSubProcess || !['ROLLING', 'SKIN_PASS'].includes(queueSubProcess)) {
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null);
-      return null;
-    }
+      ?? (nextStep.route_code === '4' ? 'ROLLING' : nextStep.route_code === 'X' ? 'SKIN_PASS' : nextStep.process_code)) as string;
 
     const targetMachine = nextStep.machine_code
-      ?? defaultSuggestedMachine(queueSubProcess);
-    const machineAllocated = !!nextStep.machine_code;
+      ?? (genericCrm ? defaultSuggestedMachine(queueSubProcess as SixHiSubProcess) : (nextStep.process_code ?? ''));
 
     if (nextStep.queue_batch_id) {
       const existingBatchId = Number(nextStep.queue_batch_id);
@@ -103,7 +106,7 @@ export class QueueTransferService {
         shift_code: shiftCode,
         machine_code: targetMachine,
         sub_process: queueSubProcess,
-        machine_allocated: machineAllocated,
+        machine_allocated: !!nextStep.machine_code,
         coil_no: sourceBatch.coil_no,
         slit_id: sourceBatch.slit_id,
         customer_name: payload.customerName ?? sourceBatch.customer_name,

@@ -27,13 +27,13 @@ function RailButton({
   icon: ComponentType<{ className?: string }>;
   onClick: () => void;
   disabled?: boolean;
-  variant?: 'start' | 'end' | 'warn' | 'danger' | 'default';
+  variant?: 'start' | 'end' | 'warn' | 'default';
 }) {
   const styles = {
     start: 'bg-primary text-white border-primary hover:bg-[#1f4a3a]',
     end: 'bg-[#DC2626] text-white border-destructive hover:bg-[#B91C1C]',
     warn: 'bg-white text-warning border-[#FDBA74]',
-    danger: 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100',
+    reject: 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100',
     default: 'bg-white text-foreground border-border hover:bg-secondary',
   }[variant];
 
@@ -70,7 +70,7 @@ export function SixHiProductionActionRail({
   const canStart = (order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'STOPPAGE')
     && !hasActiveStoppage;
   const canEnd = order.status === 'IN_PROGRESS' || (order.status === 'STOPPAGE' && !hasActiveStoppage);
-  const canReject = order.status !== 'COMPLETED';
+  const canReject = order.status !== 'COMPLETED' && order.status !== 'REJECTED';
 
   const runtimeLabel = order.prodDurationMin
     ? `${order.prodDurationMin} minutes`

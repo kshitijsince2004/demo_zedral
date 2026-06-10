@@ -62,9 +62,36 @@ export class TraceabilityService {
         history.push({ process: 'PKL', coilNo, record, stoppages });
       }
 
-      // Cold Rolling Mill (CRM)
+      // Cold Rolling Mill (CRM 4HI/2HI)
       const crm = await db.selectFrom('txn.prod_crm').selectAll().where('coil_no', '=', coilNo).execute();
       crm.forEach(record => history.push({ process: 'CRM', coilNo, record }));
+
+      // Cold Rolling Mill 6HI (CRM6)
+      const crm6 = await db.selectFrom('txn.crm6_order as o')
+        .leftJoin('txn.crm6_rolling as r', 'o.order_id', 'r.order_id')
+        .leftJoin('txn.crm6_skinpass as s', 'o.order_id', 's.order_id')
+        .select([
+           'o.order_id',
+           'o.coil_no',
+           'o.sub_process',
+           'o.status',
+           'o.ppc_weight_mt',
+           'r.actual_weight_mt as rolling_actual_weight_mt',
+           'r.rerolling as rolling_rerolling_flag',
+           's.actual_weight_mt as skinpass_actual_weight_mt'
+        ])
+        .where('o.coil_no', '=', coilNo)
+        .execute();
+
+      crm6.forEach(record => history.push({ 
+         process: 'CRM6', 
+         coilNo, 
+         record: {
+            ...record,
+            actualWeightMt: record.sub_process === 'ROLLING' ? record.rolling_actual_weight_mt : record.skinpass_actual_weight_mt,
+            rerolling: record.rolling_rerolling_flag
+         }
+      }));
 
       // Annealing (ANN)
       const annCoils = await db.selectFrom('txn.ann_charge_coil as acc')

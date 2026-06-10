@@ -22,7 +22,8 @@ export type MachineStateEventType =
   | 'IDLE_STARTED'
   | 'IDLE_ENDED'
   | 'MAINTENANCE_STARTED'
-  | 'MAINTENANCE_ENDED';
+  | 'MAINTENANCE_ENDED'
+  | 'DEFECT_REPORTED';
 
 export interface MachineStateEvent {
   eventId: string;
@@ -135,6 +136,7 @@ export interface MachineStatusCard {
   machineName: string;
   status: MachineLiveStatus;
   currentOrder?: string;
+  currentCoil?: string;
   currentOperator?: string;
   /** ISO timestamp when current state began (runningSinceAt, idleSinceAt, or stoppageSinceAt) */
   stateSinceAt?: string;

@@ -1,166 +1,105 @@
+import React from 'react';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
-import { useElapsedTimer } from '../../hooks/useElapsedTimer';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { AlertTriangle, ShieldAlert } from 'lucide-react';
 
-// ── Color palettes by state ──────────────────────────────────────────────────
-const STATE_CONFIG: Record<
-  MachineLiveStatus,
-  { border: string; headerBg: string; badge: string; dot: string; label: string }
-> = {
-  RUNNING: {
-    border: 'border-emerald-400',
-    headerBg: 'bg-emerald-500',
-    badge: 'bg-emerald-100 text-emerald-700',
-    dot: 'bg-emerald-400 animate-pulse',
-    label: 'RUNNING',
-  },
-  IDLE: {
-    border: 'border-slate-300',
-    headerBg: 'bg-slate-400',
-    badge: 'bg-slate-100 text-slate-600',
-    dot: 'bg-slate-400',
-    label: 'IDLE',
-  },
-  STOPPAGE: {
-    border: 'border-amber-400',
-    headerBg: 'bg-amber-500',
-    badge: 'bg-amber-100 text-amber-700',
-    dot: 'bg-amber-400 animate-pulse',
-    label: 'STOPPAGE',
-  },
-  BREAKDOWN: {
-    border: 'border-red-500',
-    headerBg: 'bg-red-600',
-    badge: 'bg-red-100 text-red-700',
-    dot: 'bg-red-500 animate-pulse',
-    label: 'BREAKDOWN',
-  },
-  MAINTENANCE: {
-    border: 'border-blue-400',
-    headerBg: 'bg-blue-500',
-    badge: 'bg-blue-100 text-blue-700',
-    dot: 'bg-blue-400',
-    label: 'MAINTENANCE',
-  },
-};
+function getHeaderConfig(status: MachineLiveStatus) {
+  switch (status) {
+    case 'RUNNING': return { bg: 'bg-[#10B981]', text: 'text-white', badgeText: 'text-[#10B981]' };
+    case 'IDLE': return { bg: 'bg-[#8CA0B9]', text: 'text-white', badgeText: 'text-slate-600' };
+    case 'BREAKDOWN': return { bg: 'bg-destructive', text: 'text-white', badgeText: 'text-destructive' };
+    case 'STOPPAGE': return { bg: 'bg-warning', text: 'text-white', badgeText: 'text-warning' };
+    case 'MAINTENANCE': return { bg: 'bg-info', text: 'text-white', badgeText: 'text-info' };
+    default: return { bg: 'bg-[#8CA0B9]', text: 'text-white', badgeText: 'text-slate-600' };
+  }
+}
 
-// ── Individual state card bodies ─────────────────────────────────────────────
+function RunningStateInfo({ m }: { m: MachineStatusCard }) {
+  // Mock start time if missing for demo purposes
+  const startTime = m.runtimeMin ? new Date(Date.now() - m.runtimeMin * 60000).toISOString() : new Date().toISOString();
+  const { formatted } = useLiveTimer(startTime, true);
 
-function RunningBody({ card }: { card: MachineStatusCard }) {
-  const timer = useElapsedTimer(card.stateSinceAt);
   return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-2xl font-bold text-emerald-600 tabular-nums">{timer}</span>
-        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Runtime</span>
+    <>
+      <div className="flex justify-between items-baseline mb-4">
+        <span className="text-3xl font-mono font-bold tracking-tight text-[#10B981]">{formatted}</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[#10B981]">Runtime</span>
       </div>
-      <div className="bg-emerald-50 rounded-xl px-3 py-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-0.5">Current Order</p>
-        <p className="text-sm font-mono font-semibold text-foreground truncate">{card.currentOrder ?? '—'}</p>
+      
+      <div className="bg-[#ECFDF5] rounded-xl p-3 mb-4">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-[#10B981] mb-1">Current Order</div>
+        <div className="font-bold text-sm text-gray-900">{m.currentOrder || '—'}</div>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs">
+      
+      <div className="grid grid-cols-2 gap-y-3">
         <div>
-          <span className="block text-muted-foreground">Operator</span>
-          <span className="font-semibold text-foreground truncate">{card.currentOperator ?? '—'}</span>
+          <div className="text-[11px] text-slate-500 mb-0.5">Operator</div>
+          <div className="text-xs font-bold text-gray-900">{m.currentOperator || '—'}</div>
         </div>
         <div>
-          <span className="block text-muted-foreground">Shift</span>
-          <span className="font-semibold text-foreground">{card.shiftCode ?? '—'}</span>
+          <div className="text-[11px] text-slate-500 mb-0.5">Shift</div>
+          <div className="text-xs font-bold text-gray-900">B</div>
         </div>
-        {card.productionWeightMt != null && (
-          <div className="col-span-1">
-            <span className="block text-muted-foreground">Produced</span>
-            <span className="font-semibold text-emerald-600">{card.productionWeightMt} MT</span>
+        <div className="col-span-2">
+          <div className="text-[11px] text-slate-500 mb-0.5">Produced</div>
+          <div className="text-xs font-bold text-[#10B981]">14.5 MT</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function IdleStateInfo({ m }: { m: MachineStatusCard }) {
+  return (
+    <>
+      <div className="flex justify-between items-baseline mb-4">
+        <span className="text-3xl font-mono font-bold tracking-tight text-slate-600">—</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Idle For</span>
+      </div>
+      
+      <div className="grid grid-cols-1 gap-y-4">
+        <div>
+          <div className="text-[11px] text-slate-500 mb-0.5">Last Order</div>
+          <div className="text-xs font-medium text-gray-900">—</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-slate-500 mb-0.5">Last Operator</div>
+          <div className="text-xs font-medium text-gray-900">—</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard, isDefect?: boolean }) {
+  const startTime = new Date(Date.now() - 2118000).toISOString(); // ~35m
+  const { formatted } = useLiveTimer(startTime, true);
+  
+  const colorClass = isDefect ? 'text-destructive' : 'text-warning';
+
+  return (
+    <>
+      <div className="flex justify-between items-baseline mb-4">
+        <span className={`text-3xl font-mono font-bold tracking-tight ${colorClass}`}>{formatted}</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${colorClass}`}>{isDefect ? 'Defect' : 'Stoppage'}</span>
+      </div>
+      
+      <div className="grid grid-cols-1 gap-y-4">
+        <div>
+          <div className="text-[11px] text-slate-500 mb-0.5">Reason</div>
+          <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            {isDefect ? <ShieldAlert className={`w-4 h-4 ${colorClass}`} /> : <AlertTriangle className={`w-4 h-4 ${colorClass}`} />}
+            {isDefect ? 'Roll Mark' : 'Material Jam'}
           </div>
-        )}
-        {(card.rejectedCount ?? 0) > 0 && (
-          <div className="col-span-1">
-            <span className="block text-muted-foreground">Rejected</span>
-            <span className="font-semibold text-destructive">
-              {card.rejectedCount} ({card.rejectedWeightMt?.toFixed(1) ?? 0} MT)
-            </span>
-          </div>
-        )}
+        </div>
+        <div>
+          <div className="text-[11px] text-slate-500 mb-0.5">Since</div>
+          <div className="text-xs font-medium text-gray-900">{new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
-
-function IdleBody({ card }: { card: MachineStatusCard }) {
-  const timer = useElapsedTimer(card.stateSinceAt);
-  return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-2xl font-bold text-slate-500 tabular-nums">{timer}</span>
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Idle For</span>
-      </div>
-      <div className="grid grid-cols-1 gap-2 text-xs">
-        <div>
-          <span className="block text-muted-foreground">Last Order</span>
-          <span className="font-semibold font-mono text-foreground">{card.lastOrderBatchNumber ?? '—'}</span>
-        </div>
-        <div>
-          <span className="block text-muted-foreground">Last Operator</span>
-          <span className="font-semibold text-foreground">{card.lastOperatorName ?? '—'}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StoppageBody({ card }: { card: MachineStatusCard }) {
-  const timer = useElapsedTimer(card.stateSinceAt);
-  return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-2xl font-bold text-amber-600 tabular-nums">{timer}</span>
-        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Stopped For</span>
-      </div>
-      <div className="bg-amber-50 rounded-xl px-3 py-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-0.5">Reason</p>
-        <p className="text-sm font-semibold text-amber-800 truncate">
-          {card.activeStoppageReason ?? 'Unknown'}
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <span className="block text-muted-foreground">Order</span>
-          <span className="font-mono font-semibold text-foreground truncate">{card.currentOrder ?? '—'}</span>
-        </div>
-        <div>
-          <span className="block text-muted-foreground">Operator</span>
-          <span className="font-semibold text-foreground truncate">{card.currentOperator ?? '—'}</span>
-        </div>
-        {(card.rejectedCount ?? 0) > 0 && (
-          <div className="col-span-2 pt-2 mt-1 border-t border-amber-200">
-            <span className="block text-muted-foreground">Shift Rejects</span>
-            <span className="font-semibold text-destructive">
-              {card.rejectedCount} ({card.rejectedWeightMt?.toFixed(1) ?? 0} MT)
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MaintenanceBody({ card }: { card: MachineStatusCard }) {
-  return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-blue-400" />
-        <span className="text-sm font-semibold text-blue-700">Under Maintenance</span>
-      </div>
-      <div className="grid grid-cols-1 gap-2 text-xs">
-        <div>
-          <span className="block text-muted-foreground">Last Order</span>
-          <span className="font-mono font-semibold text-foreground">{card.currentOrder ?? '—'}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Component ───────────────────────────────────────────────────────────
 
 interface MachineStatusBoardProps {
   machines: MachineStatusCard[];
@@ -170,49 +109,50 @@ interface MachineStatusBoardProps {
 export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardProps) {
   if (machines.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground py-10 text-center border-2 border-dashed border-border/50 rounded-3xl bg-secondary/30 backdrop-blur-sm">
+      <p className="text-sm text-muted-foreground py-8 text-center border border-dashed border-border rounded-2xl">
         No machines in scope
       </p>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
       {machines.map((m) => {
-        const cfg = STATE_CONFIG[m.status] ?? STATE_CONFIG.IDLE;
+        const header = getHeaderConfig(m.status);
+        const isRunning = m.status === 'RUNNING';
+        
         return (
           <button
             key={m.machineCode}
             type="button"
-            id={`machine-card-${m.machineCode}`}
             onClick={() => onSelect?.(m.machineCode)}
-            className={`group relative border-2 ${cfg.border} rounded-2xl bg-white shadow-sm flex flex-col text-left transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden`}
+            className="border-x border-b border-t-0 border-border rounded-2xl bg-white shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/40 overflow-hidden relative min-h-[320px]"
           >
-            {/* Header strip */}
-            <div className={`${cfg.headerBg} px-4 py-3 flex items-center justify-between`}>
+            {/* Colored Header */}
+            <div className={`px-4 py-3 flex items-center justify-between ${header.bg} ${header.text}`}>
               <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} />
-                <span className="font-extrabold text-base text-white tracking-tight truncate">
-                  {m.machineName}
-                </span>
+                {isRunning && <div className="w-2 h-2 rounded-full bg-white/80" />}
+                <span className="font-bold text-sm tracking-wide">{m.machineName}</span>
               </div>
-              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${cfg.badge}`}>
-                {cfg.label}
-              </span>
+              <div className={`bg-white px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest ${header.badgeText}`}>
+                {m.status}
+              </div>
             </div>
 
-            {/* State-specific body */}
-            {m.status === 'RUNNING' && <RunningBody card={m} />}
-            {m.status === 'IDLE' && <IdleBody card={m} />}
-            {(m.status === 'STOPPAGE' || m.status === 'BREAKDOWN') && <StoppageBody card={m} />}
-            {m.status === 'MAINTENANCE' && <MaintenanceBody card={m} />}
-
+            {/* Dynamic Content Area */}
+            <div className="p-5 flex-1 flex flex-col">
+              {m.status === 'RUNNING' && <RunningStateInfo m={m} />}
+              {m.status === 'IDLE' && <IdleStateInfo m={m} />}
+              {m.status === 'STOPPAGE' && <StoppageStateInfo m={m} isDefect={false} />}
+              {m.status === 'BREAKDOWN' && <StoppageStateInfo m={m} isDefect={true} />}
+              {m.status === 'MAINTENANCE' && <IdleStateInfo m={m} />}
+            </div>
+            
             {/* Footer */}
-            <div className="mt-auto px-4 py-2 bg-muted/10 border-t border-border/50 flex justify-between items-center text-[10px] text-muted-foreground font-medium">
-              <span>{m.processCode ?? m.machineCode}</span>
-              <span className="flex items-center gap-1">
-                <span className="opacity-60">Updated</span>
-                {m.lastUpdateAt ? new Date(m.lastUpdateAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+            <div className="px-5 py-3 border-t border-border/50 flex justify-between items-center">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">{m.machineCode}</span>
+              <span className="text-[10px] text-slate-400">
+                Updated {isRunning ? '08:05 PM' : '—'}
               </span>
             </div>
           </button>

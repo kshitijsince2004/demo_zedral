@@ -1,8 +1,9 @@
-import type { ComponentType, ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { useAuthStore } from '../../../lib/authStore';
 import ZedralLogo from '../../../assets/white logo.png';
+import { LogoutConfirmModal } from '../../ui/LogoutConfirmModal';
 
 export interface DeskNavItem {
   id: string;
@@ -30,6 +31,7 @@ export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabe
   const navigate = useNavigate();
   const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   const itemActive = 'bg-white/20 text-white border border-white/30';
   const itemIdle = 'text-white/70 hover:text-white hover:bg-white/10 border border-transparent';
@@ -73,7 +75,7 @@ export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabe
       <button
         type="button"
         title="End Session"
-        onClick={logout}
+        onClick={() => setLogoutOpen(true)}
         className={[
           'mx-2 mb-1 mt-2 shrink-0 px-3 py-2.5 flex items-center gap-2.5 rounded-lg transition-colors',
           itemIdle,
@@ -82,6 +84,12 @@ export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabe
         <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
         <span className="text-sm font-medium">Logout</span>
       </button>
+
+      <LogoutConfirmModal
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={logout}
+      />
     </nav>
   );
 }

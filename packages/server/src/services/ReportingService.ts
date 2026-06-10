@@ -106,6 +106,7 @@ async function fetchShiftRows(
   from: Date,
   to: Date,
   states?: string[],
+  filters?: { shifts?: string[]; grades?: string[]; customers?: string[]; coils?: string[] }
 ): Promise<ShiftRow[]> {
   let query = reportingDb
     .selectFrom('txn.shift_log as sl')
@@ -132,6 +133,14 @@ async function fetchShiftRows(
   if (states && states.length > 0) {
     query = query.where('sl.state', 'in', states);
   }
+
+  if (filters?.shifts && filters.shifts.length > 0) {
+    query = query.where('sl.shift_code', 'in', filters.shifts);
+  }
+
+  // Note: grade, customer, and coil filtering requires joining specific
+  // production tables (txn.prod_*) or the crm6_order table.
+  // This is a stub for where that logic would go if a unified view existed.
 
   const rows = await query.orderBy('sl.prod_date', 'desc').execute();
   return rows.map((r) => ({
@@ -332,6 +341,14 @@ async function fetchTopDefects(
   });
 }
 
+export interface PlantHeadFilters {
+  lines?: string[];
+  shifts?: string[];
+  grades?: string[];
+  customers?: string[];
+  coils?: string[];
+}
+
 export class ReportingService {
   static async getSupervisorDashboard(lines: string[]) {
     let activeShiftsQuery = reportingDb
@@ -450,10 +467,10 @@ export class ReportingService {
     };
   }
 
-  static async getPlantHeadDashboard(windowDays: PlantHeadWindow = 7) {
+  static async getPlantHeadDashboard(windowDays: PlantHeadWindow = 7, filters: PlantHeadFilters = {}) {
     const now = new Date();
     const trendFrom = windowStart(windowDays, now);
-    const shifts = await fetchShiftRows([], trendFrom, now);
+    const shifts = await fetchShiftRows(filters.lines || [], trendFrom, now, undefined, filters);
     const shiftIds = shifts.map((s) => s.shift_log_id);
     const downtime = await fetchDowntimeByShift(shiftIds);
     const loss = await fetchLossByShift(shiftIds);

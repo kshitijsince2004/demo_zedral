@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import type { SixHiOrderDetail, SixHiRollingData } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
@@ -34,7 +34,7 @@ function buildInitialRolling(order: SixHiOrderDetail): SixHiRollingData {
   };
 }
 
-export function RollingWorkspace({ order, onSave, busy, compact }: RollingWorkspaceProps) {
+export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorkspaceProps) {
   const ppcDest = order.ppcDestination ?? 'ANNEALING';
   const initial = buildInitialRolling(order);
 

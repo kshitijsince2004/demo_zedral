@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import type { SixHiOrderDetail, SixHiSkinPassData } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
@@ -83,7 +83,7 @@ function MetricToggle({
   );
 }
 
-export function SkinPassWorkspace({ order, onSave, busy, compact }: SkinPassWorkspaceProps) {
+export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWorkspaceProps) {
   const [data, setData] = useState<SixHiSkinPassData>(order.skinPass ?? {});
   const [metric, setMetric] = useState<SkinPassMetric>(() => initialMetricChoice(order.skinPass));
   const [rwTensionInput, setRwTensionInput] = useState(() =>

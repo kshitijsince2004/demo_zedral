@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 
 
 
@@ -22,8 +22,12 @@ export const SixHiPassSchema = z.object({
 
   passNo: z.number().int().positive(),
 
-  thicknessMm: z.number().positive(),
-
+  thicknessMm: z.number().positive().refine((val) => {
+    const s = val.toString();
+    if (!s.includes('.')) return true;
+    const dp = s.split('.')[1].length;
+    return dp >= 2 && dp <= 4;
+  }, { message: 'Must have 2-4 decimal places' }),
 });
 
 

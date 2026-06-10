@@ -7,25 +7,19 @@
  * Requirements: 1.2, 5.1, 5.3
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { syncEngine } from '../../lib/syncEngine';
 import { useGloveModeClasses } from '../../hooks/useGloveModeClasses';
-
-// ─── Stoppage codes (will be sourced from master data in task 12.1) ───────────
-
-const STOPPAGE_CODES = [
-  { code: 'OPN-101', reason: 'Roll Change' },
-  { code: 'OPN-102', reason: 'Blade Change' },
-  { code: 'OPN-103', reason: 'Threading' },
-  { code: 'MECH-201', reason: 'Hydraulic Leak' },
-  { code: 'MECH-202', reason: 'Motor Trip' },
-  { code: 'ELEC-301', reason: 'Sensor Fault' },
-  { code: 'ELEC-302', reason: 'PLC Error' },
-  { code: 'QUAL-401', reason: 'Quality Hold' },
-  { code: 'PLAN-501', reason: 'No Material' },
-] as const;
+import { apiClient } from '../../lib/apiClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface MasterStoppageCode {
+  stoppage_code: string;
+  description: string;
+  category: string;
+  is_active?: boolean;
+}
 
 export interface StoppageSubFormProps {
   /** The shift log ID this stoppage is associated with. */
@@ -34,10 +28,29 @@ export interface StoppageSubFormProps {
 
 type SaveState = 'idle' | 'saving' | 'queued' | 'transmitted' | 'failed';
 
+// ─── Hook: Load stoppage codes from master data ───────────────────────────────
+
+function useStoppageCodes() {
+  const [codes, setCodes] = useState<MasterStoppageCode[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<MasterStoppageCode[]>('/master-data/stoppage_codes')
+      .then((data) => { if (!cancelled) setCodes(data); })
+      .catch(() => { /* will render empty list */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return { codes, loading };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function StoppageSubForm({ shiftLogId }: StoppageSubFormProps) {
   const { inputFieldHeight, saveHeight, controlGap } = useGloveModeClasses();
+  const { codes: STOPPAGE_CODES, loading: codesLoading } = useStoppageCodes();
 
   const [selectedCode, setSelectedCode] = useState('');
   const [fromTime, setFromTime] = useState(() => {
@@ -54,7 +67,7 @@ export function StoppageSubForm({ shiftLogId }: StoppageSubFormProps) {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  const selectedEntry = STOPPAGE_CODES.find((s) => s.code === selectedCode);
+  const selectedEntry = STOPPAGE_CODES.find((s) => s.stoppage_code === selectedCode);
 
   const handleSave = async () => {
     if (!selectedCode) {
@@ -122,10 +135,10 @@ export function StoppageSubForm({ shiftLogId }: StoppageSubFormProps) {
             }}
             className={`${inputFieldHeight} rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 w-full`}
           >
-            <option value="">Select Stoppage Code…</option>
+            <option value="">{codesLoading ? 'Loading…' : 'Select Stoppage Code…'}</option>
             {STOPPAGE_CODES.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code} — {s.reason}
+              <option key={s.stoppage_code} value={s.stoppage_code}>
+                {s.stoppage_code} — {s.description}
               </option>
             ))}
           </select>
@@ -134,8 +147,8 @@ export function StoppageSubForm({ shiftLogId }: StoppageSubFormProps) {
         {/* Selected code confirmation */}
         {selectedEntry && (
           <div className="px-3 py-2 rounded-md bg-warning/15 border border-warning/40">
-            <span className="font-mono text-xs text-warning">{selectedEntry.code}</span>
-            <span className="text-sm font-medium text-warning ml-2">{selectedEntry.reason}</span>
+            <span className="font-mono text-xs text-warning">{selectedEntry.stoppage_code}</span>
+            <span className="text-sm font-medium text-warning ml-2">{selectedEntry.description}</span>
           </div>
         )}
 

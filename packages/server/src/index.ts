@@ -26,6 +26,7 @@ import liveRoutes from './routes/liveRoutes';
 import machineAccessRoutes from './routes/machineAccessRoutes';
 import machineHandoverRoutes from './routes/machineHandoverRoutes';
 import auditRoutes from './routes/auditRoutes';
+import { dprRoutes } from './dpr/routes';
 import { db } from './db';
 import { ExportScheduler } from './export/jobs/ExportScheduler';
 import { ExportWorker } from './export/jobs/ExportWorker';
@@ -73,6 +74,7 @@ app.use('/sync', syncRoutes);
 app.use('/validation-rules', validationRulesRoutes);
 app.use('/api/v1/validation-rules', validationRulesRoutes); // Mount for either convention
 app.use('/audit', auditRoutes);
+app.use('/dpr', dprRoutes);
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'm1-digital-data-collection' });
 });

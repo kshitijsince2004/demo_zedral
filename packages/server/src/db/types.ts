@@ -647,6 +647,7 @@ export interface TxnMachineHandover {
   created_by_boundary: Generated<boolean>;
   downtime_minutes: number | null;
   handover_id: Generated<string>;
+  handover_priority: Generated<string>;
   incoming_operator_id: number | null;
   incoming_prod_date: Timestamp;
   incoming_shift_code: string;

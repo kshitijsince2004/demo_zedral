@@ -1,7 +1,10 @@
-﻿import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
 import { PPCInfoCards } from './PPCInfoCards';
-import { RollingWorkspace } from './RollingWorkspace';
-import { SkinPassWorkspace } from './SkinPassWorkspace';
+import { FourHiRollingForm } from './FourHiRollingForm';
+import { SharedSkinPassForm } from './SharedSkinPassForm';
+import { ShiftStoppageHistory } from './ShiftStoppageHistory';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { Activity, AlertTriangle, Clock } from 'lucide-react';
 
 interface SixHiOrderWorkspaceProps {
   order: SixHiOrderDetail;
@@ -21,30 +24,62 @@ export function SixHiOrderWorkspace({
   onSaveSkinPass,
 }: SixHiOrderWorkspaceProps) {
   const isRolling = order.subProcess === 'ROLLING';
-
-  if (compact) {
-    return (
-      <div className="flex flex-col gap-2 h-full min-h-0 overflow-hidden">
-        <PPCInfoCards data={order} compact />
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {isRolling ? (
-            <RollingWorkspace order={order} busy={busy} onSave={onSaveRolling} compact />
-          ) : (
-            <SkinPassWorkspace order={order} busy={busy} onSave={onSaveSkinPass} compact />
-          )}
-        </div>
-      </div>
-    );
-  }
+  
+  // Timers
+  const isRunning = !!order.actualStartTime && !order.actualEndTime && !order.activeStoppage;
+  const isStoppageActive = !!order.activeStoppage;
+  
+  const { formatted: runTime } = useLiveTimer(order.actualStartTime, isRunning);
+  const { formatted: stopTime } = useLiveTimer(order.activeStoppage?.startTime, isStoppageActive);
 
   return (
-    <div className="flex flex-col gap-3 min-h-0">
-      <PPCInfoCards data={order} />
-      {isRolling ? (
-        <RollingWorkspace order={order} busy={busy} onSave={onSaveRolling} />
-      ) : (
-        <SkinPassWorkspace order={order} busy={busy} onSave={onSaveSkinPass} />
+    <div className={`flex flex-col gap-4 ${compact ? 'h-full min-h-0 overflow-hidden' : 'min-h-0'}`}>
+      
+      {/* Live Timer Banner */}
+      {(isRunning || isStoppageActive) && (
+        <div className={`flex items-center justify-between px-5 py-3 rounded-xl border shadow-sm transition-colors ${
+          isStoppageActive 
+            ? 'bg-destructive/10 border-destructive/30 text-destructive' 
+            : 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]'
+        }`}>
+          <div className="flex items-center gap-3">
+            {isStoppageActive ? <AlertTriangle className="w-5 h-5 animate-pulse" /> : <Activity className="w-5 h-5" />}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+                {isStoppageActive ? 'Stoppage Active' : 'Production Active'}
+              </div>
+              <div className="text-sm font-semibold opacity-90">
+                {isStoppageActive ? 'Machine is currently stopped' : `Running since ${new Date(order.actualStartTime!).toLocaleTimeString()}`}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 opacity-70" />
+            <span className="font-mono text-3xl font-bold tracking-tight">
+              {isStoppageActive ? stopTime : runTime}
+            </span>
+          </div>
+        </div>
       )}
+
+      {/* Complete Order Info */}
+      <PPCInfoCards data={order} compact={compact} />
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 flex-1 min-h-0">
+        {/* Main Data Entry Form */}
+        <div className="xl:col-span-2 overflow-auto hide-scrollbar bg-card border border-border rounded-xl shadow-sm p-4">
+          {isRolling ? (
+            <FourHiRollingForm order={order} busy={busy} onSave={onSaveRolling} compact={compact} />
+          ) : (
+            <SharedSkinPassForm order={order} busy={busy} onSave={onSaveSkinPass} compact={compact} />
+          )}
+        </div>
+
+        {/* Stoppage History Table (Right sidebar on large screens, or below on small) */}
+        <div className="overflow-auto hide-scrollbar">
+          <ShiftStoppageHistory stoppages={order.stoppages || []} />
+        </div>
+      </div>
     </div>
   );
 }

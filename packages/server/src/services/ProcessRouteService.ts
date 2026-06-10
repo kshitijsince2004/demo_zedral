@@ -266,6 +266,32 @@ export class ProcessRouteService {
     };
   }
 
+  static async advanceJourneyByCoil(coilNo: string, payload: CompletionPayload): Promise<OrderJourneyView | null> {
+    const journey = await db.selectFrom('planning.order_journey')
+      .selectAll()
+      .where('coil_no', '=', coilNo)
+      .where('status', '=', 'ACTIVE')
+      .executeTakeFirst();
+    if (!journey) return null;
+
+    const currentStep = await db.selectFrom('planning.order_journey_step')
+      .select('queue_batch_id')
+      .where('journey_id', '=', String(journey.journey_id))
+      .where('step_no', '=', journey.current_step_no)
+      .executeTakeFirst();
+
+    if (!currentStep?.queue_batch_id) return null;
+
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .select('batch_number')
+      .where('batch_id', '=', String(currentStep.queue_batch_id))
+      .executeTakeFirst();
+      
+    if (!batch) return null;
+
+    return this.advanceJourney(batch.batch_number, payload);
+  }
+
   static async advanceJourney(batchNumber: string, payload: CompletionPayload): Promise<OrderJourneyView | null> {
     const batch = await db.selectFrom('planning.ppc_batch')
       .selectAll()

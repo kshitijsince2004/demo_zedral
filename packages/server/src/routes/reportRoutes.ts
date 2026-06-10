@@ -78,7 +78,16 @@ router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), as
         message: 'window must be one of 1, 7, 30, or 90 days.',
       });
     }
-    const data = await ReportingService.getPlantHeadDashboard(windowDays);
+
+    const filters = {
+      lines: req.query.lines ? String(req.query.lines).split(',').filter(Boolean) : undefined,
+      shifts: req.query.shifts ? String(req.query.shifts).split(',').filter(Boolean) : undefined,
+      grades: req.query.grades ? String(req.query.grades).split(',').filter(Boolean) : undefined,
+      customers: req.query.customers ? String(req.query.customers).split(',').filter(Boolean) : undefined,
+      coils: req.query.coils ? String(req.query.coils).split(',').filter(Boolean) : undefined,
+    };
+
+    const data = await ReportingService.getPlantHeadDashboard(windowDays, filters);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -141,7 +150,7 @@ router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.SUPE
   }
 });
 
-router.get('/handover', async (req, res) => {
+router.get('/handover', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const summary = await ShiftLogService.getHandoverSummary(req.query.shiftLogId as string);
     res.json(summary);

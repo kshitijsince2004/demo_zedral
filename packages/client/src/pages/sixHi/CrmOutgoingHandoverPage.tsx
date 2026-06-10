@@ -19,14 +19,13 @@ import {
 
 const MACHINE_STATUSES = ['RUNNING', 'IDLE', 'BREAKDOWN', 'MAINTENANCE', 'STOPPAGE'] as const;
 const MACHINE_CONDITIONS = ['NORMAL', 'ATTENTION_REQUIRED', 'CRITICAL'] as const;
-const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'] as const;
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
 type Priority = typeof PRIORITIES[number];
 
 const PRIORITY_COLORS: Record<Priority, string> = {
   LOW: 'bg-slate-100 text-slate-600 border-slate-300',
-  NORMAL: 'bg-blue-100 text-blue-700 border-blue-300',
+  MEDIUM: 'bg-blue-100 text-blue-700 border-blue-300',
   HIGH: 'bg-amber-100 text-amber-700 border-amber-300',
-  CRITICAL: 'bg-red-100 text-red-700 border-red-400',
 };
 
 const CONDITION_COLORS: Record<string, string> = {
@@ -155,7 +154,7 @@ export function CrmOutgoingHandoverPage() {
   const [notesError, setNotesError] = useState('');
 
   // Priority
-  const [priority, setPriority] = useState<Priority>('NORMAL');
+  const [priority, setPriority] = useState<Priority>('MEDIUM');
 
   // Submit state
   const [submitting, setSubmitting] = useState(false);
@@ -164,7 +163,7 @@ export function CrmOutgoingHandoverPage() {
   const [draftSaved, setDraftSaved] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
 
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const autoSaveRef = useRef<ReturnType<typeof setTimeout>>();
 
   // ── Load preview + draft ───────────────────────────────────────────────────
   useEffect(() => {
@@ -298,8 +297,8 @@ export function CrmOutgoingHandoverPage() {
   const queue = p.queueSnapshot;
   const allQueueItems = [...(queue.rolling ?? []), ...(queue.skinpass ?? [])].slice(0, 5);
 
-  const shiftStart = p.shift.prodDate ?? '—';
-  const shiftEnd = p.nextShift.prodDate ?? '—';
+  const shiftStart = p.shift.windowStart ?? '—';
+  const shiftEnd = p.shift.windowEnd ?? '—';
 
   function formatMin(min?: number) {
     if (min == null) return '—';
@@ -669,9 +668,9 @@ export function CrmOutgoingHandoverPage() {
             {/* ═══════════════════════════════════════════════════════════════ */}
             <div className="bg-white border border-border rounded-2xl p-5">
               <SectionHeader icon={<Users className="h-4 w-4" />} title="Crew Details" />
-              {p.crewList && p.crewList.length > 0 ? (
+              {p.crewSnapshot && p.crewSnapshot.length > 0 ? (
                 <div className="space-y-2 mb-4">
-                  {p.crewList.map((c) => (
+                  {p.crewSnapshot.map((c) => (
                     <div key={c.id} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-2.5">
                       <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-black flex items-center justify-center">{c.operatorName[0]}</div>
                       <div className="flex-1">

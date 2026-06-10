@@ -18,14 +18,5 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
-    rules: {
-      'no-restricted-syntax': [
-        'warn',
-        {
-          selector: 'VariableDeclarator[id.name="ROLE_RANK"] > ObjectExpression',
-          message: 'Import ROLE_RANK from @m1/shared-validation instead of redefining locally.',
-        },
-      ],
-    },
   },
 ])

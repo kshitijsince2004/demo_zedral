@@ -1,118 +1,102 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ZButton } from '../../components/primitives/ZButton';
-import { ExecutiveShell } from '../../components/layout/executive/ExecutiveShell';
-import { reportingService, type PlantHeadDashboardData } from '../../lib/reportingService';
-import { machineHandoverService } from '../../services/machineHandoverService';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  reportingService,
+  type ExtendedPlantHeadDashboardData,
+} from '../../lib/reportingService';
 
-const FETCH_TIMEOUT_MS = 10_000;
-
-const WINDOW_OPTIONS: Array<{ days: 1 | 7 | 30 | 90; label: string }> = [
-  { days: 1, label: '1d' },
-  { days: 7, label: '7d' },
-  { days: 30, label: '30d' },
-  { days: 90, label: '90d' },
-];
-
-type LoadState = 'loading' | 'ok' | 'timeout' | 'error';
-
-function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), ms);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err: Error) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-}
+import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
+import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
+import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQualityDowntimeArea';
+import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
+import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
-  const [data, setData] = useState<PlantHeadDashboardData | null>(null);
-  const [loadState, setLoadState] = useState<LoadState>('loading');
-  const [reloadKey, setReloadKey] = useState(0);
+  const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadDashboard = useCallback(async () => {
-    setLoadState('loading');
-    setData(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const [dashboard] = await Promise.all([
-        fetchWithTimeout(reportingService.getPlantHeadDashboard(windowDays), FETCH_TIMEOUT_MS),
-        machineHandoverService.getOverview().catch(() => null),
-      ]);
-      setData(dashboard);
-      setLoadState('ok');
-    } catch (err) {
-      const message = (err as Error).message ?? '';
-      if (message === 'timeout') {
-        setLoadState('timeout');
-      } else {
-        setLoadState('error');
-      }
+      const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
+      setData(result);
+    } catch (err: any) {
+      setError(err?.message ?? 'Unable to load dashboard data');
+    } finally {
+      setLoading(false);
     }
   }, [windowDays]);
 
   useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard, reloadKey]);
+    load();
+    const interval = setInterval(load, 30000); // Live poll every 30s
+    return () => clearInterval(interval);
+  }, [load]);
 
-  const windowControls = (
-    <div className="flex items-center gap-2">
-      {WINDOW_OPTIONS.map(({ days, label }) => (
-        <ZButton
-          key={days}
-          variant={windowDays === days ? 'accent' : 'secondary'}
-          size="sm"
-          onClick={() => setWindowDays(days)}
-        >
-          {label}
-        </ZButton>
-      ))}
-    </div>
-  );
+  if (loading && !data) return <div className="p-6 text-muted-foreground">Loading Command Center...</div>;
+  if (error) {
+    return (
+      <div className="flex flex-col gap-6 w-full p-6">
+        <div className="p-6 text-destructive bg-destructive/10 rounded-xl">{error}</div>
+      </div>
+    );
+  }
+  if (!data) return null;
 
   return (
-    <ExecutiveShell title="Plant Overview" subtitle="Executive production dashboard" controls={windowControls}>
-      {loadState === 'loading' && (
-        <div className="h-48 rounded-2xl bg-secondary animate-pulse" aria-busy="true" />
-      )}
-
-      {loadState === 'timeout' && (
-        <div className="rounded-xl border border-border bg-card p-6 text-center">
-          <p className="text-sm text-muted-foreground">Live data is unavailable. Try again later.</p>
+    <div className="flex flex-col w-full h-full pb-20 max-w-screen-2xl mx-auto">
+      
+      {/* Top Header / Controls */}
+      <div className="flex items-center justify-between mb-6 mt-2 px-1">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Plant Head Dashboard</h1>
+          <p className="text-sm font-medium text-muted-foreground mt-1">Enterprise Operations Overview</p>
         </div>
-      )}
-
-      {loadState === 'error' && (
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center space-y-3">
-          <p className="text-sm text-destructive">Plant overview could not be loaded.</p>
-          <ZButton variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
-            Retry
-          </ZButton>
+        <div className="flex items-center gap-3">
+          <select
+            value={windowDays}
+            onChange={(e) => setWindowDays(Number(e.target.value) as 1 | 7 | 30 | 90)}
+            className="h-10 rounded-lg border border-input bg-background px-4 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          >
+            <option value={1}>Last 24 Hours</option>
+            <option value={7}>Last 7 Days</option>
+            <option value={30}>Last 30 Days</option>
+            <option value={90}>Last 90 Days</option>
+          </select>
         </div>
-      )}
+      </div>
 
-      {loadState === 'ok' && data && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Plant OEE</p>
-            <p className="text-3xl font-bold font-mono">{data.plantWideOee}%</p>
-            <p className="text-xs text-muted-foreground mt-1">Target {data.oeeTarget}%</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Lines tracked</p>
-            <p className="text-3xl font-bold font-mono">{data.productionVsPlan.length}</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Top defects</p>
-            <p className="text-3xl font-bold font-mono">{data.topDefects.length}</p>
-          </div>
-        </div>
-      )}
-    </ExecutiveShell>
+      {/* Standardized 5-Row Layout */}
+      <div className="flex flex-col gap-6 min-h-0">
+        
+        {/* Row 1: Executive KPI Strip */}
+        <section>
+          <PlantKpiStrip data={data} />
+        </section>
+
+        {/* Row 2: Main Operational Area (70/30) */}
+        <section>
+          <PlantMainOpsArea data={data} />
+        </section>
+
+        {/* Row 3: Quality & Downtime (50/50) */}
+        <section>
+          <PlantQualityDowntimeArea data={data} />
+        </section>
+
+        {/* Row 4: Operations (50/50) */}
+        <section>
+          <PlantOperationsArea data={data} />
+        </section>
+
+        {/* Row 5: Critical Operations Feed (100%) */}
+        <section>
+          <PlantOpsFeed data={data} />
+        </section>
+
+      </div>
+    </div>
   );
 }
