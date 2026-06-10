@@ -9,7 +9,7 @@ export class ImportService {
   async importTemplate(blob: Buffer): Promise<string> {
     const workbook = new Workbook();
     try {
-      await workbook.xlsx.load(blob);
+      await workbook.xlsx.load(blob as any);
     } catch (e) {
       throw new Error('Invalid workbook: not a readable .xlsx file');
     }

@@ -16,6 +16,7 @@ import {
   previewSessionStore,
   PREVIEW_SESSION_TTL_MS,
 } from './previewSessionStore';
+import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
 
 interface PpcRow {
   batch_number: string;
@@ -249,6 +250,19 @@ export class PPCImportService {
       .where('import_batch_id', '=', importBatch.import_batch_id)
       .execute();
 
+    // Index into Elasticsearch
+    try {
+      const insertedRow = await db.selectFrom('planning.ppc_batch')
+        .selectAll()
+        .where('batch_number', '=', data.batch_number)
+        .executeTakeFirst();
+      if (insertedRow) {
+        await indexBatch(insertedRow);
+      }
+    } catch (e) {
+      console.error('[elastic] Failed to index manual batch:', e);
+    }
+
     return { batchNumber: data.batch_number };
   }
 
@@ -366,6 +380,21 @@ export class PPCImportService {
       .set({ status, error_count: errors.length, row_count: parsed.rows.length })
       .where('import_batch_id', '=', batch.import_batch_id)
       .execute();
+
+    // Index successful rows into Elasticsearch
+    if (loaded > 0) {
+      try {
+        const rowsToIndex = await db.selectFrom('planning.ppc_batch')
+          .selectAll()
+          .where('import_batch_id', '=', batch.import_batch_id)
+          .execute();
+        if (rowsToIndex.length > 0) {
+          await indexBulk(rowsToIndex);
+        }
+      } catch (e) {
+        console.error('[elastic] Failed to bulk index CSV import:', e);
+      }
+    }
 
     return {
       batchId: String(batch.import_batch_id),
@@ -538,6 +567,21 @@ export class PPCImportService {
     const firstSynced = rowsToCommit.find(
       (r) => r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
     );
+
+    // Index into Elasticsearch
+    if (loaded > 0) {
+      try {
+        const rowsToIndex = await db.selectFrom('planning.ppc_batch')
+          .selectAll()
+          .where('import_batch_id', '=', batch.import_batch_id)
+          .execute();
+        if (rowsToIndex.length > 0) {
+          await indexBulk(rowsToIndex);
+        }
+      } catch (e) {
+        console.error('[elastic] Failed to bulk index rolling import:', e);
+      }
+    }
 
     return {
       loaded,

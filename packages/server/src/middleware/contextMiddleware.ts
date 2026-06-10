@@ -1,16 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import { requestContext } from '../context';
+import { resolveRequestTenantId } from '../config/tenantConfig';
 import { v4 as uuidv4 } from 'uuid';
 
 export const contextMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  // Extract tenant from headers (Gateway extracts from JWT and forwards as X-Tenant-Id)
-  // For now, if not present, default to the seeded tenant for backwards compatibility during transition
-  const tenant_id = (req.headers['x-tenant-id'] as string) || '00000000-0000-0000-0000-000000000001';
-  
-  // Extract or mint correlation id
-  const correlation_id = (req.headers['x-correlation-id'] as string) || uuidv4();
+  const tenant_id = resolveRequestTenantId(req);
+  if (!tenant_id) {
+    return res.status(400).json({
+      error: 'Missing or invalid tenant context. Provide a valid X-Tenant-Id header.',
+    });
+  }
 
-  // Make correlation_id available on response headers
+  const correlation_id = (req.headers['x-correlation-id'] as string) || uuidv4();
   res.setHeader('X-Correlation-Id', correlation_id);
 
   requestContext.run({ tenant_id, correlation_id }, () => {

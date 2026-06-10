@@ -714,7 +714,9 @@ export class SixHiService {
         status: 'PENDING',
         logged_in_user_id: userId,
         production_day: batch.plan_date,
-      })
+        shift_code: batch.shift_code,
+        prod_date: batch.plan_date,
+      } as any)
       .returning('order_id')
       .executeTakeFirstOrThrow();
 
@@ -726,7 +728,9 @@ export class SixHiService {
           roll_finish: batch.roll_finish ?? 'MATT',
           rerolling: batch.ppc_reroll_flag ?? false,
           associate_rw: batch.destination === 'REWINDING' ? 'R/W' : null,
-        })
+          shift_code: batch.shift_code,
+          prod_date: batch.plan_date,
+        } as any)
         .execute();
     } else {
       await db.insertInto('txn.crm6_skinpass').values({ order_id: order.order_id }).execute();

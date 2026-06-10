@@ -4,5 +4,13 @@ import { getRoleHomePath } from '../lib/roleHome';
 
 export function RoleHomeRedirect() {
   const role = useAuthStore((s) => s.role);
-  return <Navigate to={getRoleHomePath(role)} replace />;
+  const username = useAuthStore((s) => s.username);
+  const lineAccess = useAuthStore((s) => s.lineAccess);
+  const machineAccess = useAuthStore((s) => s.machineAccess);
+  return (
+    <Navigate
+      to={getRoleHomePath(role, lineAccess, machineAccess, username)}
+      replace
+    />
+  );
 }

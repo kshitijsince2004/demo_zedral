@@ -41,7 +41,15 @@ export type TraceabilitySearchResult = {
   searchedBy: string;
 };
 
+export type SuggestionResult = {
+  text: string;
+  type: 'batch' | 'coil' | 'sap_order' | 'slit';
+  score: number;
+};
+
 export const traceabilityService = {
   search: (query: string) =>
     apiClient.get<TraceabilitySearchResult>(`/traceability?q=${encodeURIComponent(query.trim())}`),
+  suggest: (query: string) =>
+    apiClient.get<SuggestionResult[]>(`/traceability/suggest?q=${encodeURIComponent(query.trim())}`),
 };

@@ -188,7 +188,7 @@ export class ShiftLogService {
       .updateTable('txn.shift_log')
       .set({ 
         state: ShiftLogState.DRAFT, 
-        reject_reason: note 
+        /* reject_reason: note */ 
       })
       .where('shift_log_id', '=', shiftLogId)
       .execute();
@@ -372,6 +372,17 @@ export class ShiftLogService {
     }
     if (currentLog.state !== ShiftLogState.DRAFT && currentLog.state !== ShiftLogState.REOPENED) {
       throw new Error('Shift log must be DRAFT to perform handover');
+    }
+
+    const { ShiftDetectionService } = await import('./ShiftDetectionService');
+    const windows = await ShiftDetectionService.listShiftWindows();
+    const window = windows.find(w => w.shift_code === currentLog.shift_code);
+    if (window) {
+      const { resolveShiftWindowBounds } = await import('../validation/manufacturingValidation');
+      const bounds = resolveShiftWindowBounds(currentLog.prod_date as Date, window.start_time, window.end_time);
+      if (Date.now() < bounds.end.getTime()) {
+        throw new Error(`Shift handover cannot be completed before the current shift's scheduled end time (${window.end_time}).`);
+      }
     }
 
     const { nextShiftCode, nextProdDate } = this.getNextShift(

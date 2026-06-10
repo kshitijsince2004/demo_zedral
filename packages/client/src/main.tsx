@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
+import { AnalyticErrorBoundary } from './components/shared/AnalyticErrorBoundary'
 
 const updateSW = registerSW({
   onNeedRefresh() {
@@ -17,6 +18,8 @@ const updateSW = registerSW({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AnalyticErrorBoundary analyticName="Application">
+      <App />
+    </AnalyticErrorBoundary>
   </StrictMode>,
 )

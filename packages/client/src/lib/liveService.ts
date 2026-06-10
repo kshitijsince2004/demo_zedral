@@ -6,7 +6,8 @@ import type {
   MachineHeadDashboardData,
   MachineStatusCard,
   MachineUtilizationSummary,
-} from '@m1/shared-validation';import { apiClient } from './apiClient';
+} from '@m1/shared-validation';
+import { apiClient } from './apiClient';
 
 export const liveService = {
   getSnapshot: () => apiClient.get<LiveSnapshot>('/live/snapshot'),

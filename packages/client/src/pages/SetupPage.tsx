@@ -87,7 +87,7 @@ export function SetupPage() {
             <div>
               <h1 className="text-base font-semibold tracking-tight">Terminal assignment</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Scan the BIND barcode with a USB wedge scanner
+                Admin or supervisor login required · scan the BIND barcode
               </p>
             </div>
           </div>

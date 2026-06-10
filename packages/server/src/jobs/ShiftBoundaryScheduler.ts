@@ -27,9 +27,7 @@ export class ShiftBoundaryScheduler {
   private static timer: ReturnType<typeof setTimeout> | null = null;
 
   static start(): void {
-    if (process.env.SHIFT_BOUNDARY_SCHEDULER_ENABLED === 'false') return;
-    this.scheduleNext();
-    console.log('[ShiftBoundaryScheduler] enabled — boundaries at 06:00, 14:00, 22:00 IST');
+    console.log('[ShiftBoundaryScheduler] Automatic boundary handovers are disabled per system policy.');
   }
 
   static stop(): void {

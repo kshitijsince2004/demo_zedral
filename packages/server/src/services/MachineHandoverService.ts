@@ -326,9 +326,9 @@ export class MachineHandoverService {
         coolantPressKgCm2: input.coolantPressKgCm2 ?? null,
         shiftRemarks: input.shiftRemarks ?? null,
       },
-      shiftProductionSummary: preview.shiftProductionSummary,
+      shiftProductionSummary: preview.shiftProductionSummary as any,
       utilizationMetrics: preview.utilizationMetrics,
-      queueSnapshot: preview.queueSnapshot,
+      queueSnapshot: preview.queueSnapshot as any,
     };
 
     const existingDraft = await this.getDraftForMachine(machineCode, operatorUserId);
@@ -344,8 +344,8 @@ export class MachineHandoverService {
           breakdown_description: input.breakdownDescription ?? null,
           downtime_minutes: input.downtimeMinutes ?? null,
           maintenance_status: input.maintenanceStatus ?? null,
-          production_snapshot: enrichedProductionSnapshot,
-          open_stoppages: preview.openStoppages,
+          production_snapshot: enrichedProductionSnapshot as any,
+          open_stoppages: preview.openStoppages as any,
           batch_number: active?.batchNumber ?? null,
           order_id: orderId,
         })
@@ -373,8 +373,8 @@ export class MachineHandoverService {
         maintenance_status: input.maintenanceStatus ?? null,
         remarks: input.remarks?.trim() ?? '',
         handover_priority: input.handoverPriority ?? 'NORMAL',
-        production_snapshot: enrichedProductionSnapshot,
-        open_stoppages: preview.openStoppages,
+        production_snapshot: enrichedProductionSnapshot as any,
+        open_stoppages: preview.openStoppages as any,
         status: 'DRAFT',
         created_by_boundary: false,
       })
@@ -397,6 +397,13 @@ export class MachineHandoverService {
     }
 
     const preview = await this.buildOutgoingPreview(machineCode, operatorUserId);
+
+    const { resolveShiftWindowBounds } = await import('../validation/manufacturingValidation');
+    const bounds = resolveShiftWindowBounds(preview.shift.prodDate, preview.shift.windowStart, preview.shift.windowEnd);
+    if (Date.now() < bounds.end.getTime()) {
+      throw new Error(`Shift handover cannot be completed before the current shift's scheduled end time (${preview.shift.windowEnd}).`);
+    }
+
     const active = preview.activeOrder;
 
     const { nextShiftCode, nextProdDate } = ShiftLogService.getNextShift(
@@ -426,10 +433,10 @@ export class MachineHandoverService {
         coolantPressKgCm2: input.coolantPressKgCm2 ?? null,
         shiftRemarks: input.shiftRemarks ?? null,
       },
-      shiftProductionSummary: preview.shiftProductionSummary,
+      shiftProductionSummary: preview.shiftProductionSummary as any,
       utilizationMetrics: preview.utilizationMetrics,
       activeOrderDetail: preview.activeOrderDetail,
-      queueSnapshot: preview.queueSnapshot,
+      queueSnapshot: preview.queueSnapshot as any,
     };
 
     const handover = await db.transaction().execute(async (trx) => {
@@ -460,8 +467,8 @@ export class MachineHandoverService {
           maintenance_status: input.maintenanceStatus ?? null,
           remarks: input.remarks.trim(),
           handover_priority: input.handoverPriority ?? 'NORMAL',
-          production_snapshot: enrichedProductionSnapshot,
-          open_stoppages: preview.openStoppages,
+          production_snapshot: enrichedProductionSnapshot as any,
+          open_stoppages: preview.openStoppages as any,
           status: 'PENDING',
           created_by_boundary: false,
         })
@@ -559,10 +566,10 @@ export class MachineHandoverService {
           queue_snapshot: preview.queueSnapshot,
           production_snapshot: {
             ...preview.productionSnapshot,
-            shiftProductionSummary: preview.shiftProductionSummary,
+            shiftProductionSummary: preview.shiftProductionSummary as any,
             activeOrderDetail: preview.activeOrderDetail,
           },
-          open_stoppages: preview.openStoppages,
+          open_stoppages: preview.openStoppages as any,
           status: 'PENDING',
           created_by_boundary: true,
         })

@@ -9,6 +9,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, isLocked, unlockScreen, logout } = useAuthStore();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
 
   if (!token) {
     return <Navigate to="/login" replace />;
@@ -46,14 +47,21 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
               <ZButton
                 variant="accent"
                 fullWidth
+                disabled={unlocking || pin.length < 4}
                 onClick={() => {
-                  if (!unlockScreen(pin)) {
-                    setError('Incorrect PIN');
-                    setPin('');
-                  }
+                  void (async () => {
+                    setUnlocking(true);
+                    setError('');
+                    const ok = await unlockScreen(pin);
+                    if (!ok) {
+                      setError('Incorrect PIN');
+                      setPin('');
+                    }
+                    setUnlocking(false);
+                  })();
                 }}
               >
-                Unlock
+                {unlocking ? 'Verifying…' : 'Unlock'}
               </ZButton>
             </div>
           </div>

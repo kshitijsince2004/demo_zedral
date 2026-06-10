@@ -32,6 +32,6 @@ export class ExportEngine {
       trimTrailingBlocks(mainSheet, month.days_in_month);
     }
 
-    return (await workbook.xlsx.writeBuffer()) as Buffer;
+    return (await workbook.xlsx.writeBuffer()) as any;
   }
 }

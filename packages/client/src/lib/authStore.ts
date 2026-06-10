@@ -4,6 +4,7 @@ import { useShiftStore } from '../store/shiftStore';
 import { useSixHiStore } from '../store/sixHiStore';
 import { filterCrmMachines, getEffectiveMachineAccess, preferCrmMachine } from './machineRouting';
 import { isCrmMillCode } from './millConfig';
+import { authApi } from './authApi';
 
 function resetSessionStores() {
   useShiftStore.getState().resetSession();
@@ -48,7 +49,7 @@ interface AuthState {
   setActiveMachine: (machineCode: string) => void;
   logout: () => void;
   lockScreen: () => void;
-  unlockScreen: (pin: string) => boolean;
+  unlockScreen: (pin: string) => Promise<boolean>;
   hasRole: (...roles: Role[]) => boolean;
   hasLineAccess: (processId: string) => boolean;
 }
@@ -140,13 +141,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLocked: true });
   },
 
-  unlockScreen: (pin) => {
-    if (pin === '1234') {
+  unlockScreen: async (pin) => {
+    try {
+      await authApi.verifyPin(pin);
       set({ isLocked: false });
       resetInactivityTimer();
       return true;
+    } catch {
+      return false;
     }
-    return false;
   },
 
   hasRole: (...roles) => {
@@ -167,6 +170,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 // --- Inactivity Logic (15 min lock) ---
 let timeoutId: ReturnType<typeof setTimeout> | undefined;
+let inactivityHandlers: { event: string; handler: () => void }[] = [];
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
 
 function startInactivityTimer(lockCallback: () => void) {
@@ -179,15 +183,20 @@ function startInactivityTimer(lockCallback: () => void) {
     }, INACTIVITY_TIMEOUT);
   };
 
-  window.addEventListener('mousemove', reset);
-  window.addEventListener('keydown', reset);
-  window.addEventListener('touchstart', reset);
+  for (const event of ['mousemove', 'keydown', 'touchstart'] as const) {
+    window.addEventListener(event, reset);
+    inactivityHandlers.push({ event, handler: reset });
+  }
 
   reset();
 }
 
 function stopInactivityTimer() {
   clearTimeout(timeoutId);
+  for (const { event, handler } of inactivityHandlers) {
+    window.removeEventListener(event, handler);
+  }
+  inactivityHandlers = [];
 }
 
 function resetInactivityTimer() {

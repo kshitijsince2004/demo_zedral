@@ -70,14 +70,19 @@ export class DefectService {
     let processId = payload.processId;
     let entryId = payload.entryId;
 
+    let shiftCode: string | undefined;
+    let prodDate: Date | undefined;
+
     if (payload.shiftLogId && !processId) {
       const log = await db
         .selectFrom('txn.shift_log')
-        .select('process_id')
+        .select(['process_id', 'shift_code', 'prod_date'])
         .where('shift_log_id', '=', payload.shiftLogId)
         .executeTakeFirst();
       if (!log) throw new Error('Shift log not found');
       processId = log.process_id;
+      shiftCode = log.shift_code;
+      prodDate = log.prod_date instanceof Date ? log.prod_date : new Date(log.prod_date);
       entryId = entryId ?? payload.shiftLogId;
     }
 
@@ -105,7 +110,9 @@ export class DefectService {
         defect_code: payload.defectCode,
         location: payload.location ?? null,
         qty_mt: payload.quantityMt ?? payload.qty_mt ?? null,
-      })
+        shift_code: shiftCode,
+        prod_date: prodDate,
+      } as any)
       .returning('defect_id')
       .executeTakeFirstOrThrow();
 

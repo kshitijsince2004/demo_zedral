@@ -15,10 +15,6 @@ export interface MachineRegistryEntry {
   isCrmMill: boolean;
 }
 
-const FALLBACK_ROLLING = ['6HI', '4HI'];
-const FALLBACK_SKIN_PASS = ['2HI', '4HI', '6HI'];
-const FALLBACK_CRM = ['6HI', '4HI', '2HI'];
-
 let cache: { loadedAt: number; entries: MachineRegistryEntry[] } | null = null;
 const CACHE_MS = 30_000;
 
@@ -85,7 +81,7 @@ export class MachineRegistryService {
         capacityMt: m.capacity_mt != null ? Number(m.capacity_mt) : null,
         rolling: caps.rolling,
         skinPass: caps.skinPass,
-        isCrmMill: processCode === '6HI' || FALLBACK_CRM.includes(m.machine_code),
+        isCrmMill: processCode === 'CRM' || processCode === '6HI' || m.machine_type === 'CRM_ROLLING' || m.machine_type === 'CRM_SKIN_PASS' || m.machine_type === 'CRM_COMBO' || caps.rolling || caps.skinPass,
       };
     });
 
@@ -101,15 +97,15 @@ export class MachineRegistryService {
   }
 
   static async getMillsForSubProcess(subProcess: CrmSubProcess, includeOffline = false): Promise<string[]> {
-    const allowed = subProcess === 'ROLLING' ? [...FALLBACK_ROLLING] : [...FALLBACK_SKIN_PASS];
     const all = await this.getAll(includeOffline);
     const filtered = all.filter((m) =>
-      (subProcess === 'ROLLING' ? m.rolling : m.skinPass) && allowed.includes(m.machineCode),
+      subProcess === 'ROLLING' ? m.rolling : m.skinPass
     );
     if (filtered.length > 0) {
       return filtered.map((m) => m.machineCode);
     }
-    return allowed;
+    // Strict fallback if DB not configured yet
+    return subProcess === 'ROLLING' ? ['6HI', '4HI'] : ['2HI', '4HI', '6HI'];
   }
 
   static async resolveMachineCode(raw: string): Promise<string | null> {

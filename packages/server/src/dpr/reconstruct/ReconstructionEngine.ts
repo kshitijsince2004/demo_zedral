@@ -13,6 +13,6 @@ export class ReconstructionEngine {
       throw new Error('Reconstruction verification failed closed');
     }
 
-    return (await workbook.xlsx.writeBuffer()) as Buffer;
+    return (await workbook.xlsx.writeBuffer()) as any;
   }
 }

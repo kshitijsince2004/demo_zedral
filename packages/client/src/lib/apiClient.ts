@@ -10,6 +10,8 @@
  * - Surfaces a typed ApiError so callers can branch on status / offline.
  */
 
+import { useAuthStore } from './authStore';
+
 const API_BASE = '/api';
 
 export class ApiError extends Error {
@@ -118,6 +120,7 @@ async function request<T = any>(path: string, options: RequestOptions = {}): Pro
     }
     sessionStorage.removeItem('mock_jwt');
     sessionStorage.removeItem('mock_refresh');
+    useAuthStore.getState().logout();
   }
 
   let parsed: any = null;

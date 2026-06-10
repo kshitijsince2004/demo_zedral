@@ -16,7 +16,7 @@ export interface DetectedShift {
   windowStart: string;
   windowEnd: string;
   detectedAt: string;
-  source: 'CLOCK' | 'OVERRIDE';
+  source: 'CLOCK' | 'OVERRIDE' | 'SESSION' | 'FALLBACK';
   overrideId?: number;
   overrideReason?: string;
 }
@@ -140,6 +140,29 @@ export class ShiftDetectionService {
   }): Promise<DetectedShift> {
     const windows = await loadShiftWindows();
     const at = istNow();
+
+    if (opts?.machineCode) {
+      const activeSession = await db
+        .selectFrom('txn.machine_shift_session as s')
+        .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+        .select(['s.shift_code', 'w.name as shift_name', 's.prod_date', 'w.start_time', 'w.end_time'])
+        .where('s.machine_code', '=', opts.machineCode)
+        .where('s.status', '=', 'ACTIVE')
+        .executeTakeFirst();
+      
+      if (activeSession) {
+        return {
+          shiftCode: activeSession.shift_code,
+          shiftName: activeSession.shift_name,
+          prodDate: formatDate(new Date(activeSession.prod_date as Date)),
+          windowStart: activeSession.start_time.slice(0, 5),
+          windowEnd: activeSession.end_time.slice(0, 5),
+          detectedAt: at.toISOString(),
+          source: 'SESSION',
+        };
+      }
+    }
+
     const detected = resolveShiftFromClock(windows, at);
 
     if (opts?.userId) {
@@ -160,6 +183,7 @@ export class ShiftDetectionService {
       }
     }
 
+    // Default to clock (which is considered FALLBACK now since we removed auto shift logic)
     return {
       shiftCode: detected.shiftCode,
       shiftName: detected.shiftName,
@@ -167,7 +191,7 @@ export class ShiftDetectionService {
       windowStart: detected.window.start_time,
       windowEnd: detected.window.end_time,
       detectedAt: at.toISOString(),
-      source: 'CLOCK',
+      source: 'FALLBACK',
     };
   }
 

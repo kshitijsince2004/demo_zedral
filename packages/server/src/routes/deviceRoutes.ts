@@ -1,23 +1,43 @@
 import { Router } from 'express';
+import { UserRole } from '@m1/shared-validation';
 import { DeviceRegistrationService } from '../services/DeviceRegistrationService';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
-import { requireAuth } from '../middleware/authMiddleware';
+import { requireAuth, requireRole } from '../middleware/authMiddleware';
+import { AuditTrailService } from '../services/AuditTrailService';
 
 const router = Router();
 router.use(require('express').json());
 
-router.post('/register', rateLimitMiddleware(10, 60_000), async (req, res) => {
-  try {
-    const { processCode } = req.body;
-    if (!processCode) {
-      return res.status(400).json({ error: 'processCode is required' });
+router.post(
+  '/register',
+  requireAuth,
+  requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]),
+  rateLimitMiddleware(10, 60_000),
+  async (req, res) => {
+    try {
+      const { processCode } = req.body;
+      if (!processCode || typeof processCode !== 'string') {
+        return res.status(400).json({ error: 'processCode is required' });
+      }
+
+      const deviceId = await DeviceRegistrationService.registerDevice(processCode.trim());
+
+      await AuditTrailService.log(
+        'security.device_registration',
+        deviceId,
+        'INSERT',
+        null,
+        { processCode: processCode.trim(), deviceId },
+        req.user!.id,
+      );
+
+      res.status(201).json({ deviceId, processCode: processCode.trim() });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Device registration failed';
+      res.status(500).json({ error: message });
     }
-    const deviceId = await DeviceRegistrationService.registerDevice(processCode);
-    res.status(201).json({ deviceId, processCode });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 router.get('/status/:processCode', requireAuth, async (req, res) => {
   try {
@@ -26,8 +46,9 @@ router.get('/status/:processCode', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Device not found for this process' });
     }
     res.json({ deviceId: device.device_id, processCode: device.process_code, status: 'ACTIVE' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Device lookup failed';
+    res.status(500).json({ error: message });
   }
 });
 

@@ -6,6 +6,15 @@ import { getTenantId, getCorrelationId, requestContext } from './context';
 
 export type Database = DB;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
+
+/** Sanitize GUC values to prevent SQL injection in set_config calls. */
+function safeGuc(value: string, pattern: RegExp, fallback = ''): string {
+  return pattern.test(value) ? value : fallback;
+}
+
 class RlsDriver implements Driver {
   constructor(private readonly driver: Driver) {}
   
@@ -16,10 +25,10 @@ class RlsDriver implements Driver {
   async acquireConnection(): Promise<DatabaseConnection> {
     const conn = await this.driver.acquireConnection();
     const store = requestContext.getStore();
-    const userId = store?.user?.id || ''; 
-    const crId = store?.change_request_id || '';
-    const tenantId = store?.tenant_id || '00000000-0000-0000-0000-000000000001';
-    
+    const userId = safeGuc(store?.user?.id?.toString() ?? '', /^\d*$/);
+    const crId = safeGuc(store?.change_request_id ?? '', /^[\w-]*$/);
+    const tenantId = safeGuc(store?.tenant_id ?? DEFAULT_TENANT, UUID_RE, DEFAULT_TENANT);
+
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.user_id', '${userId}', false)`));
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.change_request_id', '${crId}', false)`));
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.tenant_id', '${tenantId}', false)`));

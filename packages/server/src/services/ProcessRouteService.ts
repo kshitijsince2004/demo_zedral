@@ -217,7 +217,7 @@ export class ProcessRouteService {
       .execute();
   }
 
-  private static mapSteps(steps: Awaited<ReturnType<typeof db.selectFrom<'planning.order_journey_step'>>>): ProcessRouteStepView[] {
+  private static mapSteps(steps: any[]): ProcessRouteStepView[] {
     return steps.map((s): ProcessRouteStepView => ({
       stepNo: s.step_no,
       label: s.display_label,
@@ -232,7 +232,7 @@ export class ProcessRouteService {
 
   private static buildView(
     journey: { journey_id: string | number | bigint; coil_no: string; status: string; current_step_no: number },
-    steps: Awaited<ReturnType<typeof db.selectFrom<'planning.order_journey_step'>>>,
+    steps: any[],
   ): OrderJourneyView {
     return {
       journeyId: String(journey.journey_id),

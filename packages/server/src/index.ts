@@ -23,9 +23,12 @@ import machineAccessRoutes from './routes/machineAccessRoutes';
 import machineHandoverRoutes from './routes/machineHandoverRoutes';
 import auditRoutes from './routes/auditRoutes';
 import { db } from './db';
-import { ExportScheduler } from './export/jobs/ExportScheduler';
+import { sql } from 'kysely';
 import { ExportWorker } from './export/jobs/ExportWorker';
+import { ExportScheduler } from './export/jobs/ExportScheduler';
 import { ShiftBoundaryScheduler } from './jobs/ShiftBoundaryScheduler';
+import { checkElasticHealth } from './elastic/elasticClient';
+import { ensureIndex } from './elastic/traceabilityIndex';
 
 import { contextMiddleware } from './middleware/contextMiddleware';
 import { validateAuthConfigAtStartup } from './config/authConfig';
@@ -65,8 +68,21 @@ app.use('/traceability', traceabilityRoutes);
 app.use('/validation-rules', validationRulesRoutes);
 app.use('/api/v1/validation-rules', validationRulesRoutes); // Mount for either convention
 app.use('/audit', auditRoutes);
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'm1-digital-data-collection' });
+app.get('/health', async (_req, res) => {
+  const payload: Record<string, unknown> = {
+    status: 'ok',
+    service: 'm1-digital-data-collection',
+  };
+  try {
+    await sql`SELECT 1`.execute(db);
+    payload.database = 'ok';
+  } catch {
+    payload.status = 'degraded';
+    payload.database = 'unavailable';
+    res.status(503).json(payload);
+    return;
+  }
+  res.json(payload);
 });
 
 import { rfc7807ErrorHandler } from './middleware/errorMiddleware';
@@ -74,7 +90,7 @@ import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
 
 app.use(rfc7807ErrorHandler);
 
-app.listen(port, async () => {
+const server = app.listen(port, async () => {
   console.log(`Server listening on port ${port}`);
   
   // Seed validation rules
@@ -86,4 +102,34 @@ app.listen(port, async () => {
   ExportWorker.start();
   ExportScheduler.start();
   ShiftBoundaryScheduler.start();
+
+  // Elasticsearch — non-fatal; traceability falls back to PostgreSQL if unavailable
+  checkElasticHealth().then(async (ok) => {
+    if (ok) await ensureIndex();
+  }).catch(() => { /* already logged in checkElasticHealth */ });
+});
+
+function shutdown(signal: string) {
+  console.log(`[shutdown] ${signal} received — stopping background workers`);
+  ExportWorker.stop();
+  ExportScheduler.stop();
+  ShiftBoundaryScheduler.stop();
+  server.close(() => {
+    console.log('[shutdown] HTTP server closed');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('[shutdown] forced exit after timeout');
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  shutdown('uncaughtException');
 });

@@ -108,6 +108,8 @@ export class StoppageService {
         time_to: toTime,
         duration_min: durationMin,
         remarks: payload.remarks ?? null,
+        shift_code: shiftLog.shift_code,
+        prod_date: prodDate,
       })
       .returning('stoppage_id')
       .executeTakeFirstOrThrow();

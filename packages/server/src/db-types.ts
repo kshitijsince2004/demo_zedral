@@ -847,7 +847,7 @@ export interface TxnShiftLog {
   reject_reason: string | null;
 }
 
-export interface TxnStoppageEntry {
+export interface TxnStoppageEntry { shift_code?: string | null; prod_date?: Timestamp | null;
   duration_min: number | null;
   remarks: string | null;
   shift_log_id: Int8;

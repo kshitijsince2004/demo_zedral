@@ -62,7 +62,16 @@ function App() {
         <Route path="/login" element={<Login />} />
         
         {/* Setup */}
-        <Route path="/setup" element={<SetupPage />} />
+        <Route
+          path="/setup"
+          element={
+            <ProtectedRoute>
+              <SupervisorRoute>
+                <SetupPage />
+              </SupervisorRoute>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Role-native home */}
         <Route path="/" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />

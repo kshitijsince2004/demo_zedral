@@ -36,14 +36,4 @@ export enum CrewRole {
 
 export { UserRole, ROLE_RANK, ROLE_LABELS } from './roles';
 
-export enum ProcessLine {
-  HRS = 'HRS',
-  PKL = 'PKL',
-  CRM = 'CRM',
-  HI6 = '6HI',
-  ANN = 'ANN',
-  SKP = 'SKP',
-  RWD = 'RWD',
-  CRS = 'CRS',
-  CTL = 'CTL'
-}
+export type ProcessLine = string;

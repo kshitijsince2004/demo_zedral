@@ -27,7 +27,7 @@ export function getRoleHomePath(
         return userScopePath(username, role);
       }
       const primary = resolvePrimaryMachinePath(role, machines, lines);
-      return primary ?? (role === 'OPERATOR' ? '/coming-soon' : '/machine');
+      return primary ?? '/coming-soon';
     }
     case 'PLANT_HEAD':
       return '/plant';

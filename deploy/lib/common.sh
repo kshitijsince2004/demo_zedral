@@ -92,7 +92,7 @@ validate_env_file() {
   set +a
 
   local missing=()
-  for key in JWT_SECRET DB_PASSWORD DB_USER DB_NAME; do
+  for key in JWT_SECRET DB_PASSWORD DB_USER DB_NAME TENANT_ID; do
     if [ -z "${!key:-}" ]; then
       missing+=("$key")
     fi
@@ -109,6 +109,12 @@ validate_env_file() {
   case "${JWT_SECRET}" in
     CHANGE_ME*|change_me*) die "JWT_SECRET is still a placeholder in deploy/.env" ;;
   esac
+  if [ "${#JWT_SECRET}" -lt 32 ]; then
+    die "JWT_SECRET must be at least 32 characters for production"
+  fi
+  if [ "${AUTH_STRICT:-true}" != "true" ]; then
+    die "AUTH_STRICT must be true for production deploy"
+  fi
   case "${DB_PASSWORD}" in
     CHANGE_ME*|change_me*) die "DB_PASSWORD is still a placeholder in deploy/.env" ;;
   esac

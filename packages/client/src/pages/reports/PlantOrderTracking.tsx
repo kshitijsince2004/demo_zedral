@@ -1,22 +1,61 @@
-import { useState } from 'react';
-import { Search } from 'lucide-react';
-import { traceabilityService, type TraceabilitySearchResult } from '../../lib/traceabilityService';
+import { useState, useEffect, useRef } from 'react';
+import { Search, History, Package, Cpu } from 'lucide-react';
+import { traceabilityService, type TraceabilitySearchResult, type SuggestionResult } from '../../lib/traceabilityService';
 import { formatTraceabilityRecordDetails } from '../../lib/traceabilityFormat';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export function PlantOrderTracking() {
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounce(query, 300);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TraceabilitySearchResult | null>(null);
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const q = query.trim();
-    if (!q) return;
+  const [suggestions, setSuggestions] = useState<SuggestionResult[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (debouncedQuery.length >= 2 && !result && document.activeElement?.tagName === 'INPUT') {
+      traceabilityService.suggest(debouncedQuery)
+        .then((data) => {
+          setSuggestions(data);
+          setShowSuggestions(true);
+        })
+        .catch(() => {
+          setSuggestions([]);
+        });
+    } else {
+      setShowSuggestions(false);
+    }
+  }, [debouncedQuery, result]);
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const executeSearch = async (q: string) => {
+    if (!q) return;
+    setQuery(q);
+    setShowSuggestions(false);
     setLoading(true);
     setError(null);
     setResult(null);
@@ -30,6 +69,11 @@ export function PlantOrderTracking() {
     }
   };
 
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    executeSearch(query.trim());
+  };
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-6xl mx-auto">
       <div>
@@ -40,14 +84,54 @@ export function PlantOrderTracking() {
       </div>
 
       <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
+        <div className="relative flex-1" ref={wrapperRef}>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" aria-hidden />
           <ZInput
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setResult(null); // Clear previous result on typing
+            }}
+            onFocus={() => {
+              if (suggestions.length > 0) setShowSuggestions(true);
+            }}
             placeholder="Batch, coil, SAP order, slit ID…"
-            className="pl-12 min-h-12"
+            className="pl-12 min-h-12 w-full"
+            autoComplete="off"
           />
+
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden animate-fade-in">
+              <div className="px-3 py-2 bg-muted/40 border-b border-border/50">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Suggestions</span>
+              </div>
+              <ul className="max-h-64 overflow-auto py-1">
+                {suggestions.map((s, idx) => (
+                  <li key={`${s.text}-${idx}`}>
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-2.5 hover:bg-muted/50 flex items-center gap-3 transition-colors group"
+                      onClick={() => executeSearch(s.text)}
+                    >
+                      <div className="w-6 h-6 rounded bg-background border border-border flex items-center justify-center shrink-0 group-hover:border-primary/30 transition-colors">
+                        {s.type === 'batch' ? (
+                          <Package className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        ) : s.type === 'sap_order' ? (
+                          <History className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        ) : (
+                          <Cpu className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        )}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-foreground">{s.text}</span>
+                        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.type.replace('_', ' ')}</span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <ZButton type="submit" variant="accent" disabled={loading || !query.trim()}>
           {loading ? 'Searching…' : 'Search'}

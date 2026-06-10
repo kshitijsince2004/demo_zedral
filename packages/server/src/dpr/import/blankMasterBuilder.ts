@@ -16,5 +16,5 @@ export async function buildBlankMaster(workbook: Workbook): Promise<Buffer> {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
-  return buffer as Buffer;
+  return buffer as any;
 }

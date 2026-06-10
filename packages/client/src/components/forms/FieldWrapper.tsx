@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { authApi } from '../../lib/authApi';
 
 interface FieldWrapperProps {
   label?: string;
@@ -15,11 +16,28 @@ interface FieldWrapperProps {
 export function FieldWrapper({ label, error, isWarning, required, children, prominent, labelClassName, className }: FieldWrapperProps) {
   const [overrideActive, setOverrideActive] = useState(false);
   const [overridePin, setOverridePin] = useState('');
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [overrideBusy, setOverrideBusy] = useState(false);
 
   const showOverridePrompt = isWarning && error && !overrideActive;
   const borderClass = error && !overrideActive
     ? isWarning ? 'border-warning/40' : 'border-destructive/30'
     : 'border-transparent';
+
+  const handleOverride = async () => {
+    setOverrideBusy(true);
+    setOverrideError(null);
+    try {
+      await authApi.supervisorOverride(overridePin, label);
+      setOverrideActive(true);
+      setOverridePin('');
+    } catch {
+      setOverrideError('Invalid supervisor PIN');
+      setOverridePin('');
+    } finally {
+      setOverrideBusy(false);
+    }
+  };
 
   return (
     <div className={[prominent ? 'mb-2' : 'mb-4', className].filter(Boolean).join(' ')}>
@@ -52,24 +70,23 @@ export function FieldWrapper({ label, error, isWarning, required, children, prom
           <div className="flex gap-2">
             <input
               type="password"
-              placeholder="Enter PIN"
+              placeholder="Enter supervisor PIN"
               value={overridePin}
               onChange={(e) => setOverridePin(e.target.value)}
               className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
             <button
-              onClick={() => {
-                if (overridePin === '1234') {
-                  setOverrideActive(true);
-                } else {
-                  alert('Invalid PIN');
-                }
-              }}
-              className="h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors px-3"
+              type="button"
+              disabled={overrideBusy || overridePin.length < 4}
+              onClick={() => void handleOverride()}
+              className="h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors px-3 disabled:opacity-50"
             >
-              Override
+              {overrideBusy ? 'Verifying…' : 'Override'}
             </button>
           </div>
+          {overrideError && (
+            <p className="mt-2 text-xs text-destructive">{overrideError}</p>
+          )}
         </div>
       )}
     </div>

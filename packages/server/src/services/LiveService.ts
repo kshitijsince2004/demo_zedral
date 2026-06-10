@@ -109,9 +109,9 @@ function resolveStateSinceAt(
   return undefined;
 }
 
-function pickOpenEvent(
-  events: Array<{ event_type: string; occurred_at: Date | string; [key: string]: unknown }>,
-): typeof events[0] | undefined {
+function pickOpenEvent<T extends { event_type: string; occurred_at: Date | string }>(
+  events: T[],
+): T | undefined {
   if (events.length === 0) return undefined;
   return [...events].sort((a, b) => {
     const priA = OPEN_EVENT_PRIORITY[a.event_type] ?? 0;

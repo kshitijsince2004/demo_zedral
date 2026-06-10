@@ -112,8 +112,12 @@ async function verifyUserPin(
     user_id: number;
     pin_hash: string | null;
     status: string;
-  }
+  },
 ): Promise<boolean> {
+  if (!/^\d{4}$/.test(pin)) {
+    return false;
+  }
+
   if (user.pin_hash) {
     return verifyPin(pin, user.pin_hash);
   }
@@ -124,6 +128,61 @@ async function verifyUserPin(
   }
 
   return false;
+}
+
+/** Verify PIN for the currently authenticated user (screen unlock). */
+export async function verifyAuthenticatedUserPin(userId: number, pin: string): Promise<void> {
+  const user = await db
+    .selectFrom('security.app_user')
+    .select(['user_id', 'status', 'pin_hash'])
+    .where('user_id', '=', userId)
+    .executeTakeFirst();
+
+  if (!user || user.status === 'DISABLED') {
+    throw new AuthError('Invalid PIN');
+  }
+
+  const pinValid = await verifyUserPin(pin, user);
+  if (!pinValid) {
+    throw new AuthError('Invalid PIN');
+  }
+
+  await recordPinSuccess(user.user_id);
+}
+
+const OVERRIDE_ROLES = ['SUPERVISOR', 'ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'];
+
+/** Verify PIN belongs to an active user with supervisor override privileges. */
+export async function verifySupervisorOverridePin(
+  pin: string,
+): Promise<{ userId: number; username: string }> {
+  if (!/^\d{4}$/.test(pin)) {
+    throw new AuthError('Invalid supervisor PIN');
+  }
+
+  const candidates = await db
+    .selectFrom('security.app_user')
+    .innerJoin('security.user_role', 'security.user_role.user_id', 'security.app_user.user_id')
+    .innerJoin('security.role', 'security.role.role_id', 'security.user_role.role_id')
+    .select([
+      'security.app_user.user_id',
+      'security.app_user.username',
+      'security.app_user.status',
+      'security.app_user.pin_hash',
+      'security.role.role_name',
+    ])
+    .where('security.app_user.status', 'in', ['ACTIVE', 'LOCKED'])
+    .where('security.role.role_name', 'in', OVERRIDE_ROLES)
+    .execute();
+
+  for (const user of candidates) {
+    if (await verifyUserPin(pin, user)) {
+      await recordPinSuccess(user.user_id);
+      return { userId: user.user_id, username: user.username };
+    }
+  }
+
+  throw new AuthError('Invalid supervisor PIN');
 }
 
 export const validateBadgePin = async (badgeId: string, pin: string): Promise<AuthUser> => {
