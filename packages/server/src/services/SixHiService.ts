@@ -19,6 +19,17 @@ import {
   loadRecentOrderMachineTransfers,
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
+import {
+  assertCanStartOrderStoppage,
+  validateOrderStoppageInterval,
+} from '../validation/orderStoppageValidation';
+import {
+  assertCrm6DefectQuantities,
+  assertCrm6OutputWeight,
+  assertCrm6ScrapKg,
+  assertOrderRuntimeAccounting,
+  assertShiftLogRuntimeAccounting,
+} from '../validation/crm6ProductionValidation';
 
 
 const SIX_HI_PROCESS_CODE = '6HI';
@@ -937,6 +948,7 @@ export class SixHiService {
       const totalStoppageMin = await this.totalStoppageMinutes(order.order_id, endAt);
       const wallMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
       durationMin = Math.max(0, wallMin - totalStoppageMin);
+      await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
     }
     await db.updateTable('txn.crm6_order')
       .set({
@@ -1029,6 +1041,7 @@ export class SixHiService {
 
   static async updateRolling(batchNumber: string, data: SixHiRollingData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
 
     await db.updateTable('txn.crm6_rolling')
@@ -1062,6 +1075,7 @@ export class SixHiService {
 
   static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     await db.updateTable('txn.crm6_skinpass')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
@@ -1091,14 +1105,7 @@ export class SixHiService {
       throw new Error('Stoppage can only be recorded while production is running');
     }
 
-    const openCount = await db.selectFrom('txn.order_stoppage')
-      .select(db.fn.count('stoppage_id').as('c'))
-      .where('order_id', '=', orderId)
-      .where('end_at', 'is', null)
-      .executeTakeFirst();
-    if (Number(openCount?.c ?? 0) > 0) {
-      throw new Error('A stoppage is already active on this order');
-    }
+    await assertCanStartOrderStoppage(orderId);
 
     await db.insertInto('txn.order_stoppage')
       .values({
@@ -1145,6 +1152,7 @@ export class SixHiService {
     const order = await db.selectFrom('txn.crm6_order').select(['order_id', 'logged_in_user_id']).where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
     const stop = await db.selectFrom('txn.order_stoppage').selectAll().where('stoppage_id', '=', stoppageId).executeTakeFirstOrThrow();
     const endAt = new Date();
+    await validateOrderStoppageInterval(order.order_id, stop.start_at, endAt, stoppageId);
     const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
     await db.updateTable('txn.order_stoppage')
       .set({ end_at: endAt, duration_min: durationMin })
@@ -1191,6 +1199,7 @@ export class SixHiService {
     defects?: { defectCode: string; quantityAffected?: number; remarks?: string }[],
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
+    await assertCrm6DefectQuantities(orderId, defects);
     await db.insertInto('txn.order_remark')
       .values({
         order_id: orderId,
@@ -1410,6 +1419,7 @@ export class SixHiService {
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .executeTakeFirstOrThrow();
       const endAt = new Date();
+      await validateOrderStoppageInterval(orderId, stop.start_at, endAt, String(activeStoppage.stoppage_id));
       const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
       await db.updateTable('txn.order_stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
@@ -1565,6 +1575,8 @@ export class SixHiService {
     coolantPressKgCm2: number | undefined,
     userId: number,
   ) {
+    await assertCrm6ScrapKg(shiftLogId, scrapKg);
+    await assertShiftLogRuntimeAccounting(shiftLogId);
     const summary = await this.getShiftSummary(shiftLogId);
     await db.insertInto('txn.crm6_shift_summary')
       .values({

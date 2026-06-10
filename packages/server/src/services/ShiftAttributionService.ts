@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { SixHiService } from './SixHiService';
-
-const SHIFT_DURATION_MIN = 8 * 60;
+import { assertRuntimeAccounting } from '../validation/manufacturingValidation';
+import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
 
 export interface AttributionSlice {
   orderId: number;
@@ -29,6 +29,21 @@ export class ShiftAttributionService {
   }
 
   static async upsertSlice(slice: AttributionSlice): Promise<void> {
+    const shiftLog = await db
+      .selectFrom('txn.shift_log as sl')
+      .leftJoin('master.shift as s', 's.shift_code', 'sl.shift_code')
+      .select(['s.start_time', 's.end_time'])
+      .where('sl.shift_log_id', '=', slice.shiftLogId)
+      .executeTakeFirst();
+
+    if (shiftLog?.start_time && shiftLog?.end_time) {
+      const shiftDuration = calcShiftDurationMinutes(
+        String(shiftLog.start_time).slice(0, 5),
+        String(shiftLog.end_time).slice(0, 5),
+      );
+      assertRuntimeAccounting(slice.runtimeMinutes, slice.stoppageMinutes, shiftDuration);
+    }
+
     await db
       .insertInto('txn.order_shift_attribution')
       .values({
@@ -147,12 +162,24 @@ export class ShiftAttributionService {
       .$if(!!machineCode, (qb) => qb.where('pb.machine_code', '=', machineCode!))
       .execute();
 
+    const shiftWindow = await db
+      .selectFrom('txn.shift_log as sl')
+      .leftJoin('master.shift as s', 's.shift_code', 'sl.shift_code')
+      .select(['s.start_time', 's.end_time'])
+      .where('sl.shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+
     return {
       totalRuntimeMinutes: totalRuntime,
       totalStoppageMinutes: totalStoppage,
       totalBreakdownMinutes: totalBreakdown,
       machineUtilizationPct,
-      shiftCapacityMinutes: SHIFT_DURATION_MIN,
+      shiftCapacityMinutes: shiftWindow?.start_time && shiftWindow?.end_time
+        ? calcShiftDurationMinutes(
+            String(shiftWindow.start_time).slice(0, 5),
+            String(shiftWindow.end_time).slice(0, 5),
+          )
+        : 8 * 60,
       ordersInProgress: inProgress.map((o) => ({
         batchNumber: o.batch_number,
         status: o.status,
