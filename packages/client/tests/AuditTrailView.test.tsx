@@ -11,17 +11,6 @@ vi.mock('../src/services/auditService', () => ({
   },
 }));
 
-vi.mock('../src/lib/syncEngine', () => ({
-  syncEngine: {
-    enqueue: vi.fn(),
-    sync: vi.fn(),
-    getPendingCount: vi.fn().mockResolvedValue(0),
-    getPendingRequests: vi.fn().mockResolvedValue([]),
-    onSyncStatusChange: vi.fn(),
-    subscribe: vi.fn(() => () => {}),
-  },
-}));
-
 describe('AuditTrailView', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -650,6 +650,14 @@ export class MachineHandoverService {
     };
   }
 
+  static async getHandoverForAccess(handoverId: string) {
+    return db
+      .selectFrom('txn.machine_handover')
+      .select(['handover_id', 'machine_code', 'status'])
+      .where('handover_id', '=', handoverId)
+      .executeTakeFirst();
+  }
+
   static async acceptHandover(handoverId: string, incomingUserId: number) {
     const handover = await db
       .selectFrom('txn.machine_handover')

@@ -1,3 +1,18 @@
+export interface PlantHeadKpiStrip {
+  productionTodayMt: number;
+  productionTodayTrendPct: number;
+  oeePct: number;
+  oeeTrendPct: number;
+  availabilityPct: number;
+  availabilityTrendPct: number;
+  performancePct: number;
+  performanceTrendPct: number;
+  qualityPct: number;
+  qualityTrendPct: number;
+  utilizationPct: number;
+  utilizationTrendPct: number;
+}
+
 export interface PlantHeadDashboardPayload {
   window: number;
   generatedAt: string;
@@ -20,6 +35,8 @@ export interface PlantHeadDashboardPayload {
     occurrences: number;
     type: 'PLANNED' | 'UNPLANNED';
   }>;
+  dailyProduction: Array<{ date: string; targetMt: number; actualMt: number }>;
+  kpiStrip: PlantHeadKpiStrip;
 }
 
 function hasOneDecimal(value: number): boolean {

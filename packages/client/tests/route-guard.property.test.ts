@@ -54,8 +54,6 @@ const ROUTE_TABLE: RouteSpec[] = [
   // Authenticated-only routes (any logged-in role)
   { path: '/dashboard',              minRole: 'authenticated' },
   { path: '/station',                minRole: 'authenticated' },
-  { path: '/shift-log/:processId',   minRole: 'authenticated' },
-  { path: '/handover',               minRole: 'authenticated' },
   { path: '/6hi',                    minRole: 'authenticated' },
   // Machine head routes
   { path: '/machine',                minRole: 'MACHINE_HEAD' },

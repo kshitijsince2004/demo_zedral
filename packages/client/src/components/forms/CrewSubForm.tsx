@@ -1,5 +1,5 @@
 /**
- * CrewSubForm — inline crew capture slot inside ShiftLogShell.
+ * CrewSubForm — crew assignment on the CRM shift summary screen.
  *
  * Captures operator identity and role code restricted to the five canonical
  * crew roles. Persists each crew entry through the sync engine associated with

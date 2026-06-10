@@ -7,8 +7,6 @@ import { SetupPage } from './pages/SetupPage';
 import { RoleHomeRedirect } from './components/RoleHomeRedirect';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { SupervisorRoute, AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
-import { HandoverPage } from './pages/HandoverPage';
-
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from './pages/sixHi/SixHiOrderPage';
@@ -82,9 +80,6 @@ function App() {
         <Route path="/crm6" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
         <Route path="/crm6/*" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />
-
-        {/* Shift handover */}
-        <Route path="/handover" element={<ProtectedRoute><HandoverPage /></ProtectedRoute>} />
 
         <Route path="/reports/plant-head" element={<PlantRoute><Navigate to="/plant" replace /></PlantRoute>} />
         <Route path="/plant" element={<PlantRoute><PlantHeadShell /></PlantRoute>}>

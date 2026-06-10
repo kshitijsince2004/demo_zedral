@@ -63,6 +63,20 @@ describe('reportRoutes', () => {
       qualityTrend: [],
       topDefects: [],
       downtimeDrivers: [],
+      kpiStrip: {
+        productionTodayMt: 0,
+        productionTodayTrendPct: 0,
+        oeePct: 82.5,
+        oeeTrendPct: 0,
+        availabilityPct: 0,
+        availabilityTrendPct: 0,
+        performancePct: 0,
+        performanceTrendPct: 0,
+        qualityPct: 0,
+        qualityTrendPct: 0,
+        utilizationPct: 0,
+        utilizationTrendPct: 0,
+      },
     });
 
     const res = await request(app).get('/reports/plant-head');
@@ -82,6 +96,20 @@ describe('reportRoutes', () => {
       qualityTrend: [],
       topDefects: [],
       downtimeDrivers: [],
+      kpiStrip: {
+        productionTodayMt: 0,
+        productionTodayTrendPct: 0,
+        oeePct: 75,
+        oeeTrendPct: 0,
+        availabilityPct: 0,
+        availabilityTrendPct: 0,
+        performancePct: 0,
+        performanceTrendPct: 0,
+        qualityPct: 0,
+        qualityTrendPct: 0,
+        utilizationPct: 0,
+        utilizationTrendPct: 0,
+      },
     });
 
     const res = await request(app).get('/reports/plant-head?window=30');

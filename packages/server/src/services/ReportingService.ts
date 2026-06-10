@@ -250,6 +250,24 @@ function plantWideOee(
   return round1(Math.min(Math.max(avg, 0), 100));
 }
 
+function plantWideApq(
+  lineOee: Array<{ availability: number; performance: number; quality: number }>,
+): { availability: number; performance: number; quality: number } {
+  if (lineOee.length === 0) {
+    return { availability: 0, performance: 0, quality: 0 };
+  }
+  const n = lineOee.length;
+  return {
+    availability: round1(lineOee.reduce((sum, l) => sum + l.availability, 0) / n),
+    performance: round1(lineOee.reduce((sum, l) => sum + l.performance, 0) / n),
+    quality: round1(lineOee.reduce((sum, l) => sum + l.quality, 0) / n),
+  };
+}
+
+function sumShiftProduction(shifts: ShiftRow[]): number {
+  return round1(shifts.reduce((sum, shift) => sum + shift.total_prod_mt, 0));
+}
+
 const PROD_ENTRY_TABLES = [
   'txn.prod_hrs',
   'txn.prod_pkl',
@@ -583,6 +601,50 @@ export class ReportingService {
       }));
     }
 
+    const previousWindowShifts = await fetchShiftRows(
+      filters.lines || [],
+      prevFrom,
+      prevTo,
+      undefined,
+      filters,
+    );
+    const previousWindowIds = previousWindowShifts.map((s) => s.shift_log_id);
+    const [previousWindowDowntime, previousWindowLoss] = await Promise.all([
+      fetchDowntimeByShift(previousWindowIds),
+      fetchLossByShift(previousWindowIds),
+    ]);
+    const previousLineOee = aggregateLineOee(
+      previousWindowShifts,
+      previousWindowDowntime,
+      previousWindowLoss,
+    );
+    const previousApq = plantWideApq(previousLineOee);
+    const previousPlantOee = plantWideOee(previousLineOee);
+
+    const todayKey = formatDateKey(now);
+    const todayShifts = shifts.filter((shift) => formatDateKey(shift.prod_date) === todayKey);
+    const yesterdayStart = new Date(startOfDay(now).getTime() - DAY_MS);
+    const yesterdayEnd = new Date(startOfDay(now).getTime() - 1);
+    const yesterdayShifts = await fetchShiftRows(
+      filters.lines || [],
+      yesterdayStart,
+      yesterdayEnd,
+      undefined,
+      filters,
+    );
+
+    const currentApq = plantWideApq(lineOee);
+    const productionTodayMt = sumShiftProduction(todayShifts);
+    const productionYesterdayMt = sumShiftProduction(yesterdayShifts);
+
+    const dailyProduction = Object.entries(oeeByDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dateKey, totals]) => ({
+        date: formatDayLabel(new Date(dateKey)),
+        targetMt: round1(totals.target),
+        actualMt: round1(totals.prod),
+      }));
+
     return {
       window: windowDays,
       generatedAt: now.toISOString(),
@@ -593,6 +655,21 @@ export class ReportingService {
       qualityTrend,
       topDefects,
       downtimeDrivers,
+      dailyProduction,
+      kpiStrip: {
+        productionTodayMt,
+        productionTodayTrendPct: pctChange(productionTodayMt, productionYesterdayMt),
+        oeePct: plantWideOeeValue,
+        oeeTrendPct: pctChange(plantWideOeeValue, previousPlantOee),
+        availabilityPct: currentApq.availability,
+        availabilityTrendPct: pctChange(currentApq.availability, previousApq.availability),
+        performancePct: currentApq.performance,
+        performanceTrendPct: pctChange(currentApq.performance, previousApq.performance),
+        qualityPct: currentApq.quality,
+        qualityTrendPct: pctChange(currentApq.quality, previousApq.quality),
+        utilizationPct: currentApq.availability,
+        utilizationTrendPct: pctChange(currentApq.availability, previousApq.availability),
+      },
     };
   }
 

@@ -20,7 +20,6 @@ const runMigrate = args.includes('--migrate');
 const BATCH_TESTS = [
   'tests/shiftLogValidation.test.ts',
   'tests/handover.test.ts',
-  'tests/changeRequestPk.test.ts',
   'tests/userRoutes.test.ts',
   'tests/userService.test.ts',
   'tests/exportRoutes.test.ts',
@@ -29,7 +28,6 @@ const BATCH_TESTS = [
   'tests/reportRoutes.test.ts',
   'tests/rbac.test.ts',
   'tests/auth.test.ts',
-  'tests/autoSourceFieldMaps.test.ts',
   'tests/csvParser.test.ts',
 ];
 
@@ -141,11 +139,11 @@ function runBatchTests() {
 function runClientSmoke() {
   const proc = run(
     'npx',
-    ['vitest', 'run', 'tests/syncEngine.test.ts', 'tests/autoSourceService.test.ts', 'tests/dashboard.test.ts'],
+    ['vitest', 'run', 'tests/dashboard.test.ts', 'tests/machineRouting.test.ts'],
     path.join(repoRoot, 'packages/client'),
   );
   if (proc.status === 0) {
-    log('Client smoke tests', 'PASS', 'syncEngine + autoSource + dashboard');
+    log('Client smoke tests', 'PASS', 'dashboard + machineRouting');
   } else {
     log('Client smoke tests', 'WARN', 'some client tests failed (see output)');
   }

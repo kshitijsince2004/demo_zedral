@@ -34,5 +34,5 @@ export function millPathForCode(
   if (code === '4HI') return workspace ? userScopePath(workspace.username, workspace.role) : '/4hi';
   if (code === '2HI') return workspace ? userScopePath(workspace.username, workspace.role) : '/2hi';
   if (code === '6HI') return workspace ? userScopePath(workspace.username, workspace.role) : '/6hi';
-  return `/shift-log/${code}`;
+  return `/coming-soon/${code}`;
 }

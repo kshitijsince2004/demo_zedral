@@ -64,6 +64,21 @@ function buildPayloadFromShifts(
     ],
     topDefects,
     downtimeDrivers,
+    dailyProduction: [],
+    kpiStrip: {
+      productionTodayMt: round1(productionVsPlan.reduce((s, r) => s + r.actual, 0)),
+      productionTodayTrendPct: 0,
+      oeePct: plantWideOee,
+      oeeTrendPct: 0,
+      availabilityPct: plantWideOee,
+      availabilityTrendPct: 0,
+      performancePct: plantWideOee,
+      performanceTrendPct: 0,
+      qualityPct: round1(Math.random() * 100),
+      qualityTrendPct: 0,
+      utilizationPct: plantWideOee,
+      utilizationTrendPct: 0,
+    },
   };
 }
 
@@ -92,6 +107,21 @@ describe('Plant Head dashboard payload validators', () => {
               ],
               topDefects: [],
               downtimeDrivers: [],
+              dailyProduction: [],
+              kpiStrip: {
+                productionTodayMt: 0,
+                productionTodayTrendPct: 0,
+                oeePct: round1(Math.min(Math.max(rawOee, 0), 100)),
+                oeeTrendPct: 0,
+                availabilityPct: 0,
+                availabilityTrendPct: 0,
+                performancePct: 0,
+                performanceTrendPct: 0,
+                qualityPct: 0,
+                qualityTrendPct: 0,
+                utilizationPct: 0,
+                utilizationTrendPct: 0,
+              },
             };
             expect(validateDashboardPercentBounds(payload)).toBe(true);
           },

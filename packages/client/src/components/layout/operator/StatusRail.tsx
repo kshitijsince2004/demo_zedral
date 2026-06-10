@@ -70,7 +70,7 @@ export function StatusRail({ processCode }: StatusRailProps) {
     return () => clearInterval(id);
   }, []);
 
-  const handoverPath = isCrmMill ? `${basePath}/handover` : '/handover';
+  const handoverPath = basePath ? `${basePath}/handover` : '/coming-soon/6HI';
 
   return (
     <header className="shrink-0 border-b border-border bg-background z-30 shadow-sm">

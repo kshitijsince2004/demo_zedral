@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { LiveKpis } from '@m1/shared-validation';
+import type { LiveKpis, LiveOrderRow } from '@m1/shared-validation';
 import {
   reportingService,
   type ExtendedPlantHeadDashboardData,
 } from '../../lib/reportingService';
 import { useLiveSnapshot } from '../../hooks/useLiveSnapshot';
+import { liveService } from '../../lib/liveService';
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
@@ -18,6 +19,7 @@ export function PlantHeadDashboard() {
   const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
   const { snapshot } = useLiveSnapshot();
 
   const load = useCallback(async () => {
@@ -38,6 +40,21 @@ export function PlantHeadDashboard() {
     const interval = setInterval(load, 30000);
     return () => clearInterval(interval);
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    liveService
+      .getOrders()
+      .then((res) => {
+        if (active) setLiveOrders(res.orders);
+      })
+      .catch(() => {
+        if (active) setLiveOrders([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
   const liveMachines = snapshot?.machines ?? [];
@@ -106,7 +123,7 @@ export function PlantHeadDashboard() {
         </section>
 
         <section>
-          <PlantOperationsArea data={data} liveMachines={liveMachines} />
+          <PlantOperationsArea data={data} liveMachines={liveMachines} liveOrders={liveOrders} />
         </section>
 
         <section>

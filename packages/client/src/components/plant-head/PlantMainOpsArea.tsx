@@ -1,5 +1,7 @@
 import React from 'react';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
+import { buildExecutiveInsights } from '../../lib/plantHeadInsights';
+import { DataUnavailable } from './DataUnavailable';
 import {
   Bar,
   CartesianGrid,
@@ -23,81 +25,86 @@ const CHART_COLORS = {
 };
 
 export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
+  const insights = buildExecutiveInsights(data);
+  const hasInsight = insights.some((row) => row.value != null);
+  const hasDailyProduction = data.productionVsTarget.length > 0;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
       <div className="lg:col-span-7 bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
         <div className="px-5 py-4 border-b border-border/50">
           <h2 className="font-semibold text-foreground">Production Performance</h2>
+          <p className="text-xs text-muted-foreground mt-1">Daily actual vs target from shift logs</p>
         </div>
-        <div className="p-5 flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="flex flex-col">
-            <h3 className="text-xs font-semibold text-muted-foreground mb-4">Production vs Target (Daily)</h3>
-            <div className="flex-1 min-h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data.productionVsTarget}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px' }} />
-                  <Bar dataKey="targetMt" fill={CHART_COLORS.target} radius={[4, 4, 0, 0]} name="Target" />
-                  <Bar dataKey="actualMt" fill={CHART_COLORS.actual} radius={[4, 4, 0, 0]} name="Actual" />
-                  <Line type="monotone" dataKey="actualMt" stroke={CHART_COLORS.trend} strokeWidth={2} dot={{ r: 3 }} name="Trend" />
-                </ComposedChart>
-              </ResponsiveContainer>
+        <div className="p-5 flex-1">
+          {hasDailyProduction ? (
+            <div className="flex flex-col min-h-[240px]">
+              <h3 className="text-xs font-semibold text-muted-foreground mb-4">Production vs Target (Daily)</h3>
+              <div className="flex-1 min-h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={data.productionVsTarget}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    <Bar dataKey="targetMt" fill={CHART_COLORS.target} radius={[4, 4, 0, 0]} name="Target (MT)" />
+                    <Bar dataKey="actualMt" fill={CHART_COLORS.actual} radius={[4, 4, 0, 0]} name="Actual (MT)" />
+                    <Line
+                      type="monotone"
+                      dataKey="actualMt"
+                      stroke={CHART_COLORS.trend}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      name="Actual trend"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-          </div>
-
-          <div className="flex flex-col">
-            <h3 className="text-xs font-semibold text-muted-foreground mb-4">Weekly Trend (MT)</h3>
-            <div className="flex-1 min-h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data.productionVsTarget}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px' }} />
-                  <Bar dataKey="targetMt" fill={CHART_COLORS.target} radius={[4, 4, 0, 0]} name="Target" />
-                  <Line type="monotone" dataKey="actualMt" stroke={CHART_COLORS.trend} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Actual Trend" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          ) : (
+            <DataUnavailable message="No daily production data for the selected window." />
+          )}
         </div>
       </div>
 
       <div className="lg:col-span-3 bg-card border border-border rounded-xl shadow-sm flex flex-col">
         <div className="px-5 py-4 border-b border-border/50">
           <h2 className="font-semibold text-foreground">Executive Insights</h2>
+          <p className="text-xs text-muted-foreground mt-1">Verified from plant reporting API only</p>
         </div>
         <div className="p-0 flex-1">
-          <ul className="divide-y divide-border/50">
-            <li className="px-5 py-4">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">Production Status</span>
-              <span className="block text-sm font-semibold text-foreground">On Track (+2.4% Variance)</span>
-            </li>
-            <li className="px-5 py-4">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">Current Bottleneck</span>
-              <span className="block text-sm font-semibold text-destructive">Annealing (94% Util, 45MT Queue)</span>
-            </li>
-            <li className="px-5 py-4">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">Worst Performing Machine</span>
-              <span className="block text-sm font-semibold text-warning">CRM 4HI (62% Health, 2h 10m Down)</span>
-            </li>
-            <li className="px-5 py-4">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">Top Defect</span>
-              <span className="block text-sm font-semibold text-foreground">Roll Mark (14.2%)</span>
-            </li>
-            <li className="px-5 py-4">
-              <span className="block text-xs font-medium text-muted-foreground mb-1">Orders at Risk</span>
-              <span className="block text-sm font-semibold text-foreground">{data.delayedOrders} Orders Delayed</span>
-            </li>
-          </ul>
+          {hasInsight ? (
+            <ul className="divide-y divide-border/50">
+              {insights.map((row) => (
+                <li key={row.label} className="px-5 py-4">
+                  <span className="block text-xs font-medium text-muted-foreground mb-1">{row.label}</span>
+                  {row.value ? (
+                    <span className="block text-sm font-semibold text-foreground">{row.value}</span>
+                  ) : (
+                    <span className="block text-sm text-muted-foreground italic">Not available</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <DataUnavailable message="Insufficient shift-log data to generate executive insights." />
+          )}
         </div>
       </div>
     </div>

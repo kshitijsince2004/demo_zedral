@@ -1,10 +1,36 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
-import { assertMachineAccess } from '../auth/machineAccessPolicy';
+import {
+  assertMachineAccess,
+  isMachineAccessForbidden,
+} from '../auth/machineAccessPolicy';
 import { MachineHandoverService } from '../services/MachineHandoverService';
 
 const router = Router();
 router.use(requireAuth);
+
+function handoverRouteStatus(error: unknown): number {
+  if (isMachineAccessForbidden(error)) return 403;
+  const message = error instanceof Error ? error.message : '';
+  if (/not found/i.test(message)) return 404;
+  return 400;
+}
+
+function handoverRouteMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Handover request failed';
+}
+
+async function assertHandoverMachineAccess(
+  user: Request['user'],
+  handoverId: string,
+): Promise<void> {
+  const handover = await MachineHandoverService.getHandoverForAccess(handoverId);
+  if (!handover) {
+    throw new Error('Handover not found');
+  }
+  assertMachineAccess(user!, handover.machine_code);
+}
 
 router.get('/overview', async (req, res) => {
   try {
@@ -14,8 +40,7 @@ router.get('/overview', async (req, res) => {
     const overview = await MachineHandoverService.getHandoverOverview(machineFilter);
     res.json(overview);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to load handover overview';
-    res.status(500).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -25,8 +50,7 @@ router.get('/pending', async (req, res) => {
     const pending = await MachineHandoverService.listPendingForMachines(machines);
     res.json({ pending });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to list pending handovers';
-    res.status(500).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -40,8 +64,7 @@ router.get('/:machineCode/preview', async (req, res) => {
     );
     res.json(preview);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to build handover preview';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -52,8 +75,7 @@ router.get('/:machineCode/pending', async (req, res) => {
     const pending = await MachineHandoverService.getPendingForMachine(machineCode);
     res.json({ pending: pending ?? null });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to load pending handover';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -64,8 +86,7 @@ router.get('/:machineCode/draft', async (req, res) => {
     const draft = await MachineHandoverService.getDraftForMachine(machineCode, req.user!.id);
     res.json({ draft: draft ?? null });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to load draft handover';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -76,8 +97,7 @@ router.post('/:machineCode/session', async (req, res) => {
     const result = await MachineHandoverService.ensureActiveSession(machineCode, req.user!.id);
     res.json(result);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to start machine session';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -127,8 +147,7 @@ router.post('/:machineCode/draft', async (req, res) => {
     );
     res.status(201).json(draft);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to save draft';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
@@ -178,36 +197,37 @@ router.post('/:machineCode/outgoing', async (req, res) => {
     );
     res.status(201).json(handover);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to create handover';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
 router.post('/accept/:handoverId', async (req, res) => {
   try {
+    const handoverId = String(req.params.handoverId);
+    await assertHandoverMachineAccess(req.user, handoverId);
     const handover = await MachineHandoverService.acceptHandover(
-      String(req.params.handoverId),
+      handoverId,
       req.user!.id,
     );
     res.json(handover);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to accept handover';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 
 router.post('/clarification/:handoverId', async (req, res) => {
   try {
+    const handoverId = String(req.params.handoverId);
+    await assertHandoverMachineAccess(req.user, handoverId);
     const { notes } = req.body ?? {};
     const handover = await MachineHandoverService.requestClarification(
-      String(req.params.handoverId),
+      handoverId,
       req.user!.id,
       String(notes ?? ''),
     );
     res.json(handover);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to request clarification';
-    res.status(400).json({ error: message });
+    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
   }
 });
 

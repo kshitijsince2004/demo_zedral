@@ -1,39 +1,83 @@
 import React from 'react';
 import type { LiveKpis } from '@m1/shared-validation';
-import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
+import {
+  formatTrendPct,
+  type ExtendedPlantHeadDashboardData,
+} from '../../lib/reportingService';
 
 interface PlantKpiStripProps {
   data: ExtendedPlantHeadDashboardData;
   liveKpis?: LiveKpis;
 }
 
-export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
-  const runningOrders = liveKpis?.activeOrders ?? data.runningOrders;
-  const utilizationPct = liveKpis?.utilizationPct ?? data.overallUtilizationPct;
-  const activeAlerts = liveKpis
-    ? liveKpis.breakdownMachines + liveKpis.currentStoppages
-    : data.activeAlerts;
+interface KpiTile {
+  label: string;
+  value: string;
+  trend: string | null;
+}
 
-  const kpis = [
-    { label: "Today's Production", value: `${data.productionTodayMt} MT`, trend: data.productionTrend },
-    { label: "Current Shift", value: `${data.shiftProductionMt} MT`, trend: '+1.2%' },
-    { label: "Plant Utilization", value: `${utilizationPct}%`, trend: liveKpis ? 'Live' : '+0.5%' },
-    { label: "OEE", value: `${data.oeePct}%`, trend: '-0.3%' },
-    { label: "Running Orders", value: runningOrders, trend: liveKpis ? `${liveKpis.runningMachines} machines` : null },
-    { label: "Active Alerts", value: activeAlerts, trend: liveKpis ? `${liveKpis.currentStoppages} stoppages` : null },
+export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
+  const strip = data.kpiStrip;
+
+  const utilizationPct = liveKpis?.utilizationPct ?? strip.utilizationPct;
+  const utilizationTrend = formatTrendPct(strip.utilizationTrendPct);
+
+  const kpis: KpiTile[] = [
+    {
+      label: "Production Today",
+      value: `${Math.round(strip.productionTodayMt)} MT`,
+      trend: formatTrendPct(strip.productionTodayTrendPct),
+    },
+    {
+      label: 'OEE',
+      value: `${strip.oeePct}%`,
+      trend: formatTrendPct(strip.oeeTrendPct),
+    },
+    {
+      label: 'Availability',
+      value: `${strip.availabilityPct}%`,
+      trend: formatTrendPct(strip.availabilityTrendPct),
+    },
+    {
+      label: 'Performance',
+      value: `${strip.performancePct}%`,
+      trend: formatTrendPct(strip.performanceTrendPct),
+    },
+    {
+      label: 'Quality',
+      value: `${strip.qualityPct}%`,
+      trend: formatTrendPct(strip.qualityTrendPct),
+    },
+    {
+      label: 'Utilization',
+      value: `${utilizationPct}%`,
+      trend: utilizationTrend,
+    },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {kpis.map((kpi, idx) => {
-        const isNegative = kpi.trend && kpi.trend.startsWith('-');
+      {kpis.map((kpi) => {
+        const isNegative = kpi.trend?.startsWith('-') ?? false;
+        const isNeutral = kpi.trend === '0%';
         return (
-          <div key={idx} className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col">
+          <div
+            key={kpi.label}
+            className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col"
+          >
             <span className="text-xs font-semibold text-muted-foreground mb-1">{kpi.label}</span>
             <div className="flex items-baseline gap-2 mt-auto">
               <span className="text-2xl font-bold text-foreground">{kpi.value}</span>
               {kpi.trend && (
-                <span className={`text-xs font-medium ${isNegative ? 'text-destructive' : 'text-success'}`}>
+                <span
+                  className={`text-xs font-medium ${
+                    isNeutral
+                      ? 'text-muted-foreground'
+                      : isNegative
+                        ? 'text-destructive'
+                        : 'text-success'
+                  }`}
+                >
                   {kpi.trend}
                 </span>
               )}

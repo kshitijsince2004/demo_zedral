@@ -8,7 +8,7 @@
  */
 
 import { apiClient } from './apiClient';
-import type { ProcessCode } from './processSectionRegistry';
+import type { ProcessCode } from './processCodes';
 
 // ─── Supervisor Dashboard ─────────────────────────────────────────────────────
 
@@ -84,13 +84,19 @@ export interface DowntimeDriver {
   type: 'PLANNED' | 'UNPLANNED';
 }
 
-export interface CoilTraceabilityResult {
-  coilNo: string;
-  grade: string;
-  customer: string;
-  currentProcess: ProcessCode;
-  status: string;
-  weightMt: number;
+export interface PlantHeadKpiStrip {
+  productionTodayMt: number;
+  productionTodayTrendPct: number;
+  oeePct: number;
+  oeeTrendPct: number;
+  availabilityPct: number;
+  availabilityTrendPct: number;
+  performancePct: number;
+  performanceTrendPct: number;
+  qualityPct: number;
+  qualityTrendPct: number;
+  utilizationPct: number;
+  utilizationTrendPct: number;
 }
 
 export interface PlantHeadDashboardData {
@@ -112,6 +118,19 @@ export interface PlantHeadDashboardData {
   topDefects: TopDefect[];
   /** Top downtime drivers by total minutes. */
   downtimeDrivers: DowntimeDriver[];
+  /** Daily production vs target for the selected window. */
+  dailyProduction: { date: string; targetMt: number; actualMt: number }[];
+  /** API-backed KPI strip values and period-over-period trends. */
+  kpiStrip: PlantHeadKpiStrip;
+}
+
+export interface CoilTraceabilityResult {
+  coilNo: string;
+  grade: string;
+  customer: string;
+  currentProcess: ProcessCode;
+  status: string;
+  weightMt: number;
 }
 
 // ─── Extended Plant Head Dashboard (Command Center) ───────────────────────────
@@ -157,28 +176,14 @@ export interface ExtendedPlantHeadDashboardData extends PlantHeadDashboardData {
   monthlyProduction: { month: string; actual: number; target: number }[];
   productionVsTarget: { date: string; targetMt: number; actualMt: number }[];
   defectsByCategory: { category: string; count: number }[];
-  defectsByMachine: { machine: string; defects: number }[];
   downtimeByCategory: { category: string; minutes: number }[];
-  machineHealthGrid: {
-    machineId: string;
-    machineName: string;
-    healthScore: number;
-    status: string;
-    currentOrder: string;
-    operator: string;
-    runtimeHrs: number;
-    efficiencyPct: number;
-    availabilityPct: number;
-    downtimeTodayMins: number;
-  }[];
-  orderList: {
-    orderNo: string;
-    customer: string;
-    currentProcess: string;
-    delayMins: number;
-    impact: 'High' | 'Low';
-    priority: 'Urgent' | 'Normal';
-    status: 'Delayed' | 'Running' | 'Blocked' | 'Completed';
+  /** Per-line plan attainment from shift logs (not machine health scores). */
+  lineAttainment: {
+    lineId: string;
+    lineName: string;
+    plannedMt: number;
+    actualMt: number;
+    attainmentPct: number;
   }[];
 }
 
@@ -315,6 +320,13 @@ export interface ExportRequestBody {
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+export function formatTrendPct(pct: number | null | undefined): string | null {
+  if (pct == null || Number.isNaN(pct)) return null;
+  const rounded = Math.round(pct * 10) / 10;
+  if (rounded === 0) return '0%';
+  return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
+}
+
 export const reportingService = {
   /**
    * Fetches the Supervisor dashboard data for the given line IDs.
@@ -364,30 +376,13 @@ export const reportingService = {
     },
   ): Promise<ExtendedPlantHeadDashboardData> {
     const base = await this.getPlantHeadDashboard(windowDays, filters);
+    const strip = base.kpiStrip;
 
-    const totalActual = base.productionVsPlan.reduce((sum, row) => sum + row.actual, 0);
-    const totalPlanned = base.productionVsPlan.reduce((sum, row) => sum + row.planned, 0);
-    const attainment =
-      totalPlanned > 0 ? Math.round(((totalActual - totalPlanned) / totalPlanned) * 1000) / 10 : 0;
-    const productionTrend = attainment >= 0 ? `+${attainment}%` : `${attainment}%`;
-
-    const productionVsTarget = base.oeeTrend.map((point, index) => {
-      const line = base.productionVsPlan[index % Math.max(base.productionVsPlan.length, 1)];
-      return {
-        date: point.date,
-        targetMt: line?.planned ?? 0,
-        actualMt: line?.actual ?? 0,
-      };
-    });
+    const productionVsTarget = base.dailyProduction;
 
     const defectsByCategory = base.topDefects.map((d) => ({
       category: d.defectName || d.defectCode,
       count: d.count,
-    }));
-
-    const defectsByMachine = base.productionVsPlan.map((line) => ({
-      machine: line.lineName,
-      defects: Math.round(line.actual * (base.qualityTrend.at(-1)?.rejectionRatePct ?? 0) / 100),
     }));
 
     const downtimeByCategory = base.downtimeDrivers.map((d) => ({
@@ -395,47 +390,49 @@ export const reportingService = {
       minutes: d.totalMinutes,
     }));
 
-    const machineHealthGrid = base.productionVsPlan.map((line, index) => ({
-      machineId: line.lineId,
-      machineName: line.lineName,
-      healthScore: Math.min(100, Math.round(line.attainmentPct)),
-      status: line.actual > 0 ? 'Running' as const : 'Idle' as const,
-      currentOrder: '—',
-      operator: '—',
-      runtimeHrs: 0,
-      efficiencyPct: Math.min(100, Math.round(line.attainmentPct)),
-      availabilityPct: Math.min(100, Math.round(line.attainmentPct)),
-      downtimeTodayMins: base.downtimeDrivers[index % Math.max(base.downtimeDrivers.length, 1)]?.totalMinutes ?? 0,
+    const lineAttainment = base.productionVsPlan.map((line) => ({
+      lineId: line.lineId,
+      lineName: line.lineName,
+      plannedMt: line.planned,
+      actualMt: line.actual,
+      attainmentPct: line.attainmentPct,
     }));
 
     const runningLines = base.productionVsPlan.filter((line) => line.actual > 0).length;
-    const delayedLines = base.productionVsPlan.filter((line) => line.attainmentPct < 90).length;
+    const delayedLines = base.productionVsPlan.filter(
+      (line) => line.planned > 0 && line.attainmentPct < 90,
+    ).length;
+    const totalActual = base.productionVsPlan.reduce((sum, row) => sum + row.actual, 0);
+    const totalPlanned = base.productionVsPlan.reduce((sum, row) => sum + row.planned, 0);
 
     return {
       ...base,
-      productionToday: totalActual,
+      productionToday: strip.productionTodayMt,
       productionTarget: totalPlanned,
-      productionShift: totalActual,
+      productionShift: strip.productionTodayMt,
       productionShiftTarget: totalPlanned,
       productionMonth: totalActual,
       productionMonthTarget: totalPlanned,
       productionForecast: totalPlanned,
-      productionTodayMt: Math.round(totalActual),
-      productionTrend,
-      shiftProductionMt: Math.round(totalActual),
-      overallUtilizationPct: Math.round(base.plantWideOee),
-      oeePct: Math.round(base.plantWideOee),
+      productionTodayMt: Math.round(strip.productionTodayMt),
+      productionTrend: formatTrendPct(strip.productionTodayTrendPct) ?? '0%',
+      shiftProductionMt: Math.round(strip.productionTodayMt),
+      overallUtilizationPct: Math.round(strip.utilizationPct),
+      oeePct: Math.round(strip.oeePct),
       runningMachines: runningLines,
       breakdownMachines: 0,
-      utilizationPct: base.plantWideOee,
-      availabilityPct: base.plantWideOee,
+      utilizationPct: strip.utilizationPct,
+      availabilityPct: strip.availabilityPct,
       mttrHours: 0,
       mtbfHours: 0,
       runningOrders: runningLines,
       delayedOrders: delayedLines,
       defectsToday: base.topDefects.reduce((sum, d) => sum + d.count, 0),
       defectPct: base.qualityTrend.at(-1)?.rejectionRatePct ?? 0,
-      defectTrend: base.qualityTrend.map((q) => ({ date: q.date, defects: q.rejectionRatePct })),
+      defectTrend: base.qualityTrend.map((q) => ({
+        date: q.date,
+        defects: q.rejectionRatePct,
+      })),
       activeAlerts: 0,
       criticalAlerts: [],
       opsFeed: [],
@@ -448,18 +445,8 @@ export const reportingService = {
       monthlyProduction: [],
       productionVsTarget,
       defectsByCategory,
-      defectsByMachine,
       downtimeByCategory,
-      machineHealthGrid,
-      orderList: base.productionVsPlan.map((line) => ({
-        orderNo: line.lineId,
-        customer: '—',
-        currentProcess: line.lineName,
-        delayMins: line.attainmentPct < 90 ? Math.round((100 - line.attainmentPct) * 6) : 0,
-        impact: line.attainmentPct < 85 ? 'High' as const : 'Low' as const,
-        priority: line.attainmentPct < 85 ? 'Urgent' as const : 'Normal' as const,
-        status: line.attainmentPct < 90 ? 'Delayed' as const : 'Running' as const,
-      })),
+      lineAttainment,
     };
   },
 
