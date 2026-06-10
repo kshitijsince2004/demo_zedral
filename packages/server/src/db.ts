@@ -18,15 +18,18 @@ class RlsDriver implements Driver {
     const store = requestContext.getStore();
     const userId = store?.user?.id || ''; 
     const crId = store?.change_request_id || '';
+    const tenantId = store?.tenant_id || '00000000-0000-0000-0000-000000000001';
     
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.user_id', '${userId}', false)`));
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.change_request_id', '${crId}', false)`));
+    await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.tenant_id', '${tenantId}', false)`));
     return conn;
   }
 
   async releaseConnection(conn: DatabaseConnection): Promise<void> {
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.user_id', '', false)`));
     await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.change_request_id', '', false)`));
+    await conn.executeQuery(CompiledQuery.raw(`SELECT set_config('app.tenant_id', '', false)`));
     await this.driver.releaseConnection(conn);
   }
 

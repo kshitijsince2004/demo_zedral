@@ -55,7 +55,7 @@ export class MachineRegistryService {
         'machine_type',
         'department',
         'capacity_mt',
-      ])
+      ] as const)
       .orderBy('machine_code', 'asc')
       .execute();
 

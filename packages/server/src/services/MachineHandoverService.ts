@@ -98,6 +98,27 @@ export class MachineHandoverService {
   }
 
   static async buildOutgoingPreview(machineCode: string, operatorUserId: number) {
+    // Machine details and process mapping
+    const machineRow = await db
+      .selectFrom('master.machine')
+      .select(['name', 'process_code', 'process_id'])
+      .where('machine_code', '=', machineCode)
+      .executeTakeFirst();
+
+    let processIdResolved: number | null = null;
+    if (machineRow) {
+      if (machineRow.process_id) {
+        processIdResolved = Number(machineRow.process_id);
+      } else if (machineRow.process_code) {
+        const pRow = await db
+          .selectFrom('master.process')
+          .select('process_id')
+          .where('code', '=', machineRow.process_code)
+          .executeTakeFirst();
+        if (pRow) processIdResolved = pRow.process_id;
+      }
+    }
+
     const shift = await ShiftDetectionService.getCurrentShift({
       userId: operatorUserId,
       machineCode,
@@ -165,16 +186,22 @@ export class MachineHandoverService {
     // Look up shift log ID from shift_log table for current shift
     let shiftLogIdResolved: string | null = null;
     try {
-      const slRow = await db
+      let slQuery = db
         .selectFrom('txn.shift_log')
         .select('shift_log_id')
         .where('shift_code', '=', shift.shiftCode)
-        .where((eb) => eb(eb.fn('date', [eb.ref('prod_date')]), '=', eb.val(shift.prodDate)))
+        .where((eb) => eb(eb.fn('date', [eb.ref('prod_date')]), '=', eb.val(shift.prodDate)));
+
+      if (processIdResolved !== null) {
+        slQuery = slQuery.where('process_id', '=', processIdResolved);
+      }
+
+      const slRow = await slQuery
         .orderBy('shift_log_id', 'desc')
         .executeTakeFirst();
       if (slRow) shiftLogIdResolved = String(slRow.shift_log_id);
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      console.error('[buildOutgoingPreview] Shift log lookup failed:', err);
     }
 
     // Shift production summary — use SixHiService if shiftLogId available
@@ -190,7 +217,7 @@ export class MachineHandoverService {
           totalSkinpassMt: summary.totalSkinpassMt,
           totalRerollMt: summary.totalRerollMt,
           completedOrderCount: summary.completedOrders?.length ?? 0,
-          inProgressOrderCount: summary.ordersInProgress ?? 0,
+          inProgressOrderCount: summary.ordersInProgress?.length ?? 0,
           totalStoppageMinutes: summary.totalStoppageMinutes ?? 0,
           totalBreakdownMinutes: summary.totalBreakdownMinutes ?? 0,
           machineUtilizationPct: summary.machineUtilizationPct ?? 0,
@@ -204,10 +231,14 @@ export class MachineHandoverService {
       }
     }
 
-    // Machine utilization from event-based service (last 12h)
+    // Machine utilization from event-based service for the current shift
     let utilizationMetrics: Record<string, unknown> | null = null;
     try {
-      const util = await MachineStateEventService.getUtilizationSummary(machineCode, 12);
+      const shiftStartStr = `${shift.prodDate}T${shift.windowStart}:00+05:30`;
+      const shiftStart = new Date(shiftStartStr);
+      const since = !isNaN(shiftStart.getTime()) ? shiftStart : new Date(Date.now() - 8 * 3600000);
+
+      const util = await MachineStateEventService.getUtilizationSummary(machineCode, 8, since);
       utilizationMetrics = {
         runningPct: util.runningPct,
         stopPagePct: util.stopPagePct,
@@ -216,16 +247,17 @@ export class MachineHandoverService {
         stoppageMin: util.stoppageMin,
         stoppageCount: util.stoppageCount,
       };
-    } catch {
-      // Non-fatal
+
+      if (shiftProductionSummary) {
+         shiftProductionSummary.machineUtilizationPct = util.runningPct;
+         shiftProductionSummary.totalStoppageMinutes = util.stoppageMin;
+         shiftProductionSummary.totalBreakdownMinutes = util.breakdownMin;
+      }
+    } catch (err) {
+      console.error('[buildOutgoingPreview] Utilization error:', err);
     }
 
-    // Machine name
-    const machineRow = await db
-      .selectFrom('master.machine')
-      .select(['name', 'process_code'])
-      .where('machine_code', '=', machineCode)
-      .executeTakeFirst();
+    // Reused machineRow resolved at the top of the method
 
     return {
       machineCode,

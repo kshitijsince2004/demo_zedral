@@ -129,9 +129,16 @@ export class ShiftLogService {
     const configService = new ValidationConfigService(db);
     const currentVersion = await configService.getVersion();
 
+    const actualProd = await this.calculateActualProduction(shiftLogId, log.process_id);
+
     await db
       .updateTable('txn.shift_log')
-      .set({ state: ShiftLogState.SUBMITTED, submitted_at: new Date(), ruleset_version: currentVersion })
+      .set({ 
+        state: ShiftLogState.SUBMITTED, 
+        submitted_at: new Date(), 
+        ruleset_version: currentVersion,
+        total_prod_mt: actualProd
+      })
       .where('shift_log_id', '=', shiftLogId)
       .execute();
   }
@@ -248,6 +255,8 @@ export class ShiftLogService {
       new Date(log.prod_date)
     );
 
+    const producedMt = await this.calculateActualProduction(String(log.shift_log_id), log.process_id);
+
     return {
       shiftLogId: String(log.shift_log_id),
       processId: log.process_id,
@@ -255,7 +264,7 @@ export class ShiftLogService {
       shiftCode: log.shift_code,
       state: log.state,
       targetMt: Number(log.target_mt || 0),
-      producedMt: Number(log.total_prod_mt || 0),
+      producedMt: producedMt,
       openCoils,
       openCoilCount: openCoils.length,
       runningStoppages: runningStoppages.map((s) => ({
@@ -293,6 +302,69 @@ export class ShiftLogService {
     return rows.map((r) => r.coil_no);
   }
 
+  static async calculateActualProduction(shiftLogId: string, processId: number): Promise<number> {
+    const processTable = this.getProcessTable(processId);
+    if (!processTable) return 0;
+
+    if (processTable === 'txn.crm6_order') {
+      const rows = await db.selectFrom('txn.crm6_order as o')
+        .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
+        .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+        .select([
+          'o.sub_process',
+          'r.actual_weight_mt as roll_wt',
+          's.actual_weight_mt as skp_wt',
+          'o.ppc_weight_mt as ppc_wt',
+        ])
+        .where('o.shift_log_id', '=', shiftLogId)
+        .where('o.status', '=', 'COMPLETED')
+        .execute();
+
+      let total = 0;
+      for (const r of rows) {
+        const wt = r.sub_process === 'ROLLING' ? r.roll_wt : r.skp_wt;
+        const finalWt = wt != null ? wt : r.ppc_wt;
+        if (finalWt != null) {
+          total += Number(finalWt);
+        }
+      }
+      return total;
+    }
+
+    if (processTable === 'txn.ann_charge') {
+      const rows = await db.selectFrom('txn.ann_charge')
+        .select('charge_wt_mt')
+        .where('shift_log_id', '=', shiftLogId)
+        .execute();
+      let total = 0;
+      for (const r of rows) {
+        if (r.charge_wt_mt != null) {
+          total += Number(r.charge_wt_mt);
+        }
+      }
+      return total;
+    }
+
+    let weightCol = 'weight_mt';
+    if (processTable === 'txn.prod_crs') {
+      weightCol = 'output_wt_mt';
+    }
+
+    const rows = await db.selectFrom(processTable as any)
+      .select(weightCol as any)
+      .where('shift_log_id', '=', shiftLogId)
+      .execute();
+
+    let total = 0;
+    for (const r of rows) {
+      const wt = (r as any)[weightCol];
+      if (wt != null) {
+        total += Number(wt);
+      }
+    }
+    return total;
+  }
+
   static async handover(currentShiftLogId: string, context: HandoverContext) {
     const currentLog = await this.getById(currentShiftLogId);
     if (!currentLog) {
@@ -316,6 +388,8 @@ export class ShiftLogService {
     const configService = new ValidationConfigService(db);
     const currentVersion = await configService.getVersion();
 
+    const actualProd = await this.calculateActualProduction(String(currentShiftLogId), currentLog.process_id);
+
     return await db.transaction().execute(async (trx) => {
       // 1. Close outgoing shift with attestation
       await trx
@@ -328,6 +402,7 @@ export class ShiftLogService {
           handover_outgoing_user_id: context.outgoingUserId,
           handover_incoming_user_id: context.incomingUserId,
           handover_at: handoverAt,
+          total_prod_mt: actualProd
         })
         .where('shift_log_id', '=', String(currentShiftLogId))
         .execute();

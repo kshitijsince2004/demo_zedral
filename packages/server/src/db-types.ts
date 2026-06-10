@@ -242,12 +242,25 @@ export interface MasterCrmSubProcess {
   sub_process_code: string;
 }
 
+export interface MasterRouteCode {
+  route_code: string;
+  display_label: string;
+  process_code: string | null;
+  machine_code: string | null;
+  sub_process: string | null;
+  seq_hint: Generated<number>;
+  is_active: Generated<boolean>;
+}
+
 export interface MasterMachine {
   machine_code: string;
   name: string;
   process_id: number | null;
   process_code: string | null;
   machine_status: Generated<string>;
+  machine_type: string | null;
+  department: string | null;
+  capacity_mt: Numeric | null;
 }
 
 export interface MasterStoppageCategory {
@@ -546,6 +559,7 @@ export interface TxnOrderRejection {
   rejection_id: Generated<Int8>;
   rejection_reason: string;
   remarks: string;
+  tenant_id: Generated<string>;
 }
 
 export interface TxnOrderRemark {
@@ -899,7 +913,6 @@ export interface TxnMachineHandover {
   production_snapshot: unknown;
   open_stoppages: unknown;
   status: Generated<string>;
-  handover_priority: Generated<string>;
   clarification_notes: string | null;
   created_at: Generated<Timestamp>;
   accepted_at: Timestamp | null;
@@ -956,6 +969,7 @@ export interface DB {
   "coil.coil": CoilCoil;
   "coil.coil_process_history": CoilCoilProcessHistory;
   "master.crm_sub_process": MasterCrmSubProcess;
+  "master.route_code": MasterRouteCode;
   "master.customer": MasterCustomer;
   "master.machine": MasterMachine;
   "master.stoppage_category": MasterStoppageCategory;
