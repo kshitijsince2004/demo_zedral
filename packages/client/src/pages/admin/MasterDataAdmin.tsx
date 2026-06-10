@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { AdminShell } from '../../components/layout/admin/AdminShell';
 import { AdminPanel } from '../../components/admin/AdminPanel';
@@ -372,7 +373,7 @@ export function MasterDataAdmin() {
       refreshing={loading}
     >
       <AdminPanel title="Entity type">
-        <div className="px-4 py-2.5 flex flex-wrap gap-1.5" role="tablist" aria-label="Master data entity types">
+        <div className="px-4 py-2.5 flex flex-wrap gap-1.5 items-center" role="tablist" aria-label="Master data entity types">
           {MASTER_ENTITIES.map((entity) => (
             <button
               key={entity}
@@ -388,6 +389,12 @@ export function MasterDataAdmin() {
               {MASTER_ENTITY_LABELS[entity]}
             </button>
           ))}
+          <Link
+            to="/admin/machines"
+            className="h-9 rounded-sm px-3 text-[10px] font-semibold uppercase tracking-wider border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 inline-flex items-center"
+          >
+            Machines →
+          </Link>
         </div>
       </AdminPanel>
 

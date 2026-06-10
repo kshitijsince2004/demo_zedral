@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { Activity, LayoutDashboard, Search, Shield, Users } from 'lucide-react';
+import { Activity, ArrowRightLeft, LayoutDashboard, Search, Shield, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem, deskNavOffsetClass } from './shared/DeskSideNav';
 import { OfflineBanner } from '../ui/OfflineBanner';
 
@@ -18,6 +18,13 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     icon: Activity,
     path: '/plant/live',
     match: (p) => p === '/plant/live',
+  },
+  {
+    id: 'order-assignment',
+    label: 'Order Assignment',
+    icon: ArrowRightLeft,
+    path: '/plant/order-assignment',
+    match: (p) => p === '/plant/order-assignment',
   },
   {
     id: 'traceability',

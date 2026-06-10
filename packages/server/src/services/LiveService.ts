@@ -12,6 +12,7 @@ import type {
 import { db } from '../db';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
+import { MachineRegistryService } from './MachineRegistryService';
 const QUEUE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED'] as const;
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 
@@ -81,12 +82,7 @@ export class LiveService {
 
     let machines: string[];
     if (machineFilter === null) {
-      const rows = await db.selectFrom('planning.ppc_batch')
-        .select('machine_code')
-        .where('machine_allocated', '=', true)
-        .groupBy('machine_code')
-        .execute();
-      machines = rows.map((r) => r.machine_code);
+      machines = await MachineRegistryService.getOperationalMachineCodes(null);
     } else if (machineFilter.length === 0) {
       return [];
     } else {

@@ -10,6 +10,7 @@ interface SixHiGlobalProductionPanelProps {
   onEnd: () => void;
   onRemark: () => void;
   onReject: () => void;
+  onStoppage: () => void;
   onViewOrder: () => void;
   onCloseWorkspace?: () => void;
   embedded?: boolean;
@@ -25,6 +26,7 @@ export function SixHiGlobalProductionPanel({
   onEnd,
   onRemark,
   onReject,
+  onStoppage,
   embedded,
 }: SixHiGlobalProductionPanelProps) {
   const rail = (
@@ -37,6 +39,7 @@ export function SixHiGlobalProductionPanel({
       onEnd={onEnd}
       onRemark={onRemark}
       onReject={onReject}
+      onStoppage={onStoppage}
     />
   );
 

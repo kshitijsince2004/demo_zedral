@@ -73,10 +73,10 @@ interface StatusBadgeProps {
  * never color alone.
  */
 export function StatusBadge({ tone, label }: StatusBadgeProps) {
-  const Icon = ToneIcon[tone];
+  const Icon = ToneIcon[tone] ?? ToneIcon.muted;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${toneText[tone]} ${toneBg[tone]} ${toneBorder[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${toneText[tone] ?? toneText.muted} ${toneBg[tone] ?? toneBg.muted} ${toneBorder[tone] ?? toneBorder.muted}`}
     >
       <Icon />
       {label}

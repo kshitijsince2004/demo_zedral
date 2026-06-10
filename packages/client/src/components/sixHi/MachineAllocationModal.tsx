@@ -2,21 +2,22 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { SixHiQueueCard, SixHiSubProcess } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
+import { millsForSubProcessFromRegistry } from '../../lib/machineRegistry';
 
-export type CrmMillCode = '6HI' | '4HI' | '2HI';
+export type CrmMillCode = string;
 
-const ROLLING_MILLS: CrmMillCode[] = ['6HI', '4HI'];
-const SKIN_PASS_MILLS: CrmMillCode[] = ['2HI', '4HI', '6HI'];
+const FALLBACK_ROLLING = ['6HI', '4HI'];
+const FALLBACK_SKIN_PASS = ['2HI', '4HI', '6HI'];
 
-function millsForSubProcess(subProcess: SixHiSubProcess): CrmMillCode[] {
-  return subProcess === 'ROLLING' ? ROLLING_MILLS : SKIN_PASS_MILLS;
+export function millsForSubProcess(subProcess: SixHiSubProcess): CrmMillCode[] {
+  return subProcess === 'ROLLING' ? FALLBACK_ROLLING : FALLBACK_SKIN_PASS;
 }
 
 interface MachineAllocationModalProps {
   open: boolean;
   batches: SixHiQueueCard[];
   onClose: () => void;
-  onConfirm: (machineCode: CrmMillCode) => Promise<void>;
+  onConfirm: (machineCode: string) => Promise<void>;
 }
 
 export function MachineAllocationModal({
@@ -26,18 +27,23 @@ export function MachineAllocationModal({
   onConfirm,
 }: MachineAllocationModalProps) {
   const firstBatch = batches[0];
-  const options = firstBatch ? millsForSubProcess(firstBatch.subProcess) : [];
-  const defaultMachine = (firstBatch?.machineCode ?? firstBatch?.suggestedMachineCode ?? options[0]) as CrmMillCode;
-  const [selected, setSelected] = useState<CrmMillCode>(defaultMachine);
+  const [options, setOptions] = useState<string[]>([]);
+  const defaultMachine = (firstBatch?.machineCode ?? firstBatch?.suggestedMachineCode ?? options[0] ?? '') as string;
+  const [selected, setSelected] = useState<string>(defaultMachine);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!firstBatch) return;
+    void millsForSubProcessFromRegistry(firstBatch.subProcess).then(setOptions);
+  }, [firstBatch]);
+
+  useEffect(() => {
     if (open && batches.length > 0) {
-      setSelected(defaultMachine);
+      setSelected(defaultMachine || options[0] || '');
       setError(null);
     }
-  }, [open, batches, defaultMachine]);
+  }, [open, batches, defaultMachine, options]);
 
   if (!open || batches.length === 0 || !firstBatch) return null;
 

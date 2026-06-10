@@ -317,7 +317,7 @@ export function SixHiHub() {
           </div>
         </div>
 
-        <aside className="order-1 lg:order-2 w-full lg:w-[400px] shrink-0 min-h-0 h-[min(420px,40vh)] lg:h-full flex flex-col overflow-hidden">
+        <aside className="order-1 lg:order-2 w-full lg:w-[400px] shrink-0 min-h-0 lg:h-full flex flex-col overflow-hidden max-h-[min(480px,45vh)] lg:max-h-none">
           <SixHiBatchDetailPanel
             batch={selected}
             subProcessLabel={subProcessLabel}

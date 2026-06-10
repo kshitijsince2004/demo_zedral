@@ -1,8 +1,10 @@
 import type { ComponentType } from 'react';
-import { Ban, Clock, MessageSquare, Play, Square } from 'lucide-react';
+import { AlertTriangle, Ban, Clock, MessageSquare, Play, Square } from 'lucide-react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { canRecordStoppage } from '../../lib/sixHiRuntime';
 
 interface SixHiProductionActionRailProps {
   order: SixHiOrderDetail;
@@ -13,6 +15,7 @@ interface SixHiProductionActionRailProps {
   onEnd: () => void;
   onRemark: () => void;
   onReject: () => void;
+  onStoppage: () => void;
 }
 
 function RailButton({
@@ -26,12 +29,13 @@ function RailButton({
   icon: ComponentType<{ className?: string }>;
   onClick: () => void;
   disabled?: boolean;
-  variant?: 'start' | 'end' | 'warn' | 'default';
+  variant?: 'start' | 'end' | 'warn' | 'stoppage' | 'default';
 }) {
   const styles = {
     start: 'bg-primary text-white border-primary hover:bg-[#1f4a3a]',
     end: 'bg-[#DC2626] text-white border-destructive hover:bg-[#B91C1C]',
     warn: 'bg-white text-warning border-[#FDBA74]',
+    stoppage: 'bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20',
     reject: 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100',
     default: 'bg-white text-foreground border-border hover:bg-secondary',
   }[variant];
@@ -62,13 +66,17 @@ export function SixHiProductionActionRail({
   onEnd,
   onRemark,
   onReject,
+  onStoppage,
 }: SixHiProductionActionRailProps) {
   const preparing = isPreparing(order, workspaceOpen, workspaceBatch);
   const hasActiveStoppage = !!order.activeStoppage;
+  const stoppageAllowed = canRecordStoppage(order);
   const canStart = (order.status === 'PENDING' || order.status === 'PREPARING') && !hasActiveStoppage;
   const canResume = order.status === 'STOPPAGE' && !hasActiveStoppage;
   const canEnd = order.status === 'IN_PROGRESS' || canResume;
   const canReject = order.status !== 'COMPLETED' && order.status !== 'REJECTED';
+
+  const { formatted: stoppageTimer } = useLiveTimer(order.activeStoppage?.startAt, hasActiveStoppage);
 
   const runtimeLabel = order.prodDurationMin
     ? `${order.prodDurationMin} minutes`
@@ -98,7 +106,7 @@ export function SixHiProductionActionRail({
         <SixHiStatusPill status={order.status} preparing={preparing} />
       </div>
 
-      <div className="flex-1 flex flex-col justify-center gap-2 px-2 py-3 min-h-0">
+      <div className="flex-1 flex flex-col justify-center gap-2 px-2 py-3 min-h-0 overflow-y-auto">
         {canStart && (
           <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />
         )}
@@ -108,6 +116,13 @@ export function SixHiProductionActionRail({
         {canEnd && (
           <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
         )}
+        <RailButton
+          label={hasActiveStoppage ? 'Manage Stop' : 'Stoppage'}
+          icon={AlertTriangle}
+          onClick={onStoppage}
+          disabled={busy || !stoppageAllowed}
+          variant={hasActiveStoppage ? 'stoppage' : 'default'}
+        />
         <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         {canReject && (
           <RailButton label="Reject" icon={Ban} onClick={onReject} disabled={busy} variant="warn" />
@@ -115,10 +130,17 @@ export function SixHiProductionActionRail({
       </div>
 
       <div className="shrink-0 px-2 py-3 border-t border-border space-y-2 text-center">
-        <div className="flex flex-col items-center gap-0.5 text-muted-foreground">
-          <Clock className="h-3.5 w-3.5" aria-hidden />
-          <span className="font-mono text-sm font-bold">{runtimeLabel}</span>
-        </div>
+        {hasActiveStoppage ? (
+          <div className="space-y-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-destructive">Stoppage</p>
+            <p className="font-mono text-lg font-bold text-destructive">{stoppageTimer}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-0.5 text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" aria-hidden />
+            <span className="font-mono text-sm font-bold">{runtimeLabel}</span>
+          </div>
+        )}
         <span className={[
           'block text-[11px] font-bold uppercase tracking-wide px-1.5 py-1.5 rounded',
           machineStatus === 'Running' ? 'bg-success/15 text-success' :

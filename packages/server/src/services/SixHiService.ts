@@ -11,12 +11,14 @@ import { db } from '../db';
 import { ShiftLogService } from './shiftLogService';
 import { ShiftLogState } from '@m1/shared-validation';
 import { ProcessRouteService } from './ProcessRouteService';
-import {
-  assertMachineForSubProcess,
-  parseCrmMillCode,
-  type CrmMillCode,
-} from '../utils/machineAllocation';
+import { MachineRegistryService } from './MachineRegistryService';
 import { MachineStateEventService } from './MachineStateEventService';
+import {
+  ensureOrderMachineTransferTable,
+  loadRecentOrderMachineTransfers,
+  recordOrderMachineTransfer,
+} from './orderMachineTransferAudit';
+import { MachineRegistryService } from './MachineRegistryService';
 
 
 const SIX_HI_PROCESS_CODE = '6HI';
@@ -390,10 +392,8 @@ export class SixHiService {
     batchNumber: string,
     machineCode: string,
     userId: number,
+    options?: { reason?: string; transferType?: 'SINGLE' | 'BULK' },
   ): Promise<SixHiOrderDetail> {
-    const machine = parseCrmMillCode(machineCode);
-    if (!machine) throw new Error(`Unknown machine: ${machineCode}`);
-
     const batch = await db.selectFrom('planning.ppc_batch')
       .selectAll()
       .where('batch_number', '=', batchNumber)
@@ -401,7 +401,13 @@ export class SixHiService {
     if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
 
     const subProcess = batch.sub_process as SixHiSubProcess;
-    assertMachineForSubProcess(subProcess, machine);
+    const machine = await MachineRegistryService.assertMachineForSubProcess(subProcess, machineCode);
+
+    const sourceMachine = batch.machine_code;
+    const alreadyOnTarget = (batch.machine_allocated ?? true) && sourceMachine === machine;
+    if (alreadyOnTarget) {
+      throw new Error(`Order is already assigned to ${machine}`);
+    }
 
     const order = await db.selectFrom('txn.crm6_order')
       .select(['order_id', 'status'])
@@ -412,6 +418,7 @@ export class SixHiService {
     }
 
     await this.ensureOrder(batchNumber, userId);
+    await ensureOrderMachineTransferTable();
 
     await db.transaction().execute(async (trx) => {
       const maxSeq = await trx.selectFrom('planning.ppc_batch')
@@ -453,6 +460,17 @@ export class SixHiService {
         .where('batch_id', '=', batch.batch_id)
         .where('status', '=', 'PENDING')
         .execute();
+
+      await recordOrderMachineTransfer({
+        orderId: order?.order_id ?? null,
+        batchNumber,
+        sourceMachine,
+        destinationMachine: machine,
+        subProcess,
+        assignedBy: userId,
+        reason: options?.reason,
+        transferType: options?.transferType ?? 'SINGLE',
+      }, trx);
     });
 
     return this.getOrder(batchNumber, userId);
@@ -460,23 +478,28 @@ export class SixHiService {
 
   static async transferMachines(
     batchNumbers: string[],
-    targetMachine: CrmMillCode,
+    targetMachine: string,
     userId: number,
     roles: string[],
+    reason?: string,
+    transferType: 'SINGLE' | 'BULK' = 'SINGLE',
   ): Promise<{ batchNumber: string; ok: boolean; error?: string }[]> {
-    const isElevated = roles.includes('ADMIN');
+    const resolvedTarget = await MachineRegistryService.resolveMachineCode(targetMachine);
+    if (!resolvedTarget) throw new Error(`Unknown or inactive machine: ${targetMachine}`);
+
+    const isElevated = roles.includes('ADMIN') || roles.includes('PLANT_HEAD');
     if (!isElevated) {
       const { MachineAccessService } = await import('./MachineAccessService');
       const allowed = await MachineAccessService.getForUser(userId);
-      if (!allowed.includes(targetMachine)) {
-        throw new Error(`Not authorized to assign orders to ${targetMachine}`);
+      if (!allowed.includes(resolvedTarget)) {
+        throw new Error(`Not authorized to assign orders to ${resolvedTarget}`);
       }
     }
 
     const results: { batchNumber: string; ok: boolean; error?: string }[] = [];
     for (const batchNumber of batchNumbers) {
       try {
-        await this.allocateMachine(batchNumber, targetMachine, userId);
+        await this.allocateMachine(batchNumber, resolvedTarget, userId, { reason, transferType });
         results.push({ batchNumber, ok: true });
       } catch (e: unknown) {
         results.push({
@@ -487,6 +510,85 @@ export class SixHiService {
       }
     }
     return results;
+  }
+
+  static async getOrderAssignmentBoard(planDate: string, shiftCode: string) {
+    const { planDate: effectiveDate, shiftCode: effectiveShift } =
+      await this.resolveQueueContext(planDate, shiftCode, 'ROLLING', '6HI');
+
+    const batches = await db.selectFrom('planning.ppc_batch as pb')
+      .selectAll('pb')
+      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
+      .where('pb.shift_code', '=', effectiveShift)
+      .orderBy('pb.machine_allocated', 'asc')
+      .orderBy('pb.queue_seq', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    const orders = [];
+    for (const b of batches) {
+      const subProcess = b.sub_process as SixHiSubProcess;
+      const crmOrder = await db.selectFrom('txn.crm6_order')
+        .select(['status'])
+        .where('batch_id', '=', b.batch_id)
+        .executeTakeFirst();
+      orders.push({
+        batchNumber: b.batch_number,
+        customer: b.customer_name,
+        product: b.grade_code,
+        quantityMt: Number(b.ppc_weight_mt),
+        currentMachine: (b.machine_allocated ?? true) ? b.machine_code : null,
+        suggestedMachine: !(b.machine_allocated ?? true) ? b.machine_code : undefined,
+        subProcess,
+        status: (crmOrder?.status as string) ?? 'PENDING',
+        machineAllocated: b.machine_allocated ?? true,
+      });
+    }
+
+    const crmMills = await MachineRegistryService.getCrmMills();
+    const machines = await Promise.all(
+      crmMills.map(async (entry) => {
+        const code = entry.machineCode;
+        const queueCount = await db.selectFrom('planning.ppc_batch')
+          .select(db.fn.countAll<number>().as('cnt'))
+          .where('plan_date', '=', this.toPlanDate(effectiveDate))
+          .where('shift_code', '=', effectiveShift)
+          .where('machine_code', '=', code)
+          .where('machine_allocated', '=', true)
+          .executeTakeFirst();
+
+        const active = await db.selectFrom('txn.crm6_order as o')
+          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+          .select(['pb.batch_number'])
+          .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
+          .where('pb.shift_code', '=', effectiveShift)
+          .where('pb.machine_code', '=', code)
+          .where('o.status', '=', 'IN_PROGRESS')
+          .executeTakeFirst();
+
+        return {
+          code,
+          name: entry.name,
+          rolling: entry.rolling,
+          skinPass: entry.skinPass,
+          queueCount: Number(queueCount?.cnt ?? 0),
+          activeBatch: active?.batch_number ?? null,
+        };
+      }),
+    );
+
+    const recentTransfers = await loadRecentOrderMachineTransfers(
+      this.toPlanDate(effectiveDate),
+      effectiveShift,
+    );
+
+    return {
+      planDate: effectiveDate,
+      shiftCode: effectiveShift,
+      orders,
+      machines,
+      recentTransfers,
+    };
   }
 
   static async ensureOrder(batchNumber: string, userId: number): Promise<string> {

@@ -105,11 +105,6 @@ export function SixHiLayout() {
         if (!canStartStoppage && !order.activeStoppage) {
           throw new Error('Start production before recording a stoppage');
         }
-        if (!order.activeStoppage) {
-          await store.runOrderAction(batchNo, () =>
-            apiClient.post(`/6hi/orders/${encodeURIComponent(batchNo)}/stoppages/start`, {}),
-          );
-        }
         setStoppageOpen(true);
       },
       requestRejectionDialog: (batchNo: string) => {
@@ -159,6 +154,14 @@ export function SixHiLayout() {
     setEndOpen(true);
   };
 
+  const handleStoppage = () => {
+    if (!activeBatch) return;
+    setActionError(null);
+    void useSixHiStore.getState().requestStoppageDialog?.(activeBatch).catch((err) => {
+      setActionError(err instanceof Error ? err.message : 'Stoppage unavailable');
+    });
+  };
+
   const actionRailProps = panelOrder
     ? {
         order: panelOrder,
@@ -169,6 +172,7 @@ export function SixHiLayout() {
         onEnd: handleEnd,
         onReject: () => setRejectionOpen(true),
         onRemark: () => setRemarkOpen(true),
+        onStoppage: handleStoppage,
         onViewOrder: () => openWorkspace(panelOrder.batchNumber),
         onCloseWorkspace: workspaceOpen ? closeWorkspace : undefined,
       }
@@ -177,7 +181,10 @@ export function SixHiLayout() {
   return (
     <HandoverAcceptGate machineCode={pathMill}>
       <OperatorShell processCode={pathMill}>
-        <div className={showPanel && !workspaceOpen ? 'pr-[6.5rem]' : ''}>
+        <div className={[
+          'flex flex-1 flex-col min-h-0',
+          showPanel && !workspaceOpen ? 'pr-[6.5rem]' : '',
+        ].join(' ')}>
           <Outlet />
         </div>
 
@@ -203,7 +210,7 @@ export function SixHiLayout() {
               closeWorkspace();
             } catch (err) {
               if (err instanceof ApiError && err.status === 400) {
-                setStartError(err.message);
+                setStartError({ message: err.message });
               } else {
                 throw err;
               }
@@ -269,6 +276,16 @@ export function SixHiLayout() {
           hasActiveStoppage={!!activeStoppage}
           activeStoppage={activeStoppage}
           onClose={() => setStoppageOpen(false)}
+          onStart={async (categoryCode, breakdownCode, remarks) => {
+            await runOrderAction(activeBatch, () =>
+              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages`, {
+                categoryCode,
+                breakdownCode,
+                remarks,
+              }),
+            );
+            if (shiftLogId) await loadShiftSummary(shiftLogId);
+          }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
             await runOrderAction(activeBatch, () =>
               apiClient.patch(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages/${encodeURIComponent(stoppageId)}`, {

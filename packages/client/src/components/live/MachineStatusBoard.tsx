@@ -14,10 +14,13 @@ function getHeaderConfig(status: MachineLiveStatus) {
   }
 }
 
+function formatUpdatedAt(iso?: string): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 function RunningStateInfo({ m }: { m: MachineStatusCard }) {
-  // Mock start time if missing for demo purposes
-  const startTime = m.runtimeMin ? new Date(Date.now() - m.runtimeMin * 60000).toISOString() : new Date().toISOString();
-  const { formatted } = useLiveTimer(startTime, true);
+  const { formatted } = useLiveTimer(m.stateSinceAt, m.status === 'RUNNING');
 
   return (
     <>
@@ -25,12 +28,15 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
         <span className="text-3xl font-mono font-bold tracking-tight text-[#10B981]">{formatted}</span>
         <span className="text-[10px] font-bold uppercase tracking-wider text-[#10B981]">Runtime</span>
       </div>
-      
+
       <div className="bg-[#ECFDF5] rounded-xl p-3 mb-4">
         <div className="text-[9px] font-bold uppercase tracking-wider text-[#10B981] mb-1">Current Order</div>
         <div className="font-bold text-sm text-gray-900">{m.currentOrder || '—'}</div>
+        {m.currentCoil && (
+          <div className="text-xs text-slate-500 mt-1 font-mono">Coil {m.currentCoil}</div>
+        )}
       </div>
-      
+
       <div className="grid grid-cols-2 gap-y-3">
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Operator</div>
@@ -38,11 +44,13 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
         </div>
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Shift</div>
-          <div className="text-xs font-bold text-gray-900">B</div>
+          <div className="text-xs font-bold text-gray-900">{m.shiftCode || '—'}</div>
         </div>
         <div className="col-span-2">
           <div className="text-[11px] text-slate-500 mb-0.5">Produced</div>
-          <div className="text-xs font-bold text-[#10B981]">14.5 MT</div>
+          <div className="text-xs font-bold text-[#10B981]">
+            {m.productionWeightMt != null ? `${m.productionWeightMt} MT` : '—'}
+          </div>
         </div>
       </div>
     </>
@@ -50,51 +58,61 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
 }
 
 function IdleStateInfo({ m }: { m: MachineStatusCard }) {
+  const { formatted } = useLiveTimer(m.stateSinceAt, !!m.stateSinceAt);
+
   return (
     <>
       <div className="flex justify-between items-baseline mb-4">
-        <span className="text-3xl font-mono font-bold tracking-tight text-slate-600">—</span>
+        <span className="text-3xl font-mono font-bold tracking-tight text-slate-600">
+          {m.stateSinceAt ? formatted : '—'}
+        </span>
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Idle For</span>
       </div>
-      
+
       <div className="grid grid-cols-1 gap-y-4">
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Last Order</div>
-          <div className="text-xs font-medium text-gray-900">—</div>
+          <div className="text-xs font-medium text-gray-900">{m.lastOrderBatchNumber || '—'}</div>
         </div>
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Last Operator</div>
-          <div className="text-xs font-medium text-gray-900">—</div>
+          <div className="text-xs font-medium text-gray-900">{m.lastOperatorName || '—'}</div>
         </div>
       </div>
     </>
   );
 }
 
-function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard, isDefect?: boolean }) {
-  const startTime = new Date(Date.now() - 2118000).toISOString(); // ~35m
-  const { formatted } = useLiveTimer(startTime, true);
-  
+function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDefect?: boolean }) {
+  const { formatted } = useLiveTimer(m.stateSinceAt, !!m.stateSinceAt);
   const colorClass = isDefect ? 'text-destructive' : 'text-warning';
 
   return (
     <>
       <div className="flex justify-between items-baseline mb-4">
         <span className={`text-3xl font-mono font-bold tracking-tight ${colorClass}`}>{formatted}</span>
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${colorClass}`}>{isDefect ? 'Defect' : 'Stoppage'}</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${colorClass}`}>
+          {isDefect ? 'Breakdown' : 'Stoppage'}
+        </span>
       </div>
-      
+
       <div className="grid grid-cols-1 gap-y-4">
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Reason</div>
           <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
             {isDefect ? <ShieldAlert className={`w-4 h-4 ${colorClass}`} /> : <AlertTriangle className={`w-4 h-4 ${colorClass}`} />}
-            {isDefect ? 'Roll Mark' : 'Material Jam'}
+            {m.activeStoppageReason || '—'}
           </div>
         </div>
+        {m.currentOrder && (
+          <div>
+            <div className="text-[11px] text-slate-500 mb-0.5">Order</div>
+            <div className="text-xs font-mono font-bold text-gray-900">{m.currentOrder}</div>
+          </div>
+        )}
         <div>
           <div className="text-[11px] text-slate-500 mb-0.5">Since</div>
-          <div className="text-xs font-medium text-gray-900">{new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          <div className="text-xs font-medium text-gray-900">{formatUpdatedAt(m.stateSinceAt)}</div>
         </div>
       </div>
     </>
@@ -152,7 +170,7 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
             <div className="px-5 py-3 border-t border-border/50 flex justify-between items-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase">{m.machineCode}</span>
               <span className="text-[10px] text-slate-400">
-                Updated {isRunning ? '08:05 PM' : '—'}
+                Updated {formatUpdatedAt(m.lastUpdateAt ?? m.stateSinceAt)}
               </span>
             </div>
           </button>

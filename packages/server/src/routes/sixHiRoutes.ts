@@ -279,6 +279,7 @@ router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (r
       req.params.batchNo,
       machineCode,
       req.user!.id,
+      { reason: req.body?.reason },
     );
     res.json(order);
   } catch (e: unknown) {
@@ -286,9 +287,59 @@ router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (r
   }
 });
 
+router.get(
+  '/order-assignment',
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
+  async (req, res) => {
+    try {
+      const planDate = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const shiftCode = String(req.query.shift ?? 'A');
+      const board = await SixHiService.getOrderAssignmentBoard(planDate, shiftCode);
+      res.json(board);
+    } catch (e: unknown) {
+      res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load order assignment' });
+    }
+  },
+);
+
+router.post(
+  '/order-assignment/transfer',
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
+  async (req, res) => {
+    try {
+      const batchNumbers: string[] = Array.isArray(req.body?.batchNumbers)
+        ? req.body.batchNumbers.map((b: unknown) => String(b).trim()).filter(Boolean)
+        : req.body?.batchNumber
+          ? [String(req.body.batchNumber).trim()]
+          : [];
+      const machineCode = String(req.body?.machineCode ?? '').trim();
+      const reason = req.body?.reason ? String(req.body.reason) : undefined;
+      if (batchNumbers.length === 0) return res.status(400).json({ error: 'batchNumber or batchNumbers required' });
+      if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
+
+      const transferType = batchNumbers.length > 1 ? 'BULK' : 'SINGLE';
+      const results = await SixHiService.transferMachines(
+        batchNumbers,
+        machineCode,
+        req.user!.id,
+        req.user!.roles,
+        reason,
+        transferType,
+      );
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length === results.length) {
+        return res.status(400).json({ error: failed[0]?.error ?? 'Transfer failed', results });
+      }
+      res.json({ ok: true, results, transferType });
+    } catch (e: unknown) {
+      res.status(400).json({ error: e instanceof Error ? e.message : 'Transfer failed' });
+    }
+  },
+);
+
 router.post('/orders/transfer-machines', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const { batchNumbers, machineCode } = req.body;
+    const { batchNumbers, machineCode, reason } = req.body;
     if (!Array.isArray(batchNumbers) || batchNumbers.length === 0) {
       return res.status(400).json({ error: 'batchNumbers array required' });
     }
@@ -298,7 +349,8 @@ router.post('/orders/transfer-machines', requireSixHi('WRITE'), async (req, res)
       batchNumbers,
       machineCode as any,
       req.user!.id,
-      req.user!.roles
+      req.user!.roles,
+      reason ? String(reason) : undefined,
     );
     res.json({ results });
   } catch (e: unknown) {

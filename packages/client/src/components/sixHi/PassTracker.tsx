@@ -2,6 +2,7 @@ import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { SixHiRollingPass } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
+import { parsePassThickness } from '../../lib/parsePassThickness';
 
 interface PassTrackerProps {
   passes: SixHiRollingPass[];
@@ -56,9 +57,9 @@ export function PassTracker({ passes, onChange, disabled, compact }: PassTracker
                     inputMode="decimal"
                     enterKeyHint="next"
                     autoComplete="off"
-                    step="any"
+                    step="0.0001"
                     value={p.thicknessMm || ''}
-                    onChange={(e) => updatePass(idx, Number(e.target.value))}
+                    onChange={(e) => updatePass(idx, parsePassThickness(e.target.value))}
                     className={`min-h-12 text-lg flex-1 ${isIncreasing ? 'border-warning/50 bg-warning/5' : ''}`}
                     placeholder="mm"
                     disabled={disabled}
@@ -109,9 +110,9 @@ export function PassTracker({ passes, onChange, disabled, compact }: PassTracker
                   inputMode="decimal"
                   enterKeyHint="next"
                   autoComplete="off"
-                  step="any"
+                  step="0.0001"
                   value={p.thicknessMm || ''}
-                  onChange={(e) => updatePass(idx, Number(e.target.value))}
+                  onChange={(e) => updatePass(idx, parsePassThickness(e.target.value))}
                   className={`flex-1 min-h-14 text-lg ${isIncreasing ? 'border-warning/50 bg-warning/5' : ''}`}
                   placeholder="mm"
                   disabled={disabled}

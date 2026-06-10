@@ -62,7 +62,7 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
 
   if (compact) {
     return (
-      <div className="grid grid-cols-2 gap-2 min-h-0 flex-1 h-full">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 min-h-0 flex-1 h-full overflow-hidden">
         <div className="bg-white border border-border rounded-xl p-3 flex flex-col gap-2 min-h-0">
           <h3 className="text-base font-bold text-foreground shrink-0">
             Production{passLabel ? ` · ${passLabel}` : ''}

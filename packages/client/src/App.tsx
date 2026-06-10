@@ -31,12 +31,15 @@ import { AuditTrailView } from './pages/audit/AuditTrailView';
 
 // Admin
 import { MasterDataAdmin } from './pages/admin/MasterDataAdmin';
+import { MachineMasterAdmin } from './pages/admin/MachineMasterAdmin';
 import { PlanningAdmin } from './pages/admin/PlanningAdmin';
 import { UsersAdmin } from './pages/admin/UsersAdmin';
 import { SystemAdmin } from './pages/admin/SystemAdmin';
 import { ValidationRulesAdmin } from './pages/admin/ValidationRulesAdmin';
 import { MachineAssignmentPage } from './pages/admin/MachineAssignmentPage';
 import { RollingImportPage } from './pages/import/RollingImportPage';
+import { OrderAssignmentPage } from './pages/orderAssignment/OrderAssignmentPage';
+import { OrderAssignmentPanel } from './pages/orderAssignment/OrderAssignmentPanel';
 import { MachineComingSoon } from './pages/MachineComingSoon';
 import { UserScopeShell } from './components/UserScopeShell';
 import { UserScopeIndex } from './pages/UserScopeIndex';
@@ -91,6 +94,7 @@ function App() {
           <Route path="defects" element={<PlantDefects />} />
           <Route path="stoppages" element={<PlantStoppages />} />
           <Route path="alerts" element={<PlantAlerts />} />
+          <Route path="order-assignment" element={<OrderAssignmentPanel />} />
         </Route>
         <Route path="/audit" element={<PlantRoute><AuditTrailView /></PlantRoute>} />
         <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
@@ -98,10 +102,12 @@ function App() {
         <Route path="/reports/dpr" element={<SupervisorRoute><DprExport /></SupervisorRoute>} />
 
         <Route path="/import/rolling" element={<MachineHeadRoute><RollingImportPage /></MachineHeadRoute>} />
+        <Route path="/order-assignment" element={<MachineHeadRoute><OrderAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
         <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
+        <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
         <Route path="/admin/system" element={<AdminRoute><SystemAdmin /></AdminRoute>} />
