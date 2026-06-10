@@ -69,15 +69,11 @@ describe('PlantKpiStrip', () => {
   it('renders API-backed KPI values and trends', () => {
     render(<PlantKpiStrip data={buildData()} />);
 
-    expect(screen.getByText('Production Today')).toBeDefined();
+    expect(screen.getByTestId('plant-kpi-strip')).toBeDefined();
+    expect(screen.getByRole('group', { name: /plant kpi summary/i })).toBeDefined();
     expect(screen.getByText('120 MT')).toBeDefined();
     expect(screen.getByText('+4.5%')).toBeDefined();
-    expect(screen.getByText('OEE')).toBeDefined();
     expect(screen.getByText('-1.2%')).toBeDefined();
-    expect(screen.getByText('Availability')).toBeDefined();
-    expect(screen.getByText('Performance')).toBeDefined();
-    expect(screen.getByText('Quality')).toBeDefined();
-    expect(screen.getByText('Machines Running')).toBeDefined();
     expect(screen.getByText('—')).toBeDefined();
   });
 

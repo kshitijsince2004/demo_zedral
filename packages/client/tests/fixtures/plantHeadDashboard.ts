@@ -1,0 +1,78 @@
+import type { ExtendedPlantHeadDashboardData } from '../../src/lib/reportingService';
+
+const defaultKpiStrip = {
+  productionTodayMt: 90,
+  productionTodayTrendPct: 0,
+  oeePct: 85,
+  oeeTrendPct: 0,
+  availabilityPct: 85,
+  availabilityTrendPct: 0,
+  performancePct: 85,
+  performanceTrendPct: 0,
+  qualityPct: 98,
+  qualityTrendPct: 0,
+};
+
+/** Shared fixture aligned with ExtendedPlantHeadDashboardData shape. */
+export function buildExtendedPlantHeadDashboardPayload(
+  overrides: Partial<ExtendedPlantHeadDashboardData> = {},
+): ExtendedPlantHeadDashboardData {
+  return {
+    window: 7,
+    generatedAt: new Date().toISOString(),
+    plantWideOee: 85,
+    oeeTarget: 80,
+    oeeTrend: [{ date: 'Mon', oee: 85 }],
+    productionVsPlan: [
+      {
+        lineId: '6HI',
+        lineName: 'CRM 6HI',
+        planned: 100,
+        actual: 90,
+        attainmentPct: 90,
+        throughput: 90,
+      },
+    ],
+    qualityTrend: [{ date: 'Mon', rejectionRatePct: 2, yieldPct: 98 }],
+    topDefects: [{ defectCode: 'D1', defectName: 'Scratch', count: 3, wowDelta: 0 }],
+    downtimeDrivers: [{ reason: 'Mechanical', totalMinutes: 30, occurrences: 1, type: 'UNPLANNED' }],
+    dailyProduction: [{ date: 'Mon', targetMt: 100, actualMt: 90 }],
+    kpiStrip: defaultKpiStrip,
+    productionToday: 90,
+    productionTarget: 100,
+    productionShift: 90,
+    productionShiftTarget: 100,
+    productionMonth: 90,
+    productionMonthTarget: 100,
+    productionForecast: 100,
+    productionTodayMt: 90,
+    productionTrend: '+0%',
+    shiftProductionMt: 90,
+    overallUtilizationPct: 85,
+    oeePct: 85,
+    runningMachines: 1,
+    breakdownMachines: 0,
+    utilizationPct: 85,
+    availabilityPct: 85,
+    mttrHours: 0,
+    mtbfHours: 0,
+    runningOrders: 1,
+    delayedOrders: 0,
+    defectsToday: 3,
+    defectPct: 2,
+    defectTrend: [],
+    activeAlerts: 0,
+    criticalAlerts: [],
+    opsFeed: [],
+    dailyProduction: [{ date: 'Mon', actual: 90, target: 100 }],
+    weeklyProduction: [],
+    monthlyProduction: [],
+    productionVsTarget: [{ date: 'Mon', targetMt: 100, actualMt: 90 }],
+    defectsByCategory: [{ category: 'Scratch', count: 3 }],
+    downtimeByCategory: [{ category: 'Mechanical', minutes: 30 }],
+    lineAttainment: [
+      { lineId: '6HI', lineName: 'CRM 6HI', plannedMt: 100, actualMt: 90, attainmentPct: 90 },
+    ],
+    ...overrides,
+  };
+}

@@ -69,7 +69,7 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
                 Production vs Target (MT)
               </h3>
-              <div className="h-52">
+              <div className="h-52 min-h-[13rem] w-full" data-testid="production-vs-target-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={data.productionVsTarget} barGap={2}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={C.grid} />
@@ -114,7 +114,7 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
                 OEE Trend (%)
               </h3>
-              <div className="h-36">
+              <div className="h-36 min-h-[9rem] w-full" data-testid="oee-trend-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={data.oeeTrend}>
                     <defs>

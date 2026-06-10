@@ -53,7 +53,12 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div
+      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
+      data-testid="plant-kpi-strip"
+      role="group"
+      aria-label="Plant KPI summary"
+    >
       {kpis.map((kpi) => {
         const isNegative = kpi.trend?.startsWith('-') ?? false;
         const isNeutral = kpi.trend === '0%';

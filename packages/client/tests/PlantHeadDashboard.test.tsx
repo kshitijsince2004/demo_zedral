@@ -1,73 +1,11 @@
+import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { PlantHeadDashboard } from '../src/pages/reports/PlantHeadDashboard';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { reportingService } from '../src/lib/reportingService';
-import React from 'react';
-
-const defaultKpiStrip = {
-  productionTodayMt: 90,
-  productionTodayTrendPct: 0,
-  oeePct: 85,
-  oeeTrendPct: 0,
-  availabilityPct: 85,
-  availabilityTrendPct: 0,
-  performancePct: 85,
-  performanceTrendPct: 0,
-  qualityPct: 98,
-  qualityTrendPct: 0,
-};
-
-const basePayload = {
-  window: 7 as const,
-  generatedAt: new Date().toISOString(),
-  plantWideOee: 85,
-  oeeTarget: 80,
-  oeeTrend: [{ date: 'Mon', oee: 85 }],
-  productionVsPlan: [{ lineId: '6HI', lineName: 'CRM 6HI', planned: 100, actual: 90, attainmentPct: 90, throughput: 90 }],
-  qualityTrend: [{ date: 'Mon', rejectionRatePct: 2, yieldPct: 98 }],
-  topDefects: [{ defectCode: 'D1', defectName: 'Scratch', count: 3, wowDelta: 0 }],
-  downtimeDrivers: [{ reason: 'Mechanical', totalMinutes: 30, occurrences: 1, type: 'UNPLANNED' as const }],
-  dailyProduction: [{ date: 'Mon', targetMt: 100, actualMt: 90 }],
-  kpiStrip: defaultKpiStrip,
-};
-
-const extendedFields = {
-  productionToday: 90,
-  productionTarget: 100,
-  productionShift: 90,
-  productionShiftTarget: 100,
-  productionMonth: 90,
-  productionMonthTarget: 100,
-  productionForecast: 100,
-  productionTodayMt: 90,
-  productionTrend: '+0%',
-  shiftProductionMt: 90,
-  overallUtilizationPct: 85,
-  oeePct: 85,
-  runningMachines: 1,
-  breakdownMachines: 0,
-  utilizationPct: 85,
-  availabilityPct: 85,
-  mttrHours: 0,
-  mtbfHours: 0,
-  runningOrders: 1,
-  delayedOrders: 0,
-  defectsToday: 3,
-  defectPct: 2,
-  defectTrend: [],
-  activeAlerts: 0,
-  criticalAlerts: [],
-  opsFeed: [],
-  dailyProduction: [{ date: 'Mon', actual: 90, target: 100 }],
-  weeklyProduction: [],
-  monthlyProduction: [],
-  productionVsTarget: [{ date: 'Mon', targetMt: 100, actualMt: 90 }],
-  defectsByCategory: [{ category: 'Scratch', count: 3 }],
-  downtimeByCategory: [{ category: 'Mechanical', minutes: 30 }],
-  lineAttainment: [{ lineId: '6HI', lineName: 'CRM 6HI', plannedMt: 100, actualMt: 90, attainmentPct: 90 }],
-};
+import { buildExtendedPlantHeadDashboardPayload } from './fixtures/plantHeadDashboard';
 
 vi.mock('../src/lib/reportingService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/reportingService')>();
@@ -91,69 +29,141 @@ vi.mock('../src/lib/liveService', () => ({
   },
 }));
 
+function renderDashboard() {
+  return render(
+    <MemoryRouter>
+      <PlantHeadDashboard />
+    </MemoryRouter>,
+  );
+}
+
 describe('PlantHeadDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows error state when API fails', async () => {
-    (reportingService.getExtendedPlantHeadDashboard as any).mockRejectedValue(new Error('timeout'));
+  it('shows loading state before dashboard data arrives', async () => {
+    let resolveLoad!: (value: ReturnType<typeof buildExtendedPlantHeadDashboardPayload>) => void;
+    const pending = new Promise<ReturnType<typeof buildExtendedPlantHeadDashboardPayload>>((resolve) => {
+      resolveLoad = resolve;
+    });
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockReturnValue(pending);
 
-    render(
-      <MemoryRouter>
-        <PlantHeadDashboard />
-      </MemoryRouter>,
-    );
+    renderDashboard();
+
+    expect(screen.getByTestId('plant-head-dashboard-loading')).toBeDefined();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true');
+
+    resolveLoad(buildExtendedPlantHeadDashboardPayload());
 
     await waitFor(() => {
-      expect(screen.getByText(/timeout/i)).toBeDefined();
+      expect(screen.getByTestId('plant-head-dashboard')).toBeDefined();
     });
   });
 
-  it('retries after error', async () => {
-    (reportingService.getExtendedPlantHeadDashboard as any)
-      .mockRejectedValueOnce(new Error('500 Server Error'))
-      .mockResolvedValueOnce({
-        ...basePayload,
-        ...extendedFields,
-      });
+  it('shows error state when API fails', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockRejectedValue(new Error('timeout'));
 
-    render(
-      <MemoryRouter>
-        <PlantHeadDashboard />
-      </MemoryRouter>,
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plant-head-dashboard-error')).toBeDefined();
+    });
+
+    expect(screen.getByRole('alert')).toBeDefined();
+    expect(screen.getByText(/timeout/i)).toBeDefined();
+    expect(screen.queryByTestId('plant-head-dashboard')).toBeNull();
+  });
+
+  it('displays server error message from failed fetch', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockRejectedValue(
+      new Error('500 Server Error'),
     );
+
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText(/500 Server Error/i)).toBeDefined();
     });
   });
 
-  it('window selector triggers re-fetch', async () => {
-    (reportingService.getExtendedPlantHeadDashboard as any).mockResolvedValue({
-      ...basePayload,
-      ...extendedFields,
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/plant']}>
-        <Routes>
-          <Route path="/plant" element={<PlantHeadDashboard />} />
-        </Routes>
-      </MemoryRouter>,
+  it('renders command center with KPI strip and chart sections after load', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockResolvedValue(
+      buildExtendedPlantHeadDashboardPayload(),
     );
 
+    renderDashboard();
+
     await waitFor(() => {
-      expect(screen.getByText(/Plant Head Dashboard/i)).toBeDefined();
+      expect(screen.getByTestId('plant-head-dashboard')).toBeDefined();
+    });
+
+    expect(screen.getByRole('main', { name: /plant command center/i })).toBeDefined();
+    expect(screen.getByTestId('plant-kpi-strip')).toBeDefined();
+    expect(screen.getByRole('button', { name: /refresh dashboard/i })).toBeDefined();
+    expect(screen.getByRole('combobox', { name: /reporting time window/i })).toBeDefined();
+    expect(screen.getByText('90 MT')).toBeDefined();
+    expect(screen.getByRole('heading', { name: /production performance/i })).toBeDefined();
+    expect(screen.getByRole('heading', { name: /quality intelligence/i })).toBeDefined();
+    expect(screen.getByRole('heading', { name: /downtime intelligence/i })).toBeDefined();
+    expect(screen.getByTestId('production-vs-target-chart')).toBeDefined();
+    expect(screen.getByTestId('top-defects-chart')).toBeDefined();
+  });
+
+  it('fetches dashboard with default 7-day window on mount', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockResolvedValue(
+      buildExtendedPlantHeadDashboardPayload(),
+    );
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it('window selector triggers re-fetch with updated window', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockResolvedValue(
+      buildExtendedPlantHeadDashboardPayload(),
+    );
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plant-head-dashboard')).toBeDefined();
     });
 
     expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7);
 
-    const select = screen.getByRole('combobox');
-    await userEvent.selectOptions(select, '30');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /reporting time window/i }),
+      '30',
+    );
 
     await waitFor(() => {
       expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(30);
+    });
+  });
+
+  it('refresh button triggers a new fetch', async () => {
+    vi.mocked(reportingService.getExtendedPlantHeadDashboard).mockResolvedValue(
+      buildExtendedPlantHeadDashboardPayload(),
+    );
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plant-head-dashboard')).toBeDefined();
+    });
+
+    const initialCalls = vi.mocked(reportingService.getExtendedPlantHeadDashboard).mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: /refresh dashboard/i }));
+
+    await waitFor(() => {
+      expect(vi.mocked(reportingService.getExtendedPlantHeadDashboard).mock.calls.length).toBeGreaterThan(
+        initialCalls,
+      );
     });
   });
 });

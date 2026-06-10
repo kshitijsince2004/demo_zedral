@@ -71,7 +71,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Top Defects
             </h3>
             {data.defectsByCategory.length > 0 ? (
-              <div className="h-44">
+              <div className="h-44 min-h-[11rem] w-full" data-testid="top-defects-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={data.defectsByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />
@@ -109,7 +109,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Rejection Rate Trend (%)
             </h3>
             {qualityTrendData.length > 0 ? (
-              <div className="h-32">
+              <div className="h-32 min-h-[8rem] w-full" data-testid="rejection-rate-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={qualityTrendData}>
                     <defs>
@@ -159,7 +159,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Downtime by Reason
             </h3>
             {data.downtimeByCategory.length > 0 ? (
-              <div className="h-44">
+              <div className="h-44 min-h-[11rem] w-full" data-testid="downtime-by-reason-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={data.downtimeByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />

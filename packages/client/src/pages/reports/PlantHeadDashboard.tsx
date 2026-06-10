@@ -73,9 +73,15 @@ export function PlantHeadDashboard() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center min-h-[320px]">
+      <div
+        className="flex items-center justify-center min-h-[320px]"
+        data-testid="plant-head-dashboard-loading"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Factory className="w-10 h-10 animate-pulse opacity-40" />
+          <Factory className="w-10 h-10 animate-pulse opacity-40" aria-hidden />
           <span className="text-sm font-medium">Loading Command Center…</span>
         </div>
       </div>
@@ -84,9 +90,9 @@ export function PlantHeadDashboard() {
 
   if (error) {
     return (
-      <div className="flex flex-col gap-6 w-full p-6">
+      <div className="flex flex-col gap-6 w-full p-6" data-testid="plant-head-dashboard-error" role="alert">
         <div className="flex items-start gap-3 p-5 text-red-700 bg-red-50 border border-red-200 rounded-xl">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden />
           <div>
             <div className="font-semibold text-sm mb-1">Failed to load dashboard</div>
             <div className="text-sm">{error}</div>
@@ -102,7 +108,12 @@ export function PlantHeadDashboard() {
   const timeStr = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
-    <div className="flex flex-col w-full h-full pb-6 max-w-screen-2xl mx-auto">
+    <div
+      className="flex flex-col w-full h-full pb-6 max-w-screen-2xl mx-auto"
+      data-testid="plant-head-dashboard"
+      role="main"
+      aria-label="Plant command center"
+    >
 
       {/* Header */}
       <div className="flex justify-end gap-4 mb-3 px-1">
@@ -112,14 +123,16 @@ export function PlantHeadDashboard() {
             type="button"
             onClick={() => load(false)}
             disabled={loading || refreshing}
+            aria-label="Refresh dashboard"
             className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-info' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-info' : ''}`} aria-hidden />
             Refresh
           </button>
           <select
             value={windowDays}
             onChange={(e) => setWindowDays(Number(e.target.value) as 1 | 7 | 30 | 90)}
+            aria-label="Reporting time window"
             className="h-9 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
           >
             <option value={1}>Last 24 Hours</option>
@@ -135,7 +148,7 @@ export function PlantHeadDashboard() {
       <div className="flex flex-col gap-5 min-h-0">
 
         {/* KPI Strip */}
-        <section>
+        <section aria-label="Key performance indicators">
           <PlantKpiStrip data={data} liveKpis={liveKpis} />
         </section>
 
