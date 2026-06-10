@@ -37,7 +37,7 @@ interface SixHiStore {
   setMachineActive: (active: ActiveMachineOrder | null) => void;
   setShiftSummary: (summary: SixHiShiftSummary | null) => void;
   setBusy: (busy: boolean) => void;
-  requestStoppageDialog?: (batchNo: string) => void;
+  requestStoppageDialog?: (batchNo: string) => Promise<void>;
   requestRejectionDialog?: (batchNo: string) => void;
 
   loadPanelOrder: (batchNo: string) => Promise<SixHiOrderDetail | null>;
@@ -58,7 +58,7 @@ const INITIAL_SixHi_STATE = {
   busy: false,
   manualOrderOpen: false,
   queueRefreshToken: 0,
-  requestStoppageDialog: undefined as ((batchNo: string) => void) | undefined,
+  requestStoppageDialog: undefined as ((batchNo: string) => Promise<void>) | undefined,
   requestRejectionDialog: undefined as ((batchNo: string) => void) | undefined,
 };
 
@@ -102,7 +102,10 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       const active = await apiClient.get(`/6hi/active-order?machine=${mc}`);
       set({ machineActive: active });
       if (active?.batchNumber) {
-        await get().loadPanelOrder(active.batchNumber);
+        const { workspaceOpen, workspaceBatch } = get();
+        if (!workspaceOpen || workspaceBatch === active.batchNumber) {
+          await get().loadPanelOrder(active.batchNumber);
+        }
       } else if (!get().workspaceOpen) {
         set({ panelOrder: null });
       }

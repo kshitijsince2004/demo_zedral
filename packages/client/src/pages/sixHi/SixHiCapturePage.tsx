@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Play } from 'lucide-react';
 import useSWR from 'swr';
@@ -10,11 +10,12 @@ import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummary
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
 import { ZButton } from '../../components/primitives/ZButton';
-import { useElapsedTimer } from '../../hooks/useElapsedTimer';
+import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
-import { apiClient } from '../../lib/apiClient';
+import { apiClient, ApiError } from '../../lib/apiClient';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
-import type { SixHiOrderDetail } from '@m1/shared-validation';
+import { canRecordStoppage } from '../../lib/sixHiRuntime';
+import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 
 function orderProductLabel(order: SixHiOrderDetail) {
   const processLabel = order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass';
@@ -23,6 +24,17 @@ function orderProductLabel(order: SixHiOrderDetail) {
 
 function producedMt(order: SixHiOrderDetail) {
   return order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt ?? 0;
+}
+
+function stoppageDisabledReason(order: SixHiOrderDetail | null): string | null {
+  if (!order) return 'No active order';
+  if (order.activeStoppage) return null;
+  if (order.status === 'IN_PROGRESS') return null;
+  if (order.status === 'STOPPAGE') return null;
+  if (order.status === 'PENDING' || order.status === 'PREPARING') {
+    return 'Start production before recording a stoppage';
+  }
+  return 'Stoppage is not available for this order';
 }
 
 export function SixHiCapturePage() {
@@ -40,6 +52,8 @@ export function SixHiCapturePage() {
     refreshMachineState,
     requestStoppageDialog,
   } = useSixHiStore();
+
+  const [stoppageError, setStoppageError] = useState<string | null>(null);
 
   useEffect(() => {
     refreshMachineState();
@@ -59,14 +73,36 @@ export function SixHiCapturePage() {
     if (activeBatch && (!panelOrder || panelOrder.batchNumber !== activeBatch)) {
       loadPanelOrder(activeBatch);
     }
-  }, [activeBatch, panelOrder, loadPanelOrder]);
+  }, [activeBatch, panelOrder?.batchNumber, loadPanelOrder]);
 
   const order = activeBatch && panelOrder?.batchNumber === activeBatch ? panelOrder : null;
 
-  const { data: queueData } = useSWR(machineCode ? `/6hi/queue?machine=${machineCode}` : null, async (url) => {
-    return apiClient.get(url);
-  });
-  const allQueueItems = [...(queueData?.queue ?? queueData ?? [])];
+  const queueDate = formatShiftDate(shiftDate);
+  const queueShift = shiftCode || 'B';
+  const { data: queueData } = useSWR(
+    machineCode ? ['capture-queue', machineCode, queueDate, queueShift] : null,
+    async () => {
+      const params = `machine=${machineCode}&date=${queueDate}&shift=${queueShift}`;
+      const [rolling, skinPass] = await Promise.all([
+        apiClient.get(`/6hi/queue?${params}&subProcess=ROLLING`),
+        apiClient.get(`/6hi/queue?${params}&subProcess=SKIN_PASS`),
+      ]);
+      const merged: SixHiQueueCard[] = [
+        ...(rolling.queue ?? []),
+        ...(skinPass.queue ?? []),
+      ].sort((a, b) => a.queuePosition - b.queuePosition);
+
+      const ctx = rolling.planDate ? rolling : skinPass;
+      if (ctx.planDate) {
+        useShiftStore.setState({
+          shiftDate: formatShiftDate(ctx.planDate),
+          shiftCode: (ctx.shiftCode ?? queueShift) as 'A' | 'B' | 'C',
+        });
+      }
+      return merged;
+    },
+  );
+  const allQueueItems = queueData ?? [];
   const nextOrder =
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber && (q.status === 'PREPARING' || q.status === 'PENDING')) ??
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber);
@@ -77,16 +113,31 @@ export function SixHiCapturePage() {
     { refreshInterval: 15000 },
   );
 
-  const canStartStoppage = order?.status === 'IN_PROGRESS' || (order?.status === 'STOPPAGE' && !order.activeStoppage);
   const hasActiveStoppage = !!order?.activeStoppage;
+  const stoppageAllowed = canRecordStoppage(order);
+  const stoppageReason = stoppageDisabledReason(order);
 
-  const openStoppage = () => {
+  const openStoppage = async () => {
     if (!order?.batchNumber) return;
-    if (!canStartStoppage && !hasActiveStoppage) return;
-    requestStoppageDialog?.(order.batchNumber)?.then(() => mutateShiftStoppages());
+    setStoppageError(null);
+    if (!stoppageAllowed) {
+      setStoppageError(stoppageReason ?? 'Stoppage is not available right now');
+      return;
+    }
+    try {
+      await requestStoppageDialog?.(order.batchNumber);
+      mutateShiftStoppages();
+    } catch (err) {
+      const message = err instanceof ApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : 'Failed to start stoppage';
+      setStoppageError(message);
+    }
   };
 
-  const liveRuntime = useElapsedTimer(order?.status === 'IN_PROGRESS' && !hasActiveStoppage ? order?.prodStartAt : undefined);
+  const netRuntime = useNetProductionTimer(order);
   const { formatted: stoppageTimer } = useLiveTimer(order?.activeStoppage?.startAt, hasActiveStoppage);
 
   const targetMt = order?.ppcWeightMt ?? 0;
@@ -119,18 +170,27 @@ export function SixHiCapturePage() {
           <h1 className="text-xl font-bold text-foreground">Capture</h1>
           <p className="text-sm text-muted-foreground">{machineCode} · Shift {shiftCode} · {formatShiftDate(shiftDate)}</p>
         </div>
-        {order && (canStartStoppage || hasActiveStoppage) && (
+        {order && (
           <ZButton
             variant={hasActiveStoppage ? 'primary' : 'secondary'}
             size="lg"
             className="min-h-12"
-            onClick={openStoppage}
+            disabled={!stoppageAllowed}
+            onClick={() => void openStoppage()}
+            title={!stoppageAllowed ? stoppageReason ?? undefined : undefined}
           >
             <AlertTriangle className="h-5 w-5" />
             {hasActiveStoppage ? 'Manage Stoppage' : 'Stoppage'}
           </ZButton>
         )}
       </div>
+
+      {stoppageError && (
+        <div className="shrink-0 bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3">
+          <p>{stoppageError}</p>
+          <button type="button" className="text-xs underline shrink-0" onClick={() => setStoppageError(null)}>Dismiss</button>
+        </div>
+      )}
 
       {order?.activeStoppage && (
         <div className="shrink-0 bg-destructive/10 border border-destructive/30 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -187,11 +247,25 @@ export function SixHiCapturePage() {
                     ))}
                   </dl>
 
-                  {order.status === 'IN_PROGRESS' && order.prodStartAt && !hasActiveStoppage && (
+                  {order.prodStartAt && netRuntime && (
                     <p className="text-sm text-amber-600 font-semibold">
-                      Runtime: <span className="font-mono">{liveRuntime}</span>
+                      Net Runtime: <span className="font-mono">{netRuntime}</span>
+                      {hasActiveStoppage && <span className="text-destructive ml-2">(paused)</span>}
                     </p>
                   )}
+
+                  <ZButton
+                    variant={hasActiveStoppage ? 'primary' : 'secondary'}
+                    size="lg"
+                    fullWidth
+                    className="min-h-14"
+                    disabled={!stoppageAllowed}
+                    onClick={() => void openStoppage()}
+                    title={!stoppageAllowed ? stoppageReason ?? undefined : undefined}
+                  >
+                    <AlertTriangle className="h-5 w-5" />
+                    {hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage'}
+                  </ZButton>
 
                   <ZButton variant="accent" size="lg" fullWidth className="min-h-14" onClick={() => openWorkspace(order.batchNumber)}>
                     <Play className="h-5 w-5" />

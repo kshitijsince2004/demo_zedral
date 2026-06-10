@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Upload } from 'lucide-react';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { useShiftStore } from '../../store/shiftStore';
+import { formatShiftDate } from '../../lib/dateFormat';
 import {
   adminService,
   type PpcRollingPreviewRow,
@@ -78,7 +79,7 @@ export function PpcRollingImportPanel() {
       if (result.status !== 'FAILED') {
         if (result.synced) {
           useShiftStore.setState({
-            shiftDate: result.synced.planDate,
+            shiftDate: formatShiftDate(result.synced.planDate),
             shiftCode: result.synced.shiftCode as 'A' | 'B' | 'C',
           });
         }

@@ -40,20 +40,21 @@ export class SixHiService {
 
   static async ensureActiveShiftLog(userId: number, planDate?: Date, shiftCode?: string): Promise<string> {
     const processId = await this.getProcessId();
-    const today = planDate ?? new Date();
+    const prodDate = planDate ?? new Date();
     const shift = shiftCode ?? 'B';
 
     let active = await db.selectFrom('txn.shift_log')
       .select('shift_log_id')
       .where('process_id', '=', processId)
       .where('state', '=', ShiftLogState.DRAFT)
-      .orderBy('prod_date', 'desc')
+      .where('prod_date', '=', prodDate)
+      .where('shift_code', '=', shift)
       .executeTakeFirst();
 
     if (!active) {
       const id = await ShiftLogService.create({
         processId,
-        productionDate: today,
+        productionDate: prodDate,
         shiftCode: shift,
         supervisorId: userId,
       });
@@ -62,44 +63,110 @@ export class SixHiService {
     return String(active.shift_log_id);
   }
 
-  static formatPlanDate(value: Date | string): string {
-    const d = value instanceof Date ? value : new Date(value);
-    return d.toISOString().slice(0, 10);
+  private static async totalStoppageMinutes(orderId: number | string, asOf: Date = new Date()): Promise<number> {
+    const id = Number(orderId);
+    const stops = await db.selectFrom('txn.order_stoppage')
+      .select(['start_at', 'end_at', 'duration_min'])
+      .where('order_id', '=', id)
+      .execute();
+    let total = 0;
+    for (const s of stops) {
+      if (s.duration_min != null) {
+        total += s.duration_min;
+      } else if (s.end_at) {
+        total += Math.round((s.end_at.getTime() - s.start_at.getTime()) / 60000);
+      } else {
+        total += Math.round((asOf.getTime() - s.start_at.getTime()) / 60000);
+      }
+    }
+    return total;
   }
 
-  /** Resolve plan date + shift when the UI shift context does not match seeded PPC rows. */
-  static async resolveQueueContext(
+  private static async assertNoOpenStoppage(orderId: number | string): Promise<void> {
+    const id = Number(orderId);
+    const open = await db.selectFrom('txn.order_stoppage')
+      .select(db.fn.count('stoppage_id').as('c'))
+      .where('order_id', '=', id)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+    if (Number(open?.c ?? 0) > 0) {
+      throw new Error('End the active stoppage before continuing');
+    }
+  }
+
+  static formatPlanDate(value: Date | string): string {
+    const d = value instanceof Date ? value : this.toPlanDate(value);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** Parse YYYY-MM-DD as a local calendar date (avoids UTC timezone drift). */
+  static toPlanDate(value: string | Date): Date {
+    if (value instanceof Date) return value;
+    const raw = String(value).slice(0, 10);
+    const [y, m, d] = raw.split('-').map(Number);
+    if (!y || !m || !d) return new Date(value);
+    return new Date(y, m - 1, d);
+  }
+
+  private static async countMachineBatches(
+    planDate: string,
+    shiftCode: string,
+    machineCode: string,
+    subProcess?: SixHiSubProcess,
+  ): Promise<number> {
+    let query = db.selectFrom('planning.ppc_batch')
+      .select(db.fn.count('batch_id').as('n'))
+      .where('plan_date', '=', this.toPlanDate(planDate))
+      .where('shift_code', '=', shiftCode)
+      .where('machine_code', '=', machineCode)
+      .where('machine_allocated', '=', true);
+    if (subProcess) {
+      query = query.where('sub_process', '=', subProcess);
+    }
+    const row = await query.executeTakeFirst();
+    return Number(row?.n ?? 0);
+  }
+
+  private static async countAllocatedBatches(
     planDate: string,
     shiftCode: string,
     subProcess: SixHiSubProcess,
-    machineCode: string = '6HI',
-  ): Promise<{ planDate: string; shiftCode: string }> {
-    const direct = await db.selectFrom('planning.ppc_batch')
-      .select(['plan_date', 'shift_code'])
-      .where('plan_date', '=', new Date(planDate))
-      .where('shift_code', '=', shiftCode)
-      .where('machine_code', '=', machineCode)
-      .where('sub_process', '=', subProcess)
-      .limit(1)
-      .executeTakeFirst();
-    if (direct) return { planDate, shiftCode };
+    machineCode: string,
+  ): Promise<number> {
+    return this.countMachineBatches(planDate, shiftCode, machineCode, subProcess);
+  }
 
-    const sameDate = await db.selectFrom('planning.ppc_batch')
-      .select(['plan_date', 'shift_code'])
-      .where('plan_date', '=', new Date(planDate))
+  /** Resolve plan date + shift for a machine (all sub-processes). Used by machine head + operator queue. */
+  static async resolveMachinePlanContext(
+    planDate: string,
+    shiftCode: string,
+    machineCode: string,
+  ): Promise<{ planDate: string; shiftCode: string }> {
+    if (await this.countMachineBatches(planDate, shiftCode, machineCode) > 0) {
+      return { planDate, shiftCode };
+    }
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
+      .select(['shift_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', this.toPlanDate(planDate))
       .where('machine_code', '=', machineCode)
-      .where('sub_process', '=', subProcess)
-      .orderBy('queue_seq', 'asc')
-      .limit(1)
-      .executeTakeFirst();
-    if (sameDate) {
-      return { planDate, shiftCode: sameDate.shift_code };
+      .where('machine_allocated', '=', true)
+      .groupBy('shift_code')
+      .orderBy('shift_code', 'asc')
+      .execute();
+    for (const row of sameDateShifts) {
+      if (Number(row.n ?? 0) > 0) {
+        return { planDate, shiftCode: row.shift_code };
+      }
     }
 
     const latest = await db.selectFrom('planning.ppc_batch')
       .select(['plan_date', 'shift_code'])
       .where('machine_code', '=', machineCode)
-      .where('sub_process', '=', subProcess)
+      .where('machine_allocated', '=', true)
       .orderBy('plan_date', 'desc')
       .orderBy('queue_seq', 'asc')
       .limit(1)
@@ -111,6 +178,55 @@ export class SixHiService {
       };
     }
     return { planDate, shiftCode };
+  }
+
+  /** Resolve plan date + shift when the UI shift context does not match seeded PPC rows. */
+  static async resolveQueueContext(
+    planDate: string,
+    shiftCode: string,
+    subProcess: SixHiSubProcess,
+    machineCode: string = '6HI',
+  ): Promise<{ planDate: string; shiftCode: string }> {
+    const machineCtx = await this.resolveMachinePlanContext(planDate, shiftCode, machineCode);
+    if (await this.countAllocatedBatches(machineCtx.planDate, machineCtx.shiftCode, subProcess, machineCode) > 0) {
+      return machineCtx;
+    }
+
+    if (await this.countAllocatedBatches(planDate, shiftCode, subProcess, machineCode) > 0) {
+      return { planDate, shiftCode };
+    }
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
+      .select(['shift_code', db.fn.count('batch_id').as('n')])
+      .where('plan_date', '=', this.toPlanDate(planDate))
+      .where('machine_code', '=', machineCode)
+      .where('sub_process', '=', subProcess)
+      .where('machine_allocated', '=', true)
+      .groupBy('shift_code')
+      .orderBy('shift_code', 'asc')
+      .execute();
+    for (const row of sameDateShifts) {
+      if (Number(row.n ?? 0) > 0) {
+        return { planDate, shiftCode: row.shift_code };
+      }
+    }
+
+    const latest = await db.selectFrom('planning.ppc_batch')
+      .select(['plan_date', 'shift_code'])
+      .where('machine_code', '=', machineCode)
+      .where('sub_process', '=', subProcess)
+      .where('machine_allocated', '=', true)
+      .orderBy('plan_date', 'desc')
+      .orderBy('queue_seq', 'asc')
+      .limit(1)
+      .executeTakeFirst();
+    if (latest?.plan_date) {
+      return {
+        planDate: this.formatPlanDate(latest.plan_date),
+        shiftCode: latest.shift_code,
+      };
+    }
+    return machineCtx;
   }
 
   /** @deprecated Use resolveQueueContext */
@@ -228,7 +344,7 @@ export class SixHiService {
 
     const batches = await db.selectFrom('planning.ppc_batch as pb')
       .selectAll('pb')
-      .where('pb.plan_date', '=', new Date(effectiveDate))
+      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
       .where('pb.shift_code', '=', effectiveShift)
       .where('pb.machine_code', '=', machineCode)
       .where('pb.sub_process', '=', subProcess)
@@ -239,7 +355,7 @@ export class SixHiService {
 
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
       .selectAll('pb')
-      .where('pb.plan_date', '=', new Date(effectiveDate))
+      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
       .where('pb.shift_code', '=', effectiveShift)
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
@@ -468,7 +584,7 @@ export class SixHiService {
 
     const remarks = await db.selectFrom('txn.order_remark as r')
       .leftJoin('security.app_user as u', 'r.operator_id', 'u.user_id')
-      .select(['r.remark_id', 'r.text', 'r.created_at', 'u.full_name'])
+      .select(['r.remark_id', 'r.text', 'r.created_at', 'r.defect_codes', 'u.full_name'])
       .where('r.order_id', '=', order.order_id)
       .orderBy('r.created_at', 'asc')
       .execute();
@@ -586,6 +702,9 @@ export class SixHiService {
         text: r.text,
         createdAt: r.created_at.toISOString(),
         operatorName: r.full_name ?? undefined,
+        defects: r.defect_codes
+          ? (typeof r.defect_codes === 'string' ? JSON.parse(r.defect_codes) : r.defect_codes)
+          : undefined,
       })),
       stoppages: stoppages.map((s) => ({
         id: String(s.stoppage_id),
@@ -642,14 +761,40 @@ export class SixHiService {
     if (active && active.batchNumber !== batchNumber) {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
     }
-    const orderId = await this.ensureOrder(batchNumber, userId);
+
+    const orderRow = await db.selectFrom('txn.crm6_order')
+      .select(['order_id', 'status', 'coil_no'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!orderRow) {
+      await this.ensureOrder(batchNumber, userId);
+    }
+    const orderId = orderRow?.order_id ?? await this.ensureOrder(batchNumber, userId);
+    const status = orderRow?.status ?? 'PENDING';
+
+    if (status === 'IN_PROGRESS') {
+      return this.getOrder(batchNumber, userId);
+    }
+    if (status === 'STOPPAGE') {
+      await this.assertNoOpenStoppage(orderId);
+      await db.updateTable('txn.crm6_order')
+        .set({ status: 'IN_PROGRESS', updated_at: new Date() })
+        .where('order_id', '=', orderId)
+        .execute();
+      return this.getOrder(batchNumber, userId);
+    }
+    if (status !== 'PENDING' && status !== 'PREPARING') {
+      throw new Error('Only pending or preparing orders can be started');
+    }
+
     await db.updateTable('txn.crm6_order')
       .set({ status: 'IN_PROGRESS', prod_start_at: new Date(), updated_at: new Date() })
       .where('order_id', '=', orderId)
       .execute();
+    const coilNo = orderRow?.coil_no ?? (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
     await db.updateTable('coil.coil')
       .set({ status: 'IN_PROCESS' })
-      .where('coil_no', '=', (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no)
+      .where('coil_no', '=', coilNo)
       .execute();
 
     // Persist machine state event: IDLE_ENDED → RUNNING_STARTED
@@ -673,10 +818,17 @@ export class SixHiService {
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
     const order = await db.selectFrom('txn.crm6_order').selectAll().where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
+    if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
+      throw new Error('Only running orders can be completed');
+    }
+    await this.assertNoOpenStoppage(order.order_id);
+
     const endAt = new Date();
     let durationMin: number | null = null;
     if (order.prod_start_at) {
-      durationMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
+      const totalStoppageMin = await this.totalStoppageMinutes(order.order_id, endAt);
+      const wallMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
+      durationMin = Math.max(0, wallMin - totalStoppageMin);
     }
     await db.updateTable('txn.crm6_order')
       .set({
@@ -943,6 +1095,11 @@ export class SixHiService {
   }
 
   static async getShiftStoppages(shiftLogId: string, machineCode?: string) {
+    const shiftLog = await db.selectFrom('txn.shift_log')
+      .select(['prod_date', 'shift_code'])
+      .where('shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+
     let query = db.selectFrom('txn.order_stoppage as os')
       .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -958,8 +1115,21 @@ export class SixHiService {
         'os.remarks',
         'o.batch_number',
       ])
-      .where('o.shift_log_id', '=', shiftLogId)
       .orderBy('os.start_at', 'desc');
+
+    query = query.where((eb) => {
+      const byShiftLog = eb('o.shift_log_id', '=', shiftLogId);
+      if (shiftLog) {
+        return eb.or([
+          byShiftLog,
+          eb.and([
+            eb('pb.plan_date', '=', shiftLog.prod_date),
+            eb('pb.shift_code', '=', shiftLog.shift_code),
+          ]),
+        ]);
+      }
+      return byShiftLog;
+    });
 
     if (machineCode) {
       query = query.where('pb.machine_code', '=', machineCode);
@@ -1126,8 +1296,14 @@ export class SixHiService {
       .executeTakeFirst();
     
     if (activeStoppage) {
+      const stop = await db.selectFrom('txn.order_stoppage')
+        .selectAll()
+        .where('stoppage_id', '=', activeStoppage.stoppage_id)
+        .executeTakeFirstOrThrow();
+      const endAt = new Date();
+      const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
       await db.updateTable('txn.order_stoppage')
-        .set({ end_at: new Date() })
+        .set({ end_at: endAt, duration_min: durationMin })
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .execute();
     }

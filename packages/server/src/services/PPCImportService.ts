@@ -518,14 +518,35 @@ export class PPCImportService {
       .filter((r) => !errors.some((e) => e.row === r.rowNum))
       .map((r) => r.batchNumber);
 
+    if (loaded > 0) {
+      const { SixHiService } = await import('./SixHiService');
+      const contexts = new Set<string>();
+      for (const row of rowsToCommit) {
+        if (row.errors.length > 0 || errors.some((e) => e.row === row.rowNum)) continue;
+        contexts.add(`${row.planDate}|${row.shiftCode}`);
+      }
+      for (const ctx of contexts) {
+        const [planDate, shift] = ctx.split('|');
+        await SixHiService.ensureActiveShiftLog(
+          userId,
+          SixHiService.toPlanDate(planDate),
+          shift,
+        );
+      }
+    }
+
+    const firstSynced = rowsToCommit.find(
+      (r) => r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
+    );
+
     return {
       loaded,
       errors,
       status,
       synced: loaded > 0
         ? {
-            planDate: session.planDate,
-            shiftCode: session.shiftCode,
+            planDate: firstSynced?.planDate ?? session.planDate,
+            shiftCode: firstSynced?.shiftCode ?? session.shiftCode,
             machines: [...new Set(syncedRows.map((r) => r.machineCode))],
             batchNumbers: syncedBatchNumbers.slice(0, loaded),
           }

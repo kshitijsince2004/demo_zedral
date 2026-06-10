@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { Clock, MessageSquare, Play, Square } from 'lucide-react';
+import { Ban, Clock, MessageSquare, Play, Square } from 'lucide-react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
@@ -65,9 +65,9 @@ export function SixHiProductionActionRail({
 }: SixHiProductionActionRailProps) {
   const preparing = isPreparing(order, workspaceOpen, workspaceBatch);
   const hasActiveStoppage = !!order.activeStoppage;
-  const canStart = (order.status === 'PENDING' || order.status === 'PREPARING' || order.status === 'STOPPAGE')
-    && !hasActiveStoppage;
-  const canEnd = order.status === 'IN_PROGRESS' || (order.status === 'STOPPAGE' && !hasActiveStoppage);
+  const canStart = (order.status === 'PENDING' || order.status === 'PREPARING') && !hasActiveStoppage;
+  const canResume = order.status === 'STOPPAGE' && !hasActiveStoppage;
+  const canEnd = order.status === 'IN_PROGRESS' || canResume;
   const canReject = order.status !== 'COMPLETED' && order.status !== 'REJECTED';
 
   const runtimeLabel = order.prodDurationMin
@@ -102,12 +102,15 @@ export function SixHiProductionActionRail({
         {canStart && (
           <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />
         )}
+        {canResume && (
+          <RailButton label="Resume" icon={Play} onClick={onStart} disabled={busy} variant="start" />
+        )}
         {canEnd && (
           <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
         )}
         <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         {canReject && (
-          <RailButton label="Reject" icon={Square} onClick={onReject} disabled={busy} variant="end" />
+          <RailButton label="Reject" icon={Ban} onClick={onReject} disabled={busy} variant="warn" />
         )}
       </div>
 

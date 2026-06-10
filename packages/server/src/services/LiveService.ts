@@ -12,6 +12,7 @@ import type {
 import { db } from '../db';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
+const QUEUE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED'] as const;
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 
 function mapSixHiStatus(raw: string, prepReady?: boolean): LiveOrderRow['status'] {
@@ -69,7 +70,38 @@ export class LiveService {
     return [];
   }
 
-  static async getActiveOrders(machineFilter: string[] | null): Promise<LiveOrderRow[]> {
+  static async getActiveOrders(
+    machineFilter: string[] | null,
+    planDate?: string,
+    shiftCode?: string,
+  ): Promise<LiveOrderRow[]> {
+    const { SixHiService } = await import('./SixHiService');
+    const defaultDate = planDate ?? new Date().toISOString().slice(0, 10);
+    const defaultShift = shiftCode ?? 'B';
+
+    let machines: string[];
+    if (machineFilter === null) {
+      const rows = await db.selectFrom('planning.ppc_batch')
+        .select('machine_code')
+        .where('machine_allocated', '=', true)
+        .groupBy('machine_code')
+        .execute();
+      machines = rows.map((r) => r.machine_code);
+    } else if (machineFilter.length === 0) {
+      return [];
+    } else {
+      machines = machineFilter;
+    }
+
+    const machineContexts = await Promise.all(
+      machines.map(async (machineCode) => {
+        const ctx = await SixHiService.resolveMachinePlanContext(defaultDate, defaultShift, machineCode);
+        return { machineCode, ...ctx };
+      }),
+    );
+
+    if (machineContexts.length === 0) return [];
+
     let q = db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
@@ -87,6 +119,8 @@ export class LiveService {
         'pb.destination',
         'pb.coil_no',
         'pb.shift_code',
+        'pb.plan_date',
+        'pb.queue_seq',
         'o.status',
         'o.prod_start_at',
         'o.prod_duration_min',
@@ -94,27 +128,32 @@ export class LiveService {
         'r.total_passes',
         's.output_thk_mm',
       ])
+      .where('pb.machine_allocated', '=', true)
+      .where((eb) =>
+        eb.or(
+          machineContexts.map((ctx) =>
+            eb.and([
+              eb('pb.machine_code', '=', ctx.machineCode),
+              eb('pb.plan_date', '=', SixHiService.toPlanDate(ctx.planDate)),
+              eb('pb.shift_code', '=', ctx.shiftCode),
+            ]),
+          ),
+        ),
+      )
       .where((eb) =>
         eb.or([
-          eb('o.status', 'in', [...ACTIVE_STATUSES]),
+          eb('o.status', 'in', [...QUEUE_STATUSES]),
           eb('o.status', 'is', null),
         ]),
-      )
-      .where('pb.machine_allocated', '=', true);
+      );
 
-    if (machineFilter !== null) {
-      if (machineFilter.length === 0) return [];
-      q = q.where('pb.machine_code', 'in', machineFilter);
-    }
-
-    const rows = await q.orderBy('pb.queue_seq', 'asc').execute();
+    const rows = await q.orderBy('pb.queue_seq', 'asc').orderBy('pb.batch_number', 'asc').execute();
 
     const filtered = rows
       .filter((r) => {
         const st = r.status ?? 'PENDING';
-        return ACTIVE_STATUSES.includes(st as typeof ACTIVE_STATUSES[number]) || st === 'PENDING';
-      })
-      .filter((r) => r.status !== 'COMPLETED');
+        return QUEUE_STATUSES.includes(st as typeof QUEUE_STATUSES[number]) || st === 'PENDING';
+      });
 
     const orders: LiveOrderRow[] = [];
     for (const r of filtered) {
@@ -395,10 +434,17 @@ export class LiveService {
       weightMt: Number(row.ppc_weight_mt),
     };
   }
+  static async getShiftQueueContext(userId: number): Promise<{ planDate: string; shiftCode: string }> {
+    const { ShiftDetectionService } = await import('./ShiftDetectionService');
+    const current = await ShiftDetectionService.getCurrentShift({ userId });
+    return { planDate: current.prodDate, shiftCode: current.shiftCode };
+  }
+
   static async getSnapshot(userId: number, roles: string[]): Promise<LiveSnapshot> {
     const machineFilter = await this.getMachineScope(userId, roles);
     const machines = await this.getMachineCards(machineFilter);
-    const orders = await this.getActiveOrders(machineFilter);
+    const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
 
     const running = machines.filter((m) => m.status === 'RUNNING').length;
     const idle = machines.filter((m) => m.status === 'IDLE').length;
@@ -551,15 +597,18 @@ export class LiveService {
     roles: string[],
   ): Promise<MachineHeadDashboardData> {
     const machineFilter = await this.getMachineScope(userId, roles);
-    const orders = await this.getActiveOrders(machineFilter);
+    const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const { SixHiService } = await import('./SixHiService');
+    const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
     const machines = await this.getMachineCards(machineFilter);
-    const today = new Date().toISOString().slice(0, 10);
-    const shiftCode = orders[0]?.shiftCode ?? 'B';
+
+    const primaryMachine = machineFilter?.[0] ?? orders[0]?.machineCode ?? '6HI';
+    const queueCtx = await SixHiService.resolveMachinePlanContext(planDate, shiftCode, primaryMachine);
 
     const shiftLog = await db.selectFrom('txn.shift_log')
       .select(['target_mt'])
-      .where('prod_date', '=', new Date(today))
-      .where('shift_code', '=', shiftCode)
+      .where('prod_date', '=', SixHiService.toPlanDate(queueCtx.planDate))
+      .where('shift_code', '=', queueCtx.shiftCode)
       .where('process_id', '=', 31)
       .executeTakeFirst();
 
@@ -596,7 +645,7 @@ export class LiveService {
       if (machineFilter.length === 0) {
         return {
           orderQueue: [],
-          shiftSummary: { shiftCode: 'B', planDate: today, targetMt: 0, actualMt: 0, orderCount: 0 },
+          shiftSummary: { shiftCode: queueCtx.shiftCode, planDate: queueCtx.planDate, targetMt: 0, actualMt: 0, orderCount: 0 },
           utilization: [],
           stoppages: [],
           operatorActivity: [],
@@ -616,8 +665,8 @@ export class LiveService {
     return {
       orderQueue: orders,
       shiftSummary: {
-        shiftCode,
-        planDate: today,
+        shiftCode: queueCtx.shiftCode,
+        planDate: queueCtx.planDate,
         targetMt: Number(shiftLog?.target_mt ?? 0),
         actualMt: Math.round(actualMt * 10) / 10,
         orderCount: orders.length,

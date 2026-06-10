@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
+import { ApiError } from '../lib/apiClient';
 import { machineHandoverService, type PendingHandover } from '../services/machineHandoverService';
 import { HandoverAcceptPage } from '../pages/sixHi/HandoverAcceptPage';
 import { ZButton } from './primitives/ZButton';
@@ -11,6 +13,8 @@ interface HandoverAcceptGateProps {
 
 /** Blocks CRM workspace until incoming operator accepts pending handover. */
 export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGateProps) {
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
   const [pending, setPending] = useState<PendingHandover | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const machineAccess = useAuthStore((s) => s.machineAccess);
@@ -26,9 +30,14 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
       const { pending: p } = await machineHandoverService.getPending(machineCode);
       setPending(p);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        logout();
+        navigate('/login', { replace: true });
+        return;
+      }
       setLoadError(err instanceof Error ? err.message : 'Failed to check handover status');
     }
-  }, [machineCode, machineAccess]);
+  }, [machineCode, machineAccess, logout, navigate]);
 
   useEffect(() => {
     void checkPending();

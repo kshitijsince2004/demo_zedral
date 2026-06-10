@@ -66,7 +66,7 @@ export function MachineHeadDashboard() {
       title="Machine Dashboard"
       subtitle={
         machineAccess.length > 0
-          ? `Assigned: ${machineAccess.join(', ')}`
+          ? `Assigned: ${machineAccess.join(', ')}${dashboard?.shiftSummary ? ` · Plan ${dashboard.shiftSummary.planDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
           : 'No machines assigned — contact Plant Head'
       }
       onRefresh={load}
@@ -88,14 +88,17 @@ export function MachineHeadDashboard() {
 
       {dashboard && (
         <>
-          <Section title="Order Queue" empty={dashboard.orderQueue.length === 0}>
+          <Section title="Order Queue (Rolling + Skin Pass)" empty={dashboard.orderQueue.length === 0}>
             {dashboard.orderQueue.length > 0 && (
               <ul className="text-sm border border-border rounded-xl divide-y divide-border">
-                {dashboard.orderQueue.slice(0, 8).map((o) => (
-                  <li key={o.batchNumber} className="px-3 py-2 flex justify-between gap-2">
-                    <span className="font-mono text-primary">{o.batchNumber}</span>
+                {dashboard.orderQueue.slice(0, 12).map((o) => (
+                  <li key={o.batchNumber} className="px-3 py-2 flex justify-between gap-2 items-center">
+                    <span className="font-mono text-primary shrink-0">{o.batchNumber}</span>
                     <span className="text-muted-foreground truncate">{o.customer}</span>
-                    <span>{o.status}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : o.subProcess === 'ROLLING' ? 'Rolling' : o.currentProcess}
+                    </span>
+                    <span className="text-xs font-semibold shrink-0">{o.status}</span>
                   </li>
                 ))}
               </ul>
@@ -103,7 +106,11 @@ export function MachineHeadDashboard() {
           </Section>
 
           <Section title="Shift Summary">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+              <div className="border border-border rounded-xl p-3">
+                <p className="text-muted-foreground text-xs">Plan Date</p>
+                <p className="font-mono font-semibold">{dashboard.shiftSummary.planDate}</p>
+              </div>
               <div className="border border-border rounded-xl p-3">
                 <p className="text-muted-foreground text-xs">Shift</p>
                 <p className="font-semibold">{dashboard.shiftSummary.shiftCode}</p>

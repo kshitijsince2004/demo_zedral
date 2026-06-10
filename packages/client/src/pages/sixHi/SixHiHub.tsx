@@ -67,6 +67,7 @@ export function SixHiHub() {
   const [allocBatches, setAllocBatches] = useState<SixHiQueueCard[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [queueError, setQueueError] = useState<string | null>(null);
   
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
@@ -96,13 +97,17 @@ export function SixHiHub() {
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
+    setQueueError(null);
     try {
       const res = await apiClient.get(
         `/6hi/queue?subProcess=${apiSubProcess}&date=${date}&shift=${shift}&machine=${queueMachine}`,
       );
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       if (!Array.isArray(res) && res.planDate) {
-        useShiftStore.setState({ shiftDate: res.planDate, shiftCode: res.shiftCode ?? shift });
+        useShiftStore.setState({
+          shiftDate: res.planDate,
+          shiftCode: (res.shiftCode ?? shift) as 'A' | 'B' | 'C',
+        });
       }
       setQueue(items);
     } catch (err) {
@@ -110,6 +115,11 @@ export function SixHiHub() {
         logout();
         navigate('/login', { replace: true });
         return;
+      }
+      if (err instanceof ApiError) {
+        setQueueError(err.message || `Queue unavailable (${err.status})`);
+      } else {
+        setQueueError(err instanceof Error ? err.message : 'Failed to load queue');
       }
       setQueue([]);
     } finally {
@@ -211,6 +221,12 @@ export function SixHiHub() {
           </div>
         }
       />
+
+      {queueError && (
+        <div className="shrink-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {queueError}
+        </div>
+      )}
 
       <div className="shrink-0 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-xl">

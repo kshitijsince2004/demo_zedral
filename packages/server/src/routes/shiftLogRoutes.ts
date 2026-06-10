@@ -11,6 +11,7 @@ import {
   ShiftLogValidationService,
 } from '../services/shiftLogValidationService';
 import { OverrideRequest } from '../services/overrideService';
+import { SixHiService } from '../services/SixHiService';
 
 function validationErrorResponse(error: unknown) {
   if (error instanceof ShiftLogValidationGateError) {
@@ -130,12 +131,41 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
     const process = await db.selectFrom('master.process').select('process_id').where('code', '=', processCode).executeTakeFirst();
     if (!process) return res.status(404).json({ error: 'Process not found' });
 
-    const activeLog = await db.selectFrom('txn.shift_log')
-      .selectAll()
-      .where('process_id', '=', process.process_id)
-      .where('state', '=', 'DRAFT')
-      .orderBy('prod_date', 'desc')
-      .executeTakeFirst();
+    const requestedDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
+    const requestedShift = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
+
+    let activeLog;
+
+    if (requestedDate && requestedShift) {
+      activeLog = await db.selectFrom('txn.shift_log')
+        .selectAll()
+        .where('process_id', '=', process.process_id)
+        .where('state', '=', 'DRAFT')
+        .where('prod_date', '=', SixHiService.toPlanDate(requestedDate))
+        .where('shift_code', '=', requestedShift)
+        .executeTakeFirst();
+    }
+
+    if (!activeLog) {
+      activeLog = await db.selectFrom('txn.shift_log')
+        .selectAll()
+        .where('process_id', '=', process.process_id)
+        .where('state', '=', 'DRAFT')
+        .orderBy('prod_date', 'desc')
+        .executeTakeFirst();
+    }
+
+    if (!activeLog && requestedDate && requestedShift && processCode === '6HI' && req.user) {
+      const shiftLogId = await SixHiService.ensureActiveShiftLog(
+        req.user.id,
+        SixHiService.toPlanDate(requestedDate),
+        requestedShift,
+      );
+      activeLog = await db.selectFrom('txn.shift_log')
+        .selectAll()
+        .where('shift_log_id', '=', shiftLogId)
+        .executeTakeFirst();
+    }
 
     if (!activeLog) return res.status(404).json({ error: 'No active shift found' });
 

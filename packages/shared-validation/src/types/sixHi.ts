@@ -1,6 +1,6 @@
 /** 6HI production order statuses */
 
-export type SixHiOrderStatus = 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'STOPPAGE' | 'COMPLETED';
+export type SixHiOrderStatus = 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'STOPPAGE' | 'COMPLETED' | 'REJECTED';
 
 
 
@@ -115,6 +115,12 @@ export interface SixHiOrderRemark {
   createdAt: string;
 
   operatorName?: string;
+
+  defects?: {
+    defectCode: string;
+    quantityAffected?: number;
+    remarks?: string;
+  }[];
 
 }
 

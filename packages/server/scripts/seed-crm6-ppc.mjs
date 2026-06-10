@@ -15,11 +15,11 @@ const DEFAULT_URL =
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
 /**
- * Create sample skin-pass production orders (with capture data) for operator UI demos.
+ * Create PENDING crm6_order rows for allocated PPC batches (rolling + skin pass).
  * @param {pg.Client} client
- * @param {{ planDate: string, shiftCode: string, operatorUserId?: number | null }} ctx
+ * @param {{ planDate: string, shiftCode: string, operatorUserId?: number | null, subProcess: 'ROLLING' | 'SKIN_PASS', limit?: number }} ctx
  */
-async function seedSkinPassProductionDemos(client, ctx) {
+async function seedPendingQueueOrders(client, ctx) {
   const shiftLog = await client.query(
     `SELECT shift_log_id FROM txn.shift_log
      WHERE process_id = 31 AND prod_date = $1::date AND shift_code = $2 AND mill_type IS NULL`,
@@ -38,103 +38,32 @@ async function seedSkinPassProductionDemos(client, ctx) {
 
   const batches = await client.query(
     `SELECT batch_id, batch_number, coil_no, slit_id, customer_name, grade_code,
-            width_mm, input_thk_mm, ppc_thk_mm, ppc_weight_mt
+            width_mm, input_thk_mm, ppc_thk_mm, ppc_weight_mt, sub_process
      FROM planning.ppc_batch
      WHERE plan_date = $1::date AND shift_code = $2
-       AND machine_code = '6HI' AND sub_process = 'SKIN_PASS'
+       AND machine_code = '6HI' AND sub_process = $3 AND machine_allocated = TRUE
      ORDER BY queue_seq
-     LIMIT 6`,
-    [ctx.planDate, ctx.shiftCode],
+     LIMIT $4`,
+    [ctx.planDate, ctx.shiftCode, ctx.subProcess, ctx.limit ?? 8],
   );
 
-  const now = new Date();
-  const started = new Date(now.getTime() - 45 * 60 * 1000);
-  const ended = new Date(now.getTime() - 10 * 60 * 1000);
-
-  /** @type {Array<{ status: string, prodStart?: Date, prodEnd?: Date, durationMin?: number, skin: Record<string, unknown> }>} */
-  const demos = [
-    {
-      status: 'COMPLETED',
-      prodStart: started,
-      prodEnd: ended,
-      durationMin: 35,
-      skin: {
-        actual_weight_mt: 15.2,
-        output_thk_mm: 0.58,
-        ann_hard: 65,
-        operating_mode: 'LOAD',
-        load_min_t: 12,
-        load_max_t: 18,
-      },
-    },
-    {
-      status: 'IN_PROGRESS',
-      prodStart: new Date(now.getTime() - 20 * 60 * 1000),
-      skin: {
-        actual_weight_mt: 14.5,
-        output_thk_mm: 0.62,
-        rw_tension_1: 45,
-        rw_tension_2: 42,
-        operating_mode: 'STRETCH',
-        stretch_pct: 0.8,
-      },
-    },
-    {
-      status: 'PENDING',
-      skin: { output_thk_mm: 0.59, ann_hard: 62 },
-    },
-    {
-      status: 'PENDING',
-      skin: {},
-    },
-    {
-      status: 'STOPPAGE',
-      prodStart: new Date(now.getTime() - 30 * 60 * 1000),
-      skin: {
-        actual_weight_mt: 13.8,
-        output_thk_mm: 0.55,
-        operating_mode: 'LOAD',
-        load_min_t: 10,
-        load_max_t: 16,
-      },
-    },
-    {
-      status: 'COMPLETED',
-      prodStart: new Date(now.getTime() - 120 * 60 * 1000),
-      prodEnd: new Date(now.getTime() - 75 * 60 * 1000),
-      durationMin: 45,
-      skin: {
-        actual_weight_mt: 16.1,
-        output_thk_mm: 0.64,
-        rw_tension_1: 48,
-        rw_tension_2: 46,
-        operating_mode: 'STRETCH',
-        stretch_pct: 1.1,
-      },
-    },
-  ];
-
   let demoOrders = 0;
-  for (let i = 0; i < demos.length && i < batches.rows.length; i++) {
-    const b = batches.rows[i];
-    const d = demos[i];
+  for (const b of batches.rows) {
     const inputThk = Number(b.input_thk_mm ?? b.ppc_thk_mm);
-
     const orderRes = await client.query(
       `INSERT INTO txn.crm6_order (
          shift_log_id, batch_id, batch_number, coil_no, slit_id, customer_name, grade_code,
          width_mm, input_thk_mm, ppc_thk_mm, ppc_weight_mt, sub_process, status,
-         prod_start_at, prod_end_at, prod_duration_min, logged_in_user_id, production_day
+         logged_in_user_id, production_day
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'SKIN_PASS', $12,
-         $13, $14, $15, $16, $17::date
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PENDING', $13, $14::date
        )
        ON CONFLICT (batch_id) DO UPDATE SET
-         status = EXCLUDED.status,
-         prod_start_at = EXCLUDED.prod_start_at,
-         prod_end_at = EXCLUDED.prod_end_at,
-         prod_duration_min = EXCLUDED.prod_duration_min,
-         logged_in_user_id = EXCLUDED.logged_in_user_id
+         status = 'PENDING',
+         prod_start_at = NULL,
+         prod_end_at = NULL,
+         prod_duration_min = NULL,
+         shift_log_id = EXCLUDED.shift_log_id
        RETURNING order_id`,
       [
         shiftLogId,
@@ -148,45 +77,28 @@ async function seedSkinPassProductionDemos(client, ctx) {
         inputThk,
         b.ppc_thk_mm,
         b.ppc_weight_mt,
-        d.status,
-        d.prodStart ?? null,
-        d.prodEnd ?? null,
-        d.durationMin ?? null,
+        b.sub_process,
         operatorUserId,
         ctx.planDate,
       ],
     );
     const orderId = orderRes.rows[0].order_id;
 
-    const s = d.skin;
-    await client.query(
-      `INSERT INTO txn.crm6_skinpass (
-         order_id, actual_weight_mt, output_thk_mm, ann_hard,
-         rw_tension_1, rw_tension_2, operating_mode, load_min_t, load_max_t, stretch_pct
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (order_id) DO UPDATE SET
-         actual_weight_mt = EXCLUDED.actual_weight_mt,
-         output_thk_mm = EXCLUDED.output_thk_mm,
-         ann_hard = EXCLUDED.ann_hard,
-         rw_tension_1 = EXCLUDED.rw_tension_1,
-         rw_tension_2 = EXCLUDED.rw_tension_2,
-         operating_mode = EXCLUDED.operating_mode,
-         load_min_t = EXCLUDED.load_min_t,
-         load_max_t = EXCLUDED.load_max_t,
-         stretch_pct = EXCLUDED.stretch_pct`,
-      [
-        orderId,
-        s.actual_weight_mt ?? null,
-        s.output_thk_mm ?? null,
-        s.ann_hard ?? null,
-        s.rw_tension_1 ?? null,
-        s.rw_tension_2 ?? null,
-        s.operating_mode ?? null,
-        s.load_min_t ?? null,
-        s.load_max_t ?? null,
-        s.stretch_pct ?? null,
-      ],
-    );
+    if (b.sub_process === 'SKIN_PASS') {
+      await client.query(
+        `INSERT INTO txn.crm6_skinpass (order_id, output_thk_mm)
+         VALUES ($1, $2)
+         ON CONFLICT (order_id) DO UPDATE SET output_thk_mm = EXCLUDED.output_thk_mm`,
+        [orderId, b.ppc_thk_mm],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO txn.crm6_rolling (order_id, total_passes)
+         VALUES ($1, 0)
+         ON CONFLICT (order_id) DO NOTHING`,
+        [orderId],
+      );
+    }
     demoOrders++;
   }
 
@@ -525,10 +437,19 @@ export async function seedSixHiPpc(client, opts = {}) {
     [today, shiftCode],
   );
 
-  const skinPassDemos = await seedSkinPassProductionDemos(client, {
+  const rollingOrders = await seedPendingQueueOrders(client, {
     planDate: today,
     shiftCode,
     operatorUserId: importedByUserId,
+    subProcess: 'ROLLING',
+    limit: 8,
+  });
+  const skinPassOrders = await seedPendingQueueOrders(client, {
+    planDate: today,
+    shiftCode,
+    operatorUserId: importedByUserId,
+    subProcess: 'SKIN_PASS',
+    limit: 8,
   });
 
   return {
@@ -536,7 +457,8 @@ export async function seedSixHiPpc(client, opts = {}) {
     shiftCode,
     rollingBatches: rollingCount,
     skinPassBatches: skinPassCount,
-    skinPassDemoOrders: skinPassDemos.demoOrders,
+    rollingPendingOrders: rollingOrders.demoOrders,
+    skinPassPendingOrders: skinPassOrders.demoOrders,
     queueOrders: rollingCount + skinPassCount,
     clearedOrders: cleared.rowCount,
     batchPrefix: `B-${today.replace(/-/g, '')}`,
@@ -570,7 +492,7 @@ if (isMain) {
     .then((r) => {
       console.log(`  plan_date=${r.planDate} shift=${r.shiftCode}`);
       console.log(`  rolling_batches=${r.rollingBatches} skin_pass_batches=${r.skinPassBatches}`);
-      console.log(`  skin_pass_demo_orders=${r.skinPassDemoOrders} cleared=${r.clearedOrders}`);
+      console.log(`  pending_orders rolling=${r.rollingPendingOrders} skin_pass=${r.skinPassPendingOrders} cleared=${r.clearedOrders}`);
       console.log(`  example rolling: ${r.batchPrefix}-R001  skin pass: ${r.batchPrefix}-SP001`);
       console.log('SixHi PPC seed complete.');
     })

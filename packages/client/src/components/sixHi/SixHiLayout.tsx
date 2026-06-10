@@ -47,6 +47,7 @@ export function SixHiLayout() {
   const [endOpen, setEndOpen] = useState(false);
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [startError, setStartError] = useState<{ message: string; activeBatch?: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setMachineCode(pathMill);
@@ -56,8 +57,10 @@ export function SixHiLayout() {
     async function init() {
       try {
         await bootstrapShiftContext(pathMill);
+        const { shiftDate, shiftCode } = useShiftStore.getState();
+        const qs = `?date=${encodeURIComponent(shiftDate)}&shift=${encodeURIComponent(shiftCode)}`;
         await machineHandoverService.ensureSession(pathMill).catch(() => undefined);
-        const data = await apiClient.get(`/shift-logs/active/${CRM_SHIFT_PROCESS_CODE}`);
+        const data = await apiClient.get(`/shift-logs/active/${CRM_SHIFT_PROCESS_CODE}${qs}`);
         useShiftStore.setState({
           shiftLogId: data.shiftLogId,
           shiftDate: formatShiftDate(data.shiftDate),
@@ -87,6 +90,7 @@ export function SixHiLayout() {
   useEffect(() => {
     useSixHiStore.setState({
       requestStoppageDialog: async (batchNo: string) => {
+        setActionError(null);
         const store = useSixHiStore.getState();
         if (store.panelOrder?.batchNumber !== batchNo) {
           await store.loadPanelOrder(batchNo);
@@ -95,8 +99,11 @@ export function SixHiLayout() {
         const canStartStoppage =
           order?.status === 'IN_PROGRESS' ||
           (order?.status === 'STOPPAGE' && !order?.activeStoppage);
-        if (!order || order.batchNumber !== batchNo || (!canStartStoppage && !order.activeStoppage)) {
-          return;
+        if (!order || order.batchNumber !== batchNo) {
+          throw new Error('Order not found');
+        }
+        if (!canStartStoppage && !order.activeStoppage) {
+          throw new Error('Start production before recording a stoppage');
         }
         if (!order.activeStoppage) {
           await store.runOrderAction(batchNo, () =>
@@ -135,7 +142,12 @@ export function SixHiLayout() {
           activeBatch: activeBatchNumber,
         });
       } else {
-        throw err;
+        const message = err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to start production';
+        setStartError({ message });
       }
     }
   };
@@ -241,6 +253,13 @@ export function SixHiLayout() {
             )}
             <button type="button" className="underline text-xs" onClick={() => setStartError(null)}>Dismiss</button>
           </div>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="fixed top-20 left-20 right-24 z-[105] max-w-lg mx-auto bg-destructive/10 border border-destructive text-destructive rounded-xl px-4 py-3 text-sm font-medium">
+          <p>{actionError}</p>
+          <button type="button" className="underline text-xs mt-2" onClick={() => setActionError(null)}>Dismiss</button>
         </div>
       )}
 
