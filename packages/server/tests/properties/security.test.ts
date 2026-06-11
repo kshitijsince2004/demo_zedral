@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import fc from 'fast-check';
 import { requireRole, requireLineAccess } from '../../src/middleware/authMiddleware';
+import { assertLineOperation, ensureLineScopes } from '../../src/auth/lineAccessPolicy';
 
 // Mock express req, res, next
 const mockRes = () => {
@@ -49,12 +50,19 @@ describe('Property Tests: Security and RBAC', () => {
           fc.constantFrom('READ', 'WRITE', 'APPROVE'), // requested operation
           fc.string({ minLength: 1 }), // requested line
           (userRoles, lineAccess, operation, requestedLine) => {
-            // Mock req.body.processLine as the target
-            const req: any = { 
-              user: { roles: userRoles, lineAccess },
+            const user = ensureLineScopes({
+              id: 1,
+              username: 'test',
+              roles: userRoles,
+              lineAccess,
+              lineScopes: [],
+            } as any);
+
+            const req: any = {
+              user,
               body: { processLine: requestedLine },
               params: {},
-              query: {}
+              query: {},
             };
             const res = mockRes();
             const next = vi.fn();
@@ -62,17 +70,14 @@ describe('Property Tests: Security and RBAC', () => {
             const middleware = requireLineAccess(operation as any);
             middleware(req, res, next);
 
-            let hasLineAccess = lineAccess.includes(requestedLine) || userRoles.includes('ADMIN');
-            if (operation === 'READ' && userRoles.includes('PLANT_HEAD')) {
-              hasLineAccess = true;
+            let shouldAllow = true;
+            try {
+              assertLineOperation(user, requestedLine, operation as any);
+            } catch {
+              shouldAllow = false;
             }
-            
-            let hasRoleAccess = false;
-            if (operation === 'READ') hasRoleAccess = true;
-            if (operation === 'WRITE') hasRoleAccess = userRoles.some(r => ['OPERATOR', 'SUPERVISOR', 'ADMIN'].includes(r));
-            if (operation === 'APPROVE') hasRoleAccess = userRoles.some(r => ['SUPERVISOR', 'PLANT_HEAD', 'ADMIN'].includes(r));
 
-            if (hasLineAccess && hasRoleAccess) {
+            if (shouldAllow) {
               expect(next).toHaveBeenCalled();
             } else {
               expect(res.status).toHaveBeenCalledWith(403);
