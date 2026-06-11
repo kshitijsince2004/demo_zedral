@@ -26,6 +26,7 @@
     "seed:crm6-ppc": "node scripts/seed-crm6-ppc.mjs",
     "seed:sixhi-ppc": "node scripts/seed-crm6-ppc.mjs",
     "seed:admin": "node scripts/seed-admin.mjs",
+    "seed:zedral-demo": "node scripts/seed-zedral-demo.mjs",
     "seed:export": "node scripts/seed-export-demo.mjs",
     "smoke:api": "node scripts/api-smoke.mjs",
     "reindex:traceability": "tsx scripts/reindex-traceability.mjs"
