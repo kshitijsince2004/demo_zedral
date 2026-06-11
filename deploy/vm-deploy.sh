@@ -5,42 +5,44 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# When fetched via curl into /tmp, re-exec from the on-disk repository copy.
+# When fetched via curl into /tmp, bootstrap via common.sh then re-exec from the on-disk repo.
 if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   : "${APP_BASE:=/opt/zedralv2}"
-  : "${GITHUB_REPO:=kshitijsince2004/ZedralV2}"
+  : "${GITHUB_REPO:=kshitijsince2004/ZedralV2.1}"
+  : "${DEPLOY_REF:=main}"
+  : "${SKIP_MIGRATE:=${SKIP_MIGRATE:-false}}"
 
-  if [ -d "${APP_BASE}/deploy/lib/common.sh" ]; then
-    exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
-      DEPLOY_REF="${DEPLOY_REF:-main}" SKIP_MIGRATE="${SKIP_MIGRATE:-false}" \
-      GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
-      bash "${APP_BASE}/deploy/vm-deploy.sh"
-  elif [ -d "${APP_BASE}/ZedralV2/deploy/lib/common.sh" ]; then
-    exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
-      DEPLOY_REF="${DEPLOY_REF:-main}" SKIP_MIGRATE="${SKIP_MIGRATE:-false}" \
-      GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
-      bash "${APP_BASE}/ZedralV2/deploy/vm-deploy.sh"
-  fi
+  _repo_name="${GITHUB_REPO##*/}"
+  for _candidate in \
+    "${APP_BASE}" \
+    "${APP_BASE}/${_repo_name}" \
+    "${APP_BASE}/ZedralV2.1" \
+    "${APP_BASE}/ZedralV2"; do
+    if [ -f "${_candidate}/deploy/lib/common.sh" ]; then
+      exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
+        DEPLOY_REF="${DEPLOY_REF}" SKIP_MIGRATE="${SKIP_MIGRATE}" \
+        GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
+        bash "${_candidate}/deploy/vm-deploy.sh"
+    fi
+  done
 
   echo "==> Bootstrapping repository (first deploy)…"
-  sudo mkdir -p "${APP_BASE}"
-  CLONE_URL="git@github.com:${GITHUB_REPO}.git"
+  REF="${DEPLOY_REF}"
+  FETCH_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy"
+  COMMON_TMP="/tmp/zedral-common.sh"
+  CURL_OPTS=(-fsSL)
   if [ -n "${GCP_GIT_DEPLOY_TOKEN:-}" ]; then
-    CLONE_URL="https://x-access-token:${GCP_GIT_DEPLOY_TOKEN}@github.com/${GITHUB_REPO}.git"
+    CURL_OPTS+=(-H "Authorization: token ${GCP_GIT_DEPLOY_TOKEN}")
   fi
+  curl "${CURL_OPTS[@]}" "${FETCH_BASE}/lib/common.sh" -o "${COMMON_TMP}"
+  # shellcheck source=/tmp/zedral-common.sh
+  source "${COMMON_TMP}"
 
-  if [ -d "${APP_BASE}" ] && [ "$(ls -A "${APP_BASE}" 2>/dev/null | wc -l)" -gt 0 ]; then
-    sudo git clone "${CLONE_URL}" "${APP_BASE}/ZedralV2"
-    TARGET="${APP_BASE}/ZedralV2/deploy/vm-deploy.sh"
-  else
-    sudo git clone "${CLONE_URL}" "${APP_BASE}"
-    TARGET="${APP_BASE}/deploy/vm-deploy.sh"
-  fi
-  sudo chown -R "$(whoami):$(whoami)" "${APP_BASE}"
+  bootstrap_repo_if_missing
   exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
-    DEPLOY_REF="${DEPLOY_REF:-main}" SKIP_MIGRATE="${SKIP_MIGRATE:-false}" \
+    DEPLOY_REF="${DEPLOY_REF}" SKIP_MIGRATE="${SKIP_MIGRATE}" \
     GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
-    bash "${TARGET}"
+    bash "${REPO_ROOT}/deploy/vm-deploy.sh"
 fi
 
 # shellcheck source=lib/common.sh

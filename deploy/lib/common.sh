@@ -3,7 +3,7 @@
 set -euo pipefail
 
 : "${APP_BASE:=/opt/zedralv2}"
-: "${GITHUB_REPO:=kshitijsince2004/ZedralV2}"
+: "${GITHUB_REPO:=kshitijsince2004/ZedralV2.1}"
 
 REPO_ROOT=""
 COMPOSE_FILE=""
@@ -12,20 +12,62 @@ ENV_FILE=""
 log() { echo "==> $*"; }
 die() { echo "::error::$*" >&2; exit 1; }
 
+repo_basename() {
+  echo "${GITHUB_REPO##*/}"
+}
+
 # Case A: /opt/zedralv2/.git
-# Case B: /opt/zedralv2/ZedralV2/.git (clone into non-empty parent)
+# Case B: /opt/zedralv2/<repo>/.git (clone into non-empty parent)
+# Legacy: ZedralV2 / ZedralV2.1 nested folders from earlier bootstraps
 resolve_repo_root() {
-  if [ -d "${APP_BASE}/.git" ]; then
-    REPO_ROOT="${APP_BASE}"
-  elif [ -d "${APP_BASE}/ZedralV2/.git" ]; then
-    REPO_ROOT="${APP_BASE}/ZedralV2"
-  else
-    return 1
+  local candidate name
+  name="$(repo_basename)"
+  for candidate in \
+    "${APP_BASE}" \
+    "${APP_BASE}/${name}" \
+    "${APP_BASE}/ZedralV2.1" \
+    "${APP_BASE}/ZedralV2"; do
+    if [ -d "${candidate}/.git" ]; then
+      REPO_ROOT="${candidate}"
+      export REPO_ROOT
+      COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.prod.yml"
+      ENV_FILE="${REPO_ROOT}/deploy/.env"
+      export COMPOSE_FILE ENV_FILE
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Idempotent clone: reuse existing .git, re-init partial dirs, or fresh clone.
+bootstrap_clone_into() {
+  local clone_url="$1"
+  local target="$2"
+
+  if [ -d "${target}/.git" ]; then
+    log "Git repository already present at ${target}"
+    return 0
   fi
-  export REPO_ROOT
-  COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.prod.yml"
-  ENV_FILE="${REPO_ROOT}/deploy/.env"
-  export COMPOSE_FILE ENV_FILE
+
+  if [ -d "${target}" ]; then
+    if [ -z "$(ls -A "${target}" 2>/dev/null)" ]; then
+      sudo rmdir "${target}" 2>/dev/null || sudo rm -rf "${target}"
+    else
+      log "Directory ${target} exists without .git — syncing from origin"
+      sudo mkdir -p "${target}"
+      sudo chown -R "$(whoami):$(whoami)" "${target}"
+      git -C "${target}" init
+      git -C "${target}" remote add origin "${clone_url}" 2>/dev/null \
+        || git -C "${target}" remote set-url origin "${clone_url}"
+      git -C "${target}" fetch origin --prune
+      git -C "${target}" checkout -B main "origin/main"
+      git -C "${target}" reset --hard "origin/main"
+      return 0
+    fi
+  fi
+
+  sudo mkdir -p "$(dirname "${target}")"
+  sudo git clone "${clone_url}" "${target}"
 }
 
 repo_clone_url() {
@@ -44,15 +86,27 @@ bootstrap_repo_if_missing() {
 
   log "First deploy: bootstrapping repository under ${APP_BASE}"
   sudo mkdir -p "${APP_BASE}"
-  local clone_url
+  local clone_url target name legacy
   clone_url="$(repo_clone_url)"
+  name="$(repo_basename)"
 
   if [ -d "${APP_BASE}" ] && [ "$(ls -A "${APP_BASE}" 2>/dev/null | wc -l)" -gt 0 ]; then
-    log "Parent ${APP_BASE} is non-empty — cloning into ${APP_BASE}/ZedralV2"
-    sudo git clone "${clone_url}" "${APP_BASE}/ZedralV2"
+    target="${APP_BASE}/${name}"
+    for legacy in ZedralV2 ZedralV2.1 "${name}"; do
+      if [ -d "${APP_BASE}/${legacy}" ]; then
+        target="${APP_BASE}/${legacy}"
+        log "Parent ${APP_BASE} is non-empty — using existing path ${target}"
+        break
+      fi
+    done
+    if [ "${target}" = "${APP_BASE}/${name}" ] && [ ! -d "${target}" ]; then
+      log "Parent ${APP_BASE} is non-empty — cloning into ${target}"
+    fi
   else
-    sudo git clone "${clone_url}" "${APP_BASE}"
+    target="${APP_BASE}"
   fi
+
+  bootstrap_clone_into "${clone_url}" "${target}"
 
   resolve_repo_root || die "Bootstrap clone completed but .git was not found under ${APP_BASE}"
   sudo chown -R "$(whoami):$(whoami)" "${REPO_ROOT}"
