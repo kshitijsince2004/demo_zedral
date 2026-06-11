@@ -1,9 +1,19 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
+  resolve: {
+    // Workspace package ships CJS dist; Vite needs ESM — compile from source instead.
+    alias: {
+      '@m1/shared-validation': path.resolve(__dirname, '../shared-validation/src/index.ts'),
+    },
+  },
   plugins: [
     tailwindcss(),
     react(),
