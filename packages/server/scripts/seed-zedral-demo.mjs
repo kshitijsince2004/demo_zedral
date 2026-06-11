@@ -236,6 +236,8 @@ export async function seedDemo(c, data) {
     operatorIds.push(r.rows[0].operator_id);
   }
   summary.operators = operatorIds.length;
+  // shift_log.shift_manager_id FK → master.operator, not security.app_user
+  const shiftManagerId = operatorIds[0] ?? null;
 
   // ===== TIER 2 : import batches + coils + ppc_batch (REAL) =====
   const importBatchId = {};
@@ -330,7 +332,7 @@ export async function seedDemo(c, data) {
         prod_date: date, shift_code: shift, process_id: 31, mill_type: null,
         target_mt: Math.round(target * 10) / 10,
         total_prod_mt: liveC ? null : Math.round(target * between(0.9, 1.02) * 10) / 10,
-        state, shift_manager_id: userId.supervisor,
+        state, shift_manager_id: shiftManagerId,
         handover_notes: `${SEED_TAG} synthetic SMED shift summary (${batches.length} coils planned)`,
       });
       // crew (synthetic operators) on the live SMED line
@@ -437,7 +439,7 @@ export async function seedDemo(c, data) {
         prod_date: o.date, shift_code: shift, process_id: o.proc, mill_type: o.mill,
         target_mt: o.tgt ? Math.round((o.tgt / 3) * 10) / 10 : null,
         total_prod_mt: Math.round(prod * 100) / 100, state: 'APPROVED',
-        shift_manager_id: userId.supervisor,
+        shift_manager_id: shiftManagerId,
       });
       dprLogIds[`${o.date}|${o.proc}|${o.mill ?? ''}|${shift}`] = id;
       dprLogs++;
@@ -459,7 +461,7 @@ export async function seedDemo(c, data) {
       // delay on a line/shift with no logged tonnage → create a zero-prod APPROVED log
       slId = await upsertShiftLog(c, {
         prod_date: d.date, shift_code: d.shift_code, process_id: proc, mill_type: mill,
-        total_prod_mt: 0, state: 'APPROVED', shift_manager_id: userId.supervisor });
+        total_prod_mt: 0, state: 'APPROVED', shift_manager_id: shiftManagerId });
       dprLogIds[`${d.date}|${proc}|${mill ?? ''}|${d.shift_code}`] = slId;
     }
     const startHr = SHIFT_START[d.shift_code];
