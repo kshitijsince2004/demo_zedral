@@ -19,6 +19,8 @@
     "clear:orders": "node scripts/clear-order-data.mjs",
     "seed:pilot": "node scripts/seed-pilot.mjs",
     "seed:users": "node scripts/seed-pilot-users.mjs",
+    "seed:profiles": "node scripts/seed-login-profiles.mjs",
+    "seed:machines": "node scripts/seed-machines.mjs",
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
     "seed:data": "node scripts/seed-pilot-data.mjs",
     "seed:crm6-ppc": "node scripts/seed-crm6-ppc.mjs",

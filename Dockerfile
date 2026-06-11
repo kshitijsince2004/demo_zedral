@@ -40,6 +40,7 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/packages/server/dist packages/server/dist
 COPY --from=builder /app/packages/shared-validation/dist packages/shared-validation/dist
 COPY packages/server/migrations packages/server/migrations
+COPY packages/server/scripts packages/server/scripts
 COPY doc doc
 COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 

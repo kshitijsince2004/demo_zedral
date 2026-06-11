@@ -5,6 +5,7 @@
  */
 import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
+import { seedMachines } from './seed-machines.mjs';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -20,20 +21,36 @@ function hashPin(pin) {
 }
 
 const USERS = [
-  { username: 'admin', emp_code: '1000', full_name: 'Plant Admin', role_id: 4, lines: [] },
-  { username: 'supervisor', emp_code: '2000', full_name: 'Line Supervisor', role_id: 2, lines: ['HRS', 'PKL', 'CRM', '6HI'] },
-  { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', '6HI'] },
-  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['6HI', '4HI', '2HI'] },
-  { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', '6HI'] },
+  { username: 'admin', emp_code: '1000', full_name: 'Plant Admin', role_id: 4, lines: [], machines: [] },
+  { username: 'supervisor', emp_code: '2000', full_name: 'Line Supervisor', role_id: 2, lines: ['HRS', 'PKL', 'CRM', '6HI'], machines: ['6HI', '4HI', '2HI'] },
+  { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', '6HI'], machines: ['6HI'] },
+  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['6HI', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'] },
+  { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', '6HI'], machines: [] },
 ];
 
-const PIN = '1234';
+const PIN = process.env.SEED_PIN || '1234';
+
+/** @param {pg.Client} client */
+async function seedRoles(client) {
+  await client.query(`
+    INSERT INTO security.role (role_id, role_name, description) VALUES
+      (1, 'OPERATOR', 'Line Operator: Can submit shift logs'),
+      (2, 'SUPERVISOR', 'Shift Supervisor: Can approve logs'),
+      (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
+      (4, 'ADMIN', 'System Administrator: Manage master data'),
+      (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines')
+    ON CONFLICT (role_id) DO NOTHING;
+  `);
+}
 
 export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
 
   const pinHash = hashPin(PIN);
+  await seedRoles(client);
+  await seedMachines(client);
+
   const tenant = await client.query(
     `SELECT tenant_id FROM security.tenant_config LIMIT 1`,
   );
@@ -92,15 +109,13 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
       );
     }
 
-    if (u.username === 'machinehead') {
-      for (const machine of ['6HI', '4HI', '2HI']) {
-        await client.query(
-          `INSERT INTO security.machine_access (user_id, machine_code)
-           VALUES ($1, $2)
-           ON CONFLICT DO NOTHING`,
-          [userId, machine],
-        );
-      }
+    for (const machine of u.machines ?? []) {
+      await client.query(
+        `INSERT INTO security.machine_access (user_id, machine_code)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [userId, machine],
+      );
     }
 
     userIds[u.username] = userId;
