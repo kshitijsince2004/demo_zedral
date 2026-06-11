@@ -493,7 +493,6 @@ export class PPCImportService {
 
     const errors: { row: number; message: string }[] = [];
     let loaded = 0;
-    const queueCounters = new Map<string, number>();
 
     for (const row of rowsToCommit) {
       if (row.errors.length > 0) {
@@ -515,14 +514,7 @@ export class PPCImportService {
         await db.transaction().execute(async (trx) => {
           await this.ensureShift(row.shiftCode, trx);
           await this.ensureGrade(row.gradeCode, trx);
-          const queueSeq = await this.seedQueueSeq(
-            trx,
-            row.machineCode,
-            row.planDate,
-            row.shiftCode,
-            queueCounters,
-          );
-          await this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id), queueSeq);
+          await this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
         });
         const { SixHiService } = await import('./SixHiService');
         await SixHiService.ensureOrder(row.batchNumber, userId);
@@ -602,7 +594,6 @@ export class PPCImportService {
     trx: DbConn,
     row: ParsedRollingPlanRow,
     importBatchId: number,
-    queueSeq: number,
   ) {
     const targetThk = row.passTargetThkMm ?? row.finishThkMm;
 
@@ -630,7 +621,7 @@ export class PPCImportService {
       roll_finish: row.rollFinish ?? null,
       ppc_reroll_flag: row.ppcRerollFlag,
       coil_count: row.coilCount,
-      queue_seq: queueSeq,
+      queue_seq: null,
       sap_order_no: row.sapOrderNo ?? null,
       item_no: row.itemNo ?? null,
       from_work_center: row.fromWorkCenter ?? null,
