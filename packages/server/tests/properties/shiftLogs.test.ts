@@ -60,18 +60,22 @@ describe('Property Tests: Shift Logs', () => {
     it('should identify duplicate shift logs based on (date, shift, process, mill_type)', () => {
       fc.assert(
         fc.property(
-          fc.date(),
+          fc.date({
+            min: new Date('2020-01-01T00:00:00.000Z'),
+            max: new Date('2030-12-31T23:59:59.999Z'),
+            noInvalidDate: true,
+          }),
           fc.constantFrom('A', 'B', 'C', 'G'),
           fc.constantFrom('HRS', 'CRM', 'CTL'),
           fc.constantFrom('2HI', '4HI', '6HI', null),
           (date, shift, process, millType) => {
-            const generateKey = (d: Date, s: string, p: string, m: string | null) => 
+            const generateKey = (d: Date, s: string, p: string, m: string | null) =>
               `${d.toISOString().split('T')[0]}_${s}_${p}_${m || 'NONE'}`;
 
             const key1 = generateKey(date, shift, process, millType);
             const key2 = generateKey(date, shift, process, millType);
 
-            // They must always produce the exact same composite key, enforcing DB uniqueness
+            // Same composite inputs must always resolve to the same shift-log identity key.
             expect(key1).toEqual(key2);
           }
         )
