@@ -122,6 +122,13 @@ export async function seedDemo(c, data) {
       ('ROLLING','Rolling','6HI'),('SKIN_PASS','Skin Pass','6HI')
     ON CONFLICT (sub_process_code) DO NOTHING;`);
 
+  // Shift master rows (cleared by clear:data; required by ppc_batch + shift_log FKs)
+  await c.query(`INSERT INTO master.shift (shift_code, name, start_time, end_time) VALUES
+      ('A', 'Morning Shift', '06:00', '14:00'),
+      ('B', 'Afternoon Shift', '14:00', '22:00'),
+      ('C', 'Night Shift', '22:00', '06:00')
+    ON CONFLICT (shift_code) DO NOTHING;`);
+
   // ===== TIER 0b : roles + demo login users (PIN 1234) =====
   await c.query(`INSERT INTO security.role (role_id, role_name, description) VALUES
       (1,'OPERATOR','Line Operator'),(2,'SUPERVISOR','Shift Supervisor'),
