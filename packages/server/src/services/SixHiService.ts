@@ -10,7 +10,6 @@ import type {
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
-import { ShiftLogState } from '@m1/shared-validation';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -57,24 +56,24 @@ export class SixHiService {
     const prodDate = planDate ?? new Date();
     const shift = shiftCode ?? 'B';
 
-    let active = await db.selectFrom('txn.shift_log')
+    const existing = await db.selectFrom('txn.shift_log')
       .select('shift_log_id')
       .where('process_id', '=', processId)
-      .where('state', '=', ShiftLogState.DRAFT)
       .where('prod_date', '=', prodDate)
       .where('shift_code', '=', shift)
       .executeTakeFirst();
 
-    if (!active) {
-      const id = await ShiftLogService.create({
-        processId,
-        productionDate: prodDate,
-        shiftCode: shift,
-        supervisorId: userId,
-      });
-      return String(id);
+    if (existing) {
+      return String(existing.shift_log_id);
     }
-    return String(active.shift_log_id);
+
+    const id = await ShiftLogService.create({
+      processId,
+      productionDate: prodDate,
+      shiftCode: shift,
+      supervisorId: userId,
+    });
+    return String(id);
   }
 
   private static async totalStoppageMinutes(orderId: number | string, asOf: Date = new Date()): Promise<number> {

@@ -95,7 +95,7 @@ export class ShiftLogService {
     const existing = await query.executeTakeFirst();
 
     if (existing) {
-      throw new Error('A shift log already exists for this date, shift, process line, and mill type.');
+      return existing.shift_log_id;
     }
 
     const shiftManagerId = await this.resolveShiftManagerId(payload.supervisorId);
