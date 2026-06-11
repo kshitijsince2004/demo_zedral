@@ -5,11 +5,10 @@
  */
 import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
+import { resolveDatabaseUrl } from './lib/database-url.mjs';
 import { seedMachines } from './seed-machines.mjs';
 
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  'postgres://m1_user:m1_password@localhost:5432/m1_db';
+const DATABASE_URL = resolveDatabaseUrl();
 
 /** Must match packages/server/src/services/pinService.ts scrypt parameters. */
 const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };

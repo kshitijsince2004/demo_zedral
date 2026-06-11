@@ -4,10 +4,9 @@
  * Safe to run on fresh production DB after migrations.
  */
 import pg from 'pg';
+import { resolveDatabaseUrl } from './lib/database-url.mjs';
 
-const DEFAULT_URL =
-  process.env.DATABASE_URL ||
-  'postgres://m1_user:m1_password@localhost:5432/m1_db';
+const DEFAULT_URL = resolveDatabaseUrl();
 
 /** @param {pg.Client | pg.PoolClient} client */
 export async function seedMachines(client) {

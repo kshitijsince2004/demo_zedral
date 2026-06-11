@@ -12,10 +12,9 @@
  */
 import { seedPilotUsers } from './seed-pilot-users.mjs';
 import { seedPilotData } from './seed-pilot-data.mjs';
+import { resolveDatabaseUrl } from './lib/database-url.mjs';
 
-const PRIMARY_URL =
-  process.env.DATABASE_URL ||
-  'postgres://m1_user:m1_password@localhost:5432/m1_db';
+const PRIMARY_URL = resolveDatabaseUrl();
 
 async function main() {
   console.log('=== Zedral Admin Seed ===\n');
