@@ -5,8 +5,10 @@ import {
   ValidationResult,
   UserRole,
   ShiftLogState,
+  computeEffectiveRuleset,
 } from '@m1/shared-validation';
 import { ShiftLogService } from './shiftLogService';
+import { ValidationConfigService } from './ValidationConfigService';
 import { persistOverrides, OverrideRequest } from './overrideService';
 import { AuthUser } from './authService';
 import {
@@ -180,7 +182,36 @@ export class ShiftLogValidationService {
 
     const shiftLogPayload = this.buildShiftLogPayload(log, processCode);
     const entries = await this.loadEntries(shiftLogId, processCode);
-    return validateShiftLogSubmission(shiftLogPayload, entries);
+
+    // Fetch configurable rules
+    const configService = new ValidationConfigService(db);
+    const configuredRules = await configService.getConfiguredRules();
+    const currentVersion = await configService.getVersion();
+    
+    let evaluationVersion = currentVersion;
+    let versionSkew = false;
+
+    // Use bound version for existing logs that are not DRAFT/REOPENED
+    if (log.state !== ShiftLogState.DRAFT && log.state !== ShiftLogState.REOPENED) {
+      if (log.ruleset_version != null) {
+        evaluationVersion = log.ruleset_version;
+        if (evaluationVersion !== currentVersion) {
+          versionSkew = true;
+        }
+      }
+    }
+    
+    // We compute the EffectiveRuleset by treating configured rules as the highest authority.
+    const effectiveRuleset = computeEffectiveRuleset(configuredRules, evaluationVersion);
+
+    const result = validateShiftLogSubmission(shiftLogPayload, entries, effectiveRuleset);
+    
+    // Annotate with version skew flag
+    if (versionSkew) {
+      (result as any).versionSkew = true;
+    }
+    
+    return result;
   }
 
   static async assertValid(

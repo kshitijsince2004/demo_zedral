@@ -80,7 +80,7 @@ describe('reportRoutes', () => {
     const res = await request(app).get('/reports/plant-head');
     expect(res.status).toBe(200);
     expect(res.body.plantWideOee).toBe(82.5);
-    expect(mockPlantHead).toHaveBeenCalledWith(7);
+    expect(mockPlantHead).toHaveBeenCalledWith(7, { lines: undefined, shifts: undefined, grades: undefined, customers: undefined, coils: undefined });
   });
 
   it('GET /reports/plant-head passes window query param', async () => {
@@ -110,7 +110,7 @@ describe('reportRoutes', () => {
 
     const res = await request(app).get('/reports/plant-head?window=30');
     expect(res.status).toBe(200);
-    expect(mockPlantHead).toHaveBeenCalledWith(30);
+    expect(mockPlantHead).toHaveBeenCalledWith(30, { lines: undefined, shifts: undefined, grades: undefined, customers: undefined, coils: undefined });
   });
 
   it('GET /reports/plant-head rejects invalid window without querying', async () => {
