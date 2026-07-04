@@ -4,12 +4,16 @@
   "private": true,
   "description": "M1 Digital Data Collection for Hero Steels Limited",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/modules/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build -w @m1/shared-validation && npm run build -w @m1/client && npm run build -w @m1/server",
+    "build": "npm run build -w @m1/shared-validation && npm run build -w @zedral/platform && npm run build -w @zedral/connectors && npm run build -w @zedral/m1-collection && npm run build -w @m1/client && npm run build -w @m1/server",
     "test": "npm run test --workspaces --if-present",
+    "arch:deps": "depcruise --config .dependency-cruiser.cjs packages",
+    "arch:test": "npm run test:arch -w @m1/server",
+    "arch:check": "npm run arch:deps && npm run arch:test",
     "smoke:pilot": "npm run smoke:pilot -w @m1/server",
     "smoke:api": "npm run smoke:api -w @m1/server",
     "migrate": "npm run migrate -w @m1/server",
@@ -20,6 +24,7 @@
     "docker:prod": "docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build"
   },
   "devDependencies": {
+    "dependency-cruiser": "^18.0.0",
     "typescript": "^5.5.0"
   }
 }

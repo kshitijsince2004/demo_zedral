@@ -5,13 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
+    "dev:operator": "vite --config vite.operator.config.ts",
     "prebuild": "npm run build -w @m1/shared-validation",
     "build": "vite build",
+    "build:operator": "vite build --config vite.operator.config.ts",
+    "check:operator-bundle": "npm run build:operator && node -e \"const fs=require('fs');const path=require('path');const root=path.join(process.cwd(),'dist-operator');const bad=['\\\"/plant\\\"','maint/','oee/','m3/'];const hits=[];(function walk(dir){for(const name of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,name.name);if(name.isDirectory()) walk(p); else if(/\\.(js|css|html)$/.test(name.name)){const text=fs.readFileSync(p,'utf8');for(const token of bad){if(text.includes(token)) hits.push(p+' -> '+token);}}}})(root); if(hits.length){console.error('Operator bundle purity check failed:\\n'+hits.join('\\n')); process.exit(1);} console.log('Operator bundle purity check passed.');\"",
+    "android:sync": "npm run build:operator && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest --run"
   },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.1",
     "@hookform/resolvers": "^5.4.0",
     "@m1/shared-validation": "*",
     "idb": "^8.0.3",
@@ -30,6 +44,7 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.0",
     "@testing-library/jest-dom": "^6.9.1",

@@ -1,5 +1,7 @@
+import { sql } from 'kysely';
 import { db } from '../db';
 import { assertQuantityWithinProduction } from '../validation/manufacturingValidation';
+import { publishDefectLogged } from '../platform/m1Events';
 
 export { StoppageService } from './StoppageService';
 
@@ -66,24 +68,35 @@ export class CrewService {
 }
 
 export class DefectService {
-  static async create(payload: any, _userId: string) {
+  static async create(payload: {
+    processId?: number | string;
+    entryId?: number | string;
+    shiftLogId?: number | string;
+    defectCode?: string;
+    coilNo?: string;
+    coilNumber?: string;
+    location?: string;
+    quantityMt?: number | string;
+    qty_mt?: number | string;
+  }, _userId: string) {
     let processId = payload.processId;
     let entryId = payload.entryId;
 
     let shiftCode: string | undefined;
     let prodDate: Date | undefined;
+    const shiftLogId = payload.shiftLogId == null ? null : String(payload.shiftLogId);
 
-    if (payload.shiftLogId && !processId) {
+    if (shiftLogId && !processId) {
       const log = await db
         .selectFrom('txn.shift_log')
         .select(['process_id', 'shift_code', 'prod_date'])
-        .where('shift_log_id', '=', payload.shiftLogId)
+        .where('shift_log_id', '=', shiftLogId)
         .executeTakeFirst();
       if (!log) throw new Error('Shift log not found');
       processId = log.process_id;
       shiftCode = log.shift_code;
       prodDate = log.prod_date instanceof Date ? log.prod_date : new Date(log.prod_date);
-      entryId = entryId ?? payload.shiftLogId;
+      entryId = entryId ?? shiftLogId;
     }
 
     if (!processId) throw new Error('processId or shiftLogId is required');
@@ -91,31 +104,60 @@ export class DefectService {
     if (!payload.defectCode) throw new Error('defectCode is required');
 
     const qtyMt = payload.quantityMt ?? payload.qty_mt ?? null;
-    if (qtyMt != null && payload.shiftLogId) {
+    if (qtyMt != null && shiftLogId) {
       const log = await db
         .selectFrom('txn.shift_log')
         .select(['total_prod_mt', 'target_mt'])
-        .where('shift_log_id', '=', payload.shiftLogId)
+        .where('shift_log_id', '=', shiftLogId)
         .executeTakeFirst();
       const productionMt = Number(log?.total_prod_mt ?? log?.target_mt ?? 0);
       assertQuantityWithinProduction(Number(qtyMt), productionMt, 'Defect quantity');
     }
 
-    const row = await db
-      .insertInto('txn.defect_entry')
-      .values({
-        process_id: processId,
-        entry_id: entryId,
-        coil_no: payload.coilNo ?? payload.coilNumber ?? null,
-        defect_code: payload.defectCode,
-        location: payload.location ?? null,
-        qty_mt: payload.quantityMt ?? payload.qty_mt ?? null,
-        shift_code: shiftCode,
-        prod_date: prodDate,
-      } as any)
-      .returning('defect_id')
-      .executeTakeFirstOrThrow();
+    const processIdNumber = Number(processId);
+    if (!Number.isInteger(processIdNumber) || processIdNumber <= 0) {
+      throw new Error('processId must be a positive integer');
+    }
 
-    return String(row.defect_id);
+    const result = await sql<{ defect_id: string }>`
+      INSERT INTO txn.defect_entry (
+        process_id,
+        entry_id,
+        coil_no,
+        defect_code,
+        location,
+        qty_mt,
+        shift_code,
+        prod_date
+      )
+      VALUES (
+        ${processIdNumber},
+        ${String(entryId)},
+        ${payload.coilNo ?? payload.coilNumber ?? null},
+        ${payload.defectCode},
+        ${payload.location ?? null},
+        ${qtyMt == null ? null : Number(qtyMt)},
+        ${shiftCode ?? null},
+        ${prodDate ?? null}
+      )
+      RETURNING defect_id
+    `.execute(db);
+
+    const row = result.rows[0];
+    if (!row) throw new Error('Failed to create defect entry');
+
+    const defectId = String(row.defect_id);
+    void publishDefectLogged({
+      defectId,
+      processId: processIdNumber,
+      entryId: String(entryId),
+      coilNo: payload.coilNo ?? payload.coilNumber,
+      defectCode: payload.defectCode,
+      quantityMt: qtyMt == null ? undefined : Number(qtyMt),
+    }).catch((error) => {
+      console.error('[M1] failed to publish defect.logged', error);
+    });
+
+    return defectId;
   }
 }

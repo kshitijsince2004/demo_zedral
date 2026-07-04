@@ -8,11 +8,13 @@ import type { MasterDefectCode } from '@m1/shared-validation';
 interface OrderEndModalProps {
   open: boolean;
   batchNumber: string;
+  orderLabel?: string;
+  orderSubtitle?: string;
   onClose: () => void;
   onConfirm: (defectCodes: string[]) => Promise<void>;
 }
 
-export function OrderEndModal({ open, batchNumber, onClose, onConfirm }: OrderEndModalProps) {
+export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, onClose, onConfirm }: OrderEndModalProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -50,7 +52,8 @@ export function OrderEndModal({ open, batchNumber, onClose, onConfirm }: OrderEn
           <CheckSquare className="h-6 w-6" />
           <div className="flex-1">
             <h3 className="text-lg font-bold">End Production</h3>
-            <p className="text-sm font-medium opacity-90">Batch: {batchNumber}</p>
+            <p className="text-sm font-medium opacity-90">{orderLabel ?? `Batch ${batchNumber}`}</p>
+            {orderSubtitle && <p className="text-xs opacity-75">{orderSubtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="hover:bg-white/10 p-2 rounded-lg" aria-label="Close">
             <X className="h-5 w-5" />

@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { SixHiService } from './SixHiService';
+import { SixHiExecutionService, SixHiQueueService, SixHiShiftService } from './sixHi';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
@@ -123,9 +123,9 @@ export class MachineHandoverService {
       userId: operatorUserId,
       machineCode,
     });
-    const active = await SixHiService.findActiveMachineOrder(machineCode);
-    const rollingQueue = await SixHiService.getQueue('ROLLING', shift.prodDate, shift.shiftCode, machineCode);
-    const skinQueue = await SixHiService.getQueue('SKIN_PASS', shift.prodDate, shift.shiftCode, machineCode);
+    const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
+    const rollingQueue = await SixHiQueueService.getQueue('ROLLING', shift.prodDate, shift.shiftCode, machineCode);
+    const skinQueue = await SixHiQueueService.getQueue('SKIN_PASS', shift.prodDate, shift.shiftCode, machineCode);
 
     let productionSnapshot: Record<string, unknown> = {};
     let openStoppages: unknown[] = [];
@@ -134,7 +134,7 @@ export class MachineHandoverService {
     let activeOrderDetail: Record<string, unknown> | null = null;
 
     if (active) {
-      const order = await SixHiService.getOrder(active.batchNumber, operatorUserId);
+      const order = await SixHiExecutionService.getOrder(active.batchNumber, operatorUserId);
       const prodStartAt = order.prodStartAt;
       const actualWt = order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt ?? 0;
       const targetWt = order.ppcWeightMt ?? 0;
@@ -210,7 +210,7 @@ export class MachineHandoverService {
 
     if (shiftLogIdResolved) {
       try {
-        const summary = await SixHiService.getShiftSummary(shiftLogIdResolved, machineCode);
+        const summary = await SixHiShiftService.getShiftSummary(shiftLogIdResolved, machineCode);
         shiftProductionSummary = {
           totalProdMt: summary.totalProdMt,
           totalRollingMt: summary.totalRollingMt,

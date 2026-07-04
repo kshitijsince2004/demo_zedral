@@ -516,8 +516,8 @@ export class PPCImportService {
           await this.ensureGrade(row.gradeCode, trx);
           await this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
         });
-        const { SixHiService } = await import('./SixHiService');
-        await SixHiService.ensureOrder(row.batchNumber, userId);
+        const { SixHiConfigService } = await import('./sixHi');
+        await SixHiConfigService.ensureOrder(row.batchNumber, userId);
         loaded++;
       } catch (e: unknown) {
         errors.push({ row: row.rowNum, message: e instanceof Error ? e.message : 'Insert failed' });
@@ -540,7 +540,7 @@ export class PPCImportService {
       .map((r) => r.batchNumber);
 
     if (loaded > 0) {
-      const { SixHiService } = await import('./SixHiService');
+      const { SixHiShiftService } = await import('./sixHi');
       const contexts = new Set<string>();
       for (const row of rowsToCommit) {
         if (row.errors.length > 0 || errors.some((e) => e.row === row.rowNum)) continue;
@@ -548,9 +548,9 @@ export class PPCImportService {
       }
       for (const ctx of contexts) {
         const [planDate, shift] = ctx.split('|');
-        await SixHiService.ensureActiveShiftLog(
+        await SixHiShiftService.ensureActiveShiftLog(
           userId,
-          SixHiService.toPlanDate(planDate),
+          SixHiShiftService.toPlanDate(planDate),
           shift,
         );
       }
@@ -687,14 +687,14 @@ export class PPCImportService {
     }
   }
 
-  /** @deprecated Use SixHiService.transferMachines */
+  /** @deprecated Use SixHiConfigService.transferMachines */
   static async transferMachine(
     batchNumbers: string[],
     targetMachine: '6HI' | '4HI' | '2HI',
     userId: number,
     roles: string[],
   ) {
-    const { SixHiService } = await import('./SixHiService');
-    return SixHiService.transferMachines(batchNumbers, targetMachine, userId, roles);
+    const { SixHiConfigService } = await import('./sixHi');
+    return SixHiConfigService.transferMachines(batchNumbers, targetMachine, userId, roles);
   }
 }

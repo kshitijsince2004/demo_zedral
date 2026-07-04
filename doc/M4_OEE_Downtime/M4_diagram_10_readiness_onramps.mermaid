@@ -1,0 +1,8 @@
+flowchart TD
+  Q{"How is state/downtime captured today?"}
+  Q -- "M1 first-party capture" --> M1B["Bootstrap: M1 stoppages -> DowntimeEvent · prod_* -> counts · shift_log -> PPT (v1, no hardware)"]
+  Q -- "Existing OEE/MES historian" --> ING["Manifold connector + OEE sector template -> ingest states/reasons/counts"]
+  Q -- "PLCs / OPC-UA available" --> PLC["Edge collector + micro-stop threshold -> auto StateEvents (future-proofed switch-on)"]
+  Q -- "Nothing yet" --> FP["First-party OEE capture (reuse M1 UX/RBAC)"]
+  M1B & ING & PLC & FP --> RDY["Readiness scoring (doc 01 §16): Required gate + Quality + Fidelity + History"]
+  RDY --> UNLOCK["Unlock: OEE + loss tree now · auto micro-stops when PLC connected · prediction when History gate passes"]

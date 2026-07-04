@@ -1,0 +1,18 @@
+flowchart TD
+  M["Maintenance (EN 13306)"]
+  M --> COR["Corrective — after fault recognition"]
+  M --> PRE["Preventive — before failure"]
+  COR --> CIM["Immediate (breakdown / emergency)"]
+  COR --> CDE["Deferred (planned corrective)"]
+  PRE --> PDET["Predetermined — fixed time / usage interval, no condition check"]
+  PRE --> CBM["Condition-Based (CBM) — act when a measured parameter crosses a limit"]
+  CBM --> PDM["Predictive — CBM guided by a forecast of degradation (RUL)"]
+  RTF["Run-to-Failure — a deliberate RCM choice for low-criticality assets"]
+  M -.deliberate choice.-> RTF
+
+  classDef now fill:#dcfce7,stroke:#16a34a;
+  classDef soon fill:#e0f2fe,stroke:#0284c7;
+  classDef future fill:#fef9c3,stroke:#ca8a04;
+  class CIM,CDE,PDET,RTF now;
+  class CBM soon;
+  class PDM future;

@@ -1,0 +1,12 @@
+flowchart LR
+  PPT["Planned Production Time (canon.shift)"] --> AV["Availability = OpTime / PPT"]
+  STATE["State intervals (running time)"] --> AV
+  STATE --> PERF["Performance = (IdealCycle x Total) / OpTime"]
+  IDEAL["Ideal cycle / rated speed (material x work-unit)"] --> PERF
+  COUNT["ProductionCount (total)"] --> PERF
+  COUNTG["ProductionCount (good)"] --> QUAL["Quality = Good / Total"]
+  COUNT --> QUAL
+  AV & PERF & QUAL --> OEE["OEE = A x P x Q"]
+  OEE --> TEEP["TEEP = OEE x (PPT / Calendar)"]
+  OEE --> MART["OEE interval store (quantities, not just ratios)"]
+  MART --> ROLL["Roll-up by summing quantities, then divide (no averaging of %)"]

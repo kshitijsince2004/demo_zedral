@@ -26,7 +26,7 @@ export function useEffectiveRuleset() {
 
       // Use cache if fresh
       if (cachedRules && (now - lastFetch < CACHE_TTL)) {
-        if (mounted && loading) {
+        if (mounted) {
           setLoading(false);
         }
         return;

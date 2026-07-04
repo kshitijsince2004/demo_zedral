@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { ShiftLogService } from '../services/shiftLogService';
-import { ReportingService } from '../services/ReportingService';
+import {
+  DailyReportService,
+  DashboardReportingService,
+  TraceabilityReportingService,
+} from '../services/reporting';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { getScopedLineCodes } from '../auth/lineAccessPolicy';
 import { UserRole } from '@m1/shared-validation';
@@ -22,7 +26,7 @@ router.get('/supervisor', requireRole([UserRole.SUPERVISOR, UserRole.ADMIN]), as
     if (scoped !== null) {
       lines = lines.length > 0 ? lines.filter((l) => scoped.includes(l)) : scoped;
     }
-    const data = await ReportingService.getSupervisorDashboard(lines);
+    const data = await DashboardReportingService.getSupervisorDashboard(lines);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -57,7 +61,7 @@ router.get(
       }
 
       const page = parseDrilldownPage(req.query.page);
-      const data = await ReportingService.getPlantHeadDrilldown(
+      const data = await DashboardReportingService.getPlantHeadDrilldown(
         metricResult.metric,
         windowDays,
         page,
@@ -87,7 +91,7 @@ router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), as
       coils: req.query.coils ? String(req.query.coils).split(',').filter(Boolean) : undefined,
     };
 
-    const data = await ReportingService.getPlantHeadDashboard(windowDays, filters);
+    const data = await DashboardReportingService.getPlantHeadDashboard(windowDays, filters);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -99,7 +103,7 @@ router.get('/management', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), as
     const period = (req.query.period as string) || 'shift';
     const allowed = ['shift', 'day', 'week', 'month'];
     const normalized = allowed.includes(period) ? period : 'shift';
-    const data = await ReportingService.getManagementDashboard(normalized as any);
+    const data = await DashboardReportingService.getManagementDashboard(normalized as any);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -116,7 +120,7 @@ router.get('/drilldown', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, 
       shiftCode: req.query.shiftCode as string | undefined,
       coilNo: req.query.coilNo as string | undefined,
     };
-    const data = await ReportingService.getDrilldown(metric, scope);
+    const data = await DashboardReportingService.getDrilldown(metric, scope);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -126,7 +130,7 @@ router.get('/drilldown', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, 
 router.get('/daily', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
-    const data = await ReportingService.getDailyReport(date);
+    const data = await DailyReportService.getDailyReport(date);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -143,7 +147,7 @@ router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.SUPE
     if (!coilNo || coilNo.length > 64) {
       return res.status(400).json({ error: 'INVALID_COIL_NUMBER', message: 'coilNo must be between 1 and 64 characters' });
     }
-    const results = await ReportingService.searchCoilTraceability(coilNo);
+    const results = await TraceabilityReportingService.searchCoilTraceability(coilNo);
     res.json(results);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

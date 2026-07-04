@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { Outlet, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { CRM_SHIFT_PROCESS_CODE } from '../../lib/millConfig';
@@ -19,6 +20,7 @@ import { OrderEndModal } from './OrderEndModal';
 import { SixHiManualOrderModal } from './SixHiManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
+import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
 
 export function SixHiLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,10 +33,10 @@ export function SixHiLayout() {
     workspaceOpen,
     workspaceBatch,
     panelOrder,
+    combinedRun,
     busy,
     openWorkspace,
     closeWorkspace,
-    loadPanelOrder,
     runOrderAction,
     refreshMachineState,
     loadShiftSummary,
@@ -107,7 +109,7 @@ export function SixHiLayout() {
         }
         setStoppageOpen(true);
       },
-      requestRejectionDialog: (batchNo: string) => {
+      requestRejectionDialog: () => {
         setRejectionOpen(true);
       }
     });
@@ -118,14 +120,29 @@ export function SixHiLayout() {
   }, []);
 
   const activeBatch = workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
+  const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : activeBatch ? [activeBatch] : [];
+  const modalOrderLabel = combinedRun
+    ? `Combined run (${combinedRun.batchNumbers.length} orders)`
+    : panelOrder
+      ? primaryOrderId(panelOrder)
+      : activeBatch
+        ? `Batch ${activeBatch}`
+        : undefined;
+  const modalOrderSubtitle = combinedRun
+    ? combinedRun.batchNumbers.join(', ')
+    : panelOrder
+      ? orderIdentitySubtitle(panelOrder)
+      : undefined;
   const showPanel = panelOrder && shouldShowProductionPanel(panelOrder, workspaceOpen, workspaceBatch);
 
   const handleStart = async () => {
     if (!activeBatch) return;
     setStartError(null);
     try {
-      await runOrderAction(activeBatch, () =>
-        apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/start`, {}),
+      await runOrderAction(activeBatch, async () =>
+        combinedRun?.batchNumbers.length
+          ? apiClient.post('/6hi/orders/start-combined', { batchNumbers: combinedRun.batchNumbers })
+          : apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/start`, {}),
       );
       if (shiftLogId) await loadShiftSummary(shiftLogId);
     } catch (err) {
@@ -200,11 +217,15 @@ export function SixHiLayout() {
         <OrderEndModal
           open={endOpen}
           batchNumber={activeBatch}
+          orderLabel={modalOrderLabel}
+          orderSubtitle={modalOrderSubtitle}
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {
-              await runOrderAction(activeBatch, () =>
-                apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/end`, { defectCodes }),
+              await runOrderAction(activeBatch, async () =>
+                Promise.all(actionBatchNumbers.map((batchNumber) =>
+                  apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/end`, { defectCodes }),
+                )),
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);
               closeWorkspace();
@@ -223,14 +244,18 @@ export function SixHiLayout() {
         <OrderRejectionModal
           open={rejectionOpen}
           batchNumber={activeBatch}
+          orderLabel={modalOrderLabel}
+          orderSubtitle={modalOrderSubtitle}
           onClose={() => setRejectionOpen(false)}
           onReject={async (batchNo, rejectionReason, defectCodes, remarks) => {
-            await runOrderAction(batchNo, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(batchNo)}/reject`, {
-                rejectionReason,
-                defectCodes,
-                remarks,
-              }),
+            await runOrderAction(batchNo, async () =>
+              Promise.all(actionBatchNumbers.map((batchNumber) =>
+                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/reject`, {
+                  rejectionReason,
+                  defectCodes,
+                  remarks,
+                }),
+              )),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
             closeWorkspace();
@@ -277,31 +302,46 @@ export function SixHiLayout() {
           activeStoppage={activeStoppage}
           onClose={() => setStoppageOpen(false)}
           onStart={async (categoryCode, breakdownCode, remarks) => {
-            await runOrderAction(activeBatch, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages`, {
-                categoryCode,
-                breakdownCode,
-                remarks,
-              }),
+            await runOrderAction(activeBatch, async () =>
+              Promise.all(actionBatchNumbers.map((batchNumber) =>
+                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages`, {
+                  categoryCode,
+                  breakdownCode,
+                  remarks,
+                }),
+              )),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
-            await runOrderAction(activeBatch, () =>
-              apiClient.patch(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages/${encodeURIComponent(stoppageId)}`, {
-                categoryCode, breakdownCode, remarks,
-              })
+            await runOrderAction(activeBatch, async () =>
+              Promise.all(actionBatchNumbers.map(async (batchNumber) => {
+                const targetStoppageId = batchNumber === activeBatch
+                  ? stoppageId
+                  : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
+                if (!targetStoppageId) return null;
+                return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}`, {
+                  categoryCode, breakdownCode, remarks,
+                });
+              })),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onEnd={async (stoppageId, categoryCode, breakdownCode, remarks) => {
             await runOrderAction(activeBatch, async () => {
               // first update the details
-              await apiClient.patch(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages/${encodeURIComponent(stoppageId)}`, {
-                categoryCode, breakdownCode, remarks,
-              });
+              await Promise.all(actionBatchNumbers.map(async (batchNumber) => {
+                const targetStoppageId = batchNumber === activeBatch
+                  ? stoppageId
+                  : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
+                if (!targetStoppageId) return null;
+                await apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}`, {
+                  categoryCode, breakdownCode, remarks,
+                });
+                return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}/end`, {});
+              }));
               // then end it
-              return apiClient.patch(`/6hi/orders/${encodeURIComponent(activeBatch)}/stoppages/${encodeURIComponent(stoppageId)}/end`, {});
+              return null;
             });
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
@@ -319,11 +359,15 @@ export function SixHiLayout() {
         <OrderRemarkModal
           open={remarkOpen}
           batchNumber={activeBatch}
+          orderLabel={modalOrderLabel}
+          orderSubtitle={modalOrderSubtitle}
           busy={busy}
           onClose={() => setRemarkOpen(false)}
           onSave={async (text, defects) => {
-            await runOrderAction(activeBatch, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/remarks`, { text, defects }),
+            await runOrderAction(activeBatch, async () =>
+              Promise.all(actionBatchNumbers.map((batchNumber) =>
+                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/remarks`, { text, defects }),
+              )),
             );
             setRemarkOpen(false);
           }}

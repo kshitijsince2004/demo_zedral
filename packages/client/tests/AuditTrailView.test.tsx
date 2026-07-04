@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AuditTrailView } from '../src/pages/audit/AuditTrailView';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { auditService } from '../src/services/auditService';
@@ -17,7 +17,7 @@ describe('AuditTrailView', () => {
   });
 
   it('renders columns and has no mutate controls', async () => {
-    (auditService.query as any).mockResolvedValueOnce({
+    (auditService.query as Mock).mockResolvedValueOnce({
       records: [
         {
           id: 1,

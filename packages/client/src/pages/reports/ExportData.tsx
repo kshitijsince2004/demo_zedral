@@ -12,18 +12,6 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { reportingService } from '../../lib/reportingService';
 import { ExportJobPanel } from '../../components/export/ExportJobPanel';
 
-const PROCESS_OPTIONS = [
-  { value: '', label: 'All processes' },
-  { value: 'HRS', label: 'Hot Rolling (HRS)' },
-  { value: 'PKL', label: 'Pickling (PKL)' },
-  { value: '6HI', label: '6HI Mill' },
-  { value: 'ANN', label: 'Annealing (ANN)' },
-  { value: 'SKP', label: 'Skin Pass (SKP)' },
-  { value: 'RWD', label: 'Rewind (RWD)' },
-  { value: 'CRS', label: 'CR Slitter (CRS)' },
-  { value: 'CTL', label: 'Cut-to-Length (CTL)' },
-];
-
 const SHIFT_OPTIONS = [
   { value: '', label: 'All shifts' },
   { value: 'A', label: 'Shift A' },

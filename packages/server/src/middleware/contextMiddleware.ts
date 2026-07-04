@@ -13,6 +13,8 @@ export const contextMiddleware = (req: Request, res: Response, next: NextFunctio
 
   const correlation_id = (req.headers['x-correlation-id'] as string) || uuidv4();
   res.setHeader('X-Correlation-Id', correlation_id);
+  res.locals ??= {};
+  res.locals.tenantId = tenant_id;
 
   requestContext.run({ tenant_id, correlation_id }, () => {
     next();

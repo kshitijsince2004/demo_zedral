@@ -2,6 +2,7 @@ import type { SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { ZButton } from '../primitives/ZButton';
 import { ArrowRightLeft, Play } from 'lucide-react';
+import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 interface SixHiBatchDetailPanelProps {
   batch: SixHiQueueCard | null;
@@ -37,13 +38,12 @@ export function SixHiBatchDetailPanel({
     ['Process Route', `${subProcessLabel} (route ${routeCode})`],
     ['Customer', batch.customer],
     ['Grade', batch.grade, true],
-    ['Mother Coil', `${batch.motherCoil}${batch.slitId ? `/${batch.slitId}` : ''}`, true],
+    ['Select ID', selectIdOf(batch), true],
+    ['Batch Number', batch.batchNumber, true],
     ['Width', `${batch.widthMm} mm`, true],
     ['Input Thickness', `${batch.inputThkMm} mm`, true],
-    ['Pass Target', `${batch.targetThkMm} mm`, true],
-    ...(batch.finishThkMm != null && batch.finishThkMm !== batch.targetThkMm
-      ? [['Finish Thickness', `${batch.finishThkMm} mm`, true] as [string, string, boolean?]]
-      : []),
+    ['Final Output Thickness', `${finalOutputThicknessOf(batch)} mm`, true],
+    ['Finish', finishOf(batch), true],
     ['Weight', `${batch.weightMt} Metric Tons`, true],
   ];
 
@@ -77,7 +77,10 @@ export function SixHiBatchDetailPanel({
     <div className="bg-white border border-border rounded-2xl h-full flex flex-col shadow-sm overflow-hidden">
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border/60">
         <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
-        <h2 className="font-mono text-xl font-bold text-foreground mt-1 truncate">{batch.batchNumber}</h2>
+        <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{primaryOrderId(batch)}</h2>
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
+          Select ID {selectIdOf(batch)} · Batch {batch.batchNumber}
+        </p>
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 flex-1 min-h-0 overflow-y-auto content-start">

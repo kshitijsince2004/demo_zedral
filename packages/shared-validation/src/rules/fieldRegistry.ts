@@ -28,7 +28,7 @@ function inferUnit(prop: string): string | undefined {
   return undefined;
 }
 
-function getZodType(schema: z.ZodTypeAny): string {
+function getZodType(schema: z.ZodTypeAny): FieldDescriptor['dataType'] {
   let s = schema;
   while (s instanceof z.ZodOptional || s instanceof z.ZodNullable) {
     s = s.unwrap();
@@ -57,7 +57,7 @@ function extractFields(prefix: string, schema: z.ZodTypeAny) {
           fieldId,
           process: prefix,
           property: prop,
-          dataType: type as any,
+          dataType: type,
           unit: inferUnit(prop)
         });
       }

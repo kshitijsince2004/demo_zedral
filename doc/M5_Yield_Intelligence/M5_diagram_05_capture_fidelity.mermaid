@@ -1,0 +1,17 @@
+flowchart TD
+  subgraph V1["v1 - Manual bootstrap (live at Hero Steels today)"]
+    M1W["M1 per-process weight (MT) + prod_* counts + scrap % + slit scrap auto-%"]
+    M1G["M1 COIL_NO genealogy: parent->child (slitting), charge/base (annealing)"]
+  end
+  subgraph FUT["Future-proofed - Automatic capture (switch-on)"]
+    SCL["Weighbridge / coil scale: in/out mass per process"]
+    LEN["Length / width encoder: trim & crop length -> mass"]
+    VIS["Vision / surface scan: defect area -> off-gauge / reject mass"]
+  end
+  CONTRACT["Canonical contract: ProductionCount (good/scrap/rework/total + weight) + genealogy link + reason"]
+  M1W --> CONTRACT
+  M1G --> CONTRACT
+  SCL --> CONTRACT
+  LEN --> CONTRACT
+  VIS --> CONTRACT
+  CONTRACT --> RES["Mass-Balance Resolver -> Yield engine (identical downstream); fidelity rises, reconciliation gap shrinks"]

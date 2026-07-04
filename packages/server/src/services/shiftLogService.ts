@@ -4,6 +4,7 @@ import {
   ShiftLogValidationService,
   ValidationGateContext,
 } from './shiftLogValidationService';
+import { publishShiftClosed } from '../platform/m1Events';
 
 export interface ShiftLogPayload {
   processId: number;
@@ -141,6 +142,14 @@ export class ShiftLogService {
       })
       .where('shift_log_id', '=', shiftLogId)
       .execute();
+
+    void publishShiftClosed({
+      shiftLogId,
+      processId: log.process_id,
+      totalProdMt: actualProd,
+    }).catch((error) => {
+      console.error('[M1] failed to publish shift.closed', error);
+    });
   }
 
   static async approve(id: string, approverId: number) {
@@ -401,7 +410,7 @@ export class ShiftLogService {
 
     const actualProd = await this.calculateActualProduction(String(currentShiftLogId), currentLog.process_id);
 
-    return await db.transaction().execute(async (trx) => {
+    const newShiftLogId = await db.transaction().execute(async (trx) => {
       // 1. Close outgoing shift with attestation
       await trx
         .updateTable('txn.shift_log')
@@ -465,6 +474,17 @@ export class ShiftLogService {
 
       return String(newShiftLogId);
     });
+
+    void publishShiftClosed({
+      shiftLogId: String(currentShiftLogId),
+      processId: currentLog.process_id,
+      totalProdMt: actualProd,
+      closedAt: handoverAt,
+    }).catch((error) => {
+      console.error('[M1] failed to publish shift.closed', error);
+    });
+
+    return newShiftLogId;
   }
 
   static async getById(id: string | string) {

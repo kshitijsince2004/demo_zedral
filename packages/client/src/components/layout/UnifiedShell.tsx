@@ -1,0 +1,94 @@
+import { Outlet } from 'react-router-dom';
+import { Activity, ArrowRightLeft, Brain, FileSpreadsheet, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
+import { DeskSideNav, type DeskNavItem } from './shared/DeskSideNav';
+import { deskNavOffsetClass } from './shared/deskNavLayout';
+import { OfflineBanner } from '../ui/OfflineBanner';
+import { UnifiedHeader } from './UnifiedHeader';
+
+const SIDEBAR_ITEMS: DeskNavItem[] = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    path: '/plant',
+    match: (p) => p === '/plant',
+  },
+  {
+    id: 'live',
+    label: 'Live Operations',
+    icon: Activity,
+    path: '/plant/live',
+    match: (p) => p === '/plant/live',
+  },
+  {
+    id: 'order-assignment',
+    label: 'Order Assignment',
+    icon: ArrowRightLeft,
+    path: '/plant/order-assignment',
+    match: (p) => p === '/plant/order-assignment',
+  },
+  {
+    id: 'traceability',
+    label: 'Traceability',
+    icon: Search,
+    path: '/plant/orders',
+    match: (p) => p === '/plant/orders',
+  },
+  {
+    id: 'defect-intelligence',
+    label: 'Defect Intelligence',
+    icon: Brain,
+    path: '/plant/defect-intelligence',
+    match: (p) => p === '/plant/defect-intelligence',
+  },
+  {
+    id: 'downtime-intelligence',
+    label: 'Downtime Intelligence',
+    icon: Timer,
+    path: '/plant/downtime-intelligence',
+    match: (p) => p === '/plant/downtime-intelligence',
+  },
+  {
+    id: 'dpr-export',
+    label: 'DPR Export',
+    icon: FileSpreadsheet,
+    path: '/plant/dpr-export',
+    match: (p) => p === '/plant/dpr-export' || p.startsWith('/plant/exports'),
+  },
+  {
+    id: 'audit',
+    label: 'Audit Logs',
+    icon: Shield,
+    path: '/plant/audit',
+    match: (p) => p === '/plant/audit' || p.startsWith('/plant/audit/'),
+  },
+  {
+    id: 'users',
+    label: 'Users',
+    icon: Users,
+    path: '/plant/users',
+    match: (p) => p === '/plant/users',
+  },
+];
+
+export function UnifiedShell() {
+  return (
+    <div className="theme-operator min-h-screen bg-background text-foreground">
+      <DeskSideNav
+        brandLabel="ZEDRAL"
+        brandSubtitle="Unified Operations"
+        items={SIDEBAR_ITEMS}
+        ariaLabel="Unified module navigation"
+      />
+
+      <div className={`flex min-h-screen min-w-0 flex-col ${deskNavOffsetClass()}`}>
+        <UnifiedHeader title="Plant Command Center" subtitle="Executive overview and analytics" />
+        <OfflineBanner />
+
+        <main className="flex flex-1 animate-fade-in flex-col gap-4 overflow-auto p-4 md:p-5">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 ﻿import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { ZBadge } from '../primitives/ZBadge';
 import type { Tone } from '../../lib/tones';
+import { finalOutputThicknessOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 const statusTone = (status: string): Tone => {
   if (status === 'PENDING') return 'info';
@@ -18,7 +19,12 @@ export function ProductionHeader({ order, timerLabel }: ProductionHeaderProps) {
   return (
     <div className="border border-border rounded-sm bg-card p-4 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="font-mono text-lg font-semibold">{order.batchNumber}</h2>
+        <div>
+          <h2 className="font-mono text-xl font-semibold">{primaryOrderId(order)}</h2>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Select ID {selectIdOf(order)} · Batch {order.batchNumber}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <ZBadge tone={statusTone(order.status)} label={order.status.replace('_', ' ')} />
           {timerLabel && (
@@ -29,7 +35,7 @@ export function ProductionHeader({ order, timerLabel }: ProductionHeaderProps) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm">
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mother Coil</span>
-          <p className="font-mono">{order.motherCoil}{order.slitId ? ` / ${order.slitId}` : ''}</p>
+          <p className="font-mono">{order.motherCoil}</p>
         </div>
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer</span>
@@ -44,8 +50,8 @@ export function ProductionHeader({ order, timerLabel }: ProductionHeaderProps) {
           <p className="font-mono">{order.widthMm} mm</p>
         </div>
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">PPC Thickness</span>
-          <p className="font-mono">{order.ppcThkMm} mm</p>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Final Output Thickness</span>
+          <p className="font-mono">{finalOutputThicknessOf(order)} mm</p>
         </div>
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">PPC Weight</span>

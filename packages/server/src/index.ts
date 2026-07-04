@@ -1,98 +1,34 @@
-import express from 'express';
-import cors from 'cors';
-
-import authRoutes from './routes/authRoutes';
-import shiftLogRoutes from './routes/shiftLogRoutes';
-import shiftRoutes from './routes/shiftRoutes';
-import stoppageRoutes from './routes/stoppageRoutes';
-import crewRoutes from './routes/crewRoutes';
-import defectRoutes from './routes/defectRoutes';
-import importRoutes from './routes/importRoutes';
-import masterDataRoutes from './routes/masterDataRoutes';
-import userRoutes from './routes/userRoutes';
-import exportRoutes from './routes/exportRoutes';
-import reportRoutes from './routes/reportRoutes';
-import validationRulesRoutes from './routes/validationRulesRoutes';
-import deviceRoutes from './routes/deviceRoutes';
-import traceabilityRoutes from './routes/traceabilityRoutes';
-import plannedCoilRoutes from './routes/plannedCoilRoutes';
-import SixHiRoutes from './routes/sixHiRoutes';
-import liveRoutes from './routes/liveRoutes';
-import machineRoutes from './routes/machineRoutes';
-import machineAccessRoutes from './routes/machineAccessRoutes';
-import machineHandoverRoutes from './routes/machineHandoverRoutes';
-import auditRoutes from './routes/auditRoutes';
-import { db } from './db';
-import { sql } from 'kysely';
+import type { Server } from 'http';
+import { initEventBus, shutdownEventBus } from '@zedral/platform';
 import { ExportWorker } from './export/jobs/ExportWorker';
 import { ExportScheduler } from './export/jobs/ExportScheduler';
 import { ShiftBoundaryScheduler } from './jobs/ShiftBoundaryScheduler';
 import { checkElasticHealth } from './elastic/elasticClient';
 import { ensureIndex } from './elastic/traceabilityIndex';
-
-import { contextMiddleware } from './middleware/contextMiddleware';
+import { db } from './db';
 import { validateAuthConfigAtStartup } from './config/authConfig';
+import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
+import { buildApp } from './app';
+import { buildModuleRegistry } from './modules/registerModules';
+import { startModuleRuntime, type ModuleRuntime } from './modules/moduleRuntime';
 
 validateAuthConfigAtStartup();
 
-const app = express();
-const port = process.env.PORT || 3005;
+const port = Number(process.env.PORT || 3005);
+process.env.CANONICAL_WRITEBACK_URL ??= `http://127.0.0.1:${port}/v1/canon`;
 
-const corsOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
-  : undefined;
-app.use(cors(corsOrigins ? { origin: corsOrigins, credentials: true } : {}));
-app.use(express.json());
+initEventBus();
+const registry = buildModuleRegistry();
+const { app } = buildApp(registry);
 
-app.use(contextMiddleware);
+let server: Server;
+let moduleRuntime: ModuleRuntime | null = null;
 
-app.use('/auth', authRoutes);
-app.use('/device', deviceRoutes);
-app.use('/planned-coils', plannedCoilRoutes);
-app.use('/6hi', SixHiRoutes);
-app.use('/live', liveRoutes);
-app.use('/machines', machineRoutes);
-app.use('/machine-access', machineAccessRoutes);
-app.use('/machines/handover', machineHandoverRoutes);
-app.use('/shifts', shiftRoutes);
-app.use('/shift-logs', shiftLogRoutes);
-app.use('/stoppages', stoppageRoutes);
-app.use('/crew', crewRoutes);
-app.use('/defects', defectRoutes);
-app.use('/import', importRoutes);
-app.use('/master-data', masterDataRoutes);
-app.use('/users', userRoutes);
-app.use('/reports', reportRoutes);
-app.use('/exports', exportRoutes);
-app.use('/traceability', traceabilityRoutes);
-app.use('/validation-rules', validationRulesRoutes);
-app.use('/api/v1/validation-rules', validationRulesRoutes); // Mount for either convention
-app.use('/audit', auditRoutes);
-app.get('/health', async (_req, res) => {
-  const payload: Record<string, unknown> = {
-    status: 'ok',
-    service: 'm1-digital-data-collection',
-  };
-  try {
-    await sql`SELECT 1`.execute(db);
-    payload.database = 'ok';
-  } catch {
-    payload.status = 'degraded';
-    payload.database = 'unavailable';
-    res.status(503).json(payload);
-    return;
-  }
-  res.json(payload);
-});
-
-import { rfc7807ErrorHandler } from './middleware/errorMiddleware';
-import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
-
-app.use(rfc7807ErrorHandler);
-
-const server = app.listen(port, async () => {
+server = app.listen(port, async () => {
   console.log(`Server listening on port ${port}`);
-  
+
+  moduleRuntime = await startModuleRuntime(registry);
+
   // Seed validation rules
   const seeder = new DefaultRuleSeeder(db);
   await seeder.seed().catch(err => {
@@ -114,6 +50,12 @@ function shutdown(signal: string) {
   ExportWorker.stop();
   ExportScheduler.stop();
   ShiftBoundaryScheduler.stop();
+  void moduleRuntime?.stop().catch((err) => {
+    console.error('[shutdown] module runtime stop failed', err);
+  });
+  void shutdownEventBus().catch((err) => {
+    console.error('[shutdown] event bus shutdown failed', err);
+  });
   server.close(() => {
     console.log('[shutdown] HTTP server closed');
     process.exit(0);

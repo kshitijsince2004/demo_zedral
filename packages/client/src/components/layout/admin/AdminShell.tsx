@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { OfflineBanner } from '../../ui/OfflineBanner';
-import { deskNavOffsetClass } from '../shared/DeskSideNav';
+import { deskNavOffsetClass } from '../shared/deskNavLayout';
 import { AdminNav } from './AdminNav';
 import { AdminRail } from './AdminRail';
 

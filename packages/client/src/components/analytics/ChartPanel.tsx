@@ -17,14 +17,3 @@ export function ChartPanel({ title, children, className = '' }: ChartPanelProps)
   );
 }
 
-/** Shared recharts tooltip/chart colors via CSS variables */
-export const chartTheme = {
-  grid: 'var(--color-border)',
-  axis: 'var(--color-muted-foreground)',
-  tooltipBg: 'var(--color-card)',
-  tooltipBorder: 'var(--color-border)',
-  line: 'var(--color-chart-1)',
-  bar: 'var(--color-chart-1)',
-  barPlan: 'var(--color-muted-foreground)',
-  barActual: 'var(--color-chart-2)',
-};

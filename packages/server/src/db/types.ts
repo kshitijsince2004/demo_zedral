@@ -77,6 +77,61 @@ export interface AuditExportJob {
   tenant_id: Generated<string>;
 }
 
+export interface CanonEquipmentNode {
+  asset_code: string;
+  asset_id: Generated<string>;
+  created_at: Generated<Timestamp>;
+  name: string;
+  process_code: string | null;
+  tenant_id: string;
+}
+
+export interface CanonEvent {
+  asset_id: string | null;
+  category: string | null;
+  created_at: Generated<Timestamp>;
+  duration_min: number | null;
+  ended_at: Timestamp | null;
+  event_id: Generated<string>;
+  event_type: string;
+  lineage_ref: string;
+  payload: Json;
+  started_at: Timestamp;
+  tenant_id: string;
+}
+
+export interface CanonCostRate {
+  amount: Numeric;
+  asset_id: string | null;
+  cost_rate_id: Generated<string>;
+  currency: Generated<string>;
+  effective_from: Generated<Timestamp>;
+  rate_type: string;
+  tenant_id: string;
+}
+
+export interface CanonPersonnel {
+  created_at: Generated<Timestamp>;
+  emp_code: string | null;
+  full_name: string;
+  person_id: Generated<string>;
+  source_user_id: number | null;
+  tenant_id: string;
+}
+
+export interface CanonProductionCount {
+  asset_id: string | null;
+  counted_at: Timestamp;
+  count_id: Generated<string>;
+  created_at: Generated<Timestamp>;
+  is_scrap: Generated<boolean>;
+  lineage_ref: string;
+  quantity: Numeric;
+  shift_log_id: Int8 | null;
+  tenant_id: string;
+  uom: Generated<string>;
+}
+
 export interface AuditLineageRef {
   batch_id: string | null;
   created_at: Generated<Timestamp>;
@@ -487,6 +542,7 @@ export interface SecurityTenantConfig {
   cost_rate_ownership: string | null;
   deployment_mode: Generated<string>;
   enabled_modules: Json | null;
+  flags: Json | null;
   isolation_level: Generated<string>;
   latency_target_seconds: number | null;
   retention_policy: Json | null;
@@ -1033,6 +1089,11 @@ export interface DB {
   "audit.change_request": AuditChangeRequest;
   "audit.export_job": AuditExportJob;
   "audit.lineage_ref": AuditLineageRef;
+  "canon.cost_rate": CanonCostRate;
+  "canon.equipment_node": CanonEquipmentNode;
+  "canon.event": CanonEvent;
+  "canon.personnel": CanonPersonnel;
+  "canon.production_count": CanonProductionCount;
   "coil.coil": CoilCoil;
   "coil.coil_process_history": CoilCoilProcessHistory;
   "config.ruleset_version": ConfigRulesetVersion;

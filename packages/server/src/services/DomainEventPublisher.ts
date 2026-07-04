@@ -1,25 +1,25 @@
-import { EventEmitter } from 'events';
+import { randomUUID } from 'crypto';
+import { buildEventEnvelope, getEventBus, type EventPayload } from '@zedral/platform';
+import { getTenantId } from '../context';
 
-export class DomainEventPublisher extends EventEmitter {
-  constructor() {
-    super();
-    
-    // Register basic logging listeners for our domain events
-    this.on('SHIFT_SUBMITTED', (payload) => {
-      console.log(`[DomainEvent] SHIFT_SUBMITTED: Shift ${payload.shiftId} completed by ${payload.operator}.`);
-      // In production, this pushes to Kafka or triggers downstream ERP workflows.
-    });
+export type LegacyDomainPayload = EventPayload & {
+  eventId?: string;
+  timestamp?: Date;
+  processId?: string;
+  shiftLogId?: string;
+  coilNo?: string;
+};
 
-    this.on('DEFECT_LOGGED', (payload) => {
-      console.log(`[DomainEvent] DEFECT_LOGGED: Defect mapped to Coil ${payload.coilNo}.`);
-      // In production, might trigger an immediate QA notification via SMS/Email.
-    });
-  }
-
-  static enrichPayload(basePayload: any, processId: string, shiftLogId: string, coilNo: string) {
+export class DomainEventPublisher {
+  static enrichPayload(
+    basePayload: EventPayload,
+    processId: string,
+    shiftLogId: string,
+    coilNo: string,
+  ): LegacyDomainPayload {
     return {
       ...basePayload,
-      eventId: require('crypto').randomUUID(),
+      eventId: randomUUID(),
       timestamp: new Date(),
       processId,
       shiftLogId,
@@ -27,10 +27,24 @@ export class DomainEventPublisher extends EventEmitter {
     };
   }
 
-  publish(eventName: string, payload: any) {
-    // Fire asynchronously so it doesn't block the caller
+  publish(eventName: string, payload: EventPayload): void {
+    const tenantId = getTenantId() ?? '00000000-0000-0000-0000-000000000001';
+    const eventId = typeof payload.eventId === 'string' ? payload.eventId : randomUUID();
+
     setImmediate(() => {
-      this.emit(eventName, payload);
+      void getEventBus().publish(
+        buildEventEnvelope({
+          type: eventName,
+          tenantId,
+          key: `${tenantId}:${eventName}:${eventId}`,
+          payload: {
+            ...payload,
+            eventId,
+          },
+        }),
+      ).catch((error) => {
+        console.error(`[DomainEvent] failed to publish ${eventName}`, error);
+      });
     });
   }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LiveOrderRow } from '@m1/shared-validation';
+import type { LiveOrderDetail, LiveOrderRow } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
@@ -21,7 +21,7 @@ export function LiveDashboard() {
   const [ordersError, setOrdersError] = useState<string | null>(null);
 
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
-  const [detailData, setDetailData] = useState<any | null>(null);
+  const [detailData, setDetailData] = useState<LiveOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedMachineCode, setSelectedMachineCode] = useState<string | null>(null);
 

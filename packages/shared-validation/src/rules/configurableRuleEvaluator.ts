@@ -1,6 +1,9 @@
-import { ValidationRule, RuleParams, EffectiveRuleset } from '../types/configurableRules';
+import { ValidationRule, EffectiveRuleset } from '../types/configurableRules';
 import { ValidationError, ValidationResult } from '../types/validation';
-import { getFieldDescriptor } from './fieldRegistry';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 export function validateRuleDefinition(rule: ValidationRule): string | null {
   if (rule.severity !== 'BLOCK' && rule.severity !== 'WARN') {
@@ -61,7 +64,7 @@ export function computeEffectiveRuleset(
   allRules: ValidationRule[],
   version: number
 ): EffectiveRuleset {
-  const effective: Record<string, ValidationRule[]> = {};
+  const effective: Record<string, ValidationRule[]> = Object.create(null) as Record<string, ValidationRule[]>;
 
   // Group by fieldId -> ruleType
   const grouped = new Map<string, Map<string, ValidationRule[]>>();
@@ -103,7 +106,7 @@ export function computeEffectiveRuleset(
   };
 }
 
-export function evaluateField(value: any, rules: ValidationRule[]): ValidationError[] {
+export function evaluateField(value: unknown, rules: ValidationRule[]): ValidationError[] {
   const errors: ValidationError[] = [];
 
   for (const rule of rules) {
@@ -183,7 +186,7 @@ export function evaluateField(value: any, rules: ValidationRule[]): ValidationEr
 }
 
 export function evaluateRules(
-  data: Record<string, any>,
+  data: Record<string, unknown>,
   effectiveRuleset: EffectiveRuleset
 ): ValidationResult {
   const allErrors: ValidationError[] = [];
@@ -191,9 +194,9 @@ export function evaluateRules(
   for (const [fieldId, rules] of Object.entries(effectiveRuleset.rules)) {
     // For simplicity, support simple flat paths like "PKL.lineSpeedMpm" mapping to { PKL: { lineSpeedMpm: 123 } }
     const parts = fieldId.split('.');
-    let value: any = data;
+    let value: unknown = data;
     for (const part of parts) {
-      if (value) {
+      if (isRecord(value)) {
         value = value[part];
       } else {
         value = undefined;
@@ -224,7 +227,7 @@ export function describeBreach(rule: ValidationRule): string {
     case 'MANDATORY':
       condition = 'must be provided';
       break;
-    case 'RANGE':
+    case 'RANGE': {
       const min = rule.params.min;
       const max = rule.params.max;
       if (min !== undefined && max !== undefined) {
@@ -235,6 +238,7 @@ export function describeBreach(rule: ValidationRule): string {
         condition = `must be at most ${max}`;
       }
       break;
+    }
     case 'ALLOWED_VALUES':
       condition = `must be one of: ${rule.params.values.join(', ')}`;
       break;

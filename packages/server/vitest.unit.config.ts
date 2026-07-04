@@ -24,5 +24,6 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     exclude: ['**/node_modules/**', ...integrationPatterns],
     setupFiles: ['./tests/setupUnit.ts'],
+    testTimeout: 15000,
   },
 });

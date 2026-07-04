@@ -313,6 +313,7 @@ const ctlFlat = fc.record({
   rejectionMt: fc.option(nonNegNum, { nil: undefined }),
   timeFrom: fc.option(timeHHmm, { nil: undefined }),
   timeTo: fc.option(timeHHmm, { nil: undefined }),
+  squarenessCheckDone: fc.constant(true),
 });
 
 
@@ -1070,6 +1071,7 @@ describe('Property 6: Schema–DDL reconciliation conformance', () => {
         rejectionMt: 0.05,
         lowSpeed: 'NO',
         estimatedSuppressed: 'NO',
+        squarenessCheckDone: true,
         timeFrom: '08:00',
         timeTo: '16:00',
       };

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { DrilldownPanel } from '../src/components/reports/DrilldownPanel';
 import { reportingService } from '../src/lib/reportingService';
 import React from 'react';
@@ -17,7 +17,7 @@ describe('DrilldownPanel', () => {
   });
 
   it('renders read-only paginated table and loads next 500', async () => {
-    (reportingService.getPlantHeadDrilldown as any).mockResolvedValueOnce({
+    (reportingService.getPlantHeadDrilldown as Mock).mockResolvedValueOnce({
       metric: 'defects',
       window: 7,
       records: Array.from({ length: 500 }).map((_, i) => ({ id: `rec-${i}`, defect: 'Scratch' })),
@@ -40,7 +40,7 @@ describe('DrilldownPanel', () => {
     expect(screen.queryByRole('button', { name: /save|edit|delete|create/i })).toBeNull();
 
     // Load next 500
-    (reportingService.getPlantHeadDrilldown as any).mockResolvedValueOnce({
+    (reportingService.getPlantHeadDrilldown as Mock).mockResolvedValueOnce({
       metric: 'defects',
       window: 7,
       records: Array.from({ length: 500 }).map((_, i) => ({ id: `rec-${i + 500}`, defect: 'Dent' })),

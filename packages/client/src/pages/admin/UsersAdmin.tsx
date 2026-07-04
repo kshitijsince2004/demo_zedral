@@ -3,7 +3,7 @@
  *
  * Requirements: 7.5
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { AdminShell } from '../../components/layout/admin/AdminShell';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { ZButton } from '../../components/primitives/ZButton';
@@ -20,22 +20,22 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   const [editingUser, setEditingUser] = useState<UserAccess | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await adminService.listUsers();
       setUsers(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load users');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +43,8 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
     
     setSaveError(null);
     try {
-      const { line_access: _omit, ...payload } = editingUser;
+      const { line_access, ...payload } = editingUser;
+      void line_access;
       const implicitAll = hasImplicitAllMachines(editingUser.role);
       await adminService.upsertUser({
         ...payload,
@@ -51,8 +52,8 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
       });
       setEditingUser(null);
       await loadUsers();
-    } catch (err: any) {
-      setSaveError(err.message || 'Failed to save user');
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save user');
     }
   };
 

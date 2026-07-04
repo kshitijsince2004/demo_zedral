@@ -23,10 +23,6 @@ interface DeskSideNavProps {
 
 const NAV_WIDTH = 'w-[200px]';
 
-export function deskNavOffsetClass() {
-  return 'ml-[200px]';
-}
-
 export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabel }: DeskSideNavProps) {
   const navigate = useNavigate();
   const location = useLocation();

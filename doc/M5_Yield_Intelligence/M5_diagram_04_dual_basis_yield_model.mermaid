@@ -1,0 +1,17 @@
+flowchart TD
+  PC["Canonical ProductionCount (good / scrap / rework / total + weight)"]
+  PC --> MASS["MASS basis"]
+  PC --> COUNT["COUNT basis"]
+  MASS --> MY["Material yield = Good Output mass / Input mass"]
+  MY --> MYNOTE["Catches: crop, scale, trim - the metal a 'good' lot still loses"]
+  COUNT --> FPY["FPY = Good units first-time / Units started"]
+  FPY --> RTY["RTY = product of FPY across genealogy steps"]
+  RTY --> CNOTE["Catches: reject/rework events, multi-step compounding"]
+  MY --> WHY["Both at parity: mass catches what FPY hides, FPY catches what mass-of-a-passing-lot hides"]
+  RTY --> WHY
+  WHY --> CFG["quantity_basis per work-unit x material = MASS | COUNT | BOTH"]
+  CFG --> MART["Yield interval store (both bases, quantities not just ratios)"]
+  classDef m fill:#ede9fe,stroke:#7c3aed;
+  classDef c fill:#dbeafe,stroke:#2563eb;
+  class MASS,MY m;
+  class COUNT,FPY,RTY c;

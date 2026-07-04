@@ -37,11 +37,14 @@ export const canOverride = (
   // All WARN level errors/warnings must have a corresponding override request
   const warnIssues = [...result.errors.filter(e => e.severity === 'WARN'), ...result.warnings];
   
+  const remainingOverrides = [...overrides];
   for (const issue of warnIssues) {
-    const override = overrides.find((o) => o.field === issue.field);
+    const overrideIndex = remainingOverrides.findIndex((o) => o.field === issue.field);
+    const override = overrideIndex >= 0 ? remainingOverrides[overrideIndex] : undefined;
     if (!override || override.reason.trim().length === 0) {
       return false; // Missing override reason for a warn issue
     }
+    remainingOverrides.splice(overrideIndex, 1);
   }
 
   return true;

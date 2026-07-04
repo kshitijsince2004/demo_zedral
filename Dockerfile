@@ -8,6 +8,9 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY tsconfig.base.json ./
+COPY packages/platform/package.json packages/platform/
+COPY packages/connectors/package.json packages/connectors/
+COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
 COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
@@ -15,6 +18,9 @@ COPY packages/shared-validation/package.json packages/shared-validation/
 RUN npm ci
 
 COPY packages/shared-validation packages/shared-validation
+COPY packages/platform packages/platform
+COPY packages/connectors packages/connectors
+COPY packages/modules/m1-collection packages/modules/m1-collection
 COPY packages/server packages/server
 COPY packages/client packages/client
 COPY doc doc
@@ -32,13 +38,19 @@ ENV NODE_ENV=production
 ENV PORT=3005
 
 COPY package.json package-lock.json ./
+COPY packages/platform/package.json packages/platform/
+COPY packages/connectors/package.json packages/connectors/
+COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
 COPY packages/server/package.json packages/server/
+COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/packages/server/dist packages/server/dist
 COPY --from=builder /app/packages/shared-validation/dist packages/shared-validation/dist
+COPY --from=builder /app/packages/platform/dist packages/platform/dist
+COPY --from=builder /app/packages/modules/m1-collection/dist packages/modules/m1-collection/dist
 COPY packages/server/migrations packages/server/migrations
 COPY packages/server/scripts packages/server/scripts
 COPY doc doc

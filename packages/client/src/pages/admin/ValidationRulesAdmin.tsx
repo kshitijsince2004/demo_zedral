@@ -1,9 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { validationConfigService } from '../../services/validationConfigService';
 import { FIELD_REGISTRY, computeEffectiveRuleset } from '@m1/shared-validation';
 import type { ValidationRule } from '@m1/shared-validation';
 import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 import { ConfirmationDialog } from '../../components/admin/ConfirmationDialog';
+
+type RuleType = ValidationRule['type'];
+type RuleFormParams = Record<string, unknown>;
+type RuleFormState = Omit<Partial<ValidationRule>, 'type' | 'params'> & {
+  type?: RuleType;
+  params?: RuleFormParams;
+};
+
+function paramsOf(params: RuleFormState['params']): RuleFormParams {
+  return params ?? {};
+}
+
+function buildRulePayload(formState: RuleFormState): Omit<ValidationRule, 'fieldId' | 'origin'> | null {
+  const severity = formState.severity ?? 'WARN';
+  const isActive = formState.isActive ?? true;
+  const params = paramsOf(formState.params);
+
+  switch (formState.type) {
+    case 'MANDATORY':
+      return { type: 'MANDATORY', severity, isActive, params: { mandatory: Boolean(params.mandatory ?? true) } };
+    case 'RANGE':
+      return {
+        type: 'RANGE',
+        severity,
+        isActive,
+        params: {
+          min: typeof params.min === 'number' ? params.min : undefined,
+          max: typeof params.max === 'number' ? params.max : undefined,
+        },
+      };
+    case 'STEP':
+      return {
+        type: 'STEP',
+        severity,
+        isActive,
+        params: { step: typeof params.step === 'number' ? params.step : 0 },
+      };
+    case 'PATTERN':
+      return {
+        type: 'PATTERN',
+        severity,
+        isActive,
+        params: { pattern: typeof params.pattern === 'string' ? params.pattern : '' },
+      };
+    case 'ALLOWED_VALUES':
+      return {
+        type: 'ALLOWED_VALUES',
+        severity,
+        isActive,
+        params: {
+          values: Array.isArray(params.values) ? params.values.filter((value): value is string => typeof value === 'string') : [],
+        },
+      };
+    default:
+      return null;
+  }
+}
 
 export const ValidationRulesAdmin: React.FC = () => {
   const [rules, setRules] = useState<ValidationRule[]>([]);
@@ -13,18 +70,14 @@ export const ValidationRulesAdmin: React.FC = () => {
   // Selected state for dialog
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formState, setFormState] = useState<Partial<ValidationRule>>({
+  const [formState, setFormState] = useState<RuleFormState>({
     type: 'MANDATORY',
     severity: 'WARN',
     isActive: true,
     params: { mandatory: true },
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [r, v] = await Promise.all([
@@ -38,7 +91,11 @@ export const ValidationRulesAdmin: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const effective = computeEffectiveRuleset(rules, version);
 
@@ -65,12 +122,9 @@ export const ValidationRulesAdmin: React.FC = () => {
     if (!selectedField || !formState.type) return;
     
     try {
-      await validationConfigService.updateRule(selectedField, {
-        type: formState.type as any,
-        severity: formState.severity as 'BLOCK' | 'WARN',
-        isActive: formState.isActive ?? true,
-        params: formState.params as any,
-      });
+      const payload = buildRulePayload(formState);
+      if (!payload) return;
+      await validationConfigService.updateRule(selectedField, payload);
       setDialogOpen(false);
       await loadData();
     } catch (err) {
@@ -168,7 +222,7 @@ export const ValidationRulesAdmin: React.FC = () => {
             <select
               className="w-full rounded-lg border-slate-200 px-3 py-2 border shadow-sm focus:ring-2 focus:ring-blue-500"
               value={formState.type || 'MANDATORY'}
-              onChange={e => setFormState({ ...formState, type: e.target.value as any, params: {} })}
+              onChange={e => setFormState({ ...formState, type: e.target.value as RuleType, params: {} })}
             >
               <option value="MANDATORY">MANDATORY</option>
               <option value="RANGE">RANGE</option>
@@ -209,7 +263,7 @@ export const ValidationRulesAdmin: React.FC = () => {
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={(formState.params as any)?.mandatory ?? true}
+                  checked={Boolean(paramsOf(formState.params).mandatory ?? true)}
                   onChange={e => setFormState({ ...formState, params: { mandatory: e.target.checked } })}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
                 />
@@ -223,8 +277,8 @@ export const ValidationRulesAdmin: React.FC = () => {
                   <label className="block text-xs font-medium text-slate-500 mb-1">Min Value</label>
                   <input
                     type="number"
-                    value={(formState.params as any)?.min ?? ''}
-                    onChange={e => setFormState({ ...formState, params: { ...(formState.params as any), min: e.target.value ? Number(e.target.value) : undefined } })}
+                    value={typeof paramsOf(formState.params).min === 'number' ? String(paramsOf(formState.params).min) : ''}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), min: e.target.value ? Number(e.target.value) : undefined } })}
                     className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
                   />
                 </div>
@@ -232,8 +286,8 @@ export const ValidationRulesAdmin: React.FC = () => {
                   <label className="block text-xs font-medium text-slate-500 mb-1">Max Value</label>
                   <input
                     type="number"
-                    value={(formState.params as any)?.max ?? ''}
-                    onChange={e => setFormState({ ...formState, params: { ...(formState.params as any), max: e.target.value ? Number(e.target.value) : undefined } })}
+                    value={typeof paramsOf(formState.params).max === 'number' ? String(paramsOf(formState.params).max) : ''}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), max: e.target.value ? Number(e.target.value) : undefined } })}
                     className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
                   />
                 </div>
@@ -246,7 +300,7 @@ export const ValidationRulesAdmin: React.FC = () => {
                 <input
                   type="number"
                   step="0.01"
-                  value={(formState.params as any)?.step ?? ''}
+                  value={typeof paramsOf(formState.params).step === 'number' ? String(paramsOf(formState.params).step) : ''}
                   onChange={e => setFormState({ ...formState, params: { step: Number(e.target.value) } })}
                   className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
                 />
@@ -258,7 +312,7 @@ export const ValidationRulesAdmin: React.FC = () => {
                 <label className="block text-xs font-medium text-slate-500 mb-1">Regex Pattern</label>
                 <input
                   type="text"
-                  value={(formState.params as any)?.pattern ?? ''}
+                  value={typeof paramsOf(formState.params).pattern === 'string' ? paramsOf(formState.params).pattern as string : ''}
                   onChange={e => setFormState({ ...formState, params: { pattern: e.target.value } })}
                   className="w-full rounded-md border-slate-300 px-3 py-1.5 border font-mono text-sm"
                   placeholder="^[A-Z0-9]+$"
@@ -271,7 +325,7 @@ export const ValidationRulesAdmin: React.FC = () => {
                 <label className="block text-xs font-medium text-slate-500 mb-1">Allowed Values (comma separated)</label>
                 <input
                   type="text"
-                  value={((formState.params as any)?.values || []).join(', ')}
+                  value={(Array.isArray(paramsOf(formState.params).values) ? paramsOf(formState.params).values : []).join(', ')}
                   onChange={e => {
                     const values = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                     setFormState({ ...formState, params: { values } });

@@ -11,10 +11,11 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '../../lib/apiClient';
 import { useGloveModeClasses } from '../../hooks/useGloveModeClasses';
+import { submitOrQueue } from '../../operator/sync/submitOrQueue';
 
 // ─── Canonical crew role codes (Requirement 5.2) ──────────────────────────────
 
-export const CREW_ROLES = [
+const CREW_ROLES = [
   { code: 'OPERATOR', label: 'Operator' },
   { code: 'CRANE', label: 'Crane Operator' },
   { code: 'HELPER', label: 'Helper' },
@@ -22,7 +23,7 @@ export const CREW_ROLES = [
   { code: 'MTL', label: 'Material Handler' },
 ] as const;
 
-export type CrewRoleCode = typeof CREW_ROLES[number]['code'];
+type CrewRoleCode = typeof CREW_ROLES[number]['code'];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,8 +94,13 @@ export function CrewSubForm({ shiftLogId }: CrewSubFormProps) {
     };
 
     try {
-      const res = await apiClient.post<{ id: string }>('/crew', payload);
-      setSaveState('transmitted');
+      const res = await submitOrQueue({
+        url: '/crew',
+        method: 'POST',
+        payload,
+        aggregateKey: `shiftlog:${shiftLogId}`,
+      });
+      setSaveState(res.queued ? 'queued' : 'transmitted');
 
       setCrewList((prev) => [
         ...prev,

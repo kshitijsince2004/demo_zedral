@@ -30,8 +30,8 @@ export function PlanningAdmin() {
     try {
       const result = await adminService.uploadImport(source, file);
       setBatch(result);
-    } catch (err: any) {
-      setError(err.message || 'Upload failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setLoading(false);
     }
@@ -43,8 +43,8 @@ export function PlanningAdmin() {
     try {
       const updated = await adminService.getBatch(batch.id);
       setBatch(updated);
-    } catch (err: any) {
-      setError(err.message || 'Failed to refresh batch');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh batch');
     } finally {
       setLoading(false);
     }
@@ -76,8 +76,8 @@ export function PlanningAdmin() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err.message || 'Failed to download error rows');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to download error rows');
     }
   };
 

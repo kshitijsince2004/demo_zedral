@@ -1,0 +1,14 @@
+flowchart TD
+  IN["Input = raw issues - returns +/- dRaw"]
+  OUT["Accounted Output = Good + Scrap(by reason) + Rework + By-product + dWIP"]
+  IN --> CALC{"Gap = Input - Accounted Output"}
+  OUT --> CALC
+  CALC -- "|Gap| <= tolerance (+/-1-2%)" --> CLOSE["Balance CLOSED -> trusted yield published"]
+  CALC -- "|Gap| > tolerance" --> FLAG["Window PROVISIONAL - data deviation"]
+  FLAG --> DQ["Route to data-quality: scale drift? unrecorded movement? wet/dry basis mismatch?"]
+  DQ -. "fix metrology / logging, do NOT treat as yield loss" .-> IN
+  CLOSE --> BRIDGE["Loss decomposition -> bridge / Sankey / Pareto"]
+  classDef good fill:#dcfce7,stroke:#16a34a;
+  classDef warn fill:#fef9c3,stroke:#ca8a04;
+  class CLOSE good;
+  class FLAG,DQ warn;

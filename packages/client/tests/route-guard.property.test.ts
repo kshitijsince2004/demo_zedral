@@ -136,10 +136,10 @@ describe('Property 14: Role-based route guarding', () => {
       const supervisorRoutes = ROUTE_TABLE.filter((r) => r.minRole === 'SUPERVISOR');
       const adminRoutes = ROUTE_TABLE.filter((r) => r.minRole === 'ADMIN');
 
-      for (const route of supervisorRoutes) {
+      for (let i = 0; i < supervisorRoutes.length; i += 1) {
         expect(canAccess('OPERATOR', 'SUPERVISOR')).toBe(false);
       }
-      for (const route of adminRoutes) {
+      for (let i = 0; i < adminRoutes.length; i += 1) {
         expect(canAccess('OPERATOR', 'ADMIN')).toBe(false);
       }
     },

@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { ShiftLogState } from '../types';
 import { validateProcessEntry } from './runner';
-import { ValidationResult, ValidationError, ValidationWarning } from '../types';
+import { ValidationResult } from '../types';
 import { EffectiveRuleset } from '../types/configurableRules';
 import { evaluateRules } from './configurableRuleEvaluator';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 export const ShiftLogSchema = z.object({
   id: z.string().min(1, 'ID is required'),
@@ -37,8 +41,8 @@ export const ShiftLogSchema = z.object({
 });
 
 export const validateShiftLogSubmission = (
-  shiftLog: any,
-  entries: any[],
+  shiftLog: unknown,
+  entries: unknown[],
   effectiveRuleset?: EffectiveRuleset
 ): ValidationResult => {
   const result: ValidationResult = {
@@ -60,7 +64,11 @@ export const validateShiftLogSubmission = (
   }
 
   // Validate each entry based on the process line
-  const processType = shiftLog.processLine;
+  const processType = slValidation.success
+    ? slValidation.data.processLine
+    : isRecord(shiftLog) && typeof shiftLog.processLine === 'string'
+      ? shiftLog.processLine
+      : undefined;
   if (processType) {
     entries.forEach((entry, idx) => {
       const entryResult = validateProcessEntry(processType, entry);

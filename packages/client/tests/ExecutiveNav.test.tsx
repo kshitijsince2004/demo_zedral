@@ -2,12 +2,13 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { ExecutiveNav, PLANT_HEAD_NAV_ITEMS } from '../src/components/layout/executive/ExecutiveNav';
+import { ExecutiveNav } from '../src/components/layout/executive/ExecutiveNav';
+import { PLANT_HEAD_NAV_ITEMS } from '../src/components/layout/executive/executiveNavItems';
 
 // Mock auth store
 const mockUseAuthStore = vi.fn();
 vi.mock('../src/lib/authStore', () => ({
-  useAuthStore: (selector: any) => selector({ role: mockUseAuthStore() }),
+  useAuthStore: (selector: (state: { role: unknown }) => unknown) => selector({ role: mockUseAuthStore() }),
 }));
 
 describe('ExecutiveNav', () => {

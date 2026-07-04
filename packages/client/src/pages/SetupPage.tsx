@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ScanLine } from 'lucide-react';
 import { apiClient } from '../lib/apiClient';
@@ -12,33 +12,7 @@ export function SetupPage() {
   const bufferRef = useRef<string>('');
   const timeoutRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
-        return;
-      }
-
-      if (e.key === 'Enter') {
-        const barcode = bufferRef.current;
-        if (barcode.length > 3) {
-          processBarcode(barcode);
-        }
-        bufferRef.current = '';
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      } else if (e.key.length === 1) {
-        bufferRef.current += e.key;
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = window.setTimeout(() => {
-          bufferRef.current = '';
-        }, 50);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const processBarcode = async (barcode: string) => {
+  const processBarcode = useCallback(async (barcode: string) => {
     if (!barcode.startsWith('BIND-')) {
       setError(`Invalid barcode format: ${barcode}`);
       return;
@@ -66,7 +40,33 @@ export function SetupPage() {
       setError(err instanceof Error ? err.message : 'Registration failed');
       setStatus('Waiting for barcode scan…');
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        const barcode = bufferRef.current;
+        if (barcode.length > 3) {
+          void processBarcode(barcode);
+        }
+        bufferRef.current = '';
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      } else if (e.key.length === 1) {
+        bufferRef.current += e.key;
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = window.setTimeout(() => {
+          bufferRef.current = '';
+        }, 50);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [processBarcode]);
 
   return (
     <div className="theme-operator min-h-screen flex flex-col bg-secondary text-foreground">

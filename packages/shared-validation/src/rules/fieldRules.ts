@@ -16,6 +16,7 @@ export const HRSSlitSlotSchema = z.object({
   taper: z.string().optional(),
   childCoilNo: z.string().optional(),
 });
+export const SlitSlotSchema = HRSSlitSlotSchema;
 
 // ─── Slit slot (CR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_crs_slit

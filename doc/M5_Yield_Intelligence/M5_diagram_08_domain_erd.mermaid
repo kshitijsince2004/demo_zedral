@@ -1,0 +1,76 @@
+erDiagram
+  CANON_PRODUCTION_COUNT ||--o{ YIELD_MATERIAL_BALANCE : "feeds"
+  CANON_MATERIAL_LOT ||--o{ CANON_MATERIAL_LOT : "genealogy parent-child"
+  CANON_MATERIAL_LOT ||--o{ YIELD_MATERIAL_BALANCE : "balanced per lot/window"
+  YIELD_CONFIG ||--o{ YIELD_INTERVAL : "policy governs"
+  EXPECTED_YIELD_FACTOR ||--o{ YIELD_INTERVAL : "baseline (PSQ)"
+  YIELD_MATERIAL_BALANCE ||--o{ YIELD_INTERVAL : "computed from"
+  YIELD_INTERVAL ||--o{ LOSS_ATTRIBUTION : "decomposed into"
+  CANON_LOSS_CATEGORY ||--o{ LOSS_ATTRIBUTION : "classifies"
+  CANON_REASON_CODE ||--o{ LOSS_ATTRIBUTION : "reason leaf"
+  CANON_COST_RATE ||--o{ LOSS_ATTRIBUTION : "prices"
+  LOSS_ATTRIBUTION ||--o{ LOSS_BRIDGE : "rolls up to"
+  YIELD_INTERVAL ||--o{ YIELD_FACTOR_FEEDBACK : "actual vs expected -> M3"
+
+  YIELD_CONFIG {
+    bigint config_id PK
+    uuid tenant_id
+    text quantity_basis "MASS|COUNT|BOTH"
+    numeric recon_tolerance_pct
+    text expected_yield_source
+  }
+  EXPECTED_YIELD_FACTOR {
+    bigint factor_id PK
+    bigint work_unit_ref
+    bigint material_ref
+    numeric expected_yield_pct
+    numeric planned_scrap_pct
+    boolean is_calibrated
+    int version
+  }
+  YIELD_MATERIAL_BALANCE {
+    bigint balance_id PK
+    bigint lot_ref
+    numeric input_mt
+    numeric good_mt
+    numeric scrap_mt
+    numeric rework_mt
+    numeric byproduct_mt
+    numeric dwip_mt
+    numeric gap_mt
+    boolean is_closed
+  }
+  YIELD_INTERVAL {
+    bigint interval_id PK
+    bigint work_unit_ref
+    bigint material_ref
+    numeric input_qty
+    numeric good_qty
+    numeric material_yield_pct
+    numeric fpy_pct
+    numeric rty_pct
+    numeric avoidable_loss_qty
+  }
+  LOSS_ATTRIBUTION {
+    bigint attr_id PK
+    bigint interval_ref
+    bigint reason_ref
+    bigint loss_category_ref
+    text quantity_class "SQ|PSQ|RQ"
+    text recoverability "PURE|SALVAGE|RECOVERABLE"
+    numeric loss_mt
+    numeric loss_units
+    numeric loss_cost
+  }
+  LOSS_BRIDGE {
+    bigint bridge_id PK
+    bigint scope_ref
+    text grain
+    jsonb steps
+  }
+  YIELD_FACTOR_FEEDBACK {
+    bigint feedback_id PK
+    bigint route_ref
+    numeric actual_yield_pct
+    numeric expected_yield_pct
+  }

@@ -14,7 +14,13 @@ import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
 import type { LineAccessLevel } from '../services/authService';
 import { db } from '../db';
-import { SixHiService } from '../services/SixHiService';
+import {
+  SixHiConfigService,
+  SixHiExecutionService,
+  SixHiQueueService,
+  SixHiShiftService,
+  SixHiStoppageService,
+} from '../services/sixHi';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import multer from 'multer';
@@ -130,7 +136,7 @@ router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE')
       return res.status(400).json({ error: 'targetMachine must be 6HI, 4HI, or 2HI' });
     }
     const roles = req.user!.roles ?? [];
-    const results = await SixHiService.transferMachines(
+    const results = await SixHiConfigService.transferMachines(
       batchNumbers,
       parsedMachine,
       req.user!.id,
@@ -144,7 +150,7 @@ router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE')
 
 router.get('/master/stoppage-categories', requireSixHi('READ'), async (_req, res) => {
   try {
-    const data = await SixHiService.getStoppageCategories();
+    const data = await SixHiConfigService.getStoppageCategories();
     res.json(data.categories);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load categories' });
@@ -153,7 +159,7 @@ router.get('/master/stoppage-categories', requireSixHi('READ'), async (_req, res
 
 router.get('/master/defect-codes', requireSixHi('READ'), async (_req, res) => {
   try {
-    const data = await SixHiService.getDefectCodes();
+    const data = await SixHiConfigService.getDefectCodes();
     res.json(data);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load defect codes' });
@@ -162,7 +168,7 @@ router.get('/master/defect-codes', requireSixHi('READ'), async (_req, res) => {
 
 router.post('/master/defect-codes', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.saveDefectCode(req.body);
+    const data = await SixHiConfigService.saveDefectCode(req.body);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save defect code' });
@@ -171,7 +177,7 @@ router.post('/master/defect-codes', requireSixHi('WRITE'), async (req, res) => {
 
 router.patch('/master/defect-codes/:code/toggle', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.toggleDefectCode(req.params.code, req.body.isActive);
+    const data = await SixHiConfigService.toggleDefectCode(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle defect code' });
@@ -180,7 +186,7 @@ router.patch('/master/defect-codes/:code/toggle', requireSixHi('WRITE'), async (
 
 router.post('/master/stoppage-categories', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.saveStoppageCategory(req.body);
+    const data = await SixHiConfigService.saveStoppageCategory(req.body);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save stoppage category' });
@@ -189,7 +195,7 @@ router.post('/master/stoppage-categories', requireSixHi('WRITE'), async (req, re
 
 router.patch('/master/stoppage-categories/:code/toggle', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.toggleStoppageCategory(req.params.code, req.body.isActive);
+    const data = await SixHiConfigService.toggleStoppageCategory(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle stoppage category' });
@@ -198,7 +204,7 @@ router.patch('/master/stoppage-categories/:code/toggle', requireSixHi('WRITE'), 
 
 router.post('/master/stoppage-codes', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.saveStoppageCode(req.body);
+    const data = await SixHiConfigService.saveStoppageCode(req.body);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save stoppage code' });
@@ -207,7 +213,7 @@ router.post('/master/stoppage-codes', requireSixHi('WRITE'), async (req, res) =>
 
 router.patch('/master/stoppage-codes/:code/toggle', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const data = await SixHiService.toggleStoppageCode(req.params.code, req.body.isActive);
+    const data = await SixHiConfigService.toggleStoppageCode(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle stoppage code' });
@@ -217,7 +223,7 @@ router.patch('/master/stoppage-codes/:code/toggle', requireSixHi('WRITE'), async
 router.get('/active-order', requireSixHi('READ'), async (req, res) => {
   try {
     const machine = String(req.query.machine ?? '6HI').toUpperCase();
-    const active = await SixHiService.findActiveMachineOrder(parseCrmMillCode(machine) ?? '6HI');
+    const active = await SixHiExecutionService.findActiveMachineOrder(parseCrmMillCode(machine) ?? '6HI');
     res.json(active);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load active order' });
@@ -237,7 +243,7 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
     if (!parsedMachine) {
       return res.status(400).json({ error: 'machine must be 6HI, 4HI, or 2HI' });
     }
-    const result = await SixHiService.getQueue(
+    const result = await SixHiQueueService.getQueue(
       subProcess as 'ROLLING' | 'SKIN_PASS',
       planDate,
       shiftCode,
@@ -264,7 +270,7 @@ router.post('/orders/manual', requireSixHi('WRITE'), async (req, res) => {
 
 router.get('/orders/:batchNo', requireSixHi('READ'), async (req, res) => {
   try {
-    const order = await SixHiService.getOrder(req.params.batchNo, req.user!.id);
+    const order = await SixHiExecutionService.getOrder(req.params.batchNo, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
     res.status(404).json({ error: e instanceof Error ? e.message : 'Order not found' });
@@ -275,7 +281,7 @@ router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (r
   try {
     const machineCode = String(req.body?.machineCode ?? '').trim();
     if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
-    const order = await SixHiService.allocateMachine(
+    const order = await SixHiQueueService.allocateMachine(
       req.params.batchNo,
       machineCode,
       req.user!.id,
@@ -294,7 +300,7 @@ router.get(
     try {
       const planDate = String(req.query.date ?? new Date().toISOString().slice(0, 10));
       const shiftCode = String(req.query.shift ?? 'A');
-      const board = await SixHiService.getOrderAssignmentBoard(planDate, shiftCode);
+      const board = await SixHiQueueService.getOrderAssignmentBoard(planDate, shiftCode);
       res.json(board);
     } catch (e: unknown) {
       res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load order assignment' });
@@ -318,7 +324,7 @@ router.post(
       if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
 
       const transferType = batchNumbers.length > 1 ? 'BULK' : 'SINGLE';
-      const results = await SixHiService.transferMachines(
+      const results = await SixHiConfigService.transferMachines(
         batchNumbers,
         machineCode,
         req.user!.id,
@@ -345,7 +351,7 @@ router.post('/orders/transfer-machines', requireSixHi('WRITE'), async (req, res)
     }
     if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
     
-    const results = await SixHiService.transferMachines(
+    const results = await SixHiConfigService.transferMachines(
       batchNumbers,
       machineCode as any,
       req.user!.id,
@@ -358,9 +364,30 @@ router.post('/orders/transfer-machines', requireSixHi('WRITE'), async (req, res)
   }
 });
 
+router.post('/orders/start-combined', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const { batchNumbers } = req.body;
+    if (!Array.isArray(batchNumbers) || batchNumbers.length === 0) {
+      return res.status(400).json({ error: 'batchNumbers array required' });
+    }
+    const cleanBatchNumbers = batchNumbers.filter((batch): batch is string => typeof batch === 'string' && batch.trim().length > 0);
+    const orders = await SixHiExecutionService.startCombinedProduction(cleanBatchNumbers, req.user!.id);
+    res.json({ orders });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Start failed';
+    if (msg.startsWith('ACTIVE_ORDER_CONFLICT:')) {
+      return res.status(409).json({
+        error: 'Another order is already active on this machine',
+        activeBatchNumber: msg.split(':')[1],
+      });
+    }
+    res.status(400).json({ error: msg });
+  }
+});
+
 router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const order = await SixHiService.startProduction(req.params.batchNo, req.user!.id);
+    const order = await SixHiExecutionService.startProduction(req.params.batchNo, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Start failed';
@@ -383,7 +410,7 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
 router.post('/orders/:batchNo/end', requireSixHi('WRITE'), async (req, res) => {
   try {
     const { defectCodes } = req.body;
-    const order = await SixHiService.endProduction(req.params.batchNo, req.user!.id, defectCodes);
+    const order = await SixHiExecutionService.endProduction(req.params.batchNo, req.user!.id, defectCodes);
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'End failed' });
@@ -394,7 +421,7 @@ router.patch('/orders/:batchNo/rolling', requireSixHi('WRITE'), async (req, res)
   const parsed = SixHiRollingUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.updateRolling(req.params.batchNo, {
+    const order = await SixHiExecutionService.updateRolling(req.params.batchNo, {
       ...parsed.data,
       destinationOverride: req.body.destinationOverride ?? false,
       passes: parsed.data.passes,
@@ -411,7 +438,7 @@ router.patch('/orders/:batchNo/skinpass', requireSixHi('WRITE'), async (req, res
   const parsed = SixHiSkinPassUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.updateSkinPass(req.params.batchNo, parsed.data, req.user!.id);
+    const order = await SixHiExecutionService.updateSkinPass(req.params.batchNo, parsed.data, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Update failed' });
@@ -421,7 +448,7 @@ router.patch('/orders/:batchNo/skinpass', requireSixHi('WRITE'), async (req, res
 router.post('/orders/:batchNo/stoppages/start', requireSixHi('WRITE'), async (req, res) => {
   try {
     // Default to '12' (Operational) to start the timer immediately
-    const order = await SixHiService.addStoppage(req.params.batchNo, '12', undefined, undefined, req.user!.id);
+    const order = await SixHiStoppageService.addStoppage(req.params.batchNo, '12', undefined, undefined, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage start failed' });
@@ -432,7 +459,7 @@ router.post('/orders/:batchNo/stoppages', requireSixHi('WRITE'), async (req, res
   const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.addStoppage(
+    const order = await SixHiStoppageService.addStoppage(
       req.params.batchNo,
       parsed.data.categoryCode,
       parsed.data.breakdownCode,
@@ -449,7 +476,7 @@ router.patch('/orders/:batchNo/stoppages/:stoppageId', requireSixHi('WRITE'), as
   const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.updateStoppage(
+    const order = await SixHiStoppageService.updateStoppage(
       req.params.batchNo,
       req.params.stoppageId,
       parsed.data.categoryCode,
@@ -465,7 +492,7 @@ router.patch('/orders/:batchNo/stoppages/:stoppageId', requireSixHi('WRITE'), as
 
 router.patch('/orders/:batchNo/stoppages/:stoppageId/end', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const order = await SixHiService.endStoppage(req.params.batchNo, req.params.stoppageId, req.user!.id);
+    const order = await SixHiStoppageService.endStoppage(req.params.batchNo, req.params.stoppageId, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'End stoppage failed' });
@@ -482,7 +509,7 @@ router.post('/orders/:batchNo/reject', requireSixHi('WRITE'), async (req, res) =
       return res.status(400).json({ error: 'remarks are required' });
     }
     const codes = Array.isArray(defectCodes) ? defectCodes.filter((c): c is string => typeof c === 'string') : [];
-    const order = await SixHiService.rejectOrder(
+    const order = await SixHiExecutionService.rejectOrder(
       req.params.batchNo,
       rejectionReason,
       codes,
@@ -499,7 +526,7 @@ router.post('/orders/:batchNo/remarks', requireSixHi('WRITE'), async (req, res) 
   const parsed = SixHiRemarkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.addRemark(
+    const order = await SixHiExecutionService.addRemark(
       req.params.batchNo,
       parsed.data.text,
       req.user!.id,
@@ -515,7 +542,7 @@ router.post('/orders/:batchNo/roll-change', requireSixHi('WRITE'), async (req, r
   const parsed = SixHiRollChangeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const order = await SixHiService.logRollChange(
+    const order = await SixHiExecutionService.logRollChange(
       req.params.batchNo,
       parsed.data.rollPosition,
       parsed.data.newRollNo,
@@ -531,7 +558,7 @@ router.post('/orders/:batchNo/roll-change', requireSixHi('WRITE'), async (req, r
 
 router.get('/shift-summary/:shiftLogId', requireSixHi('READ'), async (req, res) => {
   try {
-    const summary = await SixHiService.getShiftSummary(req.params.shiftLogId);
+    const summary = await SixHiShiftService.getShiftSummary(req.params.shiftLogId);
     res.json(summary);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Summary failed' });
@@ -541,7 +568,7 @@ router.get('/shift-summary/:shiftLogId', requireSixHi('READ'), async (req, res) 
 router.get('/shift/:shiftLogId/stoppages', requireSixHi('READ'), async (req, res) => {
   try {
     const machine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
-    const stoppages = await SixHiService.getShiftStoppages(req.params.shiftLogId, machine);
+    const stoppages = await SixHiStoppageService.getShiftStoppages(req.params.shiftLogId, machine);
     res.json(stoppages);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load shift stoppages' });
@@ -552,7 +579,7 @@ router.post('/shift-summary/:shiftLogId', requireSixHi('WRITE'), async (req, res
   const parsed = SixHiShiftSummarySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const summary = await SixHiService.saveShiftSummary(
+    const summary = await SixHiShiftService.saveShiftSummary(
       req.params.shiftLogId,
       parsed.data.scrapKg,
       parsed.data.coolantTempDegC,

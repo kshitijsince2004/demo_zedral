@@ -1,0 +1,13 @@
+flowchart LR
+  IN["Input Quantity (MT + count)"] --> MB["Mass-Balance Resolver"]
+  GOOD["Good Quantity"] --> MB
+  SCRAP["Scrap (by reason)"] --> MB
+  REWORK["Rework"] --> MB
+  MB --> MY["Material yield = Good / Input"]
+  GOOD --> FPY["FPY = Good first-time / Started"]
+  FPY --> RTY["RTY = product of FPY across genealogy steps"]
+  EXP["Expected-yield factor (route x grade x work-unit, versioned)"] --> AV["Avoidable loss = Actual loss - Planned scrap (PSQ)"]
+  MY --> AV
+  RATE["CostRate: standard cost - salvage - rework cost"] --> PRICE["Priced loss (hits-twice, net of salvage)"]
+  AV --> PRICE
+  MY & RTY & AV & PRICE --> MART["Yield interval store (quantities, not just ratios)"]

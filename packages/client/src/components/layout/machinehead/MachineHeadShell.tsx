@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { OfflineBanner } from '../../ui/OfflineBanner';
 import { ZPageHeader } from '../../ui/operator/ZPageHeader';
 import { ZButton } from '../../primitives/ZButton';
-import { deskNavOffsetClass } from '../shared/DeskSideNav';
+import { deskNavOffsetClass } from '../shared/deskNavLayout';
 import { MachineHeadNav } from './MachineHeadNav';
 
 interface MachineHeadShellProps {

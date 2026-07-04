@@ -29,6 +29,26 @@ const validateTable = (req: any, res: any, next: any) => {
   next();
 };
 
+router.get('/delta', async (_req, res) => {
+  try {
+    const rows = (
+      await Promise.all(
+        Object.entries(ENTITY_CONFIG).map(async ([entityType, config]) => {
+          const records = await MasterDataService.getAll(config.table, false);
+          return records.map((record: Record<string, unknown>) => ({
+            ...record,
+            tableName: entityType,
+          }));
+        }),
+      )
+    ).flat();
+
+    res.json({ rows, serverTime: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- Task 12.2 Grade Specs ---
 router.post('/grade-specs', requireRole([UserRole.ADMIN]), async (req, res) => {
   try {

@@ -102,8 +102,8 @@ describe('Property Tests: Validations and Overrides', () => {
     it('should allow overrides on WARN severity by SUPERVISOR/ADMIN with reason', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.PLANT_HEAD), { minLength: 1 }),
-          fc.string({ minLength: 1 }),
+          fc.array(fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN), { minLength: 1 }),
+          fc.string({ minLength: 1 }).filter((reason) => reason.trim().length > 0),
           (roles, reason) => {
             const result = {
               isValid: true,

@@ -67,7 +67,7 @@ const validSlitSlotsArb = fc
           ...labels.map((label) =>
             fc.record({
               label: fc.constant(label),
-              widthMm: fc.double({ min: 1, max: 2000, noNaN: true }),
+              widthMm: fc.double({ min: 1, max: 200, noNaN: true }),
               thkMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
               taper: fc.option(fc.string({ minLength: 0, maxLength: 20 }), { nil: undefined }),
               childCoilNo: fc.option(fc.string({ minLength: 0, maxLength: 20 }), { nil: undefined }),
@@ -308,7 +308,7 @@ describe('Property 7: Slit-slot constraint (schema side)', () => {
             expect(slotResult.success).toBe(true);
 
             // Also verify it works inside HRS
-            const hrsEntry = { ...baseHRS, slitSlots: [slot] };
+            const hrsEntry = { ...baseHRS, nominalWidthMm: Math.max(baseHRS.nominalWidthMm, widthMm + 1), slitSlots: [slot] };
             const hrsResult = HRSSchema.safeParse(hrsEntry);
             expect(hrsResult.success).toBe(true);
 

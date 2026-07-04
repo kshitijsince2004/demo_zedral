@@ -5,6 +5,7 @@ import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
+import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 interface SixHiProductionActionRailProps {
   order: SixHiOrderDetail;
@@ -101,8 +102,9 @@ export function SixHiProductionActionRail({
     >
       <div className="shrink-0 px-1.5 py-2 border-b border-border text-center space-y-1">
         <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">
-          {order.batchNumber.slice(-6)}
+          {primaryOrderId(order)}
         </p>
+        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Sel {selectIdOf(order)}</p>
         <SixHiStatusPill status={order.status} preparing={preparing} />
       </div>
 

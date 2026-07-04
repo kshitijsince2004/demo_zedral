@@ -14,6 +14,8 @@ import {
   type DrilldownScope,
 } from '../../lib/reportingService';
 
+const EMPTY_SCOPE: DrilldownScope = {};
+
 interface KpiDrilldownModalProps {
   /** The metric key to drill into (e.g. "yield", "oee", "rejection_rate"). */
   metric: string;
@@ -27,25 +29,26 @@ interface KpiDrilldownModalProps {
 export function KpiDrilldownModal({
   metric,
   label,
-  scope = {},
+  scope,
   onClose,
 }: KpiDrilldownModalProps) {
   const [result, setResult] = useState<DrilldownResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const effectiveScope = scope ?? EMPTY_SCOPE;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await reportingService.getKpiDrilldown(metric, scope);
+      const data = await reportingService.getKpiDrilldown(metric, effectiveScope);
       setResult(data);
-    } catch (err: any) {
-      setError(err?.message ?? 'Unable to load drill-down data');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unable to load drill-down data');
     } finally {
       setLoading(false);
     }
-  }, [metric, JSON.stringify(scope)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [metric, effectiveScope]);
 
   useEffect(() => {
     load();

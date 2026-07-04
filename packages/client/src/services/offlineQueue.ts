@@ -3,7 +3,7 @@ import { get, set, del } from 'idb-keyval';
 /**
  * Saves a payload to IndexedDB.
  */
-export const saveToOfflineQueue = async (key: string, data: any): Promise<void> => {
+export const saveToOfflineQueue = async (key: string, data: unknown): Promise<void> => {
   try {
     await set(key, data);
   } catch (error) {
@@ -14,7 +14,7 @@ export const saveToOfflineQueue = async (key: string, data: any): Promise<void> 
 /**
  * Retrieves a payload from IndexedDB.
  */
-export const getFromOfflineQueue = async (key: string): Promise<any> => {
+export const getFromOfflineQueue = async (key: string): Promise<unknown> => {
   try {
     return await get(key);
   } catch (error) {

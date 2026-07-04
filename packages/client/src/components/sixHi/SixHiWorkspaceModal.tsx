@@ -5,6 +5,7 @@ import { useSixHiStore, isPreparing } from '../../store/sixHiStore';
 import { apiClient } from '../../lib/apiClient';
 import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
+import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
 
 interface SixHiWorkspaceModalProps {
   actionRail?: ReactNode;
@@ -15,6 +16,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     workspaceOpen,
     workspaceBatch,
     panelOrder,
+    combinedRun,
     busy,
     closeWorkspace,
     loadPanelOrder,
@@ -34,13 +36,16 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   const order = panelOrder?.batchNumber === workspaceBatch ? panelOrder : null;
   const preparing = order ? isPreparing(order, workspaceOpen, workspaceBatch) : false;
+  const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [workspaceBatch];
 
   const handleSaveRolling = async (data: SixHiRollingData) => {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, () =>
-        apiClient.patch(`/6hi/orders/${encodeURIComponent(workspaceBatch)}/rolling`, data),
+      await runOrderAction(workspaceBatch, async () =>
+        Promise.all(actionBatchNumbers.map((batchNumber) =>
+          apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/rolling`, data),
+        )),
       );
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -54,8 +59,10 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, () =>
-        apiClient.patch(`/6hi/orders/${encodeURIComponent(workspaceBatch)}/skinpass`, data),
+      await runOrderAction(workspaceBatch, async () =>
+        Promise.all(actionBatchNumbers.map((batchNumber) =>
+          apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/skinpass`, data),
+        )),
       );
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -80,10 +87,10 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
               <p className="text-base font-bold shrink-0">Production Console</p>
               {order && (
                 <>
-                  <span className="font-mono text-lg font-bold truncate">{order.batchNumber}</span>
+                  <span className="font-mono text-lg font-bold truncate">{primaryOrderId(order)}</span>
                   <SixHiStatusPill status={order.status} preparing={preparing} large />
                   <span className="text-sm opacity-80 hidden sm:inline">
-                    {order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+                    {combinedRun ? `${combinedRun.batchNumbers.length} orders` : orderIdentitySubtitle(order)}
                   </span>
                 </>
               )}
@@ -109,6 +116,13 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
           {saveSuccess && (
             <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-green-500/10 border-b border-green-500/20 text-green-700 text-sm">
               <span className="flex-1 font-semibold">Production data saved successfully.</span>
+            </div>
+          )}
+
+          {combinedRun && (
+            <div className="shrink-0 px-4 py-2 bg-success/10 border-b border-success/20 text-success text-sm">
+              <span className="font-bold">Combined production run:</span>{' '}
+              {combinedRun.orders.map((item) => `${item.motherCoil}/${item.slitId ?? '—'} (${item.batchNumber})`).join(', ')}
             </div>
           )}
 

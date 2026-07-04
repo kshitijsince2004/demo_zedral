@@ -124,7 +124,7 @@ const INITIAL_SHIFT_STATE = {
  * AutoSourceService calling setPlannedCoils() once the /auto-source endpoint is
  * wired (Task 6.1). The former MOCK_PLANNED_COILS constant has been removed.
  */
-export const useShiftStore = create<ShiftState>((set, get) => ({
+export const useShiftStore = create<ShiftState>((set) => ({
   ...INITIAL_SHIFT_STATE,
 
   setShiftLogId: (id) => set({ shiftLogId: id }),

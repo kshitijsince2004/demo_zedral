@@ -1,8 +1,6 @@
 import { Activity, BarChart3, ClipboardList, Download, Search, Upload } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
 
-export const PLANT_HEAD_NAV_ITEMS = ['plant', 'live', 'import', 'export', 'trace', 'audit'] as const;
-
 const NAV_ITEMS: DeskNavItem[] = [
   {
     id: 'plant',

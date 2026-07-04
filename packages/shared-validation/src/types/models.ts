@@ -78,7 +78,7 @@ export interface DefectEntry {
   updatedAt: Date;
 }
 
-export interface DomainEvent<T = any> {
+export interface DomainEvent<T = unknown> {
   eventId: string;
   eventType: string;
   timestamp: Date;
@@ -96,7 +96,7 @@ export interface QueuedEntry {
   id: string;
   entityType: 'ProcessEntry' | 'StoppageEntry' | 'CrewEntry' | 'DefectEntry' | 'ShiftLog';
   action: 'CREATE' | 'UPDATE' | 'DELETE';
-  payload: any;
+  payload: unknown;
   createdAt: Date;
   retryCount: number;
 }

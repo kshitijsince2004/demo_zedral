@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import {
   hubTabsForMill,
   normalizeMillTab,
-  type MillProcessTab,
 } from '../../lib/millConfig';
 import { Search, RefreshCw } from 'lucide-react';
 import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
@@ -20,8 +19,13 @@ import { useSixHiStore } from '../../store/sixHiStore';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZPageHeader } from '../../components/ui/operator/ZPageHeader';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
+import {
+  finishOf,
+  isCompatibleCombinedRunOrder,
+  primaryOrderId,
+  selectIdOf,
+} from '../../lib/sixHiOrderIdentity';
 
-type TabId = MillProcessTab;
 type StatusFilter = 'ALL' | SixHiOrderStatus;
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
@@ -43,17 +47,17 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
   return (
     card.batchNumber.toLowerCase().includes(needle) ||
     card.motherCoil.toLowerCase().includes(needle) ||
+    (card.slitId?.toLowerCase().includes(needle) ?? false) ||
     card.customer.toLowerCase().includes(needle)
   );
 }
 
 export function SixHiHub() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { shiftDate, shiftCode } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
-  const { basePath, machineCode: pathMachine } = useWorkspaceBase();
+  const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
 
   const activeTab = normalizeMillTab(pathMachine, searchParams.get('tab'));
@@ -74,6 +78,8 @@ export function SixHiHub() {
   
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
+  const [isCombineMode, setIsCombineMode] = useState(false);
+  const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
 
   const date = shiftDate || new Date().toISOString().slice(0, 10);
   const shift = shiftCode || 'A';
@@ -198,6 +204,56 @@ export function SixHiHub() {
   const needsMachineSelection = (card: SixHiQueueCard) =>
     card.machineAllocated === false || !card.machineCode || card.machineCode !== queueMachine;
 
+  const isStartable = (card: SixHiQueueCard) =>
+    card.status === 'PENDING' || card.status === 'PREPARING';
+
+  const selectedProductionOrders = useMemo(
+    () => allOrders.filter((card) => selectedForProduction.has(card.batchNumber)),
+    [allOrders, selectedForProduction],
+  );
+
+  const canSelectForCombinedRun = (card: SixHiQueueCard) => {
+    if (!isStartable(card)) return false;
+    const base = selectedProductionOrders[0];
+    return !base || isCompatibleCombinedRunOrder(base, card);
+  };
+
+  const startCombinedProduction = async (cards: SixHiQueueCard[]) => {
+    if (cards.length === 0) return;
+    if (cards.length === 1) {
+      moveToProduction(cards[0]);
+      return;
+    }
+    if (cards.some(needsMachineSelection)) {
+      setAllocMode('production');
+      setAllocBatches(cards);
+      setAllocOpen(true);
+      return;
+    }
+
+    const batchNumbers = cards.map((card) => card.batchNumber);
+    const response = await apiClient.post<{ orders: unknown[] }>('/6hi/orders/start-combined', { batchNumbers });
+    const firstBatch = cards[0].batchNumber;
+    useSixHiStore.getState().setCombinedRun({
+      primaryBatchNumber: firstBatch,
+      batchNumbers,
+      orders: cards.map((card) => ({
+        batchNumber: card.batchNumber,
+        motherCoil: card.motherCoil,
+        slitId: card.slitId,
+        customer: card.customer,
+        weightMt: card.weightMt,
+      })),
+    });
+    setIsCombineMode(false);
+    setSelectedForProduction(new Set());
+    useSixHiStore.getState().requestQueueRefresh();
+    await loadQueue();
+    if (response.orders.length > 0) {
+      openWorkspace(firstBatch);
+    }
+  };
+
   const moveToProduction = (card: SixHiQueueCard) => {
     if (card.status === 'COMPLETED') return;
     if (needsMachineSelection(card)) {
@@ -232,7 +288,13 @@ export function SixHiHub() {
       setAllocBatches([]);
       useSixHiStore.getState().requestQueueRefresh();
       await loadQueue();
-      if (targetBatch && machineCode === queueMachine) {
+      if (allocBatches.length > 1 && machineCode === queueMachine) {
+        await startCombinedProduction(allocBatches.map((batch) => ({
+          ...batch,
+          machineCode,
+          machineAllocated: true,
+        })));
+      } else if (targetBatch && machineCode === queueMachine) {
         openWorkspace(targetBatch);
       }
       return;
@@ -254,9 +316,12 @@ export function SixHiHub() {
   const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean }) => {
     const isSelected = isTransferMode
       ? selectedForTransfer.has(card.batchNumber)
+      : isCombineMode
+        ? selectedForProduction.has(card.batchNumber)
       : card.batchNumber === selectedBatch;
     const isActive = machineActive?.batchNumber === card.batchNumber;
     const routeCode = card.subProcess === 'ROLLING' ? '4' : 'X';
+    const combineEligible = canSelectForCombinedRun(card);
 
     return (
       <button
@@ -268,6 +333,12 @@ export function SixHiHub() {
             if (next.has(card.batchNumber)) next.delete(card.batchNumber);
             else next.add(card.batchNumber);
             setSelectedForTransfer(next);
+          } else if (isCombineMode) {
+            if (!combineEligible && !selectedForProduction.has(card.batchNumber)) return;
+            const next = new Set(selectedForProduction);
+            if (next.has(card.batchNumber)) next.delete(card.batchNumber);
+            else next.add(card.batchNumber);
+            setSelectedForProduction(next);
           } else {
             setSelectedBatch(card.batchNumber);
           }
@@ -277,13 +348,28 @@ export function SixHiHub() {
           'hover:bg-secondary active:bg-secondary',
           isSelected && !isTransferMode ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
           isSelected && isTransferMode ? 'bg-primary/5 border-l-4 border-l-primary' : '',
+          isCombineMode && !combineEligible && !isSelected ? 'opacity-45' : '',
+          isSelected && isCombineMode ? 'bg-success/10 border-l-4 border-l-success' : '',
           isActive ? 'ring-1 ring-inset ring-warning/30' : '',
           opts?.pending ? 'bg-secondary/40' : '',
         ].join(' ')}
       >
         <div className="flex items-center justify-between gap-3 mb-2">
-          <span className="font-mono text-base font-bold text-foreground">{card.batchNumber}</span>
+          <div className="min-w-0">
+            <span className="font-mono text-lg font-bold text-foreground block truncate">{primaryOrderId(card)}</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              Select ID {selectIdOf(card)} · Batch {card.batchNumber}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
+            {isCombineMode && (
+              <span className={[
+                'h-6 w-6 rounded-md border flex items-center justify-center text-xs font-bold',
+                isSelected ? 'bg-success text-white border-success' : 'bg-white border-border text-muted-foreground',
+              ].join(' ')}>
+                {isSelected ? '✓' : ''}
+              </span>
+            )}
             {opts?.pending && (
               <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-warning/15 text-warning">
                 Awaiting mill
@@ -294,7 +380,7 @@ export function SixHiHub() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <span className="truncate">{card.customer}</span>
-          <span className="font-mono truncate">{card.motherCoil}</span>
+          <span className="font-mono truncate">Finish {finishOf(card)}</span>
           <span className="font-mono">
             {card.inputThkMm}→{card.targetThkMm} mm
             {card.finishThkMm != null && card.finishThkMm !== card.targetThkMm ? ` (fin ${card.finishThkMm})` : ''}
@@ -325,6 +411,8 @@ export function SixHiHub() {
                 onClick={() => {
                   setIsTransferMode(!isTransferMode);
                   setSelectedForTransfer(new Set());
+                  setIsCombineMode(false);
+                  setSelectedForProduction(new Set());
                 }}
                 className={[
                   "text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border transition-colors",
@@ -334,6 +422,21 @@ export function SixHiHub() {
                 {isTransferMode ? 'Cancel Transfer' : 'Bulk Transfer'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsCombineMode(!isCombineMode);
+                setSelectedForProduction(new Set());
+                setIsTransferMode(false);
+                setSelectedForTransfer(new Set());
+              }}
+              className={[
+                "text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border transition-colors",
+                isCombineMode ? "bg-success text-white border-success" : "bg-white text-muted-foreground border-border hover:bg-secondary"
+              ].join(' ')}
+            >
+              {isCombineMode ? 'Cancel Combined' : 'Combined Run'}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -361,7 +464,7 @@ export function SixHiHub() {
           <ZInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search batch, mother coil, customer…"
+            placeholder="Search mother coil, Select ID, customer, batch…"
             className="min-h-14 pl-12 text-base"
           />
         </div>
@@ -437,6 +540,26 @@ export function SixHiHub() {
             }}
           >
             Transfer…
+          </button>
+        </div>
+      )}
+
+      {isCombineMode && selectedForProduction.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] bg-foreground text-background rounded-full pl-6 pr-2 py-2 shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-8">
+          <span className="font-bold text-sm tracking-wide">
+            {selectedForProduction.size} compatible order{selectedForProduction.size > 1 ? 's' : ''} selected
+          </span>
+          <button
+            type="button"
+            className="bg-success hover:bg-success/90 text-white text-sm font-bold px-4 py-2 rounded-full transition-colors disabled:opacity-50"
+            disabled={selectedProductionOrders.length < 2}
+            onClick={() => {
+              void startCombinedProduction(selectedProductionOrders).catch((err) => {
+                setQueueError(err instanceof Error ? err.message : 'Failed to start combined production');
+              });
+            }}
+          >
+            Start Combined Run
           </button>
         </div>
       )}

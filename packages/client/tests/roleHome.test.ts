@@ -16,9 +16,9 @@ describe('getRoleHomePath', () => {
     expect(getRoleHomePath(UserRole.SUPERVISOR, [], ['4HI'], 'supervisor')).toBe('/supervisor.supervisor');
   });
 
-  it('falls back to CRM mill path without username', () => {
+  it('falls back to assigned machine path without username', () => {
     expect(getRoleHomePath(UserRole.OPERATOR, ['6HI'], ['4HI'])).toBe('/4hi');
-    expect(getRoleHomePath(UserRole.OPERATOR, ['HRS'], [])).toBe('/coming-soon/6HI');
+    expect(getRoleHomePath(UserRole.OPERATOR, ['HRS'], ['HRS'])).toBe('/capture/HRS');
   });
 
   it('maps every role to a non-login path', () => {

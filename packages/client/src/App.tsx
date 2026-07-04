@@ -41,12 +41,13 @@ import { RollingImportPage } from './pages/import/RollingImportPage';
 import { OrderAssignmentPage } from './pages/orderAssignment/OrderAssignmentPage';
 import { OrderAssignmentPanel } from './pages/orderAssignment/OrderAssignmentPanel';
 import { MachineComingSoon } from './pages/MachineComingSoon';
+import { GenericCapturePage } from './pages/capture/GenericCapturePage';
 import { UserScopeShell } from './components/UserScopeShell';
 import { UserScopeIndex } from './pages/UserScopeIndex';
 import { LegacyMillRedirect } from './components/LegacyMillRedirect';
 import { MachineHeadDashboard } from './pages/live/MachineHeadDashboard';
 import { LiveDashboard } from './pages/live/LiveDashboard';
-import { PlantHeadShell } from './components/layout/PlantHeadShell';
+import { UnifiedShell } from './components/layout/UnifiedShell';
 
 function UnknownRouteRedirect() {
   const { role, lineAccess, machineAccess, username, token } = useAuthStore();
@@ -78,6 +79,7 @@ function App() {
         <Route path="/station" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />
 
         <Route path="/coming-soon/:machineCode" element={<ProtectedRoute><MachineComingSoon /></ProtectedRoute>} />
+        <Route path="/capture/:machineCode" element={<ProtectedRoute><GenericCapturePage /></ProtectedRoute>} />
 
         {/* Legacy mill URLs → /username.role */}
         <Route path="/6hi" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
@@ -91,7 +93,7 @@ function App() {
         <Route path="/dashboard" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />
 
         <Route path="/reports/plant-head" element={<PlantRoute><Navigate to="/plant" replace /></PlantRoute>} />
-        <Route path="/plant" element={<PlantRoute><PlantHeadShell /></PlantRoute>}>
+        <Route path="/plant" element={<PlantRoute><UnifiedShell /></PlantRoute>}>
           <Route index element={<PlantHeadDashboard />} />
           <Route path="live" element={<LiveDashboard />} />
           <Route path="production" element={<PlantProduction />} />

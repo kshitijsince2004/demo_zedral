@@ -3,7 +3,6 @@ import { PPCInfoCards } from './PPCInfoCards';
 import { FourHiRollingForm } from './FourHiRollingForm';
 import { SharedSkinPassForm } from './SharedSkinPassForm';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
-import { Activity, AlertTriangle, Clock } from 'lucide-react';
 
 interface SixHiOrderWorkspaceProps {
   order: SixHiOrderDetail;

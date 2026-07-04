@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { LiveKpis, LiveOrderRow } from '@m1/shared-validation';
 import {
   reportingService,
@@ -13,16 +13,7 @@ import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQuali
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
-import { Activity, AlertTriangle, CalendarDays, Factory, RefreshCw } from 'lucide-react';
-
-function useLiveClock() {
-  const [time, setTime] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return time;
-}
+import { AlertTriangle, Factory, RefreshCw } from 'lucide-react';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
@@ -32,7 +23,6 @@ export function PlantHeadDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
   const { snapshot } = useLiveSnapshot();
-  const clock = useLiveClock();
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -41,8 +31,8 @@ export function PlantHeadDashboard() {
     try {
       const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
       setData(result);
-    } catch (err: any) {
-      setError(err?.message ?? 'Unable to load dashboard data');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -103,9 +93,6 @@ export function PlantHeadDashboard() {
   }
 
   if (!data) return null;
-
-  const today = clock.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-  const timeStr = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
     <div

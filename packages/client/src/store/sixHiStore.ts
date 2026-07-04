@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SixHiOrderDetail, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
-import { defaultMillTab, type MillProcessTab } from '../lib/millConfig';
+import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
 
 export type SixHiProcessTab = 'rolling' | 'skinpass';
@@ -14,6 +14,20 @@ interface ActiveMachineOrder {
 
 export type CrmMachineCode = '6HI' | '4HI' | '2HI';
 
+export interface CombinedProductionRunSummary {
+  batchNumber: string;
+  motherCoil: string;
+  slitId?: string;
+  customer: string;
+  weightMt: number;
+}
+
+export interface CombinedProductionRun {
+  primaryBatchNumber: string;
+  batchNumbers: string[];
+  orders: CombinedProductionRunSummary[];
+}
+
 interface SixHiStore {
   processTab: SixHiProcessTab;
   machineCode: CrmMachineCode;
@@ -25,6 +39,7 @@ interface SixHiStore {
   busy: boolean;
   manualOrderOpen: boolean;
   queueRefreshToken: number;
+  combinedRun: CombinedProductionRun | null;
 
   setProcessTab: (tab: SixHiProcessTab) => void;
   setMachineCode: (machine: CrmMachineCode) => void;
@@ -37,6 +52,7 @@ interface SixHiStore {
   setMachineActive: (active: ActiveMachineOrder | null) => void;
   setShiftSummary: (summary: SixHiShiftSummary | null) => void;
   setBusy: (busy: boolean) => void;
+  setCombinedRun: (run: CombinedProductionRun | null) => void;
   requestStoppageDialog?: (batchNo: string) => Promise<void>;
   requestRejectionDialog?: (batchNo: string) => void;
 
@@ -58,6 +74,7 @@ const INITIAL_SixHi_STATE = {
   busy: false,
   manualOrderOpen: false,
   queueRefreshToken: 0,
+  combinedRun: null as CombinedProductionRun | null,
   requestStoppageDialog: undefined as ((batchNo: string) => Promise<void>) | undefined,
   requestRejectionDialog: undefined as ((batchNo: string) => void) | undefined,
 };
@@ -80,15 +97,16 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     set({ workspaceOpen: true, workspaceBatch: batchNo });
     void get().loadPanelOrder(batchNo);
   },
-  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null }),
+  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null, combinedRun: null }),
   setPanelOrder: (order) => set({ panelOrder: order }),
   setMachineActive: (active) => set({ machineActive: active }),
   setShiftSummary: (summary) => set({ shiftSummary: summary }),
   setBusy: (busy) => set({ busy }),
+  setCombinedRun: (run) => set({ combinedRun: run }),
 
   loadPanelOrder: async (batchNo) => {
     try {
-      const order = await apiClient.get(`/6hi/orders/${encodeURIComponent(batchNo)}`);
+      const order = await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNo)}`);
       set({ panelOrder: order });
       return order;
     } catch {
@@ -99,7 +117,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   refreshMachineState: async () => {
     try {
       const mc = get().machineCode;
-      const active = await apiClient.get(`/6hi/active-order?machine=${mc}`);
+      const active = await apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`);
       set({ machineActive: active });
       if (active?.batchNumber) {
         const { workspaceOpen, workspaceBatch } = get();
@@ -116,7 +134,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
 
   loadShiftSummary: async (shiftLogId) => {
     try {
-      const summary = await apiClient.get(`/6hi/shift-summary/${shiftLogId}`);
+      const summary = await apiClient.get<SixHiShiftSummary>(`/6hi/shift-summary/${shiftLogId}`);
       set({ shiftSummary: summary });
     } catch {
       set({ shiftSummary: null });
@@ -138,9 +156,6 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       set({ panelOrder: order });
       await get().refreshMachineState();
       return order;
-    } catch (err) {
-      // Re-throw so callers can display the error to the user
-      throw err;
     } finally {
       set({ busy: false });
     }

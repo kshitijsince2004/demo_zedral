@@ -77,8 +77,9 @@ function loadActiveMachine(): string | null {
 }
 
 function pickDefaultMachine(role: Role | null, machineAccess: string[]): string | null {
-  const crm = filterCrmMachines(getEffectiveMachineAccess(role, machineAccess));
-  return preferCrmMachine(crm) ?? crm[0] ?? null;
+  const machines = getEffectiveMachineAccess(role, machineAccess);
+  const crm = filterCrmMachines(machines);
+  return preferCrmMachine(crm) ?? machines[0] ?? null;
 }
 
 // In a real app, this would be a secure JWT parser, but we mock it here.

@@ -7,6 +7,8 @@
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"],
   "references": [
-    { "path": "../shared-validation" }
+    { "path": "../shared-validation" },
+    { "path": "../platform" },
+    { "path": "../modules/m1-collection" }
   ]
 }

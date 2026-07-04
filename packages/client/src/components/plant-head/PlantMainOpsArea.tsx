@@ -163,7 +163,6 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
           {hasInsight ? (
             <ul className="divide-y divide-border/40">
               {insights.map((row) => {
-                const isGood = row.value && !row.value.includes('0 of') && !row.value.includes('below');
                 const isBad = row.value && (row.value.includes(' of ') && row.label.includes('below'));
                 return (
                   <li key={row.label} className="px-5 py-4 flex flex-col gap-1">

@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { ShiftDetectionService, resolveShiftFromClock } from './ShiftDetectionService';
 import { ShiftAttributionService } from './ShiftAttributionService';
-import { SixHiService } from './SixHiService';
+import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { MachineHandoverService } from './MachineHandoverService';
 
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
@@ -86,7 +86,7 @@ export class ShiftBoundaryService {
     const existing = await MachineHandoverService.getPendingForMachine(machineCode);
     if (existing) return 'SKIPPED';
 
-    const active = await SixHiService.findActiveMachineOrder(machineCode);
+    const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
 
     await ShiftAttributionService.attributeMachineOrder(
       machineCode,
@@ -115,7 +115,7 @@ export class ShiftBoundaryService {
       boundary.outgoingProdDate,
     );
     if (shiftLogId) {
-      await SixHiService.saveShiftSummary(shiftLogId, undefined, undefined, undefined, SYSTEM_USER_ID);
+      await SixHiShiftService.saveShiftSummary(shiftLogId, undefined, undefined, undefined, SYSTEM_USER_ID);
     }
 
     await db

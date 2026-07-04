@@ -18,6 +18,8 @@ const REJECTION_REASONS = [
 interface OrderRejectionModalProps {
   open: boolean;
   batchNumber: string;
+  orderLabel?: string;
+  orderSubtitle?: string;
   onClose: () => void;
   onReject: (
     batchNo: string,
@@ -27,7 +29,7 @@ interface OrderRejectionModalProps {
   ) => Promise<void>;
 }
 
-export function OrderRejectionModal({ open, batchNumber, onClose, onReject }: OrderRejectionModalProps) {
+export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtitle, onClose, onReject }: OrderRejectionModalProps) {
   const [rejectionReason, setRejectionReason] = useState<string>(REJECTION_REASONS[0].value);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [remarks, setRemarks] = useState('');
@@ -83,7 +85,8 @@ export function OrderRejectionModal({ open, batchNumber, onClose, onReject }: Or
           <AlertTriangle className="h-6 w-6" />
           <div className="flex-1">
             <h3 className="text-lg font-bold">Reject Order</h3>
-            <p className="text-sm font-medium opacity-90">Batch: {batchNumber}</p>
+            <p className="text-sm font-medium opacity-90">{orderLabel ?? `Batch ${batchNumber}`}</p>
+            {orderSubtitle && <p className="text-xs opacity-75">{orderSubtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="hover:bg-destructive/10 p-2 rounded-lg" aria-label="Close">
             <X className="h-5 w-5" />

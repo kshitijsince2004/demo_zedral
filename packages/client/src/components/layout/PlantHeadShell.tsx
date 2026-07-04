@@ -1,7 +1,8 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { Activity, ArrowRightLeft, Brain, FileSpreadsheet, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
-import { DeskSideNav, type DeskNavItem, deskNavOffsetClass } from './shared/DeskSideNav';
+import { DeskSideNav, type DeskNavItem } from './shared/DeskSideNav';
+import { deskNavOffsetClass } from './shared/deskNavLayout';
 import { OfflineBanner } from '../ui/OfflineBanner';
 
 const SIDEBAR_ITEMS: DeskNavItem[] = [

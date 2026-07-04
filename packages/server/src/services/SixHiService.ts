@@ -1008,6 +1008,112 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
+  static async startCombinedProduction(batchNumbers: string[], userId: number): Promise<SixHiOrderDetail[]> {
+    const uniqueBatchNumbers = Array.from(new Set(batchNumbers.map((batch) => batch.trim()).filter(Boolean)));
+    if (uniqueBatchNumbers.length === 0) {
+      throw new Error('At least one order is required');
+    }
+
+    const batches = await db.selectFrom('planning.ppc_batch')
+      .select([
+        'batch_number',
+        'coil_no',
+        'slit_id',
+        'roll_finish',
+        'ppc_thk_mm',
+        'finish_thk_mm',
+        'machine_code',
+        'machine_allocated',
+        'sub_process',
+        'shift_code',
+      ])
+      .where('batch_number', 'in', uniqueBatchNumbers)
+      .execute();
+
+    if (batches.length !== uniqueBatchNumbers.length) {
+      throw new Error('One or more selected orders were not found');
+    }
+
+    const first = batches[0];
+    const finalThk = (row: typeof first) => String(row.finish_thk_mm ?? row.ppc_thk_mm);
+    const normalized = (value: string | null | undefined) => value?.trim() || '';
+    const baseKey = [
+      first.coil_no,
+      normalized(first.slit_id),
+      normalized(first.roll_finish),
+      finalThk(first),
+    ].join('|');
+
+    for (const batch of batches) {
+      if (!batch.machine_allocated) {
+        throw new Error('Assign a production machine before starting');
+      }
+      if (batch.machine_code !== first.machine_code) {
+        throw new Error('Combined production orders must be assigned to the same machine');
+      }
+      if (batch.sub_process !== first.sub_process) {
+        throw new Error('Combined production orders must use the same subprocess');
+      }
+      const key = [
+        batch.coil_no,
+        normalized(batch.slit_id),
+        normalized(batch.roll_finish),
+        finalThk(batch),
+      ].join('|');
+      if (key !== baseKey) {
+        throw new Error('Selected orders must share Mother Coil, Select ID, Finish, and Final Output Thickness');
+      }
+    }
+
+    const machineCode = first.machine_code ?? '6HI';
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+
+    const active = await this.findActiveMachineOrder(machineCode);
+    if (active && !uniqueBatchNumbers.includes(active.batchNumber)) {
+      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    }
+
+    const startedAt = new Date();
+    for (const batchNumber of uniqueBatchNumbers) {
+      const orderRow = await db.selectFrom('txn.crm6_order')
+        .select(['order_id', 'status', 'coil_no'])
+        .where('batch_number', '=', batchNumber)
+        .executeTakeFirst();
+      const orderId = orderRow?.order_id ?? await this.ensureOrder(batchNumber, userId);
+      const status = orderRow?.status ?? 'PENDING';
+
+      if (status === 'IN_PROGRESS') {
+        continue;
+      }
+      if (status !== 'PENDING' && status !== 'PREPARING') {
+        throw new Error('Only pending or preparing orders can be started together');
+      }
+
+      await db.updateTable('txn.crm6_order')
+        .set({ status: 'IN_PROGRESS', prod_start_at: startedAt, updated_at: startedAt })
+        .where('order_id', '=', orderId)
+        .execute();
+
+      const coilNo = orderRow?.coil_no
+        ?? (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
+      await db.updateTable('coil.coil')
+        .set({ status: 'IN_PROCESS' })
+        .where('coil_no', '=', coilNo)
+        .execute();
+
+      MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
+        orderId,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: first.shift_code,
+        meta: { combinedRunBatchNumbers: uniqueBatchNumbers },
+      }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+    }
+
+    return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
+  }
+
   static async endProduction(batchNumber: string, userId: number, defectCodes?: string[]) {
     const batchPre = await db.selectFrom('planning.ppc_batch')
       .select(['machine_code', 'shift_code'])

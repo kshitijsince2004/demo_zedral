@@ -54,8 +54,8 @@ export async function assertCrm6ScrapKg(
 ): Promise<void> {
   if (scrapKg == null || scrapKg <= 0) return;
 
-  const { SixHiService } = await import('../services/SixHiService');
-  const productionMt = await SixHiService.getProducedMt(shiftLogId);
+  const { SixHiExecutionService } = await import('../services/sixHi');
+  const productionMt = await SixHiExecutionService.getProducedMt(shiftLogId);
   const scrapMt = scrapKg / 1000;
   assertQuantityWithinProduction(scrapMt, productionMt, 'Scrap');
 }

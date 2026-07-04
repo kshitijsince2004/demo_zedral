@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
-import { LiveService } from '../services/LiveService';
+import { LiveDashboardService, LiveOrderService } from '../services/live';
 import { MachineStateEventService } from '../services/MachineStateEventService';
 
 const router = Router();
@@ -16,7 +16,7 @@ router.use(requireRole([
 router.get('/snapshot', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const snapshot = await LiveService.getSnapshot(req.user!.id, roles);
+    const snapshot = await LiveDashboardService.getSnapshot(req.user!.id, roles);
     res.json(snapshot);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load snapshot';
@@ -27,13 +27,13 @@ router.get('/snapshot', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
     const planDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
     const shiftCode = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const ctx = planDate && shiftCode
       ? { planDate, shiftCode }
-      : await LiveService.getShiftQueueContext(req.user!.id);
-    const orders = await LiveService.getActiveOrders(filter, ctx.planDate, ctx.shiftCode);
+      : await LiveDashboardService.getShiftQueueContext(req.user!.id);
+    const orders = await LiveOrderService.getActiveOrders(filter, ctx.planDate, ctx.shiftCode);
     res.json({ orders, planDate: ctx.planDate, shiftCode: ctx.shiftCode, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load orders';
@@ -44,8 +44,8 @@ router.get('/orders', async (req, res) => {
 router.get('/orders/:batchNo', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
-    const detail = await LiveService.getOrderDetail(req.params.batchNo, filter);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    const detail = await LiveOrderService.getOrderDetail(req.params.batchNo, filter);
     if (!detail) return res.status(404).json({ error: 'Order not found' });
     res.json(detail);
   } catch (error: unknown) {
@@ -57,7 +57,7 @@ router.get('/orders/:batchNo', async (req, res) => {
 router.get('/machine-head-dashboard', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const data = await LiveService.getMachineHeadDashboard(req.user!.id, roles);
+    const data = await LiveDashboardService.getMachineHeadDashboard(req.user!.id, roles);
     res.json(data);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load machine head dashboard';
@@ -68,9 +68,9 @@ router.get('/machine-head-dashboard', async (req, res) => {
 router.get('/machines', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
-    const ctx = await LiveService.getShiftQueueContext(req.user!.id);
-    const machines = await LiveService.getMachineCards(filter);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    const ctx = await LiveDashboardService.getShiftQueueContext(req.user!.id);
+    const machines = await LiveDashboardService.getMachineCards(filter);
     res.json({ machines, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load machines';
@@ -84,13 +84,13 @@ router.get('/machines', async (req, res) => {
 router.get('/machines/:machineCode/state', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
     if (filter !== null) {
       if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
         return res.status(403).json({ error: 'Machine not in your scope' });
       }
     }
-    const data = await LiveService.getMachineCommandCenterData(req.params.machineCode);
+    const data = await LiveDashboardService.getMachineCommandCenterData(req.params.machineCode);
     if (!data) return res.status(404).json({ error: 'Machine not found' });
     res.json(data);
   } catch (error: unknown) {
@@ -103,7 +103,7 @@ router.get('/machines/:machineCode/state', async (req, res) => {
 router.get('/machines/:machineCode/timeline', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
     if (filter !== null) {
       if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
         return res.status(403).json({ error: 'Machine not in your scope' });
@@ -122,7 +122,7 @@ router.get('/machines/:machineCode/timeline', async (req, res) => {
 router.get('/machines/:machineCode/analytics', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveService.getMachineScope(req.user!.id, roles);
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
     if (filter !== null) {
       if (filter.length === 0 || !filter.includes(req.params.machineCode)) {
         return res.status(403).json({ error: 'Machine not in your scope' });
@@ -140,7 +140,7 @@ router.get('/machines/:machineCode/analytics', async (req, res) => {
 /** GET /live/machines/:machineCode/next-order — next queued order for machine */
 router.get('/machines/:machineCode/next-order', async (req, res) => {
   try {
-    const next = await LiveService.getNextOrder(req.params.machineCode);
+    const next = await LiveOrderService.getNextOrder(req.params.machineCode);
     res.json(next ?? null);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load next order';
@@ -162,8 +162,8 @@ router.get('/stream', async (req, res) => {
   const sendEvent = async () => {
     try {
       const roles = req.user?.roles ?? [];
-      const filter = await LiveService.getMachineScope(req.user!.id, roles);
-      const machines = await LiveService.getMachineCards(filter);
+      const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+      const machines = await LiveDashboardService.getMachineCards(filter);
       res.write(`data: ${JSON.stringify({ type: 'MACHINES_UPDATE', machines, ts: new Date().toISOString() })}\n\n`);
     } catch {
       // swallow — client will reconnect

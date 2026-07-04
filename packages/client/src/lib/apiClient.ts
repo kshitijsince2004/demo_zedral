@@ -1,8 +1,8 @@
 /**
  * Central API client for the M1 PWA.
  *
- * - Prefixes all calls with `/api` (Vite proxy strips it and forwards to the
- *   backend at http://localhost:3005).
+ * - Prefixes all calls with the configured API host plus `/api` (Vite proxy
+ *   still handles the empty-host web case).
  * - Attaches the bearer token from session storage on every request.
  * - Refreshes expired access tokens automatically using the refresh token.
  * - Unwraps the `{ data, meta, errors }` envelope when present, otherwise
@@ -12,7 +12,9 @@
 
 import { useAuthStore } from './authStore';
 
-const API_BASE = '/api';
+const API_HOST = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const API_BASE = `${API_HOST}/api`;
+const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
 export class ApiError extends Error {
   status: number;
@@ -58,7 +60,33 @@ interface RequestOptions {
   _retried?: boolean;
 }
 
+interface RefreshResponse {
+  accessToken?: string;
+  refreshToken?: string;
+}
+
+interface ApiEnvelope<T> {
+  data: T;
+  errors: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
+  return isRecord(value) && 'data' in value && 'errors' in value;
+}
+
 let refreshInFlight: Promise<string | null> | null = null;
+
+function isPublicAuthPath(path: string): boolean {
+  return (
+    path.startsWith('/auth/badge-pin') ||
+    path.startsWith('/auth/token') ||
+    path.startsWith('/auth/refresh')
+  );
+}
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
@@ -69,11 +97,11 @@ async function refreshAccessToken(): Promise<string | null> {
       try {
         const res = await fetch(`${API_BASE}/auth/refresh`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Version': APP_VERSION },
           body: JSON.stringify({ refreshToken }),
         });
         if (!res.ok) return null;
-        const data = await res.json();
+        const data = (await res.json()) as RefreshResponse;
         if (data?.accessToken) {
           setAuthTokens(data.accessToken, data.refreshToken ?? refreshToken);
           return data.accessToken as string;
@@ -89,25 +117,25 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-async function request<T = any>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, raw = false, _retried = false } = options;
+export async function apiFetch(path: string, options: RequestInit & { _retried?: boolean } = {}): Promise<Response> {
+  const { _retried = false, ...fetchOptions } = options;
   const token = getAuthToken();
+  const headers = new Headers(fetchOptions.headers);
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  const isPublicAuthPath =
-    path.startsWith('/auth/badge-pin') ||
-    path.startsWith('/auth/token') ||
-    path.startsWith('/auth/refresh');
-  if (token && !isPublicAuthPath) headers.Authorization = `Bearer ${token}`;
+  if (!headers.has('Content-Type') && fetchOptions.body !== undefined) {
+    headers.set('Content-Type', 'application/json');
+  }
+  headers.set('X-App-Version', APP_VERSION);
+
+  if (token && !isPublicAuthPath(path)) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
 
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
-      method,
+      ...fetchOptions,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (networkErr) {
     throw new ApiError('Network unavailable', 0, networkErr, true);
@@ -116,14 +144,27 @@ async function request<T = any>(path: string, options: RequestOptions = {}): Pro
   if (res.status === 401 && !_retried && !path.startsWith('/auth/')) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      return request<T>(path, { ...options, _retried: true });
+      return apiFetch(path, { ...options, _retried: true });
     }
     sessionStorage.removeItem('mock_jwt');
     sessionStorage.removeItem('mock_refresh');
     useAuthStore.getState().logout();
   }
 
-  let parsed: any = null;
+  return res;
+}
+
+async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, raw = false, _retried = false } = options;
+
+  let res: Response;
+  res = await apiFetch(path, {
+    method,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    _retried,
+  });
+
+  let parsed: unknown = null;
   const text = await res.text();
   if (text) {
     try {
@@ -135,21 +176,23 @@ async function request<T = any>(path: string, options: RequestOptions = {}): Pro
 
   if (!res.ok && !raw) {
     const message =
-      (parsed && (parsed.error || parsed.message)) || `Request failed (${res.status})`;
+      isRecord(parsed) && typeof (parsed.error ?? parsed.message) === 'string'
+        ? String(parsed.error ?? parsed.message)
+        : `Request failed (${res.status})`;
     throw new ApiError(message, res.status, parsed);
   }
 
-  if (parsed && typeof parsed === 'object' && 'data' in parsed && 'errors' in parsed) {
+  if (isApiEnvelope<T>(parsed)) {
     return parsed.data as T;
   }
   return parsed as T;
 }
 
 export const apiClient = {
-  get: <T = any>(path: string) => request<T>(path, { method: 'GET' }),
-  post: <T = any>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
-  put: <T = any>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
-  patch: <T = any>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
-  delete: <T = any>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T = unknown>(path: string) => request<T>(path, { method: 'GET' }),
+  post: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
+  put: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
+  patch: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
+  delete: <T = unknown>(path: string) => request<T>(path, { method: 'DELETE' }),
   request,
 };

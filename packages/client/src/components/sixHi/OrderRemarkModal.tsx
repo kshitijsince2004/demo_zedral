@@ -16,12 +16,14 @@ interface RemarkDefectRow {
 interface OrderRemarkModalProps {
   open: boolean;
   batchNumber: string;
+  orderLabel?: string;
+  orderSubtitle?: string;
   busy?: boolean;
   onClose: () => void;
   onSave: (text: string, defects: { defectCode: string; quantityAffected?: number; remarks?: string }[]) => Promise<void>;
 }
 
-export function OrderRemarkModal({ open, batchNumber, busy, onClose, onSave }: OrderRemarkModalProps) {
+export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle, busy, onClose, onSave }: OrderRemarkModalProps) {
   const [text, setText] = useState('');
   const [defectRows, setDefectRows] = useState<RemarkDefectRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +81,8 @@ export function OrderRemarkModal({ open, batchNumber, busy, onClose, onSave }: O
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
             <h3 className="text-lg font-bold">Add Remark</h3>
-            <p className="text-sm text-muted-foreground">Batch: {batchNumber}</p>
+            <p className="text-sm text-muted-foreground">{orderLabel ?? `Batch ${batchNumber}`}</p>
+            {orderSubtitle && <p className="text-xs text-muted-foreground">{orderSubtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-secondary" aria-label="Close">
             <X className="h-5 w-5" />

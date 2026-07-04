@@ -1,0 +1,25 @@
+flowchart TD
+  subgraph PLAN["Planning hierarchy (APICS / MRP II) — horizons months -> days"]
+    SOP["S&OP / Aggregate plan — families, months (usually ERP/Level-4)"]
+    MPS["Master Production Schedule (MPS) — end items, weeks"]
+    RCCP["Rough-Cut Capacity Planning — validate MPS vs key resources"]
+    MRP["Material Requirements Planning — BOM explosion, net to planned orders"]
+    CRP["Capacity Requirements Planning — load vs available at work centres"]
+  end
+  subgraph EXEC["Level-3 execution (ISA-95 Part 3 Production Operations Mgmt) — hours -> minutes"]
+    DS["Detailed Production Scheduling — finite-capacity sequence (M3b)"]
+    PD["Production Dispatching — release & assign to the floor"]
+    PEM["Production Execution Management — run the order"]
+    PDC["Production Data Collection — confirmations, actuals (with M1)"]
+    PT["Production Tracking — genealogy, WIP, status"]
+    PPA["Production Performance Analysis — adherence, throughput (to UIL/M4)"]
+  end
+  SOP --> MPS --> RCCP --> MRP --> CRP --> DS --> PD --> PEM --> PDC --> PT --> PPA
+  PPA -. re-plan .-> MPS
+  PD --> SH["Shift handover carries open work across the boundary (M3a)"]
+  SH --> PEM
+
+  classDef ingest fill:#e0f2fe,stroke:#0284c7;
+  classDef core fill:#dcfce7,stroke:#16a34a;
+  class SOP,MPS,RCCP,MRP,CRP ingest;
+  class DS,PD,PEM,PDC,PT,PPA,SH core;

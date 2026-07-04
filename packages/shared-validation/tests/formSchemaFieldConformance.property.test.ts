@@ -1,5 +1,5 @@
 /**
- * Property 5: Form–schema field conformance
+ * Property 5: Formâ€“schema field conformance
  *
  * Validates: Requirements 3.1, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9
  *
@@ -12,7 +12,7 @@
  *   - Optional fields may be absent (undefined) or carry a valid value
  *   - No extraneous fields bypass the interface contract
  *
- * Tagged: Feature: m1-frontend-remediation, Property 5: Form–schema field conformance
+ * Tagged: Feature: m1-frontend-remediation, Property 5: Formâ€“schema field conformance
  */
 
 import { describe, it, expect } from 'vitest';
@@ -30,47 +30,47 @@ import type {
 } from '../src/types/processes';
 
 // ---------------------------------------------------------------------------
-// Arbitraries — minimal valid synthetic entries per schema
+// Arbitraries â€” minimal valid synthetic entries per schema
 // ---------------------------------------------------------------------------
 
 const timeStr = fc.stringMatching(/^\d{2}:\d{2}$/); // HH:mm
 
 const slitSlotArb = fc.record({
   label: fc.constantFrom('A', 'B', 'C', 'D') as fc.Arbitrary<'A' | 'B' | 'C' | 'D'>,
-  widthMm: fc.float({ min: 1, max: 2000, noNaN: true }),
-  thkMm: fc.option(fc.float({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
+  widthMm: fc.double({ min: 1, max: 2000, noNaN: true }),
+  thkMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
   taper: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   childCoilNo: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
 });
 
-// ── HRS ──────────────────────────────────────────────────────────────────────
+// â”€â”€ HRS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const hrsEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  nominalWidthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  actualWidthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  nominalThkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  scrapMt: fc.float({ min: 0, max: 5, noNaN: true }),
-  actualSlitWidthFromMm: fc.option(fc.float({ min: 1, max: 2000, noNaN: true }), { nil: undefined }),
-  actualSlitWidthToMm: fc.option(fc.float({ min: 1, max: 2000, noNaN: true }), { nil: undefined }),
+  nominalWidthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  actualWidthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  nominalThkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  scrapMt: fc.double({ min: 0, max: 5, noNaN: true }),
+  actualSlitWidthFromMm: fc.option(fc.double({ min: 1, max: 2000, noNaN: true }), { nil: undefined }),
+  actualSlitWidthToMm: fc.option(fc.double({ min: 1, max: 2000, noNaN: true }), { nil: undefined }),
   timeFrom: fc.option(timeStr, { nil: undefined }),
   timeTo: fc.option(timeStr, { nil: undefined }),
   slitSlots: fc.array(slitSlotArb, { maxLength: 4 }),
 });
 
-// ── PKL ──────────────────────────────────────────────────────────────────────
+// â”€â”€ PKL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const pklEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  widthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  thkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  lineSpeedMpm: fc.float({ min: 0, max: 300, noNaN: true }),
+  widthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  thkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  lineSpeedMpm: fc.double({ min: 0, max: 300, noNaN: true }),
   heatNo: fc.string({ minLength: 1, maxLength: 20 }),
   source: fc.string({ minLength: 1, maxLength: 20 }),
   wip: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
@@ -79,60 +79,60 @@ const pklEntryArb = fc.record({
   timeTo: fc.option(timeStr, { nil: undefined }),
 });
 
-// ── PKLChart ─────────────────────────────────────────────────────────────────
+// â”€â”€ PKLChart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const pklChartArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   chartTime: timeStr,
   tankNo: fc.constantFrom(1, 2, 3) as fc.Arbitrary<1 | 2 | 3>,
-  tankLevel: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  tankTempDegC: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  acidStrengthPct: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  ironStrengthPct: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  steamInletKgCm2: fc.option(fc.float({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
-  steamOutletKgCm2: fc.option(fc.float({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
-  dosageAcid: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  dosageWater: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  dosageInhibitor: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  rinseCl: fc.option(fc.float({ min: 0, max: 500, noNaN: true }), { nil: undefined }),
-  rinsePh: fc.option(fc.float({ min: 0, max: 14, noNaN: true }), { nil: undefined }),
-  rinseFlow: fc.option(fc.float({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
-  rinseTempDegC: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  rinseAcidPct: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  rinseIronPct: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  burnerPressureKgCm2: fc.option(fc.float({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
-  hotAirTempDegC: fc.option(fc.float({ min: 0, max: 500, noNaN: true }), { nil: undefined }),
+  tankLevel: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  tankTempDegC: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  acidStrengthPct: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  ironStrengthPct: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  steamInletKgCm2: fc.option(fc.double({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
+  steamOutletKgCm2: fc.option(fc.double({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
+  dosageAcid: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  dosageWater: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  dosageInhibitor: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  rinseCl: fc.option(fc.double({ min: 0, max: 500, noNaN: true }), { nil: undefined }),
+  rinsePh: fc.option(fc.double({ min: 0, max: 14, noNaN: true }), { nil: undefined }),
+  rinseFlow: fc.option(fc.double({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
+  rinseTempDegC: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  rinseAcidPct: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  rinseIronPct: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  burnerPressureKgCm2: fc.option(fc.double({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
+  hotAirTempDegC: fc.option(fc.double({ min: 0, max: 500, noNaN: true }), { nil: undefined }),
 });
 
-// ── CRM ──────────────────────────────────────────────────────────────────────
+// â”€â”€ CRM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const crmEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  widthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  inputThkMm: fc.float({ min: 0.5, max: 20, noNaN: true }),
-  outputThkMm: fc.float({ min: 0.1, max: 10, noNaN: true }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  annHardness: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  hardnessVpn: fc.option(fc.float({ min: 0, max: 400, noNaN: true }), { nil: undefined }),
-  hardnessHrb: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  widthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  inputThkMm: fc.double({ min: 0.5, max: 20, noNaN: true }),
+  outputThkMm: fc.double({ min: 0.1, max: 10, noNaN: true }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  annHardness: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  hardnessVpn: fc.option(fc.double({ min: 0, max: 400, noNaN: true }), { nil: undefined }),
+  hardnessHrb: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
   rollIn: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   rollOut: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
-  oilLevelInitial: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  oilLevelFinal: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  oilConsumption: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  rwTensionKg: fc.option(fc.float({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
-  tkgWeightMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  elongationPct: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  lossPct: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  stretchPct: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  scrapMt: fc.option(fc.float({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
+  oilLevelInitial: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  oilLevelFinal: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  oilConsumption: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  rwTensionKg: fc.option(fc.double({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
+  tkgWeightMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  elongationPct: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  lossPct: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  stretchPct: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  scrapMt: fc.option(fc.double({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
   timeFrom: fc.option(timeStr, { nil: undefined }),
   timeTo: fc.option(timeStr, { nil: undefined }),
 });
 
-// ── ANN ──────────────────────────────────────────────────────────────────────
+// â”€â”€ ANN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const annEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
@@ -144,21 +144,21 @@ const annEntryArb = fc.record({
   gradeCode: fc.string({ minLength: 1, maxLength: 10 }),
   noOfCoils: fc.integer({ min: 1, max: 50 }),
   status: fc.option(fc.constantFrom('IN_PROCESS', 'FOR_ANN', 'RW', 'DONE') as fc.Arbitrary<'IN_PROCESS' | 'FOR_ANN' | 'RW' | 'DONE'>, { nil: undefined }),
-  dewPointN2: fc.option(fc.float({ min: -80, max: 0, noNaN: true }), { nil: undefined }),
-  dewPointH2: fc.option(fc.float({ min: -80, max: 0, noNaN: true }), { nil: undefined }),
-  temperatureDegC: fc.option(fc.float({ min: 0, max: 1200, noNaN: true }), { nil: undefined }),
+  dewPointN2: fc.option(fc.double({ min: -80, max: 0, noNaN: true }), { nil: undefined }),
+  dewPointH2: fc.option(fc.double({ min: -80, max: 0, noNaN: true }), { nil: undefined }),
+  temperatureDegC: fc.option(fc.double({ min: 0, max: 1200, noNaN: true }), { nil: undefined }),
   expUnloadingTime: fc.option(fc.string({ maxLength: 30 }), { nil: undefined }),
-  unloadingWtMt: fc.option(fc.float({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
-  loadingMt: fc.option(fc.float({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
-  unloadingMt: fc.option(fc.float({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
-  cummLoadingMt: fc.option(fc.float({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
-  cummUnloadingMt: fc.option(fc.float({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
+  unloadingWtMt: fc.option(fc.double({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
+  loadingMt: fc.option(fc.double({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
+  unloadingMt: fc.option(fc.double({ min: 0, max: 200, noNaN: true }), { nil: undefined }),
+  cummLoadingMt: fc.option(fc.double({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
+  cummUnloadingMt: fc.option(fc.double({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
 });
 
-// ── SKP ──────────────────────────────────────────────────────────────────────
+// â”€â”€ SKP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const skpPassArb = fc.record({
   passNo: fc.integer({ min: 1, max: 6 }),
-  thicknessMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
+  thicknessMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
 });
 
 const skpEntryArb = fc.record({
@@ -166,93 +166,93 @@ const skpEntryArb = fc.record({
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  widthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  thkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  finalThkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
+  widthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  thkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  finalThkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
   totalPasses: fc.option(fc.integer({ min: 1, max: 6 }), { nil: undefined }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  rwTensionKg: fc.option(fc.float({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  rwTensionKg: fc.option(fc.double({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
   surfaceFinish: fc.string({ minLength: 1, maxLength: 20 }),
   reRolling: fc.boolean(),
-  holdMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  rejectionMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  wtRollingMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  wtRerollMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  wtSkinpassMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  wtScrapMt: fc.option(fc.float({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
+  holdMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  rejectionMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  wtRollingMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  wtRerollMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  wtSkinpassMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  wtScrapMt: fc.option(fc.double({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
   rollsIn: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   rollsOut: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
-  coolantTempDegC: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  coolantPressKgCm2: fc.option(fc.float({ min: 0, max: 20, noNaN: true }), { nil: undefined }),
+  coolantTempDegC: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  coolantPressKgCm2: fc.option(fc.double({ min: 0, max: 20, noNaN: true }), { nil: undefined }),
   passes: fc.array(skpPassArb, { maxLength: 6 }),
 });
 
-// ── RWD ──────────────────────────────────────────────────────────────────────
+// â”€â”€ RWD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const rwdEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  widthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  thkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  outputThkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  rwTension1Kg: fc.option(fc.float({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
-  rwTension2Kg: fc.option(fc.float({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
-  rwTension3Kg: fc.option(fc.float({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
+  widthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  thkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  outputThkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  rwTension1Kg: fc.option(fc.double({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
+  rwTension2Kg: fc.option(fc.double({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
+  rwTension3Kg: fc.option(fc.double({ min: 0, max: 10000, noNaN: true }), { nil: undefined }),
   surfaceFinish: fc.string({ minLength: 1, maxLength: 20 }),
   timeFrom: fc.option(timeStr, { nil: undefined }),
   timeTo: fc.option(timeStr, { nil: undefined }),
 });
 
-// ── CRS ──────────────────────────────────────────────────────────────────────
+// â”€â”€ CRS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const crsEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
   slitNo: fc.string({ minLength: 1, maxLength: 20 }),
-  coilWidthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  nominalThkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  actualWidthMm: fc.option(fc.float({ min: 1, max: 3000, noNaN: true }), { nil: undefined }),
-  actualThkFrontMm: fc.option(fc.float({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
-  actualThkRearMm: fc.option(fc.float({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
-  hardnessVpn: fc.option(fc.float({ min: 0, max: 400, noNaN: true }), { nil: undefined }),
-  hardnessHrb: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  coilWidthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  nominalThkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  actualWidthMm: fc.option(fc.double({ min: 1, max: 3000, noNaN: true }), { nil: undefined }),
+  actualThkFrontMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
+  actualThkRearMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
+  hardnessVpn: fc.option(fc.double({ min: 0, max: 400, noNaN: true }), { nil: undefined }),
+  hardnessHrb: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
   ibTiecv: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
-  utsNmm2: fc.option(fc.float({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
-  elongationPct: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  utsNmm2: fc.option(fc.double({ min: 0, max: 1000, noNaN: true }), { nil: undefined }),
+  elongationPct: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
   ysrBurr: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   camberWaviness: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
-  raUm: fc.option(fc.float({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
-  rzUm: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  outputWtMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  rejectionOdMt: fc.option(fc.float({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
-  rejectionIdMt: fc.option(fc.float({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
-  coatingWtBr: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
-  coatingWtMatt: fc.option(fc.float({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  raUm: fc.option(fc.double({ min: 0, max: 10, noNaN: true }), { nil: undefined }),
+  rzUm: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  outputWtMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  rejectionOdMt: fc.option(fc.double({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
+  rejectionIdMt: fc.option(fc.double({ min: 0, max: 5, noNaN: true }), { nil: undefined }),
+  coatingWtBr: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
+  coatingWtMatt: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: undefined }),
   rpOilGrade: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
-  holdMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  forCtlMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  holdMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  forCtlMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
   slitSlots: fc.array(slitSlotArb, { maxLength: 4 }),
 });
 
-// ── CTL ──────────────────────────────────────────────────────────────────────
+// â”€â”€ CTL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ctlEntryArb = fc.record({
   id: fc.uuid(),
   shiftLogId: fc.uuid(),
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
-  widthMm: fc.float({ min: 1, max: 3000, noNaN: true }),
-  thkMm: fc.float({ min: 0.1, max: 20, noNaN: true }),
-  weightMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  nominalSetLengthMm: fc.float({ min: 100, max: 10000, noNaN: true }),
-  actualLengthMm: fc.float({ min: 100, max: 10000, noNaN: true }),
+  widthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  thkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
+  weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  nominalSetLengthMm: fc.double({ min: 100, max: 10000, noNaN: true }),
+  actualLengthMm: fc.double({ min: 100, max: 10000, noNaN: true }),
   noPieces: fc.integer({ min: 0, max: 10000 }),
   noBundles: fc.integer({ min: 0, max: 1000 }),
-  totalProdMt: fc.float({ min: 0, max: 50, noNaN: true }),
-  holdMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
-  rejectionMt: fc.option(fc.float({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  totalProdMt: fc.double({ min: 0, max: 50, noNaN: true }),
+  holdMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
+  rejectionMt: fc.option(fc.double({ min: 0, max: 50, noNaN: true }), { nil: undefined }),
   lowSpeed: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   estimatedSuppressed: fc.option(fc.string({ maxLength: 20 }), { nil: undefined }),
   timeFrom: fc.option(timeStr, { nil: undefined }),
@@ -275,9 +275,9 @@ function isValidString(v: unknown): boolean {
 // Properties
 // ---------------------------------------------------------------------------
 
-describe('Property 5: Form–schema field conformance', () => {
+describe('Property 5: Formâ€“schema field conformance', () => {
 
-  it('5a — HRS: required fields are present and correctly typed (Req 3.1, 3.3)', () => {
+  it('5a â€” HRS: required fields are present and correctly typed (Req 3.1, 3.3)', () => {
     fc.assert(
       fc.property(hrsEntryArb, (entry: HRSEntry) => {
         expect(isValidString(entry.id)).toBe(true);
@@ -295,7 +295,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5b — PKL: required fields are present and correctly typed (Req 3.1, 3.4)', () => {
+  it('5b â€” PKL: required fields are present and correctly typed (Req 3.1, 3.4)', () => {
     fc.assert(
       fc.property(pklEntryArb, (entry: PKLEntry) => {
         expect(isValidString(entry.id)).toBe(true);
@@ -306,7 +306,7 @@ describe('Property 5: Form–schema field conformance', () => {
         expect(isValidNumber(entry.lineSpeedMpm)).toBe(true);
         expect(isValidString(entry.heatNo)).toBe(true);
         expect(isValidString(entry.source)).toBe(true);
-        // Optional coded text fields — must be string if present
+        // Optional coded text fields â€” must be string if present
         if (entry.wip !== undefined) expect(isValidString(entry.wip)).toBe(true);
         if (entry.leaderEnd !== undefined) expect(isValidString(entry.leaderEnd)).toBe(true);
       }),
@@ -314,7 +314,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5c — PKL-Chart: tankNo must be in {1,2,3} and chartTime must be HH:mm (Req 3.1, 3.4)', () => {
+  it('5c â€” PKL-Chart: tankNo must be in {1,2,3} and chartTime must be HH:mm (Req 3.1, 3.4)', () => {
     fc.assert(
       fc.property(pklChartArb, (row: PKLChartRow) => {
         expect(isValidString(row.id)).toBe(true);
@@ -326,7 +326,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5d — CRM: required fields are present; optional quality block fields are numeric when set (Req 3.1, 3.5)', () => {
+  it('5d â€” CRM: required fields are present; optional quality block fields are numeric when set (Req 3.1, 3.5)', () => {
     fc.assert(
       fc.property(crmEntryArb, (entry: CRMEntry) => {
         expect(isValidString(entry.id)).toBe(true);
@@ -343,7 +343,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5e — ANN: required fields present; status must be one of the four canonical values if set (Req 3.1, 3.6)', () => {
+  it('5e â€” ANN: required fields present; status must be one of the four canonical values if set (Req 3.1, 3.6)', () => {
     fc.assert(
       fc.property(annEntryArb, (entry: ANNEntry) => {
         expect(isValidString(entry.chargeNo)).toBe(true);
@@ -359,7 +359,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5f — SKP: passes array entries carry only passNo and thicknessMm (no tension) (Req 3.1, 3.7)', () => {
+  it('5f â€” SKP: passes array entries carry only passNo and thicknessMm (no tension) (Req 3.1, 3.7)', () => {
     fc.assert(
       fc.property(skpEntryArb, (entry: SKPEntry) => {
         expect(Array.isArray(entry.passes)).toBe(true);
@@ -378,7 +378,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5g — RWD: exactly three tension fields, all numeric when set (Req 3.1, 3.8)', () => {
+  it('5g â€” RWD: exactly three tension fields, all numeric when set (Req 3.1, 3.8)', () => {
     fc.assert(
       fc.property(rwdEntryArb, (entry: RWDEntry) => {
         expect(isValidNumber(entry.widthMm)).toBe(true);
@@ -393,7 +393,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5h — CRS: quality block fields correct type; rpOilGrade is string if set (Req 3.1, 3.9)', () => {
+  it('5h â€” CRS: quality block fields correct type; rpOilGrade is string if set (Req 3.1, 3.9)', () => {
     fc.assert(
       fc.property(crsEntryArb, (entry: CRSEntry) => {
         expect(isValidString(entry.slitNo)).toBe(true);
@@ -409,7 +409,7 @@ describe('Property 5: Form–schema field conformance', () => {
     );
   });
 
-  it('5i — CTL: required production count fields are present and non-negative (Req 3.1, 3.10)', () => {
+  it('5i â€” CTL: required production count fields are present and non-negative (Req 3.1, 3.10)', () => {
     fc.assert(
       fc.property(ctlEntryArb, (entry: CTLEntry) => {
         expect(isValidNumber(entry.widthMm)).toBe(true);

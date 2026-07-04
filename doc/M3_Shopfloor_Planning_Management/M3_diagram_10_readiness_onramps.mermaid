@@ -1,0 +1,8 @@
+flowchart TD
+  Q{"How does the client plan today?"}
+  Q -- "ERP/APS planner (SAP PP)" --> ING["Manifold connector + planning sector template -> ingest demand/MPS/MRP/orders (Posture A/B)"]
+  Q -- "ERP issues orders, no good scheduler" --> SCH["Ingest orders -> Zedral owns detailed scheduling (Posture B)"]
+  Q -- "No ERP planner / spreadsheets" --> SOR["Zedral runs MPS/MRP system of record (Posture C)"]
+  Q -- "Has M1 capture" --> M1B["Bootstrap: M1 SAP-PP CSV = plan seed · M1 actuals = confirmations · M1 handover = M3a seed"]
+  ING & SCH & SOR & M1B --> RDY["Readiness scoring (doc 01 §16): Required gate + Quality + History"]
+  RDY --> UNLOCK["Unlock: adherence + scheduling now · optimisation when History gate passes"]

@@ -11,7 +11,7 @@ import {
   ShiftLogValidationService,
 } from '../services/shiftLogValidationService';
 import { OverrideRequest } from '../services/overrideService';
-import { SixHiService } from '../services/SixHiService';
+import { SixHiExecutionService, SixHiShiftService } from '../services/sixHi';
 
 function validationErrorResponse(error: unknown) {
   if (error instanceof ShiftLogValidationGateError) {
@@ -141,7 +141,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
         .selectAll()
         .where('process_id', '=', process.process_id)
         .where('state', '=', 'DRAFT')
-        .where('prod_date', '=', SixHiService.toPlanDate(requestedDate))
+        .where('prod_date', '=', SixHiShiftService.toPlanDate(requestedDate))
         .where('shift_code', '=', requestedShift)
         .executeTakeFirst();
     }
@@ -156,9 +156,9 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
     }
 
     if (!activeLog && requestedDate && requestedShift && processCode === '6HI' && req.user) {
-      const shiftLogId = await SixHiService.ensureActiveShiftLog(
+      const shiftLogId = await SixHiShiftService.ensureActiveShiftLog(
         req.user.id,
-        SixHiService.toPlanDate(requestedDate),
+        SixHiShiftService.toPlanDate(requestedDate),
         requestedShift,
       );
       activeLog = await db.selectFrom('txn.shift_log')
@@ -185,8 +185,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     let totalProducedMt = 0;
     if (processCode === '6HI') {
-      const { SixHiService } = await import('../services/SixHiService');
-      totalProducedMt = await SixHiService.getProducedMt(String(activeLog.shift_log_id));
+      totalProducedMt = await SixHiExecutionService.getProducedMt(String(activeLog.shift_log_id));
     } else {
       const prodEntries = await db.selectFrom('txn.prod_hrs')
         .select('entry_id')

@@ -183,7 +183,7 @@ export class LiveService {
     planDate?: string,
     shiftCode?: string,
   ): Promise<LiveOrderRow[]> {
-    const { SixHiService } = await import('./SixHiService');
+    const { SixHiQueueService, SixHiShiftService } = await import('./sixHi');
     const defaultDate = planDate ?? new Date().toISOString().slice(0, 10);
     const defaultShift = shiftCode ?? 'B';
 
@@ -196,7 +196,7 @@ export class LiveService {
       machines = machineFilter;
     }
 
-    const machineContextsMap = await SixHiService.resolveMachinePlanContexts(
+    const machineContextsMap = await SixHiQueueService.resolveMachinePlanContexts(
       defaultDate,
       defaultShift,
       machines,
@@ -240,7 +240,7 @@ export class LiveService {
           machineContexts.map((ctx) =>
             eb.and([
               eb('pb.machine_code', '=', ctx.machineCode),
-              eb('pb.plan_date', '=', SixHiService.toPlanDate(ctx.planDate)),
+              eb('pb.plan_date', '=', SixHiShiftService.toPlanDate(ctx.planDate)),
               eb('pb.shift_code', '=', ctx.shiftCode),
             ]),
           ),
@@ -754,14 +754,14 @@ export class LiveService {
       return { actualMt: 0, completedOrderCount: 0 };
     }
 
-    const { SixHiService } = await import('./SixHiService');
+    const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
 
     let q = db
       .selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['o.order_id', 'o.sub_process', 'pb.ppc_weight_mt'])
       .where('o.status', '=', 'COMPLETED')
-      .where('pb.plan_date', '=', SixHiService.toPlanDate(planDate))
+      .where('pb.plan_date', '=', SixHiShiftService.toPlanDate(planDate))
       .where('pb.shift_code', '=', shiftCode);
 
     if (machineFilter !== null) {
@@ -771,7 +771,7 @@ export class LiveService {
     const rows = await q.execute();
     let actualMt = 0;
     for (const row of rows) {
-      actualMt += await SixHiService.resolveOrderWeight(
+      actualMt += await SixHiExecutionService.resolveOrderWeight(
         String(row.order_id),
         row.sub_process,
         Number(row.ppc_weight_mt),
@@ -790,15 +790,15 @@ export class LiveService {
   ): Promise<MachineHeadDashboardData> {
     const machineFilter = await this.getMachineScope(userId, roles);
     const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
-    const { SixHiService } = await import('./SixHiService');
+    const { SixHiExecutionService, SixHiQueueService, SixHiShiftService } = await import('./sixHi');
     const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
     const primaryMachine = machineFilter?.[0] ?? orders[0]?.machineCode ?? '6HI';
-    const queueCtx = await SixHiService.resolveMachinePlanContext(planDate, shiftCode, primaryMachine);
+    const queueCtx = await SixHiQueueService.resolveMachinePlanContext(planDate, shiftCode, primaryMachine);
     const machines = await this.getMachineCards(machineFilter);
 
     const shiftLog = await db.selectFrom('txn.shift_log')
       .select(['target_mt'])
-      .where('prod_date', '=', SixHiService.toPlanDate(queueCtx.planDate))
+      .where('prod_date', '=', SixHiShiftService.toPlanDate(queueCtx.planDate))
       .where('shift_code', '=', queueCtx.shiftCode)
       .where('process_id', '=', 31)
       .executeTakeFirst();
@@ -934,7 +934,7 @@ export class LiveService {
             batchNumber: c.batch_number,
             machineCode: c.machine_code,
             completedAt: new Date(c.prod_end_at!).toISOString(),
-            weightMt: await SixHiService.resolveOrderWeight(
+            weightMt: await SixHiExecutionService.resolveOrderWeight(
               String(c.order_id),
               c.sub_process,
               Number(c.ppc_weight_mt),

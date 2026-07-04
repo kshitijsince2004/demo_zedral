@@ -1,5 +1,6 @@
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 import { Package } from 'lucide-react';
+import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 type PPCSource = Pick<
   SixHiOrderDetail,
@@ -24,7 +25,7 @@ function label(v: string) {
   );
 }
 
-export function PPCInfoCards({ data, compact }: { data: PPCSource; compact?: boolean }) {
+export function PPCInfoCards({ data }: { data: PPCSource; compact?: boolean }) {
   const isRolling = 'subProcess' in data && data.subProcess === 'ROLLING';
   const batch = 'batchNumber' in data ? data.batchNumber : undefined;
   const weight = 'ppcWeightMt' in data ? data.ppcWeightMt : ('weightMt' in data ? data.weightMt : 0);
@@ -34,7 +35,7 @@ export function PPCInfoCards({ data, compact }: { data: PPCSource; compact?: boo
       <div className="flex items-center justify-between mb-4 border-b border-border/50 pb-2">
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-info flex items-center gap-2">
           <Package className="w-4 h-4" /> Current Order
-          {batch && <span className="text-foreground ml-1">{batch}</span>}
+          <span className="text-foreground ml-1">{primaryOrderId(data)}</span>
         </h3>
         <span className="text-[9px] uppercase font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">Active</span>
       </div>
@@ -49,12 +50,12 @@ export function PPCInfoCards({ data, compact }: { data: PPCSource; compact?: boo
           <p className="text-sm font-mono font-bold text-foreground truncate">{data.grade}</p>
         </div>
         <div className="bg-muted/20 rounded-lg p-2 border border-border/50">
-          {label('Mother Coil')}
-          <p className="text-sm font-mono font-bold text-foreground truncate">{data.motherCoil}{data.slitId ? `/${data.slitId}` : ''}</p>
+          {label('Select ID')}
+          <p className="text-sm font-mono font-bold text-foreground truncate">{selectIdOf(data)}</p>
         </div>
         <div className="bg-muted/20 rounded-lg p-2 border border-border/50">
-          {label('Width / Thk')}
-          <p className="text-sm font-mono font-bold text-foreground truncate">{data.widthMm}mm / {data.inputThkMm}→{data.targetThkMm}</p>
+          {label('Width / Final Thk')}
+          <p className="text-sm font-mono font-bold text-foreground truncate">{data.widthMm}mm / {finalOutputThicknessOf(data)}mm</p>
         </div>
         <div className="bg-muted/20 rounded-lg p-2 border border-border/50">
           {label('Target Wt')}
@@ -66,6 +67,16 @@ export function PPCInfoCards({ data, compact }: { data: PPCSource; compact?: boo
             <p className="text-sm font-semibold text-foreground truncate">
               {data.ppcDestination === 'REWINDING' ? 'Rewinding' : 'Annealing'}
             </p>
+          </div>
+        )}
+        <div className="bg-muted/20 rounded-lg p-2 border border-border/50">
+          {label('Finish')}
+          <p className="text-sm font-semibold text-foreground truncate">{finishOf(data)}</p>
+        </div>
+        {batch && (
+          <div className="bg-muted/20 rounded-lg p-2 border border-border/50">
+            {label('Batch')}
+            <p className="text-sm font-mono font-bold text-foreground truncate">{batch}</p>
           </div>
         )}
       </div>

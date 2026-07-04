@@ -1,17 +1,11 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { SixHiQueueCard, SixHiSubProcess } from '@m1/shared-validation';
+import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { millsForSubProcessFromRegistry } from '../../lib/machineRegistry';
+import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 export type CrmMillCode = string;
-
-const FALLBACK_ROLLING = ['6HI', '4HI'];
-const FALLBACK_SKIN_PASS = ['2HI', '4HI', '6HI'];
-
-export function millsForSubProcess(subProcess: SixHiSubProcess): CrmMillCode[] {
-  return subProcess === 'ROLLING' ? FALLBACK_ROLLING : FALLBACK_SKIN_PASS;
-}
 
 export type MachineAllocationMode = 'production' | 'transfer';
 
@@ -84,11 +78,14 @@ export function MachineAllocationModal({
               {isProduction ? 'Move to Production' : isMulti ? 'Bulk Transfer' : 'Move to Machine'}
             </p>
             <h2 id="machine-alloc-title" className="font-mono text-lg font-bold mt-1">
-              {isMulti ? `${batches.length} Orders Selected` : firstBatch.batchNumber}
+              {isMulti ? `${batches.length} Orders Selected` : primaryOrderId(firstBatch)}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {processLabel} · route {routeCode}
+              {isMulti
+                ? `${primaryOrderId(firstBatch)} · Select ID ${selectIdOf(firstBatch)}`
+                : `Select ID ${selectIdOf(firstBatch)} · Batch ${firstBatch.batchNumber}`}
             </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{processLabel} · route {routeCode}</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-md hover:bg-secondary" aria-label="Close">
             <X className="h-5 w-5" />
@@ -97,7 +94,7 @@ export function MachineAllocationModal({
 
         <p className="text-sm text-muted-foreground mb-4">
           {isProduction
-            ? `Select the ${processLabel.toLowerCase()} mill for this order. Process route ${routeCode} stays on the plan; only the assigned machine changes.`
+            ? `Select the ${processLabel.toLowerCase()} mill for ${isMulti ? 'this combined run' : 'this order'}. Process route ${routeCode} stays on the plan; only the assigned machine changes.`
             : `Select the destination mill. ${isMulti ? 'These orders' : 'This order'} will be transferred to that machine's queue.`}
         </p>
 

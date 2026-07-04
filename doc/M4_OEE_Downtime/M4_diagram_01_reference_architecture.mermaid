@@ -1,0 +1,37 @@
+flowchart LR
+  subgraph SRC["Event sources — capture-agnostic"]
+    A1["M1 first-party: stoppages, prod_* counts, shift_log (v1 bootstrap)"]
+    A2["PLC / OPC-UA / MQTT auto state detection (future-proofed)"]
+    A3["Existing OEE/MES historian via Manifold (ingest on-ramp)"]
+    A4["M2 failure classification · M3 plan targets (ideal cycle, planned time)"]
+  end
+  subgraph M4["M4 · OEE & Downtime engines"]
+    E1["OEE Reference & Policy: state model · micro-stop thresholds · ideal cycle · reason-to-loss map · targets"]
+    E2["State Interval Resolver: close gaps, debounce micro-stops, planned/unplanned"]
+    E3["Downtime Classifier & Availability engine"]
+    E4["OEE Calculation engine: A x P x Q + TEEP/OPE (ISO 22400)"]
+    E5["Loss-Attribution & Top-Loss Pareto (Six Big Losses)"]
+    E6["OEE KPI & Financial-Impact engine"]
+    E7["Loss / micro-stop / speed-loss PREDICTION — FUTURE SCOPE"]
+  end
+  CANON["Data Lake · Canonical Zone (Event Spine + new M4 derived entities)"]
+  SERVE["Serving zone / KPI mart / live cache"]
+  subgraph CONS["Consumers"]
+    UIL["Unified Intelligence (KPI registry)"]
+    MON["Operational Monitoring (live OEE / state board / alerts)"]
+    FIN["Financial Impact (priced downtime/speed/quality loss)"]
+    REP["Reporting (shift OEE, loss Pareto, TEEP)"]
+    M2c["M2 (breakdown minutes, bad-actor signal)"]
+    M3c["M3 (throughput reality -> re-plan)"]
+    M56["M5 Yield / M6 Quality / M7 Energy"]
+  end
+  A1 --> E2
+  A2 -. future .-> E2
+  A3 --> E2
+  A1 --> E3
+  A4 --> E1
+  E1 --> E2 --> E3 --> E4 --> E5 --> E6
+  E1 --> E4
+  E7 -. future .-> E5
+  E2 & E3 & E4 & E5 & E6 --> CANON
+  CANON --> SERVE --> UIL & MON & FIN & REP & M2c & M3c & M56

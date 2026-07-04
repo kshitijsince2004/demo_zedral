@@ -73,7 +73,7 @@ export function SixHiCapturePage() {
     if (activeBatch && (!panelOrder || panelOrder.batchNumber !== activeBatch)) {
       loadPanelOrder(activeBatch);
     }
-  }, [activeBatch, panelOrder?.batchNumber, loadPanelOrder]);
+  }, [activeBatch, panelOrder, loadPanelOrder]);
 
   const order = activeBatch && panelOrder?.batchNumber === activeBatch ? panelOrder : null;
 

@@ -1,0 +1,12 @@
+flowchart LR
+  PO["Orders + schedule (planned)"] --> ADH["Attainment · OTIF · sequence compliance"]
+  CONF["Confirmations / ProductionCount (actual)"] --> ADH
+  CONF --> TPUT["Throughput · cycle time · WIP"]
+  CAP["Capacity model + schedule"] --> UTIL["Capacity utilisation · setup ratio"]
+  ADH & TPUT & UTIL --> REG["Shared KPI Registry (UIL, doc 03)"]
+  ADH --> FIN["Financial Impact: late-order / expedite cost"]
+  UTIL --> FIN2["Financial Impact: idle-capacity + changeover cost"]
+  FIN & FIN2 --> REG
+  REG --> MON["Monitoring: dispatch & plan-vs-actual board"]
+  REG --> REP["Reporting: shift / attainment / OTIF"]
+  REG --> M4["M4 OEE: plan provides the targets"]

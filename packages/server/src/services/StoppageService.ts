@@ -8,6 +8,7 @@ import {
   ManufacturingValidationError,
   resolveShiftWindowBounds,
 } from '../validation/manufacturingValidation';
+import { publishDowntimeLogged } from '../platform/m1Events';
 
 function parseTimeToDate(time: string): Date {
   return new Date(`1970-01-01T${time}`);
@@ -111,8 +112,20 @@ export class StoppageService {
         shift_code: shiftLog.shift_code,
         prod_date: prodDate,
       })
-      .returning('stoppage_id')
+      .returning(['stoppage_id'])
       .executeTakeFirstOrThrow();
+
+    void publishDowntimeLogged({
+      stoppageId: String(row.stoppage_id),
+      shiftLogId: payload.shiftLogId,
+      stoppageCode: payload.stoppageCode,
+      fromTime,
+      toTime,
+      durationMin,
+      prodDate,
+    }).catch((error) => {
+      console.error('[M1] failed to publish downtime.logged', error);
+    });
 
     return String(row.stoppage_id);
   }

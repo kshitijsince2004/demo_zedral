@@ -1,0 +1,23 @@
+flowchart TD
+  subgraph P_A["Posture A · Adherence layer (lightest)"]
+    a["Ingest a finished schedule/orders from ERP/APS"]
+    a2["Zedral owns: dispatch · execution · confirmations · plan-vs-actual"]
+  end
+  subgraph P_B["Posture B · Own-the-schedule (the sweet spot)"]
+    b["Ingest demand / MPS / MRP planned orders from ERP"]
+    b2["Zedral owns: finite-capacity detailed scheduling + sequencing + dispatch + execution"]
+  end
+  subgraph P_C["Posture C · Full system of record (most ambitious)"]
+    c["Zedral runs demand mgmt -> MPS -> MRP (BOM explosion, netting) -> CRP"]
+    c2["Zedral owns: the whole hierarchy + scheduling + execution; ERP gets results"]
+  end
+  a --> a2
+  b --> b2
+  c --> c2
+
+  classDef light fill:#e0f2fe,stroke:#0284c7;
+  classDef core fill:#dcfce7,stroke:#16a34a;
+  classDef heavy fill:#ede9fe,stroke:#7c3aed;
+  class a,a2 light;
+  class b,b2 core;
+  class c,c2 heavy;

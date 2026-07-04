@@ -1,0 +1,35 @@
+flowchart LR
+  subgraph SRC["Maintenance data — capture OR ingest"]
+    A1["M2 first-party capture (no CMMS): breakdowns, PM execution, inspections, meter reads"]
+    A2["Existing CMMS/EAM via Manifold: SAP PM / Maximo / Infor"]
+    A3["M1 stoppages (MECH/ELECT/UTILITY) → failure signal"]
+    A4["PLC / sensors → SensorReading & MeterReading (time-series)"]
+  end
+  subgraph M2["M2 · Maintenance Intelligence engines"]
+    E1["Asset & Reliability Registry (ISO 14224 taxonomy, criticality/FMECA)"]
+    E2["Preventive Maintenance Engine (time / meter / condition triggers)"]
+    E3["Work Order & Maintenance Event Lifecycle"]
+    E4["Spares / MRO & Maintenance Cost"]
+    E5["Reliability Analytics & KPI engine (MTBF/MTTR/availability/PM compliance)"]
+    E6["Condition & Predictive (OSA-CBM) — FUTURE SCOPE"]
+  end
+  CANON["Data Lake · Canonical Zone (Event Spine + new M2 entities)"]
+  SERVE["Serving zone / APIs"]
+  subgraph CONS["Consumers"]
+    UIL["Unified Intelligence (KPI registry)"]
+    MON["Operational Monitoring (asset health, due/overdue PM, alerts)"]
+    FIN["Financial Impact (priced downtime & repair)"]
+    REP["Reporting"]
+    M4["M4 OEE — shared DowntimeEvent"]
+  end
+  A1 --> E3
+  A2 --> E1
+  A3 --> E3
+  A4 --> E2
+  A4 --> E6
+  E1 --> E2 --> E3 --> E4
+  E3 --> E5
+  E6 -. future .-> E5
+  E1 & E2 & E3 & E4 & E5 --> CANON
+  E6 -. future .-> CANON
+  CANON --> SERVE --> UIL & MON & FIN & REP & M4

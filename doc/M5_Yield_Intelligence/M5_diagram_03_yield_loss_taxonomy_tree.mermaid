@@ -1,0 +1,23 @@
+flowchart TD
+  Y["Yield loss (Input - Good)"]
+  Y --> L6["L6 Startup / Yield loss"]
+  Y --> L5["L5 Process defects"]
+  L6 --> CROP["Crop (head/tail) - PSQ often - salvage"]
+  L6 --> SCALE["Scale / oxidation - pure loss"]
+  L6 --> TRIM["Side trim / edge - PSQ often - salvage"]
+  L6 --> TRANS["Transition / grade-change - salvage/downgrade"]
+  L6 --> SAMP["Sampling / test - PSQ - pure loss"]
+  L5 --> COBB["Cobble / process upset - salvage - event-linked M4"]
+  L5 --> DIM["Off-gauge / dimensional - salvage/recoverable"]
+  L5 --> SURF["Surface defect - to M6 defect code"]
+  L5 --> RWK["Rework / re-roll - RQ - recoverable"]
+  CROP --> MAP["Each leaf -> LossCategory + ISO 22400 quantity (SQ/PSQ/RQ) + recoverability (pure/salvage/recoverable) + OEE Quality component"]
+  SCALE --> MAP
+  TRIM --> MAP
+  TRANS --> MAP
+  SAMP --> MAP
+  COBB --> MAP
+  DIM --> MAP
+  SURF --> MAP
+  RWK --> MAP
+  MAP --> BR["Loss bridge + Pareto (mass / units / cost) -> Financial Impact"]

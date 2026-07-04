@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { SixHiService } from './SixHiService';
+import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { assertRuntimeAccounting } from '../validation/manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
 
@@ -17,7 +17,7 @@ export interface AttributionSlice {
 
 export class ShiftAttributionService {
   static async resolveShiftLogId(shiftCode: string, prodDate: string): Promise<string | null> {
-    const processId = await SixHiService.getProcessId();
+    const processId = await SixHiShiftService.getProcessId();
     const row = await db
       .selectFrom('txn.shift_log')
       .select('shift_log_id')
@@ -74,7 +74,7 @@ export class ShiftAttributionService {
     shiftCode: string,
     prodDate: string,
   ): Promise<void> {
-    const active = await SixHiService.findActiveMachineOrder(machineCode);
+    const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
     if (!active) return;
 
     const order = await db
@@ -96,7 +96,7 @@ export class ShiftAttributionService {
     if (!shiftLogId) return;
 
     const runtimeMinutes = order.prod_duration_min ?? 0;
-    const weightMt = await SixHiService.resolveOrderWeight(
+    const weightMt = await SixHiExecutionService.resolveOrderWeight(
       String(order.order_id),
       order.sub_process,
       Number(order.ppc_weight_mt),

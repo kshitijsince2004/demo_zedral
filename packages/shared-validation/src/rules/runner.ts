@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { ProcessSchemas } from './fieldRules';
 import { ValidationResult, ValidationError, ValidationWarning } from '../types';
 
@@ -7,7 +6,7 @@ import { EffectiveRuleset } from '../types/configurableRules';
 
 export const validateProcessEntry = (
   processType: string,
-  data: any,
+  data: unknown,
   effectiveRuleset?: EffectiveRuleset
 ): ValidationResult => {
   const schema = ProcessSchemas[processType];

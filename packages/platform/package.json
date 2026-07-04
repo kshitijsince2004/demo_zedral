@@ -1,0 +1,20 @@
+{
+  "name": "@zedral/platform",
+  "version": "1.0.0",
+  "description": "Zedral modular monolith platform kernel",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "kafkajs": "^2.2.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.12.3",
+    "typescript": "^5.5.0"
+  }
+}
