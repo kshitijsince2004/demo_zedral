@@ -150,15 +150,31 @@ function runClientSmoke() {
 }
 
 function runMigrations() {
-  const proc = run(
+  const main = run(
     'npx',
     ['node-pg-migrate', '--migrations-dir', 'migrations', 'up'],
     serverRoot,
   );
-  if (proc.status === 0) {
-    log('Migration run', 'PASS', 'node-pg-migrate up');
+  if (main.status !== 0) {
+    log('Migration run', 'FAIL', main.stderr?.trim() || main.stdout?.trim() || 'main migrations failed');
+    return;
+  }
+  const moduleM1 = run(
+    'npx',
+    [
+      'node-pg-migrate',
+      '--migrations-dir',
+      'migrations/modules/m1',
+      '--migrations-table',
+      'pgmigrations_m1',
+      'up',
+    ],
+    serverRoot,
+  );
+  if (moduleM1.status === 0) {
+    log('Migration run', 'PASS', 'node-pg-migrate up (core + m1 module)');
   } else {
-    log('Migration run', 'FAIL', proc.stderr?.trim() || proc.stdout?.trim() || 'unknown error');
+    log('Migration run', 'FAIL', moduleM1.stderr?.trim() || moduleM1.stdout?.trim() || 'm1 module migrations failed');
   }
 }
 

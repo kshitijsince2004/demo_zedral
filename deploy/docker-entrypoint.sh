@@ -11,6 +11,7 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   if [ -n "${DATABASE_URL:-}" ]; then
     echo "[entrypoint] Running database migrations…"
     npx node-pg-migrate --migrations-dir migrations up
+    npx node-pg-migrate --migrations-dir migrations/modules/m1 --migrations-table pgmigrations_m1 up
     echo "[entrypoint] Migrations complete."
   else
     echo "[entrypoint] WARN: DATABASE_URL / DB_* not set — skipping migrations."
