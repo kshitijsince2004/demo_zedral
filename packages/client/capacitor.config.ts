@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Zedral M1 Operator',
   webDir: 'dist-operator',
   server: { androidScheme: 'https' },
-  android: { allowMixedContent: false },
+  android: { allowMixedContent: true },
   plugins: {
     SplashScreen: { launchShowDuration: 800, backgroundColor: '#0f172a' },
     CapacitorSQLite: { androidIsEncryption: false },

@@ -13,7 +13,8 @@
 import { useAuthStore } from './authStore';
 
 const API_HOST = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-const API_BASE = `${API_HOST}/api`;
+/** Web dev uses Vite `/api` proxy; native builds call the server host directly (no `/api` prefix). */
+const API_BASE = API_HOST || '/api';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
 export class ApiError extends Error {

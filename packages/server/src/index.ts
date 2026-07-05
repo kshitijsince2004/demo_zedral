@@ -15,6 +15,7 @@ import { startModuleRuntime, type ModuleRuntime } from './modules/moduleRuntime'
 validateAuthConfigAtStartup();
 
 const port = Number(process.env.PORT || 3005);
+const host = process.env.HOST?.trim() || '0.0.0.0';
 process.env.CANONICAL_WRITEBACK_URL ??= `http://127.0.0.1:${port}/v1/canon`;
 
 initEventBus();
@@ -24,8 +25,8 @@ const { app } = buildApp(registry);
 let server: Server;
 let moduleRuntime: ModuleRuntime | null = null;
 
-server = app.listen(port, async () => {
-  console.log(`Server listening on port ${port}`);
+server = app.listen(port, host, async () => {
+  console.log(`Server listening on ${host}:${port}`);
 
   moduleRuntime = await startModuleRuntime(registry);
 

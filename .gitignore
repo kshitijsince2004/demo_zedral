@@ -17,3 +17,11 @@ packages/server/.env
 .idea/
 .vscode/
 coverage/
+
+# Added ignores
+*.pem
+*.apk
+*.rar
+*.~lock.*
+*.tmp
+packages/server/tmp/

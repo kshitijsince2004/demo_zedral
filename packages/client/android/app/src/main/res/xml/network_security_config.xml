@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Plant / dev server hosts (HTTP). Add your PC LAN IP when testing on a physical device. -->
+        <domain includeSubdomains="true">plant-server.local</domain>
+        <domain includeSubdomains="true">10.149.217.114</domain>
+        <domain includeSubdomains="true">192.168.168.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

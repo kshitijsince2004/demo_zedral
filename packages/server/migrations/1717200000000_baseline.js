@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 exports.up = (pgm) => {
-  const sqlFilePath = path.join(__dirname, '../../../doc/M1_schema.sql');
+  const sqlFilePath = path.join(__dirname, '../../../doc/m1/M1_schema.sql');
   const sql = fs.readFileSync(sqlFilePath, 'utf8');
   pgm.sql(sql);
 };

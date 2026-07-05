@@ -1,14 +1,19 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Operator/APK build: no vite-plugin-pwa. Capacitor owns the native app shell.
-export default defineConfig({
+// Loads packages/client/.env.operator when --mode operator (see package.json scripts).
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  const apiProxyTarget = env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3005';
+
+  return {
   resolve: {
     alias: {
       '@m1/shared-validation': path.resolve(__dirname, '../shared-validation/src/index.ts'),
@@ -17,6 +22,31 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     react(),
+    {
+      // Operator build has no vite-plugin-pwa; stub avoids crashes if main.tsx is pulled via HMR.
+      name: 'operator-pwa-stub',
+      resolveId(id) {
+        if (id === 'virtual:pwa-register') return id;
+      },
+      load(id) {
+        if (id === 'virtual:pwa-register') {
+          return 'export function registerSW() { return () => {}; }';
+        }
+      },
+    },
+    {
+      // Dev server defaults to index.html (desk app + PWA); operator uses operator.html.
+      name: 'operator-dev-entry',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const [pathname, search = ''] = (req.url ?? '').split('?');
+          if (pathname === '/' || pathname === '/index.html') {
+            req.url = `/operator.html${search ? `?${search}` : ''}`;
+          }
+          next();
+        });
+      },
+    },
     {
       name: 'operator-capacitor-index',
       closeBundle() {
@@ -32,6 +62,9 @@ export default defineConfig({
   define: {
     __OPERATOR_BUILD__: 'true',
   },
+  optimizeDeps: {
+    entries: ['operator.html'],
+  },
   build: {
     outDir: 'dist-operator',
     emptyOutDir: true,
@@ -41,12 +74,17 @@ export default defineConfig({
   },
   server: {
     port: 3001,
+    open: '/operator.html',
+    watch: {
+      ignored: ['**/dist-operator/**', '**/android/**'],
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3005',
+        target: apiProxyTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
+};
 });
