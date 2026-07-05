@@ -13,9 +13,11 @@ Production deployment on **AWS EC2** using Docker Compose and GitHub Actions CI/
   - Storage (EBS): **30 GB** General Purpose SSD (gp2 or gp3).
 - [ ] **Allocate an Elastic IP (EIP)** and associate it with the instance.
 - [ ] **Configure Security Groups** with inbound rules:
-  - TCP 22 (SSH) — restrict to your corporate IP where possible.
+  - TCP 22 (SSH) — **must allow GitHub Actions** (see note below).
   - TCP 80 (HTTP) — for nginx + Certbot challenge.
   - TCP 443 (HTTPS) — after TLS setup.
+
+  > **GitHub Actions deploy requires SSH from the public internet.** GitHub-hosted runners use dynamic IPs, so the Security Group must allow inbound TCP 22 from `0.0.0.0/0` (authentication is still key-only via `AWS_EC2_SSH_KEY`). If you cannot open SSH globally, run a [self-hosted GitHub runner](https://docs.github.com/en/actions/hosting-your-own-runners) on the EC2 instance instead.
 - [ ] **Create an IAM Role** (optional, for S3 backups)
   - Attach to the EC2 instance with scoped S3 permissions so backups can upload without storing credentials on the VM.
 

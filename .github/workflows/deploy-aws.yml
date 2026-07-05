@@ -45,6 +45,25 @@ jobs:
             exit 1
           fi
 
+      - name: Preflight SSH connectivity
+        env:
+          EC2_HOST: ${{ secrets.AWS_EC2_HOST }}
+          EC2_PORT: ${{ secrets.AWS_EC2_SSH_PORT != '' && secrets.AWS_EC2_SSH_PORT || '22' }}
+        run: |
+          echo "Checking TCP ${EC2_HOST}:${EC2_PORT} from GitHub Actions runner..."
+          if ! timeout 20 bash -c "echo >/dev/tcp/${EC2_HOST}/${EC2_PORT}" 2>/dev/null; then
+            echo "::error::Cannot reach ${EC2_HOST}:${EC2_PORT} (connection timed out)."
+            echo ""
+            echo "Your SSH key is configured, but the EC2 Security Group is blocking GitHub Actions."
+            echo "Add an inbound rule: Type=SSH, Port=${EC2_PORT}, Source=0.0.0.0/0"
+            echo "(key-only auth is still required; restrict to your IP + GitHub meta IPs later if needed)."
+            echo ""
+            echo "AWS Console: EC2 → Instances → Security → Security groups → Edit inbound rules"
+            echo "See deploy/README.md → Troubleshooting → GitHub Actions SSH timeout"
+            exit 1
+          fi
+          echo "TCP preflight passed — SSH port is reachable from GitHub Actions."
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -57,7 +76,9 @@ jobs:
           host: ${{ secrets.AWS_EC2_HOST }}
           username: ${{ secrets.AWS_EC2_USER }}
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          port: ${{ secrets.AWS_EC2_SSH_PORT || 22 }}
+          port: ${{ secrets.AWS_EC2_SSH_PORT != '' && secrets.AWS_EC2_SSH_PORT || '22' }}
+          timeout: 60s
+          command_timeout: 15m
           envs: AWS_GIT_DEPLOY_TOKEN,GITHUB_REPO,APP_BASE,DEPLOY_REF,SKIP_MIGRATE
           script_stop: true
           script: |

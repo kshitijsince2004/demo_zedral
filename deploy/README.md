@@ -167,6 +167,32 @@ docker compose -f deploy/docker-compose.prod.yml logs backend nginx --tail 100
 curl -v http://127.0.0.1/health
 ```
 
+### GitHub Actions SSH timeout (`dial tcp … i/o timeout`)
+
+SSH works from your laptop but fails in Actions → **Security Group blocks port 22 from GitHub's runners**.
+
+1. AWS Console → **EC2 → Instances** → select instance → **Security** tab → click security group
+2. **Edit inbound rules → Add rule**
+   - Type: **SSH**
+   - Port: **22**
+   - Source: **0.0.0.0/0** (or [GitHub Actions IP ranges](https://api.github.com/meta) — `actions` key; changes over time)
+3. Save rules, re-run **Deploy to AWS EC2**
+
+Verify from your machine (should already work):
+
+```bash
+ssh -i /path/to/key.pem ubuntu@<Elastic-IP> "echo ok"
+```
+
+Optional AWS CLI (replace `sg-xxxxxxxx` and region):
+
+```bash
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxxxxx \
+  --region eu-north-1 \
+  --ip-permissions IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges='[{CidrIp=0.0.0.0/0,Description=GitHub Actions SSH deploy}]'
+```
+
 ## Operations
 
 ```bash
