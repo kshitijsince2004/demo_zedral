@@ -17,7 +17,7 @@ Production deployment on **AWS EC2** using Docker Compose and GitHub Actions CI/
   - TCP 80 (HTTP) — for nginx + Certbot challenge.
   - TCP 443 (HTTPS) — after TLS setup.
 
-  > **GitHub Actions deploy requires SSH from the public internet.** GitHub-hosted runners use dynamic IPs, so the Security Group must allow inbound TCP 22 from `0.0.0.0/0` (authentication is still key-only via `AWS_EC2_SSH_KEY`). If you cannot open SSH globally, run a [self-hosted GitHub runner](https://docs.github.com/en/actions/hosting-your-own-runners) on the EC2 instance instead.
+  > **GitHub Actions deploy** uses a self-hosted runner on this EC2 instance (see `deploy/setup-github-runner.sh`). You do **not** need to open SSH to `0.0.0.0/0` for CI/CD — restrict port 22 to your IP only.
 - [ ] **Create an IAM Role** (optional, for S3 backups)
   - Attach to the EC2 instance with scoped S3 permissions so backups can upload without storing credentials on the VM.
 
@@ -27,13 +27,11 @@ Configure GitHub **production** environment secrets for `.github/workflows/deplo
 
 | Secret | Description |
 |--------|-------------|
-| `AWS_EC2_HOST` | EC2 Elastic IP or domain name |
-| `AWS_EC2_USER` | SSH user (typically `ubuntu`) |
-| `AWS_EC2_SSH_KEY` | Private key contents (.pem from key pair) |
-| `AWS_EC2_SSH_PORT` | SSH port (default 22) |
-| `AWS_APP_DIR` | App directory on VM (default `/opt/zedralv2`) |
 | `AWS_GIT_DEPLOY_TOKEN` | PAT for private repo clone + raw script fetch |
-| `AWS_PUBLIC_URL` | Public HTTPS URL for post-deploy smoke test |
+| `AWS_APP_DIR` | App directory on VM (default `/opt/zedralv2`) |
+| `AWS_PUBLIC_URL` | Public HTTPS URL for optional external smoke test |
+
+Register a **self-hosted runner** on EC2 (one-time): see `deploy/setup-github-runner.sh`.
 
 ### 3. VM Bootstrap (One-Time)
 

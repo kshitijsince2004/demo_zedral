@@ -56,6 +56,7 @@ Set `AWS_APP_DIR=/opt/zedralv2` (default).
 | `deploy/deploy.sh` | Manual deploy from the VM (`origin/main` or `DEPLOY_REF`) |
 | `deploy/rollback.sh` | Roll back to `.previous-good-sha` or explicit SHA |
 | `deploy/bootstrap-aws-vm.sh` | One-time Docker + git install on EC2 |
+| `deploy/setup-github-runner.sh` | One-time GitHub Actions runner on EC2 |
 | `deploy/lib/common.sh` | Shared helpers (sourced, not run directly) |
 
 ## One-time VM setup
@@ -97,30 +98,37 @@ Checkpoints are stored in `deploy/.last-good-sha` and `deploy/.previous-good-sha
 
 ## GitHub Actions — `deploy-aws.yml`
 
+Deploy runs on a **self-hosted runner installed on the EC2 instance**. GitHub cloud runners never SSH in, so your Security Group can keep port 22 restricted to your IP only.
+
+### One-time: register self-hosted runner
+
+1. **GitHub → `hsl_zedral` → Settings → Actions → Runners → New self-hosted runner**
+2. Choose **Linux x64**, copy the registration token (expires in ~1 hour)
+3. **SSH to EC2** and run:
+
+```bash
+export RUNNER_TOKEN='paste-token-here'
+bash /opt/zedralv2/deploy/setup-github-runner.sh
+```
+
+4. Confirm runner shows **Idle** under Settings → Actions → Runners
+
+After this, CI success on `main` triggers deploy automatically on EC2.
+
 **Triggers**
 
 1. CI succeeds on `main` → deploys exact CI SHA
 2. Manual `workflow_dispatch` → deploys `origin/main` (optional `skip_migrate`)
 
-**Remote steps (via SSH)**
+### Required secrets (production environment)
 
-1. Download `deploy/vm-deploy.sh` for the target ref
-2. Run idempotent bootstrap + `git reset --hard`
-3. `docker compose pull` (ignore failures for local builds) + `up -d --build`
-4. Verify `zedral-db`, `zedral-backend`, `zedral-nginx` + `curl /health`
-5. External smoke test on `AWS_PUBLIC_URL` (if set)
+| Secret | Description |
+|--------|-------------|
+| `AWS_GIT_DEPLOY_TOKEN` | PAT for private repo clone + raw script fetch |
+| `AWS_APP_DIR` | App directory (default `/opt/zedralv2`) |
+| `AWS_PUBLIC_URL` | Optional public URL for external smoke test |
 
-### Required secrets
-
-| Secret | Example | Description |
-|--------|---------|-------------|
-| `AWS_EC2_HOST` | `51.x.x.x` | Elastic IP or DNS |
-| `AWS_EC2_USER` | `ubuntu` | SSH user |
-| `AWS_EC2_SSH_KEY` | `-----BEGIN OPENSSH...` | Private key (.pem contents) |
-| `AWS_EC2_SSH_PORT` | `22` | Optional |
-| `AWS_APP_DIR` | `/opt/zedralv2` | App base directory |
-| `AWS_GIT_DEPLOY_TOKEN` | PAT | **Recommended** for private repo clone + raw script fetch |
-| `AWS_PUBLIC_URL` | `https://your.domain` | Post-deploy HTTPS smoke test |
+SSH secrets (`AWS_EC2_HOST`, `AWS_EC2_SSH_KEY`, etc.) are **no longer required** for deploy.
 
 ### Private repo authentication
 
@@ -167,30 +175,17 @@ docker compose -f deploy/docker-compose.prod.yml logs backend nginx --tail 100
 curl -v http://127.0.0.1/health
 ```
 
-### GitHub Actions SSH timeout (`dial tcp … i/o timeout`)
+### GitHub Actions SSH timeout (legacy SSH deploy)
 
-SSH works from your laptop but fails in Actions → **Security Group blocks port 22 from GitHub's runners**.
+If you use SSH-based deploy from GitHub cloud runners, the Security Group must allow inbound TCP 22 from GitHub's IP ranges. **Current workflow uses a self-hosted runner instead** — see `deploy/setup-github-runner.sh`.
 
-1. AWS Console → **EC2 → Instances** → select instance → **Security** tab → click security group
-2. **Edit inbound rules → Add rule**
-   - Type: **SSH**
-   - Port: **22**
-   - Source: **0.0.0.0/0** (or [GitHub Actions IP ranges](https://api.github.com/meta) — `actions` key; changes over time)
-3. Save rules, re-run **Deploy to AWS EC2**
+### Deploy job stuck on "Waiting for a runner"
 
-Verify from your machine (should already work):
+Register the self-hosted runner on EC2:
 
 ```bash
-ssh -i /path/to/key.pem ubuntu@<Elastic-IP> "echo ok"
-```
-
-Optional AWS CLI (replace `sg-xxxxxxxx` and region):
-
-```bash
-aws ec2 authorize-security-group-ingress \
-  --group-id sg-xxxxxxxx \
-  --region eu-north-1 \
-  --ip-permissions IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges='[{CidrIp=0.0.0.0/0,Description=GitHub Actions SSH deploy}]'
+export RUNNER_TOKEN='from GitHub → Settings → Actions → Runners → New runner'
+bash /opt/zedralv2/deploy/setup-github-runner.sh
 ```
 
 ## Operations

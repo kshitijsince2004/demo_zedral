@@ -22,7 +22,9 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Runs on EC2 self-hosted runner — no inbound SSH from GitHub cloud required.
+    # One-time setup: deploy/setup-github-runner.sh (see deploy/README.md)
+    runs-on: [self-hosted, linux, zedral]
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
@@ -32,67 +34,40 @@ jobs:
     environment: production
 
     steps:
-      - name: Validate deploy secrets
-        run: |
-          missing=()
-          [ -z "${{ secrets.AWS_EC2_HOST }}" ] && missing+=("AWS_EC2_HOST")
-          [ -z "${{ secrets.AWS_EC2_USER }}" ] && missing+=("AWS_EC2_USER")
-          [ -z "${{ secrets.AWS_EC2_SSH_KEY }}" ] && missing+=("AWS_EC2_SSH_KEY")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing production environment secrets: ${missing[*]}"
-            echo "Add them under Settings → Environments → production → Environment secrets."
-            echo "AWS_EC2_SSH_KEY must be the full .pem file contents (including BEGIN/END lines)."
-            exit 1
-          fi
-
-      - name: Preflight SSH connectivity
+      - name: Deploy application
         env:
-          EC2_HOST: ${{ secrets.AWS_EC2_HOST }}
-          EC2_PORT: ${{ secrets.AWS_EC2_SSH_PORT != '' && secrets.AWS_EC2_SSH_PORT || '22' }}
-        run: |
-          echo "Checking TCP ${EC2_HOST}:${EC2_PORT} from GitHub Actions runner..."
-          if ! timeout 20 bash -c "echo >/dev/tcp/${EC2_HOST}/${EC2_PORT}" 2>/dev/null; then
-            echo "::error::Cannot reach ${EC2_HOST}:${EC2_PORT} (connection timed out)."
-            echo ""
-            echo "Your SSH key is configured, but the EC2 Security Group is blocking GitHub Actions."
-            echo "Add an inbound rule: Type=SSH, Port=${EC2_PORT}, Source=0.0.0.0/0"
-            echo "(key-only auth is still required; restrict to your IP + GitHub meta IPs later if needed)."
-            echo ""
-            echo "AWS Console: EC2 → Instances → Security → Security groups → Edit inbound rules"
-            echo "See deploy/README.md → Troubleshooting → GitHub Actions SSH timeout"
-            exit 1
-          fi
-          echo "TCP preflight passed — SSH port is reachable from GitHub Actions."
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          AWS_GIT_DEPLOY_TOKEN: ${{ secrets.AWS_GIT_DEPLOY_TOKEN }}
+          GIT_DEPLOY_TOKEN: ${{ secrets.AWS_GIT_DEPLOY_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           APP_BASE: ${{ secrets.AWS_APP_DIR != '' && secrets.AWS_APP_DIR || '/opt/zedralv2' }}
           DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
-        with:
-          host: ${{ secrets.AWS_EC2_HOST }}
-          username: ${{ secrets.AWS_EC2_USER }}
-          key: ${{ secrets.AWS_EC2_SSH_KEY }}
-          port: ${{ secrets.AWS_EC2_SSH_PORT != '' && secrets.AWS_EC2_SSH_PORT || '22' }}
-          timeout: 60s
-          command_timeout: 15m
-          envs: AWS_GIT_DEPLOY_TOKEN,GITHUB_REPO,APP_BASE,DEPLOY_REF,SKIP_MIGRATE
-          script_stop: true
-          script: |
-            set -euo pipefail
-            REF="${DEPLOY_REF}"
-            FETCH_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy/vm-deploy.sh"
-            if [ -n "${AWS_GIT_DEPLOY_TOKEN:-}" ]; then
-              curl -fsSL -H "Authorization: token ${AWS_GIT_DEPLOY_TOKEN}" "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
-            else
-              curl -fsSL "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
+        run: |
+          set -euo pipefail
+          REF="${DEPLOY_REF}"
+          FETCH_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy/vm-deploy.sh"
+          CURL_OPTS=(-fsSL)
+          if [ -n "${GIT_DEPLOY_TOKEN:-}" ]; then
+            CURL_OPTS+=(-H "Authorization: token ${GIT_DEPLOY_TOKEN}")
+          fi
+          curl "${CURL_OPTS[@]}" "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
+          chmod +x /tmp/zedral-vm-deploy.sh
+          export GIT_DEPLOY_TOKEN
+          bash /tmp/zedral-vm-deploy.sh
+
+      - name: Local health check
+        run: |
+          echo "Smoke testing http://127.0.0.1/health …"
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "http://127.0.0.1/health" | head -c 200; then
+              echo ""
+              echo "Local health check passed"
+              exit 0
             fi
-            chmod +x /tmp/zedral-vm-deploy.sh
-            export GIT_DEPLOY_TOKEN="${AWS_GIT_DEPLOY_TOKEN:-}"
-            bash /tmp/zedral-vm-deploy.sh
+            echo "Attempt ${attempt}/6 failed — retrying in 10s …"
+            sleep 10
+          done
+          echo "Local health check failed"
+          exit 1
 
       - name: External smoke test
         env:
