@@ -3,7 +3,7 @@
 **Audit Date:** 2026-06-11  
 **Auditor Role:** Principal Architect / DevOps / Security / QA / SRE  
 **Scope:** Full monorepo (`packages/server`, `packages/client`, `packages/shared-validation`, `deploy/`, CI/CD)  
-**Target Platform:** Google Cloud Platform VM + GitHub Actions CI/CD
+**Target Platform:** AWS EC2 + GitHub Actions CI/CD
 
 ---
 
@@ -27,7 +27,7 @@ Choose **NOT READY FOR PRODUCTION** until:
 1. Automated PostgreSQL backups with off-VM retention are configured.
 2. Client-side hardcoded PIN bypasses (`1234` screen unlock, field override) are replaced with server-verified credentials.
 3. Production secrets are verified (`AUTH_STRICT=true`, strong `JWT_SECRET`, rotated default user PINs).
-4. TLS is configured and verified on the GCP VM host layer.
+4. TLS is configured and verified on the EC2 host layer.
 5. Critical metric mismatches (handover stoppage overwrite, dual "yield" definitions) are reviewed with business stakeholders.
 
 After addressing items 1–3 and TLS, the system is suitable for a **controlled pilot** with the recommendation upgrading to **READY WITH MINOR FIXES**.
@@ -223,7 +223,7 @@ Route guards via `ProtectedRoute`, `RoleRoute`, `MillAccessGate`, `HandoverAccep
 | Health checks | ✅ Container + compose; DB depth added |
 | Graceful shutdown | ✅ Added SIGTERM/SIGINT handlers |
 | GitHub Actions CI | ✅ Build, test, migrate, Docker build |
-| GitHub Actions Deploy | ✅ SSH deploy to GCP VM |
+| GitHub Actions Deploy | ✅ SSH deploy to AWS EC2 |
 
 ---
 
@@ -246,7 +246,7 @@ Route guards via `ProtectedRoute`, `RoleRoute`, `MillAccessGate`, `HandoverAccep
 |---|-------|----------|
 | H1 | AUTH_STRICT=false enables JWT fallback + PIN 0000 | `authConfig.ts`, `authService.ts` |
 | H2 | TLS not configured in deployment stack | Host-level dependency |
-| H3 | Build-on-VM every deploy (no container registry) | `deploy-gcp.yml` |
+| H3 | Build-on-VM every deploy (no container registry) | `deploy-aws.yml` |
 | H4 | Elasticsearch not in prod compose; traceability falls back silently | `elasticClient.ts` |
 | H5 | Metric mismatch: handover overwrites stoppage with event-based values | `MachineHandoverService.ts:251-254` |
 | H6 | Dual "yield" definitions (quality vs mass balance) | `ReportingService` vs `derivation.ts` |
@@ -425,9 +425,9 @@ Route guards via `ProtectedRoute`, `RoleRoute`, `MillAccessGate`, `HandoverAccep
 
 ---
 
-## Phase 6: GCP Production Readiness
+## Phase 6: AWS Production Readiness
 
-### 6.1 Google Cloud VM Deployment
+### 6.1 AWS EC2 Deployment
 
 | Check | Status |
 |-------|--------|
@@ -502,14 +502,14 @@ The following safe fixes were applied during this audit. **No business logic was
 
 | Priority | Item | Owner | Effort |
 |----------|------|-------|--------|
-| P0 | Schedule automated pg_dump → GCS | DevOps | 2–4 hrs |
+| P0 | Schedule automated pg_dump → S3 | DevOps | 2–4 hrs |
 | P0 | Replace client PIN bypass with server verify endpoint | Backend + Frontend | 1–2 days |
 | P0 | Rotate all seeded user PINs post-deploy | Ops | 1 hr |
 | P0 | Configure host TLS (Certbot) | DevOps | 2–4 hrs |
 | P1 | Remove `(tsc \|\| echo)` from server build | Backend | 1–4 hrs (fix TS errors) |
 | P1 | Resolve handover metric overwrite | Backend + Business | 1 day |
 | P1 | Add authentication to device registration | Backend | 4 hrs |
-| P1 | Push Docker images from CI to Artifact Registry | DevOps | 1 day |
+| P1 | Push Docker images from CI to Amazon ECR | DevOps | 1 day |
 | P2 | Unify stoppage duration calculation | Backend + shared-validation | 2–3 days |
 | P2 | Wire `useEffectiveRuleset` in capture forms | Frontend | 1 day |
 | P2 | Remove ~15 dead components | Frontend | 1 day |
@@ -536,7 +536,7 @@ packages/shared-validation/         — Shared types, rules, stoppage duration
 deploy/docker-compose.prod.yml        — Production stack
 deploy/vm-deploy.sh                   — CI deploy entrypoint
 .github/workflows/ci.yml              — CI pipeline
-.github/workflows/deploy-gcp.yml      — GCP deploy pipeline
+.github/workflows/deploy-aws.yml      — AWS deploy pipeline
 ```
 
 ## Appendix B: Test Coverage

@@ -1,13 +1,13 @@
-# ZedralV2 — GCP VM Deployment
+# ZedralV2 — AWS EC2 Deployment
 
-Production deployment for a **single GCP Compute Engine VM** using Docker Compose.
+Production deployment for a **single AWS EC2 instance** using Docker Compose.
 
 **Host SSL (Let's Encrypt / HTTPS) is configured outside this stack** — deploy scripts only restart the Docker services and never modify `/etc/letsencrypt`, host nginx TLS vhosts, or certificate paths.
 
 ## Architecture
 
 ```
-Internet → :443 host TLS (existing) → :80 docker nginx → backend:3005 → postgres:5432
+Internet → :443 host TLS (optional) → :80 docker nginx → backend:3005 → postgres:5432
 ```
 
 | Service | Container | Role |
@@ -20,8 +20,8 @@ Internet → :443 host TLS (existing) → :80 docker nginx → backend:3005 → 
 
 ```mermaid
 flowchart TD
-  A[CI succeeds on main] --> B[deploy-gcp workflow]
-  B --> C[SSH to GCP VM]
+  A[CI succeeds on main] --> B[deploy-aws workflow]
+  B --> C[SSH to EC2]
   C --> D[curl deploy/vm-deploy.sh]
   D --> E{Repo exists?}
   E -->|No| F[git clone to APP_BASE]
@@ -29,26 +29,24 @@ flowchart TD
   F --> G
   G --> H{Path}
   H -->|Case A| I["/opt/zedralv2/.git"]
-  H -->|Case B| J["/opt/zedralv2/ZedralV2/.git"]
+  H -->|Case B| J["/opt/zedralv2/<repo>/.git"]
   I --> K[validate Docker + .env]
   J --> K
   K --> L[git fetch + reset --hard]
   L --> M[docker compose pull + up --build]
   M --> N[health: containers + /health]
   N --> O[record .last-good-sha]
-  O --> P[External smoke GCP_PUBLIC_URL]
+  O --> P[External smoke AWS_PUBLIC_URL]
 ```
 
 ## Repository layout on VM
 
-The deploy resolver supports both common clone layouts:
-
 | Case | Path | When |
 |------|------|------|
 | **A** | `/opt/zedralv2/.git` | `git clone <repo> /opt/zedralv2` |
-| **B** | `/opt/zedralv2/ZedralV2/.git` | `git clone` into a non-empty `/opt/zedralv2` |
+| **B** | `/opt/zedralv2/<repo>/.git` | `git clone` into a non-empty `/opt/zedralv2` |
 
-Set `GCP_APP_DIR=/opt/zedralv2` (default) — not the nested `ZedralV2` folder.
+Set `AWS_APP_DIR=/opt/zedralv2` (default).
 
 ## Scripts
 
@@ -57,21 +55,20 @@ Set `GCP_APP_DIR=/opt/zedralv2` (default) — not the nested `ZedralV2` folder.
 | `deploy/vm-deploy.sh` | **CI entrypoint** — bootstrap, sync, compose, health |
 | `deploy/deploy.sh` | Manual deploy from the VM (`origin/main` or `DEPLOY_REF`) |
 | `deploy/rollback.sh` | Roll back to `.previous-good-sha` or explicit SHA |
-| `deploy/bootstrap-gcp-vm.sh` | One-time Docker + git install |
+| `deploy/bootstrap-aws-vm.sh` | One-time Docker + git install on EC2 |
 | `deploy/lib/common.sh` | Shared helpers (sourced, not run directly) |
 
 ## One-time VM setup
 
 ```bash
-export REPO_URL=https://github.com/kshitijsince2004/ZedralV2.git
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/kshitijsince2004/ZedralV2/main/deploy/bootstrap-gcp-vm.sh)"
+export REPO_URL=https://github.com/kshitijsince2004/hsl_zedral.git
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/kshitijsince2004/hsl_zedral/main/deploy/bootstrap-aws-vm.sh)"
 ```
 
 Configure secrets (required before first successful deploy):
 
 ```bash
-# Resolve repo root (Case A or B)
-cd /opt/zedralv2 2>/dev/null || cd /opt/zedralv2/ZedralV2
+cd /opt/zedralv2
 cp deploy/.env.production.example deploy/.env
 nano deploy/.env   # JWT_SECRET, DB_PASSWORD, DATABASE_URL
 ```
@@ -79,7 +76,7 @@ nano deploy/.env   # JWT_SECRET, DB_PASSWORD, DATABASE_URL
 ## Manual deploy
 
 ```bash
-cd /opt/zedralv2          # or /opt/zedralv2/ZedralV2
+cd /opt/zedralv2
 bash deploy/deploy.sh
 ```
 
@@ -92,16 +89,13 @@ DEPLOY_REF=abc123def bash deploy/deploy.sh
 ## Rollback
 
 ```bash
-# Roll back to previous successful deploy
 bash deploy/rollback.sh
-
-# Roll back to explicit SHA
 bash deploy/rollback.sh abc123def
 ```
 
 Checkpoints are stored in `deploy/.last-good-sha` and `deploy/.previous-good-sha` (gitignored).
 
-## GitHub Actions — `deploy-gcp.yml`
+## GitHub Actions — `deploy-aws.yml`
 
 **Triggers**
 
@@ -114,23 +108,23 @@ Checkpoints are stored in `deploy/.last-good-sha` and `deploy/.previous-good-sha
 2. Run idempotent bootstrap + `git reset --hard`
 3. `docker compose pull` (ignore failures for local builds) + `up -d --build`
 4. Verify `zedral-db`, `zedral-backend`, `zedral-nginx` + `curl /health`
-5. External smoke test on `GCP_PUBLIC_URL` (if set)
+5. External smoke test on `AWS_PUBLIC_URL` (if set)
 
 ### Required secrets
 
 | Secret | Example | Description |
 |--------|---------|-------------|
-| `GCP_VM_HOST` | `34.x.x.x` | VM IP or DNS |
-| `GCP_VM_USER` | `deploy` | SSH user |
-| `GCP_VM_SSH_KEY` | `-----BEGIN OPENSSH...` | Private key |
-| `GCP_VM_SSH_PORT` | `22` | Optional |
-| `GCP_APP_DIR` | `/opt/zedralv2` | App base (not nested `ZedralV2`) |
-| `GCP_GIT_DEPLOY_TOKEN` | PAT | **Recommended** for private repo clone + raw script fetch |
-| `GCP_PUBLIC_URL` | `https://your.domain` | Post-deploy HTTPS smoke test |
+| `AWS_EC2_HOST` | `51.x.x.x` | Elastic IP or DNS |
+| `AWS_EC2_USER` | `ubuntu` | SSH user |
+| `AWS_EC2_SSH_KEY` | `-----BEGIN OPENSSH...` | Private key (.pem contents) |
+| `AWS_EC2_SSH_PORT` | `22` | Optional |
+| `AWS_APP_DIR` | `/opt/zedralv2` | App base directory |
+| `AWS_GIT_DEPLOY_TOKEN` | PAT | **Recommended** for private repo clone + raw script fetch |
+| `AWS_PUBLIC_URL` | `https://your.domain` | Post-deploy HTTPS smoke test |
 
 ### Private repo authentication
 
-**Option A — `GCP_GIT_DEPLOY_TOKEN` (recommended for Actions)**
+**Option A — `AWS_GIT_DEPLOY_TOKEN` (recommended for Actions)**
 
 Fine-grained PAT with read access to repository contents. Used for:
 
@@ -159,11 +153,11 @@ SSL/TLS variables on the host are **not** read or modified.
 
 ### `fatal: not a git repository`
 
-Repo is nested at `/opt/zedralv2/ZedralV2` but workflow used `/opt/zedralv2` directly. Fixed in `deploy/lib/common.sh` — re-run deploy workflow.
+Repo is nested under `/opt/zedralv2/<repo>` but workflow used `/opt/zedralv2` directly. Fixed in `deploy/lib/common.sh` — re-run deploy workflow.
 
 ### `cd: /opt/zedralv2: No such file or directory`
 
-Run bootstrap or set `GCP_GIT_DEPLOY_TOKEN` so first deploy can clone automatically.
+Run bootstrap or set `AWS_GIT_DEPLOY_TOKEN` so first deploy can clone automatically.
 
 ### Health check fails
 
@@ -181,10 +175,13 @@ docker compose -f deploy/docker-compose.prod.yml exec db \
   pg_dump -U m1_user m1_db > backup-$(date +%F).sql
 ```
 
+See also: [AWS_DEPLOYMENT_GUIDE.md](../AWS_DEPLOYMENT_GUIDE.md), [BACKUP_STRATEGY.md](../BACKUP_STRATEGY.md), [TLS_DEPLOYMENT_GUIDE.md](../TLS_DEPLOYMENT_GUIDE.md).
+
 ## Security checklist
 
 - [ ] Strong `JWT_SECRET` and `DB_PASSWORD` in `deploy/.env`
 - [ ] `deploy/.env` never committed
 - [ ] `AUTH_STRICT=true`
+- [ ] EC2 Security Group: TCP 22 restricted, 80/443 open as needed
 - [ ] Host TLS / Certbot config preserved separately from Docker deploy
 - [ ] Change default pilot PINs after `seed:admin`

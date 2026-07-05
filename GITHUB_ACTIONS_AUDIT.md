@@ -1,7 +1,7 @@
 # GitHub Actions Audit — Production CI/CD
 
 **Date:** 2026-06-11  
-**Workflows:** `.github/workflows/ci.yml`, `.github/workflows/deploy-gcp.yml`
+**Workflows:** `.github/workflows/ci.yml`, `.github/workflows/deploy-aws.yml`
 
 ---
 
@@ -11,7 +11,7 @@
 flowchart LR
   push[Push to main/develop] --> ci[CI: build-and-test]
   ci --> docker[Docker build on main]
-  ci --> deploy[Deploy GCP on main success]
+  ci --> deploy[Deploy AWS on main success]
   deploy --> ssh[SSH vm-deploy.sh]
   ssh --> smoke[External /health smoke]
 ```
@@ -44,7 +44,7 @@ flowchart LR
 
 ---
 
-## Deploy Workflow (`deploy-gcp.yml`)
+## Deploy Workflow (`deploy-aws.yml`)
 
 ### Verified Steps
 
@@ -56,30 +56,30 @@ flowchart LR
 | Production environment | ✅ | Secrets scoped |
 | SSH deploy | ✅ | appleboy/ssh-action@v1.2.0 |
 | Fetch vm-deploy.sh from repo | ✅ | Uses DEPLOY_REF SHA |
-| External smoke test | ✅ | 5 retries on GCP_PUBLIC_URL/health |
+| External smoke test | ✅ | 5 retries on AWS_PUBLIC_URL/health |
 
 ### Secrets Required
 
 | Secret | Purpose |
 |--------|---------|
-| `GCP_VM_HOST` | VM IP/hostname |
-| `GCP_VM_USER` | SSH user |
-| `GCP_VM_SSH_KEY` | Private key |
-| `GCP_VM_SSH_PORT` | SSH port |
-| `GCP_APP_DIR` | App directory |
-| `GCP_GIT_DEPLOY_TOKEN` | Private repo access |
-| `GCP_PUBLIC_URL` | HTTPS smoke test URL |
+| `AWS_EC2_HOST` | EC2 Elastic IP or hostname |
+| `AWS_EC2_USER` | SSH user |
+| `AWS_EC2_SSH_KEY` | Private key |
+| `AWS_EC2_SSH_PORT` | SSH port |
+| `AWS_APP_DIR` | App directory |
+| `AWS_GIT_DEPLOY_TOKEN` | Private repo access |
+| `AWS_PUBLIC_URL` | HTTPS smoke test URL |
 
 ---
 
 ## Deploy Script Chain (`deploy/vm-deploy.sh`)
 
 1. `bootstrap_repo_if_missing` — clone if first deploy
-2. `validate_env_file` — **now includes TENANT_ID, JWT length, AUTH_STRICT**
+2. `validate_env_file` — **includes TENANT_ID, JWT length, AUTH_STRICT**
 3. `git_sync_to_ref` — reset to CI SHA or branch
 4. `save_deploy_checkpoint` — writes `.previous-good-sha` for rollback
 5. `run_stack_deploy` — `docker compose up -d --build`
-6. `wait_for_healthy_stack` — container health + `/health` curl
+6. `verify_deployment_health` — container health + `/health` curl
 
 ---
 
@@ -107,13 +107,13 @@ bash deploy/rollback.sh <git-sha>    # specific SHA
 
 ### Rollback Documentation
 
-Added to [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md) and deploy README.
+See [deploy/README.md](./deploy/README.md) and [AWS_DEPLOYMENT_GUIDE.md](./AWS_DEPLOYMENT_GUIDE.md).
 
 ---
 
 ## Recommended Improvements (Post-Pilot)
 
-1. Push pre-built images to GCP Artifact Registry from CI
+1. Push pre-built images to Amazon ECR from CI
 2. Add auth smoke test step to deploy workflow (badge-pin with test user)
 3. Slack/email notification on deploy failure
 4. Staging environment workflow before production
@@ -126,7 +126,7 @@ Added to [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md) and deploy
 |---------------|-----------|
 | Build failure | CI job fails — deploy not triggered |
 | Test failure | CI job fails — deploy not triggered |
-| SSH failure | deploy-gcp job fails |
+| SSH failure | deploy-aws job fails |
 | Container crash | Docker healthcheck + deploy wait loop |
 | DB unavailable | `/health` returns 503 |
 | External unreachable | Smoke test retries fail |
@@ -135,8 +135,8 @@ Added to [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md) and deploy
 
 ## Pre-Deploy Checklist for Ops
 
-- [ ] `GITHUB_REPO` secret matches actual repository name
-- [ ] `GCP_PUBLIC_URL` uses HTTPS after TLS setup
+- [ ] `GITHUB_REPO` matches actual repository name
+- [ ] `AWS_PUBLIC_URL` uses HTTPS after TLS setup
 - [ ] `deploy/.env` on VM passes `validate_env_file`
 - [ ] Backup cron scheduled per [BACKUP_STRATEGY.md](./BACKUP_STRATEGY.md)
 

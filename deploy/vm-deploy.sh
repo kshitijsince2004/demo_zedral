@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # When fetched via curl into /tmp, bootstrap via common.sh then re-exec from the on-disk repo.
 if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   : "${APP_BASE:=/opt/zedralv2}"
-  : "${GITHUB_REPO:=kshitijsince2004/ZedralV2.1}"
+  : "${GITHUB_REPO:=kshitijsince2004/hsl_zedral}"
   : "${DEPLOY_REF:=main}"
   : "${SKIP_MIGRATE:=${SKIP_MIGRATE:-false}}"
 
@@ -21,7 +21,7 @@ if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
     if [ -f "${_candidate}/deploy/lib/common.sh" ]; then
       exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
         DEPLOY_REF="${DEPLOY_REF}" SKIP_MIGRATE="${SKIP_MIGRATE}" \
-        GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
+        GIT_DEPLOY_TOKEN="${GIT_DEPLOY_TOKEN:-}" \
         bash "${_candidate}/deploy/vm-deploy.sh"
     fi
   done
@@ -31,8 +31,8 @@ if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   FETCH_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy"
   COMMON_TMP="/tmp/zedral-common.sh"
   CURL_OPTS=(-fsSL)
-  if [ -n "${GCP_GIT_DEPLOY_TOKEN:-}" ]; then
-    CURL_OPTS+=(-H "Authorization: token ${GCP_GIT_DEPLOY_TOKEN}")
+  if [ -n "${GIT_DEPLOY_TOKEN:-}" ]; then
+    CURL_OPTS+=(-H "Authorization: token ${GIT_DEPLOY_TOKEN}")
   fi
   curl "${CURL_OPTS[@]}" "${FETCH_BASE}/lib/common.sh" -o "${COMMON_TMP}"
   # shellcheck source=/tmp/zedral-common.sh
@@ -41,7 +41,7 @@ if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   bootstrap_repo_if_missing
   exec env APP_BASE="${APP_BASE}" GITHUB_REPO="${GITHUB_REPO}" \
     DEPLOY_REF="${DEPLOY_REF}" SKIP_MIGRATE="${SKIP_MIGRATE}" \
-    GCP_GIT_DEPLOY_TOKEN="${GCP_GIT_DEPLOY_TOKEN:-}" \
+    GIT_DEPLOY_TOKEN="${GIT_DEPLOY_TOKEN:-}" \
     bash "${REPO_ROOT}/deploy/vm-deploy.sh"
 fi
 

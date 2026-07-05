@@ -37,8 +37,8 @@ ARCHIVE="${OUTPUT}.gz"
 SIZE="$(du -h "${ARCHIVE}" | cut -f1)"
 echo "[$(date -Is)] Backup complete (${SIZE}): ${ARCHIVE}"
 
-# Optional off-VM copy (configure GCS bucket on VM):
-# gsutil cp "${ARCHIVE}" "gs://${GCS_BACKUP_BUCKET}/zedral/$(basename "${ARCHIVE}")"
+# Optional off-VM copy (requires IAM role or AWS credentials on VM):
+# aws s3 cp "${ARCHIVE}" "s3://${S3_BACKUP_BUCKET}/zedral/$(basename "${ARCHIVE}")"
 
 find "${BACKUP_DIR}" -name 'zedral_*.sql.gz' -type f -mtime +"${RETENTION_DAYS}" -delete
 echo "[$(date -Is)] Pruned backups older than ${RETENTION_DAYS} days"

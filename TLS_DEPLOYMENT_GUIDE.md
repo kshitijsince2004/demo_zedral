@@ -1,6 +1,6 @@
 # TLS Deployment Guide — Hero Steels Pilot
 
-Zedral's Docker stack serves HTTP on port 80 internally. **TLS termination happens on the GCP VM host**, not inside the compose stack. This is intentional — certificates bind to the VM's public hostname and renew without rebuilding containers.
+Zedral's Docker stack serves HTTP on port 80 internally. **TLS termination happens on the EC2 host**, not inside the compose stack. This is intentional — certificates bind to the VM's public hostname and renew without rebuilding containers.
 
 ---
 
@@ -20,9 +20,9 @@ Docker backend (zedral-backend :3005)
 
 ## Prerequisites
 
-- GCP VM with static external IP
-- DNS A record: `zedral.hero-steels.example.com` → VM IP (replace with actual domain)
-- Firewall: TCP 80 and 443 open
+- EC2 instance with Elastic IP
+- DNS A record: `zedral.hero-steels.example.com` → Elastic IP (replace with actual domain)
+- Security Group: TCP 80 and 443 open
 - Docker stack running (`deploy/docker-compose.prod.yml`)
 
 ---
@@ -146,7 +146,7 @@ systemctl reload nginx
 Set GitHub secret:
 
 ```
-GCP_PUBLIC_URL=https://zedral.hero-steels.example.com
+AWS_PUBLIC_URL=https://zedral.hero-steels.example.com
 ```
 
 Deploy workflow will curl `https://…/health` after deploy.

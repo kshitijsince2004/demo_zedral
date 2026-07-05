@@ -2,7 +2,7 @@
 
 Use after every production deploy and weekly during pilot operation.
 
-**Automated:** Deploy workflow runs `/health` smoke test when `GCP_PUBLIC_URL` is set.  
+**Automated:** Deploy workflow runs `/health` smoke test when `AWS_PUBLIC_URL` is set.  
 **Manual:** Complete this checklist for full functional verification.
 
 ---

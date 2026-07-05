@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/zedralv2}"
-REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/ZedralV2.git}"
+REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/hsl_zedral.git}"
 
 echo "==> Setting up 4GB Swap file to prevent Out-Of-Memory errors on Free Tier..."
 if [ ! -f /swapfile ]; then

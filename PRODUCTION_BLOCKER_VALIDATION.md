@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11  
 **Scope:** Critical and High severity findings from [PRODUCTION_READINESS_REPORT.md](./PRODUCTION_READINESS_REPORT.md)  
-**Pilot context:** Hero Steels single-tenant deployment on GCP VM
+**Pilot context:** Hero Steels single-tenant deployment on AWS EC2
 
 ---
 

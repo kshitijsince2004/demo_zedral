@@ -1,4 +1,4 @@
-# Production stack for a single GCP VM (or any Docker host).
+# Production stack for a single AWS EC2 VM (or any Docker host).
 # Usage: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
 
 services:

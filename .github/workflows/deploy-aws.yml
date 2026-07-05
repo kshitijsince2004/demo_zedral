@@ -32,6 +32,19 @@ jobs:
     environment: production
 
     steps:
+      - name: Validate deploy secrets
+        run: |
+          missing=()
+          [ -z "${{ secrets.AWS_EC2_HOST }}" ] && missing+=("AWS_EC2_HOST")
+          [ -z "${{ secrets.AWS_EC2_USER }}" ] && missing+=("AWS_EC2_USER")
+          [ -z "${{ secrets.AWS_EC2_SSH_KEY }}" ] && missing+=("AWS_EC2_SSH_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing production environment secrets: ${missing[*]}"
+            echo "Add them under Settings → Environments → production → Environment secrets."
+            echo "AWS_EC2_SSH_KEY must be the full .pem file contents (including BEGIN/END lines)."
+            exit 1
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -57,6 +70,7 @@ jobs:
               curl -fsSL "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
             fi
             chmod +x /tmp/zedral-vm-deploy.sh
+            export GIT_DEPLOY_TOKEN="${AWS_GIT_DEPLOY_TOKEN:-}"
             bash /tmp/zedral-vm-deploy.sh
 
       - name: External smoke test

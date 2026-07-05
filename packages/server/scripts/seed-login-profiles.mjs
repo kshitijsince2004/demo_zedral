@@ -7,7 +7,7 @@
  *   npm run seed:profiles
  *   SEED_PIN=5678 npm run seed:profiles
  *
- * On GCP VM:
+ * On EC2 VM:
  *   docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:profiles
  */
 import { seedPilotUsers } from './seed-pilot-users.mjs';

@@ -142,4 +142,4 @@ CI does not set `NODE_ENV=production`, so production-only checks are not trigger
 
 ---
 
-*See also: [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md)*
+*See also: [AWS_DEPLOYMENT_GUIDE.md](./AWS_DEPLOYMENT_GUIDE.md)*

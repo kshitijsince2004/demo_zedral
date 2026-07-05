@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Shared deployment helpers for ZedralV2 GCP VM (sourced, not executed directly).
+# Shared deployment helpers for ZedralV2 AWS EC2 VM (sourced, not executed directly).
 set -euo pipefail
 
 : "${APP_BASE:=/opt/zedralv2}"
-: "${GITHUB_REPO:=kshitijsince2004/ZedralV2.1}"
+: "${GITHUB_REPO:=kshitijsince2004/hsl_zedral}"
 
 REPO_ROOT=""
 COMPOSE_FILE=""
@@ -71,8 +71,8 @@ bootstrap_clone_into() {
 }
 
 repo_clone_url() {
-  if [ -n "${GCP_GIT_DEPLOY_TOKEN:-}" ]; then
-    echo "https://x-access-token:${GCP_GIT_DEPLOY_TOKEN}@github.com/${GITHUB_REPO}.git"
+  if [ -n "${GIT_DEPLOY_TOKEN:-}" ]; then
+    echo "https://x-access-token:${GIT_DEPLOY_TOKEN}@github.com/${GITHUB_REPO}.git"
   else
     echo "git@github.com:${GITHUB_REPO}.git"
   fi
@@ -118,7 +118,7 @@ bootstrap_repo_if_missing() {
 }
 
 require_docker() {
-  command -v docker >/dev/null 2>&1 || die "Docker is not installed. Run deploy/bootstrap-gcp-vm.sh on the VM."
+  command -v docker >/dev/null 2>&1 || die "Docker is not installed. Run deploy/bootstrap-aws-vm.sh on the VM."
   docker --version
   if docker compose version >/dev/null 2>&1; then
     docker compose version

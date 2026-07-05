@@ -1,42 +1,33 @@
 # AWS Deployment Guide — Zedral V2.2
 
-This guide outlines the process of shifting the deployment of Zedral from Google Cloud Platform (GCP) to Amazon Web Services (AWS). It mirrors the previous GCP setup (VM + Docker Compose) to minimize migration friction.
+Production deployment on **AWS EC2** using Docker Compose and GitHub Actions CI/CD.
 
 ## Pre-Deployment
 
 ### 1. AWS Infrastructure
 
-- [ ] **Create an AWS Account** (if not already existing) with billing enabled.
-- [ ] **Provision an EC2 Instance** (AWS Free Tier Eligible)
-  - Instance Type: **`m7i-flex.large`** (2 vCPU, 8 GB RAM). 
-    *Note: Based on your account, this provides the best performance while remaining in the free tier.*
+- [ ] **Create an AWS Account** with billing enabled.
+- [ ] **Provision an EC2 Instance**
+  - Instance Type: **`m7i-flex.large`** (2 vCPU, 8 GB RAM) or similar.
   - OS (AMI): **Ubuntu Server 22.04 LTS (HVM)** or newer.
-  - Storage (EBS): **Up to 30 GB** General Purpose SSD (gp2 or gp3) to stay within the free tier limit.
-  
-  > [!TIP]
-  > **Performance Note**: The `m7i-flex.large` gives you 8 GB of RAM, which is fantastic for running your full Docker Compose stack (Database + Backend + Frontend). The bootstrap script will also add a 4GB Swap File just to be perfectly safe during heavy build processes.
-- [ ] **Allocate an Elastic IP (EIP)**
-  - Allocate an EIP and associate it with your EC2 instance so that the IP remains static across reboots.
-- [ ] **Configure Security Groups** (equivalent to GCP Firewall rules)
-  - Create a new Security Group attached to the EC2 instance with the following Inbound Rules:
-    - Allow TCP 22 (SSH) — restrict source IPs to your corporate network where possible.
-    - Allow TCP 80 (HTTP) — for nginx + Certbot challenge.
-    - Allow TCP 443 (HTTPS) — after TLS setup.
-  - Leave Outbound Rules to default (Allow All).
-- [ ] **Create an IAM Role** (equivalent to GCP Service Account)
-  - If you are backing up to S3, create an IAM Role with AmazonS3FullAccess (or scoped permissions) and attach it to the EC2 instance. This eliminates the need to manage AWS credentials on the VM.
+  - Storage (EBS): **30 GB** General Purpose SSD (gp2 or gp3).
+- [ ] **Allocate an Elastic IP (EIP)** and associate it with the instance.
+- [ ] **Configure Security Groups** with inbound rules:
+  - TCP 22 (SSH) — restrict to your corporate IP where possible.
+  - TCP 80 (HTTP) — for nginx + Certbot challenge.
+  - TCP 443 (HTTPS) — after TLS setup.
+- [ ] **Create an IAM Role** (optional, for S3 backups)
+  - Attach to the EC2 instance with scoped S3 permissions so backups can upload without storing credentials on the VM.
 
 ### 2. Repository & Secrets (GitHub Actions)
 
-- [ ] **Verify GitHub repository name** matches deploy configuration.
-- [ ] **Configure GitHub `production` environment secrets:**
-  You will need to create equivalent secrets for AWS. We have provided a `deploy-aws.yml` GitHub workflow that uses these variables.
+Configure GitHub **production** environment secrets for `.github/workflows/deploy-aws.yml`:
 
 | Secret | Description |
 |--------|-------------|
 | `AWS_EC2_HOST` | EC2 Elastic IP or domain name |
-| `AWS_EC2_USER` | SSH user (for Ubuntu AMI, it is typically `ubuntu`) |
-| `AWS_EC2_SSH_KEY` | Private key for SSH (downloaded when creating the EC2 key pair) |
+| `AWS_EC2_USER` | SSH user (typically `ubuntu`) |
+| `AWS_EC2_SSH_KEY` | Private key contents (.pem from key pair) |
 | `AWS_EC2_SSH_PORT` | SSH port (default 22) |
 | `AWS_APP_DIR` | App directory on VM (default `/opt/zedralv2`) |
 | `AWS_GIT_DEPLOY_TOKEN` | PAT for private repo clone + raw script fetch |
@@ -44,93 +35,100 @@ This guide outlines the process of shifting the deployment of Zedral from Google
 
 ### 3. VM Bootstrap (One-Time)
 
-- [ ] SSH into your new EC2 instance:
-  ```bash
-  ssh -i /path/to/key.pem ubuntu@<Elastic-IP>
-  ```
-- [ ] Run the AWS bootstrap script to install Docker and clone the repository:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/<org>/<repo>/main/deploy/bootstrap-aws-vm.sh | bash
-  ```
-- [ ] Verify Docker and Docker Compose installed:
-  ```bash
-  docker --version
-  docker compose version
-  ```
+```bash
+ssh -i /path/to/key.pem ubuntu@<Elastic-IP>
+curl -fsSL https://raw.githubusercontent.com/kshitijsince2004/hsl_zedral/main/deploy/bootstrap-aws-vm.sh | bash
+docker --version
+docker compose version
+```
+
+The bootstrap script installs Docker, enables a 4 GB swap file, clones the repo to `/opt/zedralv2`, and creates `deploy/.env` from the template.
 
 ### 4. Environment Configuration
 
-- [ ] The bootstrap script creates a `deploy/.env` file. You need to configure it just like on GCP:
-  ```bash
-  nano /opt/zedralv2/deploy/.env
-  ```
-- [ ] Ensure you generate strong secrets and set the database configurations correctly (same as GCP `GCP_DEPLOYMENT_CHECKLIST.md`).
+```bash
+nano /opt/zedralv2/deploy/.env
+```
+
+Generate secrets:
+
+```bash
+openssl rand -hex 32   # JWT_SECRET
+openssl rand -hex 16   # DB_PASSWORD
+```
+
+Required: `JWT_SECRET`, `DB_PASSWORD`, `DB_USER`, `DB_NAME`, `DATABASE_URL`, `TENANT_ID`, `AUTH_STRICT=true`.
 
 ### 5. TLS (Host-Level)
 
-- [ ] Update your domain's DNS records (A Record) to point to your new **Elastic IP**.
-- [ ] Install Certbot on the EC2 host:
-  ```bash
-  sudo apt update
-  sudo apt install certbot
-  ```
-- [ ] Obtain a certificate:
-  ```bash
-  sudo certbot certonly --standalone -d zedral.example.com
-  ```
-- [ ] Ensure Nginx (if running on host) proxies correctly, exactly as it was configured on GCP.
-- [ ] Set up auto-renewal:
-  ```bash
-  sudo certbot renew --dry-run
-  ```
+- [ ] Point DNS A record to the Elastic IP.
+- [ ] Install Certbot: `sudo apt install certbot`
+- [ ] Obtain certificate: `sudo certbot certonly --standalone -d zedral.example.com`
+- [ ] Configure host nginx to proxy to Docker port 80.
+- [ ] Verify renewal: `sudo certbot renew --dry-run`
+
+See [TLS_DEPLOYMENT_GUIDE.md](./TLS_DEPLOYMENT_GUIDE.md) for details.
 
 ---
 
 ## Deployment
 
-### CI/CD Deploy (Standard)
+### CI/CD (Standard)
 
-- We have created a `.github/workflows/deploy-aws.yml` file which mimics your GCP workflow but targets your AWS EC2 instance.
-- [ ] Merge the new workflow and scripts to the `main` branch.
-- [ ] The AWS Deploy workflow will trigger automatically upon successful CI runs, or it can be manually dispatched under GitHub Actions.
+The **Deploy to AWS EC2** workflow (`.github/workflows/deploy-aws.yml`):
+
+- Triggers automatically when CI succeeds on `main`
+- Can be manually dispatched with optional `skip_migrate`
+- SSHs to EC2, runs `deploy/vm-deploy.sh`, verifies `/health`
+
+### Manual deploy
+
+```bash
+cd /opt/zedralv2
+bash deploy/deploy.sh
+```
 
 ---
 
 ## Post-Deployment Operations
 
-### Backup Setup to S3 (P0 — Required)
+### Backup to S3 (Recommended)
 
-Instead of Google Cloud Storage (GCS), you will use AWS S3. 
+- [ ] Create an S3 bucket (e.g. `zedral-db-backups`).
+- [ ] Attach IAM role to EC2 with `s3:PutObject` on that bucket.
+- [ ] Install AWS CLI: `sudo apt install awscli`
+- [ ] Schedule `deploy/scripts/backup-db.sh` via cron (see [BACKUP_STRATEGY.md](./BACKUP_STRATEGY.md)).
 
-- [ ] Create an S3 Bucket in the AWS Console (e.g., `zedral-db-backups`).
-- [ ] Update your backup script on the EC2 instance (`/opt/zedralv2/scripts/backup-db.sh`) to use `aws s3 cp`:
-  ```bash
-  #!/bin/bash
-  set -euo pipefail
-  BACKUP_DIR=/var/backups/zedral
-  mkdir -p "$BACKUP_DIR"
-  TIMESTAMP=$(date +%F_%H%M%S)
-  docker compose -f /opt/zedralv2/deploy/docker-compose.prod.yml \
-    exec -T db pg_dump -U "$DB_USER" "$DB_NAME" \
-    > "$BACKUP_DIR/backup_${TIMESTAMP}.sql"
-  gzip "$BACKUP_DIR/backup_${TIMESTAMP}.sql"
-  
-  # Upload to S3 (Assumes IAM Role is attached to EC2 instance)
-  aws s3 cp "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz" s3://zedral-db-backups/
-  
-  find "$BACKUP_DIR" -name "*.sql.gz" -mtime +30 -delete
-  ```
-- [ ] Ensure the AWS CLI is installed on the host (`sudo apt install awscli`).
-- [ ] Set the cron job just as you did on GCP.
+Example S3 upload (add to backup script):
 
-## Data Migration from GCP to AWS (Optional if keeping history)
+```bash
+aws s3 cp "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz" s3://zedral-db-backups/
+```
 
-If you need to migrate production data from the GCP VM to the AWS EC2 instance before cutting over:
-1. Stop the application on GCP (keep DB running).
-2. Take a final `pg_dump` on the GCP VM.
-3. Transfer the dump to the AWS EC2 instance (via `scp` or an intermediate S3/GCS bucket).
-4. Restore the dump on the AWS EC2 database container:
-   ```bash
-   gunzip -c backup.sql.gz | docker compose -f deploy/docker-compose.prod.yml exec -T db psql -U m1_user -d m1_db
-   ```
-5. Update DNS to point to the AWS Elastic IP.
+### Seed admin (one-time)
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:admin
+```
+
+### Smoke test
+
+```bash
+curl -fsS http://<Elastic-IP>/health
+```
+
+Or rely on the workflow's external smoke test when `AWS_PUBLIC_URL` is set.
+
+---
+
+## Data restore
+
+To restore from a backup on the EC2 instance:
+
+```bash
+gunzip -c backup.sql.gz | docker compose -f deploy/docker-compose.prod.yml exec -T db psql -U m1_user -d m1_db
+```
+
+---
+
+*See also: [deploy/README.md](./deploy/README.md)*

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zedral production runs PostgreSQL 15 in Docker (`zedral-db` container) with data persisted to the `pg_data` named volume. **There is no built-in cloud backup** — backups must be scheduled on the GCP VM.
+Zedral production runs PostgreSQL 15 in Docker (`zedral-db` container) with data persisted to the `pg_data` named volume. **There is no built-in cloud backup** — backups must be scheduled on the EC2 instance.
 
 ---
 
@@ -23,7 +23,7 @@ Zedral production runs PostgreSQL 15 in Docker (`zedral-db` container) with data
 
 ### Schedule (Cron)
 
-On the GCP VM as the deploy user:
+On the EC2 instance as the deploy user:
 
 ```bash
 sudo mkdir -p /var/backups/zedral /var/log
@@ -59,14 +59,14 @@ bash deploy/scripts/backup-db.sh
 | Tier | Location | Retention |
 |------|----------|-----------|
 | Local VM | `/var/backups/zedral/` | 30 days (default) |
-| Off-VM (recommended) | GCS bucket | 90 days |
+| Off-VM (recommended) | S3 bucket | 90 days |
 
-### Optional GCS Upload
+### Optional S3 Upload
 
-1. Create bucket: `gs://hero-steels-zedral-backups` (example)
-2. Grant VM service account `storage.objectCreator`
-3. Uncomment `gsutil cp` line in `backup-db.sh`
-4. Set `GCS_BACKUP_BUCKET` in cron environment
+1. Create bucket: `s3://hero-steels-zedral-backups` (example)
+2. Attach IAM role to EC2 with `s3:PutObject` on that bucket
+3. Uncomment `aws s3 cp` line in `backup-db.sh`
+4. Set `S3_BACKUP_BUCKET` in cron environment
 
 ---
 
@@ -74,7 +74,7 @@ bash deploy/scripts/backup-db.sh
 
 ### Prerequisites
 
-- Access to GCP VM
+- Access to EC2 instance
 - Backup file: `zedral_m1_db_YYYY-MM-DD_HHMMSS.sql.gz`
 - Application stopped or in maintenance mode
 
@@ -148,8 +148,8 @@ find /var/backups/zedral -name '*.sql.gz' -mtime -1 | grep -q . || echo "ALERT: 
 | **RPO** (max data loss) | 24 hours (daily backup) |
 | **RTO** (time to restore) | 2–4 hours (manual procedure) |
 
-For production hardening post-pilot: increase to 6-hour backups + GCS replication.
+For production hardening post-pilot: increase to 6-hour backups + S3 replication.
 
 ---
 
-*See also: [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md)*
+*See also: [AWS_DEPLOYMENT_GUIDE.md](./AWS_DEPLOYMENT_GUIDE.md)*

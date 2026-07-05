@@ -1,7 +1,7 @@
 # Final Production Approval — Hero Steels Pilot
 
 **Date:** 2026-06-11  
-**Deployment Target:** GCP Compute Engine VM (single-tenant Docker stack)  
+**Deployment Target:** AWS EC2 (single-tenant Docker stack)  
 **Pilot Customer:** Hero Steels
 
 ---
@@ -87,7 +87,7 @@ These are **not code blockers** but must be completed by DevOps before go-live:
 | [ENVIRONMENT_VALIDATION.md](./ENVIRONMENT_VALIDATION.md) | Startup env requirements |
 | [GITHUB_ACTIONS_AUDIT.md](./GITHUB_ACTIONS_AUDIT.md) | CI/CD assessment |
 | [SMOKE_TEST_CHECKLIST.md](./SMOKE_TEST_CHECKLIST.md) | Post-deploy verification |
-| [GCP_DEPLOYMENT_CHECKLIST.md](./GCP_DEPLOYMENT_CHECKLIST.md) | Full deploy runbook |
+| [AWS_DEPLOYMENT_GUIDE.md](./AWS_DEPLOYMENT_GUIDE.md) | Full deploy runbook |
 
 ---
 
