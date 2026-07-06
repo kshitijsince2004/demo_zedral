@@ -32,8 +32,16 @@ jobs:
        github.event.workflow_run.head_branch == 'main')
     timeout-minutes: 30
     environment: production
+    permissions:
+      contents: read
 
     steps:
+      - name: Checkout deploy ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+          fetch-depth: 0
+
       - name: Deploy application
         env:
           GIT_DEPLOY_TOKEN: ${{ secrets.AWS_GIT_DEPLOY_TOKEN }}
@@ -43,28 +51,23 @@ jobs:
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          export APP_BASE DEPLOY_REF SKIP_MIGRATE GITHUB_REPO GIT_DEPLOY_TOKEN
+          export APP_BASE DEPLOY_REF SKIP_MIGRATE GITHUB_REPO GIT_DEPLOY_TOKEN SKIP_GIT_SYNC=true
 
-          if [ -z "${GIT_DEPLOY_TOKEN:-}" ]; then
-            echo "::warning::AWS_GIT_DEPLOY_TOKEN not set — private repo fetch may fail"
+          mkdir -p "${APP_BASE}/deploy"
+          if [ -f "${APP_BASE}/deploy/.env" ]; then
+            cp -a "${APP_BASE}/deploy/.env" /tmp/zedral-deploy.env.bak
           fi
 
-          DEPLOY_SCRIPT="${APP_BASE}/deploy/vm-deploy.sh"
-          if [ -f "${DEPLOY_SCRIPT}" ]; then
-            echo "Using on-disk deploy script: ${DEPLOY_SCRIPT}"
-            bash "${DEPLOY_SCRIPT}"
-            exit 0
+          echo "Syncing ${GITHUB_WORKSPACE} → ${APP_BASE} (preserving deploy/.env)…"
+          rsync -a --delete \
+            --exclude 'deploy/.env' \
+            "${GITHUB_WORKSPACE}/" "${APP_BASE}/"
+
+          if [ -f /tmp/zedral-deploy.env.bak ]; then
+            cp -a /tmp/zedral-deploy.env.bak "${APP_BASE}/deploy/.env"
           fi
 
-          REF="${DEPLOY_REF}"
-          FETCH_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy/vm-deploy.sh"
-          CURL_OPTS=(-fsSL)
-          if [ -n "${GIT_DEPLOY_TOKEN:-}" ]; then
-            CURL_OPTS+=(-H "Authorization: token ${GIT_DEPLOY_TOKEN}")
-          fi
-          curl "${CURL_OPTS[@]}" "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
-          chmod +x /tmp/zedral-vm-deploy.sh
-          bash /tmp/zedral-vm-deploy.sh
+          bash "${APP_BASE}/deploy/vm-deploy.sh"
 
       - name: Local health check
         run: |

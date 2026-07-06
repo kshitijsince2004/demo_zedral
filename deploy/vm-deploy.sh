@@ -74,7 +74,12 @@ main() {
     cp "${REPO_ROOT}/deploy/.last-good-sha" "${REPO_ROOT}/deploy/.previous-good-sha"
   fi
 
-  git_sync_to_ref "${DEPLOY_REF}"
+  if [ "${SKIP_GIT_SYNC:-false}" = "true" ]; then
+    log "SKIP_GIT_SYNC=true — using code synced from Actions checkout"
+    log "Active commit: $(git -C "${REPO_ROOT}" rev-parse --short HEAD) — $(git -C "${REPO_ROOT}" log -1 --pretty=%s)"
+  else
+    git_sync_to_ref "${DEPLOY_REF}"
+  fi
   run_stack_deploy
   verify_deployment_health
   record_successful_deploy

@@ -192,7 +192,9 @@ git_sync_to_ref() {
   fi
 
   log "Fetching origin…"
-  git fetch origin --prune
+  if ! git fetch origin --prune 2>&1; then
+    die "git fetch failed — for self-hosted deploy use Actions checkout + SKIP_GIT_SYNC=true, or set AWS_GIT_DEPLOY_TOKEN with repo Contents read access"
+  fi
 
   if [[ "${ref}" =~ ^[0-9a-f]{40}$ ]]; then
     log "Resetting to CI-verified SHA ${ref}"
