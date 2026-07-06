@@ -72,7 +72,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
             </h3>
             {data.defectsByCategory.length > 0 ? (
               <div className="h-44 min-h-[11rem] w-full" data-testid="top-defects-chart">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
                   <ComposedChart data={data.defectsByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />
                     <XAxis
@@ -110,7 +110,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
             </h3>
             {qualityTrendData.length > 0 ? (
               <div className="h-32 min-h-[8rem] w-full" data-testid="rejection-rate-chart">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
                   <AreaChart data={qualityTrendData}>
                     <defs>
                       <linearGradient id="rejGrad" x1="0" y1="0" x2="0" y2="1">
@@ -160,7 +160,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
             </h3>
             {data.downtimeByCategory.length > 0 ? (
               <div className="h-44 min-h-[11rem] w-full" data-testid="downtime-by-reason-chart">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
                   <ComposedChart data={data.downtimeByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: C.text }} axisLine={false} tickLine={false} />

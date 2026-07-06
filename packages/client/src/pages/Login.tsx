@@ -3,6 +3,7 @@ import { BadgeCheck, KeyRound } from 'lucide-react';
 import { useAuthStore } from '../lib/authStore';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/apiClient';
+import { scheduleAccessTokenRefresh } from '../lib/authSession';
 import { getRoleHomePath } from '../lib/roleHome';
 import { bootstrapShiftContext } from '../lib/shiftDetection';
 import { ZButton } from '../components/primitives/ZButton';
@@ -24,6 +25,7 @@ export function Login() {
   const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
   const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
   const [error, setError] = useState('');
+  const sessionExpired = new URLSearchParams(window.location.search).get('session') === 'expired';
   const [clock, setClock] = useState('');
 
   useEffect(() => {
@@ -46,9 +48,10 @@ export function Login() {
   }, []);
 
   useEffect(() => {
-    sessionStorage.removeItem('mock_jwt');
-    sessionStorage.removeItem('mock_refresh');
-  }, []);
+    if (sessionExpired) {
+      setError('Session expired. Please sign in again.');
+    }
+  }, [sessionExpired]);
 
   useEffect(() => {
     console.log('Login component mounted');
@@ -78,6 +81,7 @@ export function Login() {
     const lines = payload.lineAccess || [];
     const username = payload.username as string | undefined;
     login(accessToken, role, lines, refreshToken, payload.machineAccess || [], username);
+    scheduleAccessTokenRefresh(accessToken);
     try {
       const machines = (payload.machineAccess || []) as string[];
       await bootstrapShiftContext(machines[0]);

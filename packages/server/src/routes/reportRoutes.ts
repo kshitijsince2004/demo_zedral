@@ -73,7 +73,7 @@ router.get(
   },
 );
 
-router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const windowDays = parsePlantHeadWindow(req.query.window);
     if (windowDays === null) {

@@ -47,6 +47,7 @@ function getRefreshToken(): string | null {
 function setAuthTokens(accessToken: string, refreshToken?: string) {
   sessionStorage.setItem('mock_jwt', accessToken);
   if (refreshToken) sessionStorage.setItem('mock_refresh', refreshToken);
+  useAuthStore.setState({ token: accessToken });
 }
 
 /** Bearer headers for fetch calls that bypass apiClient (e.g. sync batch). */
@@ -94,7 +95,7 @@ function isPublicAuthPath(path: string): boolean {
   );
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return null;
 
@@ -155,6 +156,9 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
     sessionStorage.removeItem('mock_jwt');
     sessionStorage.removeItem('mock_refresh');
     useAuthStore.getState().logout();
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign('/login?session=expired');
+    }
   }
 
   return res;

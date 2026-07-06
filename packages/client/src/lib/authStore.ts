@@ -5,6 +5,7 @@ import { useSixHiStore } from '../store/sixHiStore';
 import { filterCrmMachines, getEffectiveMachineAccess, preferCrmMachine } from './machineRouting';
 import { isCrmMillCode } from './millConfig';
 import { authApi } from './authApi';
+import { scheduleAccessTokenRefresh, stopAccessTokenRefresh } from './authSession';
 
 function resetSessionStores() {
   useShiftStore.getState().resetSession();
@@ -106,6 +107,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (refreshToken) sessionStorage.setItem('mock_refresh', refreshToken);
     set({ token, username: username ?? null, role, lineAccess, machineAccess, activeMachine, isLocked: false });
 
+    scheduleAccessTokenRefresh(token);
     startInactivityTimer(get().lockScreen);
   },
 
@@ -126,6 +128,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     sessionStorage.removeItem('mock_machine_access');
     sessionStorage.removeItem('mock_active_machine');
     resetSessionStores();
+    stopAccessTokenRefresh();
     set({
       token: null,
       username: null,

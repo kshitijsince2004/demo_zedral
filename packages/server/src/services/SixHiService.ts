@@ -1713,6 +1713,19 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
+  /** In-progress: saved actual weight only. Completed: saved actual or PPC fallback. */
+  private static async getOrderProductionWeight(
+    orderId: string,
+    subProcess: string,
+    status: string,
+    ppcWeightMt: number,
+  ): Promise<number> {
+    if (status === 'COMPLETED') {
+      return this.resolveOrderWeight(orderId, subProcess, ppcWeightMt);
+    }
+    return this.getSavedOrderWeight(orderId, subProcess);
+  }
+
   static async getSavedOrderWeight(orderId: string, subProcess: string): Promise<number> {
     if (subProcess === 'ROLLING') {
       const r = await db.selectFrom('txn.crm6_rolling')
@@ -1751,6 +1764,8 @@ export class SixHiService {
         'o.sub_process',
         'o.customer_name',
         'o.prod_duration_min',
+        'o.ppc_weight_mt',
+        'pb.ppc_weight_mt as batch_ppc_weight_mt',
       ])
       .where((eb) => {
         const byShiftLog = eb('o.shift_log_id', '=', shiftLogId);
@@ -1815,7 +1830,13 @@ export class SixHiService {
     };
 
     for (const o of shiftOrders) {
-      const wt = await this.getSavedOrderWeight(String(o.order_id), o.sub_process);
+      const ppcWt = Number(o.ppc_weight_mt ?? o.batch_ppc_weight_mt ?? 0);
+      const wt = await this.getOrderProductionWeight(
+        String(o.order_id),
+        o.sub_process,
+        o.status,
+        ppcWt,
+      );
       if (o.status === 'COMPLETED') {
         completedOrders.push({
           batchNumber: o.batch_number,
