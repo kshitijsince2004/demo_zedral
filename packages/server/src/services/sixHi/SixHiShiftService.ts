@@ -36,4 +36,22 @@ export class SixHiShiftService {
   ): ReturnType<typeof SixHiService.saveShiftSummary> {
     return SixHiService.saveShiftSummary(...args);
   }
+
+  static getProducedMt(
+    ...args: Parameters<typeof SixHiService.getProducedMt>
+  ): ReturnType<typeof SixHiService.getProducedMt> {
+    return SixHiService.getProducedMt(...args);
+  }
+
+  static resolveShiftLogIdForPlan(
+    ...args: Parameters<typeof SixHiService.resolveShiftLogIdForPlan>
+  ): ReturnType<typeof SixHiService.resolveShiftLogIdForPlan> {
+    return SixHiService.resolveShiftLogIdForPlan(...args);
+  }
+
+  static syncShiftProductionCache(
+    ...args: Parameters<typeof SixHiService.syncShiftProductionCache>
+  ): ReturnType<typeof SixHiService.syncShiftProductionCache> {
+    return SixHiService.syncShiftProductionCache(...args);
+  }
 }

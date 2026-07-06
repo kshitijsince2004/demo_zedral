@@ -328,6 +328,12 @@ export interface SixHiShiftSummary {
 
   totalProdMt: number;
 
+  /** Weight from completed orders only. */
+  completedProdMt?: number;
+
+  /** Saved weight on in-progress / stoppage orders (not yet completed). */
+  inProgressProdMt?: number;
+
   totalRollingMt: number;
 
   totalRerollMt: number;

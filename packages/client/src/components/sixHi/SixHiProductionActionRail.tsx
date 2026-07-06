@@ -145,9 +145,9 @@ export function SixHiProductionActionRail({
         )}
         <span className={[
           'block text-[11px] font-bold uppercase tracking-wide px-1.5 py-1.5 rounded',
-          machineStatus === 'Running' ? 'bg-success/15 text-success' :
-          machineStatus === 'Stopped' ? 'bg-destructive/10 text-destructive' :
-          machineStatus === 'Preparing' ? 'bg-info/15 text-info' :
+          machineStatus === 'Running' ? 'bg-primary text-primary-foreground' :
+          machineStatus === 'Stopped' ? 'bg-destructive text-destructive-foreground' :
+          machineStatus === 'Preparing' ? 'bg-info text-white' :
           'bg-secondary text-muted-foreground',
         ].join(' ')}>
           {machineStatus}

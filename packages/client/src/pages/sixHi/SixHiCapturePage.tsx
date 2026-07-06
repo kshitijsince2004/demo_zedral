@@ -50,7 +50,7 @@ export function SixHiCapturePage() {
     loadPanelOrder,
     loadShiftSummary,
     refreshMachineState,
-    requestStoppageDialog,
+    openStoppageDialog,
   } = useSixHiStore();
 
   const [stoppageError, setStoppageError] = useState<string | null>(null);
@@ -63,6 +63,8 @@ export function SixHiCapturePage() {
       void store.refreshMachineState();
       const batch = store.machineActive?.batchNumber;
       if (batch) void store.loadPanelOrder(batch);
+      const { shiftLogId: sid } = useShiftStore.getState();
+      if (sid) void store.loadShiftSummary(sid);
     }, 15000);
     return () => clearInterval(id);
   }, [shiftLogId, refreshMachineState, loadShiftSummary]);
@@ -76,6 +78,11 @@ export function SixHiCapturePage() {
   }, [activeBatch, panelOrder, loadPanelOrder]);
 
   const order = activeBatch && panelOrder?.batchNumber === activeBatch ? panelOrder : null;
+
+  useEffect(() => {
+    if (!shiftLogId || !order) return;
+    void loadShiftSummary(shiftLogId);
+  }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
 
   const queueDate = formatShiftDate(shiftDate);
   const queueShift = shiftCode || 'B';
@@ -125,7 +132,7 @@ export function SixHiCapturePage() {
       return;
     }
     try {
-      await requestStoppageDialog?.(order.batchNumber);
+      await openStoppageDialog(order.batchNumber);
       mutateShiftStoppages();
     } catch (err) {
       const message = err instanceof ApiError
@@ -311,7 +318,7 @@ export function SixHiCapturePage() {
         </div>
 
         <div className="min-h-0 overflow-auto">
-          <SixHiShiftSummaryPanel summary={shiftSummary} />
+          <SixHiShiftSummaryPanel summary={shiftSummary} liveOrderProducedMt={order ? produced : undefined} />
         </div>
       </div>
     </div>

@@ -51,6 +51,8 @@ export function Login() {
   }, []);
 
   useEffect(() => {
+    console.log('Login component mounted');
+    console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
     if (!import.meta.env.DEV || import.meta.env.VITE_DEV_AUTO_LOGIN !== 'true') return;
     const doAutoLogin = async () => {
       try {
@@ -89,11 +91,16 @@ export function Login() {
     e.preventDefault();
     try {
       setError('');
+      console.log('Attempting login with:', { badgeId, pin });
       const data = await apiClient.post('/auth/badge-pin', { badgeId, pin });
+      console.log('Login successful:', data);
       finishLogin(data.accessToken, data.refreshToken);
     } catch (err: unknown) {
-      const body = (err as { body?: { error?: string } })?.body;
-      setError(body?.error || 'Invalid badge or PIN');
+      console.error('Login failed:', err);
+      const apiErr = err as { status?: number; message?: string; body?: { error?: string } };
+      const statusText = apiErr.status ? ` (Status: ${apiErr.status})` : '';
+      const errorMessage = apiErr.body?.error || apiErr.message || 'Invalid badge or PIN';
+      setError(`${errorMessage}${statusText}`);
     }
   };
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
+import { StoppageCodeSelect } from './StoppageCodeSelect';
 import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode } from './SixHiStoppageCodes';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
@@ -34,7 +35,7 @@ export function OrderStoppageModal({
   onEnd,
   onRollChange,
 }: OrderStoppageModalProps) {
-  const { codes: SixHi_STOPPAGE_CODES } = useSixHiStoppageCodes();
+  const { codes: stoppageCodes, loading: codesLoading } = useSixHiStoppageCodes();
   const [displayCode, setDisplayCode] = useState('12');
   const [remarks, setRemarks] = useState('');
   const [rollPosition, setRollPosition] = useState<'IN' | 'OUT'>('OUT');
@@ -54,12 +55,13 @@ export function OrderStoppageModal({
       setDisplayCode(resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode));
       setRemarks(activeStoppage.remarks || '');
     } else {
-      setDisplayCode('12');
+      const defaultCode = stoppageCodes.find((c) => c.displayCode === '12')?.displayCode ?? stoppageCodes[0]?.displayCode ?? '12';
+      setDisplayCode(defaultCode);
       setRemarks('');
       setRollNo('');
       setRollCode('');
     }
-  }, [open, activeStoppage]);
+  }, [open, activeStoppage, stoppageCodes]);
 
   if (!open) return null;
 
@@ -152,17 +154,12 @@ export function OrderStoppageModal({
 
         <div className="flex-1 overflow-auto min-h-0 space-y-4 px-1 py-1">
           <FieldWrapper label="Stoppage Code">
-            <select
+            <StoppageCodeSelect
               value={displayCode}
-              onChange={(e) => setDisplayCode(e.target.value)}
-              className="w-full min-h-14 rounded-xl border border-border bg-white px-3 text-base font-semibold"
-            >
-              {SixHi_STOPPAGE_CODES.map((c) => (
-                <option key={c.displayCode} value={c.displayCode}>
-                  {c.displayCode} — {c.label}
-                </option>
-              ))}
-            </select>
+              onChange={setDisplayCode}
+              codes={stoppageCodes}
+              loading={codesLoading}
+            />
           </FieldWrapper>
 
           {needsRollChange && (

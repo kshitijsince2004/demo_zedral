@@ -5,15 +5,25 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
 import android.view.WindowManager;
+import androidx.core.splashscreen.SplashScreen;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    SplashScreen.installSplashScreen(this);
     super.onCreate(savedInstanceState);
     registerPlugin(KioskPlugin.class);
+
+    // Ensure hardware acceleration is enabled at the window level to mitigate some MTK driver issues
+    getWindow().setFlags(
+      WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+      WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+    );
 
     // Compatibility for API < 27 for attributes in manifest
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
@@ -39,14 +49,13 @@ public class MainActivity extends BridgeActivity {
   public void onWindowFocusChanged(boolean hasFocus) {
     super.onWindowFocusChanged(hasFocus);
     if (hasFocus) {
-      getWindow().getDecorView().setSystemUiVisibility(
-        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-          | View.SYSTEM_UI_FLAG_FULLSCREEN
-          | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-          | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-          | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-          | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-      );
+      hideSystemUI();
     }
+  }
+
+  private void hideSystemUI() {
+    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+    controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+    controller.hide(WindowInsetsCompat.Type.systemBars());
   }
 }

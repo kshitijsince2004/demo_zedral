@@ -116,14 +116,16 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
 
   if (compact) {
     return (
-      <div className="bg-white border border-border rounded-xl p-3 flex flex-col gap-2 min-h-0 flex-1 h-full">
-        <div className="flex items-center justify-between shrink-0">
+      <div className="flex flex-col min-h-0 flex-1 h-full">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3">
+          <div className="bg-white border border-border rounded-xl p-3 space-y-2">
+        <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-foreground">Skin Pass</h3>
           <span className="text-sm text-muted-foreground">
             Target Thickness: <span className="font-mono font-bold text-foreground">{order.targetThkMm} mm</span>
           </span>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 flex-1 content-start">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
           <FieldWrapper label="Output Thickness (mm)" prominent>
             <ZInput
               type="number"
@@ -203,9 +205,14 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
             </FieldWrapper>
           )}
         </div>
-        <ZButton variant="accent" size="sm" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold shrink-0 mt-auto">
-          Save
-        </ZButton>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+          <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
+            Save Production Data
+          </ZButton>
+        </div>
       </div>
     );
   }
@@ -257,7 +264,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
           <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={data.stretchPct ?? ''} onChange={(e) => setData({ ...data, stretchPct: Number(e.target.value) })} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
-      <ZButton variant="accent" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>
+      <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>
     </div>
   );
 }

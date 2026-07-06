@@ -558,7 +558,8 @@ router.post('/orders/:batchNo/roll-change', requireSixHi('WRITE'), async (req, r
 
 router.get('/shift-summary/:shiftLogId', requireSixHi('READ'), async (req, res) => {
   try {
-    const summary = await SixHiShiftService.getShiftSummary(req.params.shiftLogId);
+    const machine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
+    const summary = await SixHiShiftService.getShiftSummary(req.params.shiftLogId, machine);
     res.json(summary);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Summary failed' });

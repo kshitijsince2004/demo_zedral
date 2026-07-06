@@ -62,75 +62,80 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
 
   if (compact) {
     return (
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 min-h-0 flex-1 h-full overflow-hidden">
-        <div className="bg-white border border-border rounded-xl p-3 flex flex-col gap-2 min-h-0">
-          <h3 className="text-base font-bold text-foreground shrink-0">
-            Production{passLabel ? ` · ${passLabel}` : ''}
-          </h3>
-          {order.finishThkMm != null && order.finishThkMm !== order.targetThkMm && (
-            <p className="text-xs text-muted-foreground shrink-0">
-              Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
-            </p>
-          )}
-          <FieldWrapper label="Actual Weight (Metric Tons)" prominent>
-            <ZInput
-              type="number"
-              inputMode="decimal"
-              enterKeyHint="next"
-              autoComplete="off"
-              value={data.actualWeightMt ?? ''}
-              onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })}
-              className="min-h-14 text-xl"
-              disabled={locked}
-            />
-          </FieldWrapper>
-          <div className="flex items-center justify-between gap-1 shrink-0">
-            <span className="text-sm font-medium text-muted-foreground">
-              Destination: {effectiveDest === 'REWINDING' ? 'Rewinding' : 'Annealing'}
-            </span>
-            {!overrideDest ? (
-              <button type="button" className="text-sm font-bold text-foreground underline" onClick={() => setOverrideDest(true)}>Override</button>
-            ) : (
-              <div className="flex gap-1">
-                {(['ANNEALING', 'REWINDING'] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setData({ ...data, destination: d })}
-                    disabled={locked}
-                    className={[
-                      'min-h-11 px-3 rounded-lg border text-sm font-bold',
-                      data.destination === d ? 'bg-primary text-white' : 'border-border',
-                    ].join(' ')}
-                  >
-                    {d === 'ANNEALING' ? 'Annealing' : 'Rewinding'}
-                  </button>
-                ))}
+      <div className="flex flex-col min-h-0 flex-1 h-full">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+          <div className="bg-white border border-border rounded-xl p-3 space-y-2">
+            <h3 className="text-base font-bold text-foreground">
+              Production{passLabel ? ` · ${passLabel}` : ''}
+            </h3>
+            {order.finishThkMm != null && order.finishThkMm !== order.targetThkMm && (
+              <p className="text-xs text-muted-foreground">
+                Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
+              </p>
+            )}
+            <FieldWrapper label="Actual Weight (Metric Tons)" prominent>
+              <ZInput
+                type="number"
+                inputMode="decimal"
+                enterKeyHint="next"
+                autoComplete="off"
+                value={data.actualWeightMt ?? ''}
+                onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })}
+                className="min-h-14 text-xl"
+                disabled={locked}
+              />
+            </FieldWrapper>
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-sm font-medium text-muted-foreground">
+                Destination: {effectiveDest === 'REWINDING' ? 'Rewinding' : 'Annealing'}
+              </span>
+              {!overrideDest ? (
+                <button type="button" className="text-sm font-bold text-foreground underline" onClick={() => setOverrideDest(true)}>Override</button>
+              ) : (
+                <div className="flex gap-1">
+                  {(['ANNEALING', 'REWINDING'] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setData({ ...data, destination: d })}
+                      disabled={locked}
+                      className={[
+                        'min-h-11 px-3 rounded-lg border text-sm font-bold',
+                        data.destination === d ? 'bg-primary text-white' : 'border-border',
+                      ].join(' ')}
+                    >
+                      {d === 'ANNEALING' ? 'Annealing' : 'Rewinding'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {effectiveDest === 'ANNEALING' && (
+              <div className="grid grid-cols-2 gap-1.5">
+                <FieldWrapper label="Entry Tension">
+                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.etr ?? ''} onChange={(e) => setData({ ...data, etr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
+                </FieldWrapper>
+                <FieldWrapper label="Delivery Tension">
+                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.dtr ?? ''} onChange={(e) => setData({ ...data, dtr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
+                </FieldWrapper>
               </div>
             )}
+            {effectiveDest === 'REWINDING' && (
+              <FieldWrapper label="Associate Rewinder" prominent>
+                <ZInput inputMode="text" enterKeyHint="next" placeholder="Rewinder reference" value={data.associateRw ?? ''} onChange={(e) => setData({ ...data, associateRw: e.target.value })} className="min-h-12 text-lg" disabled={locked} />
+              </FieldWrapper>
+            )}
           </div>
-          {effectiveDest === 'ANNEALING' && (
-            <div className="grid grid-cols-2 gap-1.5">
-              <FieldWrapper label="Entry Tension">
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.etr ?? ''} onChange={(e) => setData({ ...data, etr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
-              </FieldWrapper>
-              <FieldWrapper label="Delivery Tension">
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.dtr ?? ''} onChange={(e) => setData({ ...data, dtr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
-              </FieldWrapper>
-            </div>
-          )}
-          {effectiveDest === 'REWINDING' && (
-            <FieldWrapper label="Associate Rewinder" prominent>
-              <ZInput inputMode="text" enterKeyHint="next" placeholder="Rewinder reference" value={data.associateRw ?? ''} onChange={(e) => setData({ ...data, associateRw: e.target.value })} className="min-h-12 text-lg" disabled={locked} />
-            </FieldWrapper>
-          )}
-          <ZButton variant="accent" size="sm" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold mt-auto shrink-0">
-            Save
-          </ZButton>
+
+          <div className="bg-white border border-border rounded-xl p-3">
+            <PassTracker passes={data.passes} onChange={(passes) => setData({ ...data, passes })} disabled={locked} compact />
+          </div>
         </div>
 
-        <div className="bg-white border border-border rounded-xl p-3 min-h-0 flex flex-col">
-          <PassTracker passes={data.passes} onChange={(passes) => setData({ ...data, passes })} disabled={locked} compact />
+        <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+          <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
+            Save Production Data
+          </ZButton>
         </div>
       </div>
     );
@@ -184,7 +189,7 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
           <FieldWrapper label="Associate Rewinder"><ZInput value={data.associateRw ?? ''} onChange={(e) => setData({ ...data, associateRw: e.target.value })} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
-      <ZButton variant="accent" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>
+      <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>
     </div>
   );
 }

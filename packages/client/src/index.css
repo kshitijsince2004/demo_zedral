@@ -168,6 +168,17 @@
   background: color-mix(in oklab, var(--color-primary) 18%, transparent);
 }
 
+/* Native selects inherit operator green on some WebViews; keep options readable. */
+.theme-operator select {
+  color: var(--color-foreground);
+  background-color: #ffffff;
+}
+
+.theme-operator select option {
+  color: #163328;
+  background-color: #ffffff;
+}
+
 @layer utilities {
   .z-op-canvas {
     background-color: var(--color-secondary);

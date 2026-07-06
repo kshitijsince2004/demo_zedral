@@ -37,6 +37,7 @@ The app runs as a dedicated-device (COSU) kiosk. Operators must not be able to l
 
 ## Build & verify
 
+- Regenerate launcher icons (white logo on SaaS green `#163328`): `npm run android:icons` from `packages/client` (source: `src/assets/white logo.png`).
 - Debug: `./gradlew assembleDebug`; deploy to the connected tablet with `adb install -r`.
 - Release: `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`. Release builds must be signed with the env-var keystore, `versionCode` bumped per release.
 - Device-owner test setup (freshly factory-reset device, no Google account):

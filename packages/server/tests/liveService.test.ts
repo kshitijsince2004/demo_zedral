@@ -6,48 +6,46 @@ vi.mock('../src/db', () => ({
   },
 }));
 
-vi.mock('../src/services/SixHiService', () => ({
-  SixHiService: {
-    toPlanDate: (d: string) => d,
-    resolveOrderWeight: vi.fn(async (_orderId: string, _sub: string, ppc: number) => ppc + 1),
+vi.mock('../src/services/sixHi', () => ({
+  SixHiShiftService: {
+    resolveShiftLogIdForPlan: vi.fn(async () => 'shift-1'),
+    getShiftSummary: vi.fn(async () => ({
+      totalProdMt: 32,
+      completedProdMt: 32,
+      inProgressProdMt: 0,
+      completedOrders: [{}, {}],
+    })),
   },
 }));
 
 import { LiveService, resolveMachineLiveStatus, resolveStateSinceAt } from '../src/services/LiveService';
 import { db } from '../src/db';
-import { SixHiService } from '../src/services/SixHiService';
-
-function mockCompletedRows(rows: Array<{ order_id: string; sub_process: string; ppc_weight_mt: number }>) {
-  const chain = {
-    innerJoin: vi.fn().mockReturnThis(),
-    select: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    execute: vi.fn().mockResolvedValue(rows),
-  };
-  vi.mocked(db.selectFrom).mockReturnValue(chain as never);
-}
+import { SixHiShiftService } from '../src/services/sixHi';
 
 describe('LiveService.getShiftCompletedProductionMt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('sums actual weights from completed orders in shift scope', async () => {
-    mockCompletedRows([
-      { order_id: '1', sub_process: 'ROLLING', ppc_weight_mt: 10 },
-      { order_id: '2', sub_process: 'SKIN_PASS', ppc_weight_mt: 20 },
-    ]);
-
+  it('returns unified shift summary totals for machine scope', async () => {
     const result = await LiveService.getShiftCompletedProductionMt(['6HI'], '2026-06-10', 'A');
 
-    expect(SixHiService.resolveOrderWeight).toHaveBeenCalledTimes(2);
+    expect(SixHiShiftService.resolveShiftLogIdForPlan).toHaveBeenCalledWith('2026-06-10', 'A');
+    expect(SixHiShiftService.getShiftSummary).toHaveBeenCalledWith('shift-1', ['6HI']);
     expect(result.completedOrderCount).toBe(2);
     expect(result.actualMt).toBe(32);
+    expect(result.totalProdMt).toBe(32);
   });
 
   it('returns zero when machine scope is empty', async () => {
     const result = await LiveService.getShiftCompletedProductionMt([], '2026-06-10', 'A');
-    expect(result).toEqual({ actualMt: 0, completedOrderCount: 0 });
+    expect(result).toEqual({
+      actualMt: 0,
+      completedOrderCount: 0,
+      completedProdMt: 0,
+      inProgressMt: 0,
+      totalProdMt: 0,
+    });
     expect(db.selectFrom).not.toHaveBeenCalled();
   });
 });

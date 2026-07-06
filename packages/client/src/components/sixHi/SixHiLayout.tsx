@@ -42,9 +42,11 @@ export function SixHiLayout() {
     loadShiftSummary,
     machineActive,
     setMachineCode,
+    stoppageModalBatch,
+    closeStoppageDialog,
+    openStoppageDialog,
   } = useSixHiStore();
 
-  const [stoppageOpen, setStoppageOpen] = useState(false);
   const [rejectionOpen, setRejectionOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [remarkOpen, setRemarkOpen] = useState(false);
@@ -91,35 +93,17 @@ export function SixHiLayout() {
 
   useEffect(() => {
     useSixHiStore.setState({
-      requestStoppageDialog: async (batchNo: string) => {
-        setActionError(null);
-        const store = useSixHiStore.getState();
-        if (store.panelOrder?.batchNumber !== batchNo) {
-          await store.loadPanelOrder(batchNo);
-        }
-        const order = useSixHiStore.getState().panelOrder;
-        const canStartStoppage =
-          order?.status === 'IN_PROGRESS' ||
-          (order?.status === 'STOPPAGE' && !order?.activeStoppage);
-        if (!order || order.batchNumber !== batchNo) {
-          throw new Error('Order not found');
-        }
-        if (!canStartStoppage && !order.activeStoppage) {
-          throw new Error('Start production before recording a stoppage');
-        }
-        setStoppageOpen(true);
-      },
       requestRejectionDialog: () => {
         setRejectionOpen(true);
-      }
+      },
     });
-    return () => useSixHiStore.setState({ 
-      requestStoppageDialog: undefined,
+    return () => useSixHiStore.setState({
       requestRejectionDialog: undefined,
     });
   }, []);
 
   const activeBatch = workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
+  const stoppageBatch = stoppageModalBatch ?? activeBatch;
   const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : activeBatch ? [activeBatch] : [];
   const modalOrderLabel = combinedRun
     ? `Combined run (${combinedRun.batchNumbers.length} orders)`
@@ -174,7 +158,7 @@ export function SixHiLayout() {
   const handleStoppage = () => {
     if (!activeBatch) return;
     setActionError(null);
-    void useSixHiStore.getState().requestStoppageDialog?.(activeBatch).catch((err) => {
+    void openStoppageDialog(activeBatch).catch((err) => {
       setActionError(err instanceof Error ? err.message : 'Stoppage unavailable');
     });
   };
@@ -295,14 +279,14 @@ export function SixHiLayout() {
         </div>
       )}
 
-      {activeBatch && (
+      {stoppageBatch && (
         <OrderStoppageModal
-          open={stoppageOpen}
+          open={!!stoppageModalBatch}
           hasActiveStoppage={!!activeStoppage}
           activeStoppage={activeStoppage}
-          onClose={() => setStoppageOpen(false)}
+          onClose={closeStoppageDialog}
           onStart={async (categoryCode, breakdownCode, remarks) => {
-            await runOrderAction(activeBatch, async () =>
+            await runOrderAction(stoppageBatch, async () =>
               Promise.all(actionBatchNumbers.map((batchNumber) =>
                 apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages`, {
                   categoryCode,
@@ -314,7 +298,7 @@ export function SixHiLayout() {
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
-            await runOrderAction(activeBatch, async () =>
+            await runOrderAction(stoppageBatch, async () =>
               Promise.all(actionBatchNumbers.map(async (batchNumber) => {
                 const targetStoppageId = batchNumber === activeBatch
                   ? stoppageId
@@ -328,7 +312,7 @@ export function SixHiLayout() {
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onEnd={async (stoppageId, categoryCode, breakdownCode, remarks) => {
-            await runOrderAction(activeBatch, async () => {
+            await runOrderAction(stoppageBatch, async () => {
               // first update the details
               await Promise.all(actionBatchNumbers.map(async (batchNumber) => {
                 const targetStoppageId = batchNumber === activeBatch
@@ -346,8 +330,8 @@ export function SixHiLayout() {
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onRollChange={async (data) => {
-            await runOrderAction(activeBatch, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/roll-change`, data)
+            await runOrderAction(stoppageBatch, () =>
+              apiClient.post(`/6hi/orders/${encodeURIComponent(stoppageBatch)}/roll-change`, data)
             );
           }}
         />

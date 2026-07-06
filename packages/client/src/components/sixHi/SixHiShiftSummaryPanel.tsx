@@ -4,12 +4,23 @@ interface SixHiShiftSummaryPanelProps {
   summary: SixHiShiftSummary | null;
   loading?: boolean;
   compact?: boolean;
+  /** Saved weight on the active order (shown immediately if API not yet synced). */
+  liveOrderProducedMt?: number;
 }
 
-export function SixHiShiftSummaryPanel({ summary, loading, compact }: SixHiShiftSummaryPanelProps) {
+export function SixHiShiftSummaryPanel({ summary, loading, compact, liveOrderProducedMt }: SixHiShiftSummaryPanelProps) {
+  const completedMt = summary?.completedProdMt ?? 0;
+  const apiInProgress = summary?.inProgressProdMt ?? 0;
+  const liveWt = liveOrderProducedMt ?? 0;
+  const inProgressMt = Math.max(apiInProgress, liveWt);
+  const totalProdMt = completedMt + inProgressMt;
+  const extraLive = Math.max(0, liveWt - apiInProgress);
+
+  const hasData = !!summary || liveWt > 0;
+
   const items = [
-    { label: 'Total Production', value: summary ? `${summary.totalProdMt.toFixed(2)} MT` : '—' },
-    { label: 'Total Rolling', value: summary ? `${summary.totalRollingMt.toFixed(2)} MT` : '—' },
+    { label: 'Total Production', value: hasData ? `${totalProdMt.toFixed(2)} MT` : '—' },
+    { label: 'Total Rolling', value: hasData ? `${((summary?.totalRollingMt ?? 0) + extraLive).toFixed(2)} MT` : '—' },
     { label: 'Total Re-Rolling', value: summary ? `${summary.totalRerollMt.toFixed(2)} MT` : '—' },
     { label: 'Skin Pass', value: summary ? `${summary.totalSkinpassMt.toFixed(2)} MT` : '—' },
   ];
@@ -30,7 +41,11 @@ export function SixHiShiftSummaryPanel({ summary, loading, compact }: SixHiShift
           ))}
         </div>
       )}
-      <p className="text-[10px] text-muted-foreground mt-3">Auto-calculated from completed orders</p>
+      <p className="text-[10px] text-muted-foreground mt-3">
+        {inProgressMt > 0
+          ? `${completedMt.toFixed(2)} MT completed · ${inProgressMt.toFixed(2)} MT in progress (saved)`
+          : 'Totals from saved production data on this shift'}
+      </p>
     </div>
   );
 }

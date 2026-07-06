@@ -744,43 +744,43 @@ export class LiveService {
     };
   }
 
-  /** Completed production MT for a shift plan, using actual rolling/skin-pass weights. */
+  /** Production MT for a shift plan (saved weights: completed + in-progress). */
   static async getShiftCompletedProductionMt(
     machineFilter: string[] | null,
     planDate: string,
     shiftCode: string,
-  ): Promise<{ actualMt: number; completedOrderCount: number }> {
+  ): Promise<{
+    actualMt: number;
+    completedOrderCount: number;
+    completedProdMt: number;
+    inProgressMt: number;
+    totalProdMt: number;
+  }> {
+    const zeros = {
+      actualMt: 0,
+      completedOrderCount: 0,
+      completedProdMt: 0,
+      inProgressMt: 0,
+      totalProdMt: 0,
+    };
     if (machineFilter !== null && machineFilter.length === 0) {
-      return { actualMt: 0, completedOrderCount: 0 };
+      return zeros;
     }
 
-    const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
+    const { SixHiShiftService } = await import('./sixHi');
+    const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(planDate, shiftCode);
+    if (!shiftLogId) return zeros;
 
-    let q = db
-      .selectFrom('txn.crm6_order as o')
-      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .select(['o.order_id', 'o.sub_process', 'pb.ppc_weight_mt'])
-      .where('o.status', '=', 'COMPLETED')
-      .where('pb.plan_date', '=', SixHiShiftService.toPlanDate(planDate))
-      .where('pb.shift_code', '=', shiftCode);
-
-    if (machineFilter !== null) {
-      q = q.where('pb.machine_code', 'in', machineFilter);
-    }
-
-    const rows = await q.execute();
-    let actualMt = 0;
-    for (const row of rows) {
-      actualMt += await SixHiExecutionService.resolveOrderWeight(
-        String(row.order_id),
-        row.sub_process,
-        Number(row.ppc_weight_mt),
-      );
-    }
+    const machineScope = machineFilter && machineFilter.length > 0 ? machineFilter : undefined;
+    const summary = await SixHiShiftService.getShiftSummary(shiftLogId, machineScope);
+    const round = (n: number) => Math.round(n * 10) / 10;
 
     return {
-      actualMt: Math.round(actualMt * 10) / 10,
-      completedOrderCount: rows.length,
+      actualMt: round(summary.totalProdMt),
+      totalProdMt: round(summary.totalProdMt),
+      completedProdMt: round(summary.completedProdMt ?? 0),
+      inProgressMt: round(summary.inProgressProdMt ?? 0),
+      completedOrderCount: summary.completedOrders?.length ?? 0,
     };
   }
 
@@ -857,6 +857,9 @@ export class LiveService {
             planDate: queueCtx.planDate,
             targetMt: 0,
             actualMt: 0,
+            completedProdMt: 0,
+            inProgressMt: 0,
+            totalProdMt: 0,
             queuedMt: 0,
             orderCount: 0,
             completedOrderCount: 0,
@@ -873,7 +876,13 @@ export class LiveService {
     const stoppageRows = await stoppageQ.orderBy('os.start_at', 'desc').limit(15).execute();
 
     const queuedMt = Math.round(orders.reduce((s, o) => s + o.weightMt, 0) * 10) / 10;
-    const { actualMt, completedOrderCount } = await this.getShiftCompletedProductionMt(
+    const {
+      actualMt,
+      completedOrderCount,
+      completedProdMt,
+      inProgressMt,
+      totalProdMt,
+    } = await this.getShiftCompletedProductionMt(
       machineFilter,
       queueCtx.planDate,
       queueCtx.shiftCode,
@@ -889,6 +898,9 @@ export class LiveService {
         planDate: queueCtx.planDate,
         targetMt: Number(shiftLog?.target_mt ?? 0),
         actualMt,
+        completedProdMt,
+        inProgressMt,
+        totalProdMt,
         queuedMt,
         orderCount: orders.length,
         completedOrderCount,

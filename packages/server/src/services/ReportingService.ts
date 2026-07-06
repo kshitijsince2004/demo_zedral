@@ -145,7 +145,7 @@ async function fetchShiftRows(
   // This is a stub for where that logic would go if a unified view existed.
 
   const rows = await query.orderBy('sl.prod_date', 'desc').execute();
-  return rows.map((r) => ({
+  const mapped = rows.map((r) => ({
     shift_log_id: String(r.shift_log_id),
     lineId: r.lineId,
     lineName: r.lineName,
@@ -155,6 +155,26 @@ async function fetchShiftRows(
     shift_code: r.shift_code,
     state: r.state,
   }));
+  return enrichCrm6ShiftProduction(mapped);
+}
+
+async function enrichCrm6ShiftProduction(rows: ShiftRow[]): Promise<ShiftRow[]> {
+  const crm6Rows = rows.filter((r) => r.lineId === '6HI');
+  if (crm6Rows.length === 0) return rows;
+
+  const { SixHiShiftService } = await import('./sixHi');
+  const liveTotals = await Promise.all(
+    crm6Rows.map(async (row) => ({
+      shiftLogId: row.shift_log_id,
+      totalProdMt: await SixHiShiftService.getProducedMt(row.shift_log_id),
+    })),
+  );
+  const byShift = new Map(liveTotals.map((x) => [x.shiftLogId, x.totalProdMt]));
+  return rows.map((r) => (
+    byShift.has(r.shift_log_id)
+      ? { ...r, total_prod_mt: byShift.get(r.shift_log_id)! }
+      : r
+  ));
 }
 
 async function fetchDowntimeByShift(shiftIds: string[]): Promise<Record<string, number>> {

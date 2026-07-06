@@ -123,8 +123,8 @@ export function PassTracker({ passes, onChange, disabled, compact }: PassTracker
 
   if (compact) {
     return (
-      <div className="flex flex-col min-h-0 h-full">
-        <div className="flex items-center justify-between mb-2 shrink-0">
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="text-base font-bold text-foreground">Passes</h3>
           <button
             type="button"
@@ -135,7 +135,7 @@ export function PassTracker({ passes, onChange, disabled, compact }: PassTracker
             <Plus className="h-5 w-5" /> Add Pass
           </button>
         </div>
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2 flex-1 content-start">
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
           {passes.map((p, idx) => renderPassInput(p, idx, 'min-h-12 text-lg flex-1'))}
         </div>
         <p className="text-sm text-muted-foreground mt-2 shrink-0">

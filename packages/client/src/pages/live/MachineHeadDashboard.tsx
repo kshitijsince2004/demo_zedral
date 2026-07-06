@@ -132,14 +132,26 @@ export function MachineHeadDashboard() {
           </Section>
 
           <Section title="Shift Summary">
-            <dl className="grid grid-cols-2 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-border">
+            <dl className="grid grid-cols-2 md:grid-cols-7 divide-y md:divide-y-0 md:divide-x divide-border">
               <StatCell label="Plan Date" value={dashboard.shiftSummary.planDate} mono />
               <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
               <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
-              <StatCell label="Completed MT" value={dashboard.shiftSummary.actualMt} mono />
+              <StatCell
+                label="Total MT"
+                value={dashboard.shiftSummary.totalProdMt ?? dashboard.shiftSummary.actualMt}
+                mono
+              />
+              <StatCell
+                label="Completed MT"
+                value={dashboard.shiftSummary.completedProdMt ?? dashboard.shiftSummary.actualMt}
+                mono
+              />
+              <StatCell label="In Progress MT" value={dashboard.shiftSummary.inProgressMt ?? 0} mono />
               <StatCell label="Queued MT" value={dashboard.shiftSummary.queuedMt} mono />
-              <StatCell label="Queue Orders" value={dashboard.shiftSummary.orderCount} />
             </dl>
+            <p className="px-5 py-2 text-[10px] text-muted-foreground border-t border-border/50">
+              {dashboard.shiftSummary.orderCount} orders in queue · {dashboard.shiftSummary.completedOrderCount} completed
+            </p>
           </Section>
 
           <Section title="Runtime Utilization (24h)" empty={dashboard.runtimeUtilization.length === 0}>

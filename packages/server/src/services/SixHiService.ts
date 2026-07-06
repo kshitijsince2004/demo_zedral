@@ -1223,6 +1223,7 @@ export class SixHiService {
       ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
     }
 
+    await this.refreshShiftProductionFromOrder(String(order.order_id));
     return this.getOrder(batchNumber, userId);
   }
 
@@ -1257,6 +1258,7 @@ export class SixHiService {
     }
 
     await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    await this.refreshShiftProductionFromOrder(orderId);
     return this.getOrder(batchNumber, userId);
   }
 
@@ -1278,6 +1280,7 @@ export class SixHiService {
       .where('order_id', '=', orderId)
       .execute();
     await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    await this.refreshShiftProductionFromOrder(orderId);
     return this.getOrder(batchNumber, userId);
   }
 
@@ -1710,6 +1713,70 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
+  static async getSavedOrderWeight(orderId: string, subProcess: string): Promise<number> {
+    if (subProcess === 'ROLLING') {
+      const r = await db.selectFrom('txn.crm6_rolling')
+        .select('actual_weight_mt')
+        .where('order_id', '=', orderId)
+        .executeTakeFirst();
+      const wt = r?.actual_weight_mt != null ? Number(r.actual_weight_mt) : 0;
+      return wt > 0 ? wt : 0;
+    }
+    const s = await db.selectFrom('txn.crm6_skinpass')
+      .select('actual_weight_mt')
+      .where('order_id', '=', orderId)
+      .executeTakeFirst();
+    const wt = s?.actual_weight_mt != null ? Number(s.actual_weight_mt) : 0;
+    return wt > 0 ? wt : 0;
+  }
+
+  private static async listShiftProductionOrders(shiftLogId: string, machineFilter?: string | string[]) {
+    const shiftLog = await db.selectFrom('txn.shift_log')
+      .select(['prod_date', 'shift_code'])
+      .where('shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+    if (!shiftLog) return [];
+
+    const machineCodes = machineFilter == null
+      ? null
+      : Array.isArray(machineFilter) ? machineFilter : [machineFilter];
+
+    const rows = await db
+      .selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'o.order_id',
+        'o.batch_number',
+        'o.status',
+        'o.sub_process',
+        'o.customer_name',
+        'o.prod_duration_min',
+      ])
+      .where((eb) => {
+        const byShiftLog = eb('o.shift_log_id', '=', shiftLogId);
+        const byPlan = eb.and([
+          eb('pb.plan_date', '=', shiftLog.prod_date),
+          eb('pb.shift_code', '=', shiftLog.shift_code),
+        ]);
+        if (machineCodes && machineCodes.length > 0) {
+          const byMachine = machineCodes.length === 1
+            ? eb('pb.machine_code', '=', machineCodes[0])
+            : eb('pb.machine_code', 'in', machineCodes);
+          return eb.or([byShiftLog, eb.and([byPlan, byMachine])]);
+        }
+        return eb.or([byShiftLog, byPlan]);
+      })
+      .execute();
+
+    const seen = new Set<string>();
+    return rows.filter((r) => {
+      const id = String(r.order_id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
   static async resolveOrderWeight(orderId: string, subProcess: string, ppcWeight: number): Promise<number> {
     if (subProcess === 'ROLLING') {
       const r = await db.selectFrom('txn.crm6_rolling')
@@ -1725,35 +1792,58 @@ export class SixHiService {
     return s?.actual_weight_mt ? Number(s.actual_weight_mt) : ppcWeight;
   }
 
-  static async getShiftSummary(shiftLogId: string, machineCode?: string): Promise<SixHiShiftSummary> {
-    const completed = await db.selectFrom('txn.crm6_order')
-      .selectAll()
-      .where('shift_log_id', '=', shiftLogId)
-      .where('status', '=', 'COMPLETED')
-      .execute();
+  static async getShiftSummary(shiftLogId: string, machineFilter?: string | string[]): Promise<SixHiShiftSummary> {
+    const shiftOrders = await this.listShiftProductionOrders(shiftLogId, machineFilter);
 
-    let totalRolling = 0;
-    let totalReroll = 0;
-    let totalSkinpass = 0;
+    let completedRolling = 0;
+    let completedReroll = 0;
+    let completedSkinpass = 0;
+    let inProgressRolling = 0;
+    let inProgressReroll = 0;
+    let inProgressSkinpass = 0;
     const completedOrders: SixHiShiftSummary['completedOrders'] = [];
 
-    for (const o of completed) {
-      const wt = await this.resolveOrderWeight(String(o.order_id), o.sub_process, Number(o.ppc_weight_mt));
-      completedOrders.push({
-        batchNumber: o.batch_number,
-        subProcess: o.sub_process as SixHiSubProcess,
-        customer: o.customer_name,
-        weightMt: wt,
-        durationMin: o.prod_duration_min ?? undefined,
-      });
-      if (o.sub_process === 'ROLLING') {
-        totalRolling += wt;
-        const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
-        if (r?.rerolling) totalReroll += wt;
+    const addWeight = (subProcess: string, wt: number, bucket: 'completed' | 'inProgress') => {
+      if (subProcess === 'ROLLING') {
+        if (bucket === 'completed') completedRolling += wt;
+        else inProgressRolling += wt;
+      } else if (bucket === 'completed') {
+        completedSkinpass += wt;
       } else {
-        totalSkinpass += wt;
+        inProgressSkinpass += wt;
+      }
+    };
+
+    for (const o of shiftOrders) {
+      const wt = await this.getSavedOrderWeight(String(o.order_id), o.sub_process);
+      if (o.status === 'COMPLETED') {
+        completedOrders.push({
+          batchNumber: o.batch_number,
+          subProcess: o.sub_process as SixHiSubProcess,
+          customer: o.customer_name,
+          weightMt: wt,
+          durationMin: o.prod_duration_min ?? undefined,
+        });
+        addWeight(o.sub_process, wt, 'completed');
+        if (o.sub_process === 'ROLLING' && wt > 0) {
+          const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
+          if (r?.rerolling) completedReroll += wt;
+        }
+      } else if (o.status === 'IN_PROGRESS' || o.status === 'STOPPAGE') {
+        if (wt <= 0) continue;
+        addWeight(o.sub_process, wt, 'inProgress');
+        if (o.sub_process === 'ROLLING') {
+          const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
+          if (r?.rerolling) inProgressReroll += wt;
+        }
       }
     }
+
+    const totalRolling = completedRolling + inProgressRolling;
+    const totalReroll = completedReroll + inProgressReroll;
+    const totalSkinpass = completedSkinpass + inProgressSkinpass;
+    const completedProdMt = completedRolling + completedSkinpass;
+    const inProgressProdMt = inProgressRolling + inProgressSkinpass;
 
     const saved = await db.selectFrom('txn.crm6_shift_summary')
       .selectAll()
@@ -1761,11 +1851,14 @@ export class SixHiService {
       .executeTakeFirst();
 
     const { ShiftAttributionService } = await import('./ShiftAttributionService');
+    const machineCode = Array.isArray(machineFilter) ? machineFilter[0] : machineFilter;
     const metrics = await ShiftAttributionService.getShiftMetrics(shiftLogId, machineCode);
 
     return {
       shiftLogId,
       totalProdMt: totalRolling + totalSkinpass,
+      completedProdMt,
+      inProgressProdMt,
       totalRollingMt: totalRolling,
       totalRerollMt: totalReroll,
       totalSkinpassMt: totalSkinpass,
@@ -1815,11 +1908,56 @@ export class SixHiService {
         submitted_by: userId,
       }))
       .execute();
+    await this.syncShiftProductionCache(shiftLogId);
     return this.getShiftSummary(shiftLogId);
   }
 
   static async getProducedMt(shiftLogId: string): Promise<number> {
     const summary = await this.getShiftSummary(shiftLogId);
     return summary.totalProdMt;
+  }
+
+  static async resolveShiftLogIdForPlan(planDate: string | Date, shiftCode: string): Promise<string | null> {
+    const processId = await this.getProcessId();
+    const prodDate = typeof planDate === 'string' ? this.toPlanDate(planDate) : planDate;
+    const row = await db.selectFrom('txn.shift_log')
+      .select('shift_log_id')
+      .where('process_id', '=', processId)
+      .where('prod_date', '=', prodDate)
+      .where('shift_code', '=', shiftCode)
+      .executeTakeFirst();
+    return row ? String(row.shift_log_id) : null;
+  }
+
+  static async resolveShiftLogIdForOrder(orderId: string): Promise<string | null> {
+    const order = await db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select(['o.shift_log_id', 'pb.plan_date', 'pb.shift_code'])
+      .where('o.order_id', '=', orderId)
+      .executeTakeFirst();
+    if (!order) return null;
+    if (order.shift_log_id) return String(order.shift_log_id);
+    if (order.plan_date && order.shift_code) {
+      return this.resolveShiftLogIdForPlan(order.plan_date, order.shift_code);
+    }
+    return null;
+  }
+
+  /** Keep txn.shift_log.total_prod_mt in sync with live 6HI production totals. */
+  static async syncShiftProductionCache(shiftLogId: string): Promise<number> {
+    const summary = await this.getShiftSummary(shiftLogId);
+    await db.updateTable('txn.shift_log')
+      .set({ total_prod_mt: summary.totalProdMt })
+      .where('shift_log_id', '=', shiftLogId)
+      .execute();
+    return summary.totalProdMt;
+  }
+
+  static async refreshShiftProductionFromOrder(orderId: string): Promise<void> {
+    const shiftLogId = await this.resolveShiftLogIdForOrder(orderId);
+    if (!shiftLogId) return;
+    await this.syncShiftProductionCache(shiftLogId).catch((err) => {
+      console.error('[SixHi] syncShiftProductionCache failed:', err);
+    });
   }
 }

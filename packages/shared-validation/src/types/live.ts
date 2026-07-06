@@ -211,8 +211,11 @@ export interface MachineHeadDashboardData {
     shiftCode: string;
     planDate: string;
     targetMt: number;
-    /** Completed production MT for the shift (actual weights from rolling/skin pass). */
+    /** Total saved production MT (completed + in-progress). */
     actualMt: number;
+    completedProdMt?: number;
+    inProgressMt?: number;
+    totalProdMt?: number;
     /** PPC weight MT still in the shift queue (not completed output). */
     queuedMt: number;
     orderCount: number;

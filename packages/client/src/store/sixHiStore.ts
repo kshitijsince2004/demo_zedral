@@ -3,6 +3,8 @@ import type { SixHiOrderDetail, SixHiShiftSummary, SixHiSubProcess } from '@m1/s
 import { apiClient } from '../lib/apiClient';
 import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
+import { canRecordStoppage } from '../lib/sixHiRuntime';
+import { useShiftStore } from './shiftStore';
 
 export type SixHiProcessTab = 'rolling' | 'skinpass';
 
@@ -40,6 +42,8 @@ interface SixHiStore {
   manualOrderOpen: boolean;
   queueRefreshToken: number;
   combinedRun: CombinedProductionRun | null;
+  /** Batch number when stoppage modal is open; null when closed. */
+  stoppageModalBatch: string | null;
 
   setProcessTab: (tab: SixHiProcessTab) => void;
   setMachineCode: (machine: CrmMachineCode) => void;
@@ -53,7 +57,8 @@ interface SixHiStore {
   setShiftSummary: (summary: SixHiShiftSummary | null) => void;
   setBusy: (busy: boolean) => void;
   setCombinedRun: (run: CombinedProductionRun | null) => void;
-  requestStoppageDialog?: (batchNo: string) => Promise<void>;
+  openStoppageDialog: (batchNo: string) => Promise<void>;
+  closeStoppageDialog: () => void;
   requestRejectionDialog?: (batchNo: string) => void;
 
   loadPanelOrder: (batchNo: string) => Promise<SixHiOrderDetail | null>;
@@ -75,7 +80,7 @@ const INITIAL_SixHi_STATE = {
   manualOrderOpen: false,
   queueRefreshToken: 0,
   combinedRun: null as CombinedProductionRun | null,
-  requestStoppageDialog: undefined as ((batchNo: string) => Promise<void>) | undefined,
+  stoppageModalBatch: null as string | null,
   requestRejectionDialog: undefined as ((batchNo: string) => void) | undefined,
 };
 
@@ -103,6 +108,22 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   setShiftSummary: (summary) => set({ shiftSummary: summary }),
   setBusy: (busy) => set({ busy }),
   setCombinedRun: (run) => set({ combinedRun: run }),
+
+  openStoppageDialog: async (batchNo) => {
+    if (get().panelOrder?.batchNumber !== batchNo) {
+      await get().loadPanelOrder(batchNo);
+    }
+    const order = get().panelOrder;
+    if (!order || order.batchNumber !== batchNo) {
+      throw new Error('Order not found');
+    }
+    if (!canRecordStoppage(order)) {
+      throw new Error('Start production before recording a stoppage');
+    }
+    set({ stoppageModalBatch: batchNo });
+  },
+
+  closeStoppageDialog: () => set({ stoppageModalBatch: null }),
 
   loadPanelOrder: async (batchNo) => {
     try {
@@ -134,7 +155,9 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
 
   loadShiftSummary: async (shiftLogId) => {
     try {
-      const summary = await apiClient.get<SixHiShiftSummary>(`/6hi/shift-summary/${shiftLogId}`);
+      const machineCode = get().machineCode;
+      const qs = machineCode ? `?machine=${encodeURIComponent(machineCode)}` : '';
+      const summary = await apiClient.get<SixHiShiftSummary>(`/6hi/shift-summary/${shiftLogId}${qs}`);
       set({ shiftSummary: summary });
     } catch {
       set({ shiftSummary: null });
@@ -155,6 +178,8 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       }
       set({ panelOrder: order });
       await get().refreshMachineState();
+      const shiftLogId = useShiftStore.getState().shiftLogId;
+      if (shiftLogId) await get().loadShiftSummary(shiftLogId);
       return order;
     } finally {
       set({ busy: false });

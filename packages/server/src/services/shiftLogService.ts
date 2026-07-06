@@ -316,28 +316,8 @@ export class ShiftLogService {
     if (!processTable) return 0;
 
     if (processTable === 'txn.crm6_order') {
-      const rows = await db.selectFrom('txn.crm6_order as o')
-        .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-        .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
-        .select([
-          'o.sub_process',
-          'r.actual_weight_mt as roll_wt',
-          's.actual_weight_mt as skp_wt',
-          'o.ppc_weight_mt as ppc_wt',
-        ])
-        .where('o.shift_log_id', '=', shiftLogId)
-        .where('o.status', '=', 'COMPLETED')
-        .execute();
-
-      let total = 0;
-      for (const r of rows) {
-        const wt = r.sub_process === 'ROLLING' ? r.roll_wt : r.skp_wt;
-        const finalWt = wt != null ? wt : r.ppc_wt;
-        if (finalWt != null) {
-          total += Number(finalWt);
-        }
-      }
-      return total;
+      const { SixHiShiftService } = await import('./sixHi');
+      return SixHiShiftService.getProducedMt(shiftLogId);
     }
 
     if (processTable === 'txn.ann_charge') {
