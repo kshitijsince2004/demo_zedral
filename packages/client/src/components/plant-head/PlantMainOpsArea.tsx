@@ -3,6 +3,7 @@ import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService'
 import { buildExecutiveInsights } from '../../lib/plantHeadInsights';
 import { DataUnavailable } from './DataUnavailable';
 import { ChartTooltip } from '../analytics/ChartTooltip';
+import { MeasuredChart } from '../analytics/MeasuredChart';
 import { AlertCircle, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react';
 import {
   Area,
@@ -69,8 +70,9 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
                 Production vs Target (MT)
               </h3>
-              <div className="h-52 min-h-[13rem] w-full min-w-0" data-testid="production-vs-target-chart">
-                <ResponsiveContainer width="100%" height="100%" minHeight={208}>
+              <MeasuredChart className="h-52 min-h-[13rem] w-full min-w-0" minHeight={208} data-testid="production-vs-target-chart">
+                {({ width, height }) => (
+                <ResponsiveContainer width={width} height={height}>
                   <ComposedChart data={data.productionVsTarget} barGap={2}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={C.grid} />
                     <XAxis
@@ -103,7 +105,8 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             </div>
           ) : (
             <DataUnavailable message="No daily production data for the selected window." />
@@ -114,8 +117,9 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
                 OEE Trend (%)
               </h3>
-              <div className="h-36 min-h-[9rem] w-full min-w-0" data-testid="oee-trend-chart">
-                <ResponsiveContainer width="100%" height="100%" minHeight={144}>
+              <MeasuredChart className="h-36 min-h-[9rem] w-full min-w-0" minHeight={144} data-testid="oee-trend-chart">
+                {({ width, height }) => (
+                <ResponsiveContainer width={width} height={height}>
                   <AreaChart data={data.oeeTrend}>
                     <defs>
                       <linearGradient id="oeeGrad" x1="0" y1="0" x2="0" y2="1">
@@ -148,7 +152,8 @@ export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             </div>
           )}
         </div>

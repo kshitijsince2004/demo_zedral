@@ -86,6 +86,16 @@ function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
+/** Bumped on login/logout so stale 401 responses cannot clear a fresh session. */
+let authGeneration = 0;
+
+export function markAuthGeneration(): void {
+  authGeneration += 1;
+}
+
+export function getAuthGeneration(): number {
+  return authGeneration;
+}
 
 function isPublicAuthPath(path: string): boolean {
   return (
@@ -126,7 +136,9 @@ export async function refreshAccessToken(): Promise<string | null> {
 
 export async function apiFetch(path: string, options: RequestInit & { _retried?: boolean } = {}): Promise<Response> {
   const { _retried = false, ...fetchOptions } = options;
-  const token = getAuthToken();
+  const generationAtStart = authGeneration;
+  const tokenAtStart = getAuthToken();
+  const token = tokenAtStart;
   const headers = new Headers(fetchOptions.headers);
 
   if (!headers.has('Content-Type') && fetchOptions.body !== undefined) {
@@ -150,14 +162,18 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
 
   if (res.status === 401 && !_retried && !path.startsWith('/auth/')) {
     const newToken = await refreshAccessToken();
-    if (newToken) {
+    if (newToken && authGeneration === generationAtStart) {
       return apiFetch(path, { ...options, _retried: true });
     }
-    sessionStorage.removeItem('mock_jwt');
-    sessionStorage.removeItem('mock_refresh');
-    useAuthStore.getState().logout();
-    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-      window.location.assign('/login?session=expired');
+    const sameSession =
+      authGeneration === generationAtStart && getAuthToken() === tokenAtStart;
+    if (sameSession) {
+      sessionStorage.removeItem('mock_jwt');
+      sessionStorage.removeItem('mock_refresh');
+      useAuthStore.getState().logout();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.assign('/login?session=expired');
+      }
     }
   }
 

@@ -19,7 +19,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['src/assets/favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: [
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'src/assets/favicon.ico',
+        'apple-touch-icon.png',
+        'masked-icon.svg',
+      ],
       manifest: {
         name: 'M1 Digital Data Collection',
         short_name: 'M1 Data',
@@ -43,8 +49,21 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Cache API calls to master data and plans using NetworkFirst
+        navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
+          {
+            urlPattern: /\/api\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /\/pwa-.*\.png$/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pwa-icons',
+              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
           {
             urlPattern: /\/api\/master-data\/.*/i,
             handler: 'NetworkFirst',

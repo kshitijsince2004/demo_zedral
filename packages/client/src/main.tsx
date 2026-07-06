@@ -8,13 +8,15 @@ import { registerSW } from 'virtual:pwa-register'
 import { AnalyticErrorBoundary } from './components/shared/AnalyticErrorBoundary'
 
 const updateSW = registerSW({
+  immediate: true,
+  onRegistered(registration) {
+    registration?.update();
+  },
   onNeedRefresh() {
-    if (confirm('New content available. Reload?')) {
-      updateSW(true)
-    }
+    updateSW(true);
   },
   onOfflineReady() {
-    console.log('App is ready to work offline.')
+    console.log('App is ready to work offline.');
   },
 })
 
