@@ -5,6 +5,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Windows editors may save CRLF; bash on Linux treats "pipefail\r" as invalid.
+normalize_lf() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] && sed -i 's/\r$//' "$f"
+  done
+}
+normalize_lf "${SCRIPT_DIR}/vm-deploy.sh" "${SCRIPT_DIR}/lib/common.sh" "${SCRIPT_DIR}/deploy.sh" "${SCRIPT_DIR}/rollback.sh"
+
 # When fetched via curl into /tmp, bootstrap via common.sh then re-exec from the on-disk repo.
 if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   : "${APP_BASE:=/opt/zedralv2}"
