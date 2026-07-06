@@ -43,6 +43,19 @@ jobs:
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          export APP_BASE DEPLOY_REF SKIP_MIGRATE GITHUB_REPO GIT_DEPLOY_TOKEN
+
+          if [ -z "${GIT_DEPLOY_TOKEN:-}" ]; then
+            echo "::warning::AWS_GIT_DEPLOY_TOKEN not set — private repo fetch may fail"
+          fi
+
+          DEPLOY_SCRIPT="${APP_BASE}/deploy/vm-deploy.sh"
+          if [ -f "${DEPLOY_SCRIPT}" ]; then
+            echo "Using on-disk deploy script: ${DEPLOY_SCRIPT}"
+            bash "${DEPLOY_SCRIPT}"
+            exit 0
+          fi
+
           REF="${DEPLOY_REF}"
           FETCH_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/deploy/vm-deploy.sh"
           CURL_OPTS=(-fsSL)
@@ -51,7 +64,6 @@ jobs:
           fi
           curl "${CURL_OPTS[@]}" "${FETCH_URL}" -o /tmp/zedral-vm-deploy.sh
           chmod +x /tmp/zedral-vm-deploy.sh
-          export GIT_DEPLOY_TOKEN
           bash /tmp/zedral-vm-deploy.sh
 
       - name: Local health check

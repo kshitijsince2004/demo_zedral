@@ -187,6 +187,10 @@ git_sync_to_ref() {
   local ref="${1:?deploy ref required}"
   cd "${REPO_ROOT}"
 
+  if [ -n "${GIT_DEPLOY_TOKEN:-}" ]; then
+    git remote set-url origin "https://x-access-token:${GIT_DEPLOY_TOKEN}@github.com/${GITHUB_REPO}.git"
+  fi
+
   log "Fetching origin…"
   git fetch origin --prune
 
