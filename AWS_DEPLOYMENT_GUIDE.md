@@ -105,11 +105,49 @@ Example S3 upload (add to backup script):
 aws s3 cp "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz" s3://zedral-db-backups/
 ```
 
-### Seed admin (one-time)
+### Configure & seed admin login (one-time)
+
+SSH to EC2, then run the post-deploy setup script:
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:admin
+ssh -i /path/to/zedral.pem ubuntu@51.21.24.75
+cd /opt/zedralv2
+
+# Production: users + roles only (recommended)
+SEED_PIN='5678' bash deploy/scripts/post-deploy-setup.sh
+
+# OR full demo plant data (coils, PPC queue, sample shifts):
+# SEED_MODE=admin SEED_PIN='5678' bash deploy/scripts/post-deploy-setup.sh
 ```
+
+**Default login after seed:**
+
+| Badge | Role | Typical routes |
+|-------|------|----------------|
+| `1000` | Admin | `/admin/master-data`, `/admin/planning`, `/reports` |
+| `2000` | Supervisor | Review / approve queue |
+| `3000` | Operator | `/operator`, `/6hi` |
+| `4000` | Machine Head | `/machine-head-dashboard` |
+| `5000` | Plant Head | `/plant` |
+
+Use **badge number + PIN** on the login screen (not username/password).
+
+**Manual alternative:**
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env exec -T \
+  -e SEED_PIN='5678' backend npm run seed:profiles
+```
+
+### Post-deploy configuration checklist
+
+| Item | Where | Example |
+|------|--------|---------|
+| Public URL | GitHub secret `AWS_PUBLIC_URL` | `http://51.21.24.75` or `https://zedral.yourdomain.com` |
+| Browser CORS | `deploy/.env` → `CORS_ORIGIN` | `https://zedral.yourdomain.com` (if SPA on another host) |
+| Operator APK API | `packages/client/.env.operator` → `VITE_API_URL` | `http://51.21.24.75` or plant Wi-Fi IP |
+| Security Group | AWS Console | Inbound TCP **80** (and **443** after TLS) |
+| Rotate PINs | Re-run seed with new `SEED_PIN` or admin UI | Do not leave default `1234` in production |
 
 ### Smoke test
 
