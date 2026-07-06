@@ -49,6 +49,12 @@ case "${SEED_MODE}" in
 esac
 
 PUBLIC_IP="$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)"
+# shellcheck disable=SC1090
+source "${ENV_FILE}" 2>/dev/null || true
+PUBLIC_URL="${PUBLIC_URL:-}"
+if [ -z "${PUBLIC_URL}" ] && [ -n "${PUBLIC_DOMAIN:-}" ]; then
+  PUBLIC_URL="https://${PUBLIC_DOMAIN}"
+fi
 PUBLIC_URL="${PUBLIC_URL:-http://${PUBLIC_IP:-YOUR_ELASTIC_IP}}"
 
 echo ""

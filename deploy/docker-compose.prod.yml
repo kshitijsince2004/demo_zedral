@@ -65,7 +65,7 @@ services:
       target: nginx
     container_name: zedral-nginx
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "${DOCKER_HTTP_BIND:-0.0.0.0:80}:80"
     depends_on:
       backend:
         condition: service_healthy

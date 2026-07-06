@@ -105,6 +105,28 @@ Example S3 upload (add to backup script):
 aws s3 cp "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz" s3://zedral-db-backups/
 ```
 
+### Configure domain (`hsl.zedral.com`)
+
+1. **DNS:** A record `hsl.zedral.com` → EC2 Elastic IP (`51.21.24.75` or your EIP).
+2. **Security Group:** TCP 80 (and 443 for HTTPS).
+3. **On EC2:**
+
+```bash
+cd /opt/zedralv2
+# HTTP (quick test via domain)
+sudo bash deploy/scripts/configure-domain.sh hsl.zedral.com
+
+# HTTPS (Let's Encrypt — recommended for production)
+sudo bash deploy/scripts/configure-domain.sh hsl.zedral.com --tls
+```
+
+4. **GitHub** → production secrets → `AWS_PUBLIC_URL` = `https://hsl.zedral.com`
+
+5. **Operator APK** — `packages/client/.env.operator`:
+   ```env
+   VITE_API_URL=https://hsl.zedral.com
+   ```
+
 ### Configure & seed admin login (one-time)
 
 SSH to EC2, then run the post-deploy setup script:
