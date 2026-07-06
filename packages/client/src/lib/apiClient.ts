@@ -12,9 +12,14 @@
 
 import { useAuthStore } from './authStore';
 
-const API_HOST = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-/** Web dev uses Vite `/api` proxy; native builds call the server host directly (no `/api` prefix). */
-const API_BASE = API_HOST || '/api';
+/** Web: `/api` via nginx. APK/native: `VITE_API_URL` host + `/api` (see M1-10). */
+function resolveApiBase(): string {
+  const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+  if (!host) return '/api';
+  return host.endsWith('/api') ? host : `${host}/api`;
+}
+
+const API_BASE = resolveApiBase();
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
 export class ApiError extends Error {

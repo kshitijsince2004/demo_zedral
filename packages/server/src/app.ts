@@ -42,9 +42,13 @@ export interface ComposedApp {
 export function buildApp(registry: ModuleRegistry): ComposedApp {
   const app = express();
 
-  const corsOrigins = process.env.CORS_ORIGIN
+  const configured = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-    : undefined;
+    : [];
+  // Capacitor operator APK WebView origin (always allow when CORS is restricted).
+  const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'http://localhost'];
+  const corsOrigins =
+    configured.length > 0 ? [...new Set([...configured, ...capacitorOrigins])] : undefined;
   app.use(cors(corsOrigins ? { origin: corsOrigins, credentials: true } : {}));
   app.use(express.json());
 
