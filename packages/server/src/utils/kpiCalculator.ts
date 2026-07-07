@@ -66,18 +66,18 @@ export function pctChange(current: number, previous: number): number {
 }
 
 export function calcPerformance(actualMt: number, targetMt: number): number {
-  if (targetMt <= 0) return 100;
+  if (targetMt <= 0) return actualMt > 0 ? 100 : 0;
   return round1(Math.min((actualMt / targetMt) * 100, 100));
 }
 
 export function calcAvailability(downtimeMin: number, shiftMinutes: number): number {
-  if (shiftMinutes <= 0) return 100;
+  if (shiftMinutes <= 0) return 0;
   const runMin = Math.max(shiftMinutes - downtimeMin, 0);
   return round1(Math.min((runMin / shiftMinutes) * 100, 100));
 }
 
 export function calcQuality(goodMt: number, totalMt: number): number {
-  if (totalMt <= 0) return 100;
+  if (totalMt <= 0) return 0;
   return round1(Math.min((goodMt / totalMt) * 100, 100));
 }
 

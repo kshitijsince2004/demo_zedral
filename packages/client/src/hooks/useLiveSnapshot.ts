@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LiveSnapshot, MachineLiveStatus } from '@m1/shared-validation';
 import { liveService } from '../lib/liveService';
+import { subscribeProductionChanged } from '../lib/productionSync';
 
 /** Shared poll interval for all live machine status views. */
 export const LIVE_POLL_MS = 8_000;
@@ -36,7 +37,11 @@ export function useLiveSnapshot(options?: { enabled?: boolean }) {
     if (!enabled) return;
     void refresh();
     const id = setInterval(() => void refresh(), LIVE_POLL_MS);
-    return () => clearInterval(id);
+    const unsub = subscribeProductionChanged(() => void refresh());
+    return () => {
+      clearInterval(id);
+      unsub();
+    };
   }, [enabled, refresh]);
 
   return { snapshot, loading, error, refresh };

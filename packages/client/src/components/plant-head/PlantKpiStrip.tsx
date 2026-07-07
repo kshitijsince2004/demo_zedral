@@ -18,11 +18,12 @@ interface KpiTile {
 
 export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
   const strip = data.kpiStrip;
+  const productionTodayMt = liveKpis?.productionTodayMt ?? strip.productionTodayMt;
 
   const kpis: KpiTile[] = [
     {
       label: "Production Today",
-      value: `${Math.round(strip.productionTodayMt)} MT`,
+      value: `${Math.round(productionTodayMt)} MT`,
       trend: formatTrendPct(strip.productionTodayTrendPct),
     },
     {
@@ -37,7 +38,9 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
     },
     {
       label: 'Performance',
-      value: `${strip.performancePct}%`,
+      value: liveKpis?.shiftTargetMt
+        ? `${Math.round(liveKpis.shiftPerformancePct)}%`
+        : `${strip.performancePct}%`,
       trend: formatTrendPct(strip.performanceTrendPct),
     },
     {

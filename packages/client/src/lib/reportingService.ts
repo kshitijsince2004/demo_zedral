@@ -431,7 +431,7 @@ export const reportingService = {
         date: q.date,
         defects: q.rejectionRatePct,
       })),
-      activeAlerts: 0,
+      activeAlerts: base.downtimeDrivers.length,
       criticalAlerts: [],
       opsFeed: [],
       dailyProduction: productionVsTarget.map((row) => ({

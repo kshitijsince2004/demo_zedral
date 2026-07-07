@@ -6,6 +6,7 @@ import { useSixHiStore } from '../../store/sixHiStore';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { formatShiftDate } from '../../lib/dateFormat';
 import { useShiftStore } from '../../store/shiftStore';
+import { subscribeProductionChanged } from '../../lib/productionSync';
 import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummaryPanel';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
@@ -46,6 +47,7 @@ export function SixHiCapturePage() {
     machineActive,
     machineCode,
     shiftSummary,
+    queueRefreshToken,
     openWorkspace,
     loadPanelOrder,
     loadShiftSummary,
@@ -69,25 +71,10 @@ export function SixHiCapturePage() {
     return () => clearInterval(id);
   }, [shiftLogId, refreshMachineState, loadShiftSummary]);
 
-  const activeBatch = machineActive?.batchNumber ?? null;
-
-  useEffect(() => {
-    if (activeBatch && (!panelOrder || panelOrder.batchNumber !== activeBatch)) {
-      loadPanelOrder(activeBatch);
-    }
-  }, [activeBatch, panelOrder, loadPanelOrder]);
-
-  const order = activeBatch && panelOrder?.batchNumber === activeBatch ? panelOrder : null;
-
-  useEffect(() => {
-    if (!shiftLogId || !order) return;
-    void loadShiftSummary(shiftLogId);
-  }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
-
   const queueDate = formatShiftDate(shiftDate);
   const queueShift = shiftCode || 'B';
   const { data: queueData } = useSWR(
-    machineCode ? ['capture-queue', machineCode, queueDate, queueShift] : null,
+    machineCode ? ['capture-queue', machineCode, queueDate, queueShift, queueRefreshToken] : null,
     async () => {
       const params = `machine=${machineCode}&date=${queueDate}&shift=${queueShift}`;
       const [rolling, skinPass] = await Promise.all([
@@ -98,18 +85,33 @@ export function SixHiCapturePage() {
         ...(rolling.queue ?? []),
         ...(skinPass.queue ?? []),
       ].sort((a, b) => a.queuePosition - b.queuePosition);
-
-      const ctx = rolling.planDate ? rolling : skinPass;
-      if (ctx.planDate) {
-        useShiftStore.setState({
-          shiftDate: formatShiftDate(ctx.planDate),
-          shiftCode: (ctx.shiftCode ?? queueShift) as 'A' | 'B' | 'C',
-        });
-      }
       return merged;
     },
   );
   const allQueueItems = queueData ?? [];
+
+  const activeBatch = machineActive?.batchNumber ?? null;
+  const runningFromQueue = allQueueItems.find(
+    (q) => q.status === 'IN_PROGRESS' || q.status === 'STOPPAGE',
+  );
+  const effectiveBatch = activeBatch ?? runningFromQueue?.batchNumber ?? null;
+
+  useEffect(() => {
+    if (effectiveBatch && (!panelOrder || panelOrder.batchNumber !== effectiveBatch)) {
+      loadPanelOrder(effectiveBatch);
+    }
+  }, [effectiveBatch, panelOrder, loadPanelOrder]);
+
+  const order = effectiveBatch && panelOrder?.batchNumber === effectiveBatch ? panelOrder : null;
+  const preparingOrder = allQueueItems.find(
+    (q) => q.status === 'PREPARING' && q.batchNumber !== effectiveBatch,
+  );
+
+  useEffect(() => {
+    if (!shiftLogId || !order) return;
+    void loadShiftSummary(shiftLogId);
+  }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
+
   const nextOrder =
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber && (q.status === 'PREPARING' || q.status === 'PENDING')) ??
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber);
@@ -119,6 +121,13 @@ export function SixHiCapturePage() {
     async (url) => apiClient.get(url),
     { refreshInterval: 15000 },
   );
+
+  useEffect(() => {
+    return subscribeProductionChanged(() => {
+      void mutateShiftStoppages();
+      void refreshMachineState();
+    });
+  }, [mutateShiftStoppages, refreshMachineState]);
 
   const hasActiveStoppage = !!order?.activeStoppage;
   const stoppageAllowed = canRecordStoppage(order);
@@ -228,8 +237,20 @@ export function SixHiCapturePage() {
               </div>
               {!order ? (
                 <div className="p-6 text-center space-y-4">
-                  <p className="text-sm font-semibold text-foreground">No order is running</p>
-                  <p className="text-sm text-muted-foreground">Start production from Orders to begin capture.</p>
+                  {preparingOrder ? (
+                    <>
+                      <p className="text-sm font-semibold text-foreground">Order preparing — not started</p>
+                      <p className="text-sm text-muted-foreground">
+                        {preparingOrder.batchNumber} is ready in queue (pos {preparingOrder.queuePosition}).
+                        Start production from Orders to begin capture.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-foreground">No order is running</p>
+                      <p className="text-sm text-muted-foreground">Start production from Orders to begin capture.</p>
+                    </>
+                  )}
                   <ZButton variant="accent" onClick={() => navigate(basePath)}>
                     <ArrowRight className="h-4 w-4" />
                     Go to Orders

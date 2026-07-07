@@ -363,6 +363,7 @@ export class LiveService {
             'sc.label as stoppage_label',
             'r.actual_weight_mt as rolling_weight',
             's.actual_weight_mt as skinpass_weight',
+            'pb.ppc_weight_mt',
           ])
           .where('pb.machine_allocated', '=', true)
           .where('pb.machine_code', 'in', machineCodes)
@@ -422,6 +423,8 @@ export class LiveService {
       const status = resolveMachineLiveStatus(m.machine_status, ev, activeOrder);
 
       const weight = orderStats?.skinpass_weight ?? orderStats?.rolling_weight;
+      const targetMt = Number(orderStats?.ppc_weight_mt ?? 0);
+      const actualMt = weight != null ? Number(weight) : 0;
       const stateSinceDate = resolveStateSinceAt(status, ev, activeOrder);
       const stateSince = stateSinceDate?.toISOString();
 
@@ -454,7 +457,7 @@ export class LiveService {
           : undefined,
         runtimeMin,
         productionWeightMt: weight ? Number(weight) : undefined,
-        shiftProgressPct: undefined,
+        shiftProgressPct: targetMt > 0 ? Math.round(Math.min((actualMt / targetMt) * 100, 100)) : undefined,
         rejectedCount: rejects.count,
         rejectedWeightMt: rejects.weightMt,
         lastUpdateAt: orderStats?.updated_at ? new Date(orderStats.updated_at).toISOString() : undefined,
@@ -598,6 +601,12 @@ export class LiveService {
     const machines = await this.getMachineCards(machineFilter);
     const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
 
+    const { ProductionMetricsService } = await import('./ProductionMetricsService');
+    const [shiftMetrics, productionTodayMt] = await Promise.all([
+      ProductionMetricsService.getShiftMetrics(planDate, shiftCode, machineFilter),
+      ProductionMetricsService.getPlantProductionForDate(planDate),
+    ]);
+
     const running = machines.filter((m) => m.status === 'RUNNING').length;
     const idle = machines.filter((m) => m.status === 'IDLE').length;
     const breakdown = machines.filter((m) => m.status === 'BREAKDOWN' || m.status === 'STOPPAGE').length;
@@ -609,11 +618,21 @@ export class LiveService {
       runningMachines: running,
       idleMachines: idle,
       breakdownMachines: breakdown,
-      activeOrders: orders.length,
+      activeOrders: orders.filter((o) => o.status === 'IN_PROGRESS' || o.status === 'STOPPAGE').length,
       queuedProductionMt: Math.round(queuedProductionMt * 10) / 10,
       currentStoppages: stoppages,
-      machinesRunningPct: Math.round((running / total) * 100),
-      shiftPerformancePct: Math.min(100, Math.round((orders.filter((o) => o.status === 'IN_PROGRESS').length / Math.max(orders.length, 1)) * 100)),
+      machinesRunningPct: machines.length > 0 ? Math.round((running / total) * 100) : 0,
+      shiftPerformancePct: shiftMetrics.shiftPerformancePct,
+      planDate: shiftMetrics.planDate,
+      shiftCode: shiftMetrics.shiftCode,
+      shiftLogId: shiftMetrics.shiftLogId,
+      shiftTargetMt: shiftMetrics.targetMt,
+      shiftProductionMt: shiftMetrics.totalProdMt,
+      shiftCompletedProdMt: shiftMetrics.completedProdMt,
+      shiftInProgressProdMt: shiftMetrics.inProgressProdMt,
+      shiftRollingMt: shiftMetrics.totalRollingMt,
+      shiftSkinpassMt: shiftMetrics.totalSkinpassMt,
+      productionTodayMt,
     };
 
     return { kpis, machines, refreshedAt: new Date().toISOString() };

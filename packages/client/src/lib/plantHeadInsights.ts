@@ -1,3 +1,4 @@
+import type { LiveKpis } from '@m1/shared-validation';
 import type { PlantHeadDashboardData } from './reportingService';
 import { formatTrendPct } from './reportingService';
 
@@ -10,8 +11,11 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** Insights derived only from fields returned by GET /reports/plant-head. */
-export function buildExecutiveInsights(data: PlantHeadDashboardData): ExecutiveInsightRow[] {
+/** Insights derived from plant-head API plus optional live capture metrics. */
+export function buildExecutiveInsights(
+  data: PlantHeadDashboardData,
+  liveKpis?: LiveKpis,
+): ExecutiveInsightRow[] {
   const totalActual = data.productionVsPlan.reduce((sum, row) => sum + row.actual, 0);
   const totalPlanned = data.productionVsPlan.reduce((sum, row) => sum + row.planned, 0);
 
@@ -27,7 +31,15 @@ export function buildExecutiveInsights(data: PlantHeadDashboardData): ExecutiveI
   const topDefect = data.topDefects[0];
   const linesBelowTarget = linesWithPlan.filter((line) => line.attainmentPct < 90).length;
 
-  return [
+  const rows: ExecutiveInsightRow[] = [
+    ...(liveKpis?.shiftLogId
+      ? [{
+          label: 'Current shift production (live)',
+          value: liveKpis.shiftTargetMt > 0
+            ? `${round1(liveKpis.shiftProductionMt)} / ${round1(liveKpis.shiftTargetMt)} MT · ${round1(liveKpis.shiftPerformancePct)}%`
+            : `${round1(liveKpis.shiftProductionMt)} MT captured`,
+        }]
+      : []),
     {
       label: 'Production vs plan (window)',
       value:
@@ -52,4 +64,6 @@ export function buildExecutiveInsights(data: PlantHeadDashboardData): ExecutiveI
       value: linesWithPlan.length > 0 ? `${linesBelowTarget} of ${linesWithPlan.length}` : null,
     },
   ];
+
+  return rows;
 }

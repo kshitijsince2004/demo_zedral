@@ -113,7 +113,20 @@ export interface LiveKpis {
   currentStoppages: number;
   /** Share of scoped machines currently in RUNNING state (machine count, not runtime). */
   machinesRunningPct: number;
+  /** Actual production vs shift target from ProductionMetricsService. */
   shiftPerformancePct: number;
+  /** Current shift context (operator capture source of truth). */
+  planDate: string;
+  shiftCode: string;
+  shiftLogId?: string | null;
+  shiftTargetMt: number;
+  shiftProductionMt: number;
+  shiftCompletedProdMt: number;
+  shiftInProgressProdMt: number;
+  shiftRollingMt: number;
+  shiftSkinpassMt: number;
+  /** Live plant-wide production for planDate (all CRM shifts that day). */
+  productionTodayMt: number;
 }
 
 /** Runtime utilization from machine state events: running minutes ÷ window minutes. */

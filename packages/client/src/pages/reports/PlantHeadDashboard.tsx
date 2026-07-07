@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LiveKpis, LiveOrderRow } from '@m1/shared-validation';
 import {
   reportingService,
@@ -6,6 +6,8 @@ import {
 } from '../../lib/reportingService';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
+import { mergePlantHeadWithLive } from '../../lib/plantHeadLiveMerge';
+import { subscribeProductionChanged } from '../../lib/productionSync';
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
@@ -42,7 +44,11 @@ export function PlantHeadDashboard() {
   useEffect(() => {
     load(false);
     const interval = setInterval(() => load(true), 30000);
-    return () => clearInterval(interval);
+    const unsub = subscribeProductionChanged(() => load(true));
+    return () => {
+      clearInterval(interval);
+      unsub();
+    };
   }, [load]);
 
   useEffect(() => {
@@ -60,6 +66,11 @@ export function PlantHeadDashboard() {
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
   const liveMachines = snapshot?.machines ?? [];
+
+  const displayData = useMemo(
+    () => (data ? mergePlantHeadWithLive(data, liveKpis, liveMachines, liveOrders) : null),
+    [data, liveKpis, liveMachines, liveOrders],
+  );
 
   if (loading && !data) {
     return (
@@ -92,7 +103,7 @@ export function PlantHeadDashboard() {
     );
   }
 
-  if (!data) return null;
+  if (!displayData) return null;
 
   return (
     <div
@@ -136,7 +147,7 @@ export function PlantHeadDashboard() {
 
         {/* KPI Strip */}
         <section aria-label="Key performance indicators">
-          <PlantKpiStrip data={data} liveKpis={liveKpis} />
+          <PlantKpiStrip data={displayData} liveKpis={liveKpis} />
         </section>
 
         {/* Live Machine Status Board */}
@@ -153,22 +164,22 @@ export function PlantHeadDashboard() {
 
         {/* Production + Insights */}
         <section>
-          <PlantMainOpsArea data={data} />
+          <PlantMainOpsArea data={displayData} liveKpis={liveKpis} />
         </section>
 
         {/* Quality + Downtime */}
         <section>
-          <PlantQualityDowntimeArea data={data} />
+          <PlantQualityDowntimeArea data={displayData} />
         </section>
 
         {/* Machine Utilization + Orders */}
         <section>
-          <PlantOperationsArea data={data} liveMachines={liveMachines} liveOrders={liveOrders} />
+          <PlantOperationsArea data={displayData} liveMachines={liveMachines} liveOrders={liveOrders} />
         </section>
 
         {/* Ops Feed */}
         <section>
-          <PlantOpsFeed data={data} />
+          <PlantOpsFeed data={displayData} />
         </section>
 
       </div>

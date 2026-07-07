@@ -1,4 +1,5 @@
 import React from 'react';
+import type { LiveKpis } from '@m1/shared-validation';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { buildExecutiveInsights } from '../../lib/plantHeadInsights';
 import { DataUnavailable } from './DataUnavailable';
@@ -21,6 +22,7 @@ import {
 
 interface PlantMainOpsAreaProps {
   data: ExtendedPlantHeadDashboardData;
+  liveKpis?: LiveKpis;
 }
 
 const C = {
@@ -36,8 +38,8 @@ const C = {
 
 
 
-export function PlantMainOpsArea({ data }: PlantMainOpsAreaProps) {
-  const insights = buildExecutiveInsights(data);
+export function PlantMainOpsArea({ data, liveKpis }: PlantMainOpsAreaProps) {
+  const insights = buildExecutiveInsights(data, liveKpis);
   const hasInsight = insights.some((row) => row.value != null);
   const hasDailyProduction = data.productionVsTarget.length > 0;
   const hasOeeTrend = data.oeeTrend && data.oeeTrend.length > 0;

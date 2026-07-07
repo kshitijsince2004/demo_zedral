@@ -4,6 +4,7 @@ import { apiClient } from '../lib/apiClient';
 import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
 import { canRecordStoppage } from '../lib/sixHiRuntime';
+import { notifyProductionChanged } from '../lib/productionSync';
 import { useShiftStore } from './shiftStore';
 
 export type SixHiProcessTab = 'rolling' | 'skinpass';
@@ -180,6 +181,8 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       await get().refreshMachineState();
       const shiftLogId = useShiftStore.getState().shiftLogId;
       if (shiftLogId) await get().loadShiftSummary(shiftLogId);
+      get().requestQueueRefresh();
+      notifyProductionChanged({ shiftLogId: shiftLogId ?? undefined, batchNumber: batchNo });
       return order;
     } finally {
       set({ busy: false });

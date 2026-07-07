@@ -16,6 +16,7 @@ describe('kpiCalculator', () => {
     expect(calcPerformance(90, 100)).toBe(90);
     expect(calcPerformance(120, 100)).toBe(100);
     expect(calcPerformance(50, 0)).toBe(100);
+    expect(calcPerformance(0, 0)).toBe(0);
   });
 
   it('calculates shift duration from master.shift windows', () => {
@@ -44,7 +45,7 @@ describe('kpiCalculator', () => {
 
   it('calculates quality from good vs total output', () => {
     expect(calcQuality(95, 100)).toBe(95);
-    expect(calcQuality(0, 0)).toBe(100);
+    expect(calcQuality(0, 0)).toBe(0);
   });
 
   it('calculates OEE as A x P x Q', () => {
