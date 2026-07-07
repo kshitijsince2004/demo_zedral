@@ -72,17 +72,29 @@ jobs:
       - name: Local health check
         run: |
           echo "Smoke testing http://127.0.0.1/health …"
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4 5 6 8 10 12; do
             if curl -fsS "http://127.0.0.1/health" | head -c 200; then
               echo ""
               echo "Local health check passed"
               exit 0
             fi
-            echo "Attempt ${attempt}/6 failed — retrying in 10s …"
+            echo "Attempt ${attempt}/12 failed — retrying in 10s …"
             sleep 10
           done
           echo "Local health check failed"
+          docker ps --filter name=zedral- || true
+          docker compose -f /opt/zedralv2/deploy/docker-compose.prod.yml --env-file /opt/zedralv2/deploy/.env logs --tail 80 backend nginx || true
           exit 1
+
+      - name: Verify backend build
+        run: |
+          test -f /opt/zedralv2/packages/server/src/services/ProductionMetricsService.ts \
+            || (echo "::error::ProductionMetricsService.ts missing from deployed source" && exit 1)
+          docker exec zedral-backend test -f /app/packages/server/dist/services/ProductionMetricsService.js \
+            || (echo "::error::ProductionMetricsService.js missing from running backend image" && exit 1)
+          echo "Deployed commit: $(cat /opt/zedralv2/deploy/.last-good-sha 2>/dev/null || git -C /opt/zedralv2 rev-parse HEAD)"
+          docker inspect zedral-backend --format 'backend image={{.Image}} created={{.Created}}'
+          docker inspect zedral-nginx --format 'nginx image={{.Image}} created={{.Created}}'
 
       - name: External smoke test
         env:
