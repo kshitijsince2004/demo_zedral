@@ -31,7 +31,7 @@ describe('PPC rolling import coil provisioning', () => {
     const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
     const userId = getIntegrationTestUserId();
-    const preview = await PPCImportService.previewRollingXlsx(buf, 'coil-order.xlsx', userId, 'ROLLING', 'B');
+    const preview = await PPCImportService.previewRollingXlsx(buf, 'coil-order.xlsx', userId, 'ROLLING');
     expect(preview.headerError).toBeUndefined();
 
     const result = await PPCImportService.commitRollingSession(

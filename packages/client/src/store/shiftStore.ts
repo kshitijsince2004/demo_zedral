@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { formatShiftDate } from '../lib/dateFormat';
+import { currentPlantDate, formatShiftDate } from '../lib/dateFormat';
 
 export type CoilStatus = 'planned' | 'open' | 'done';
 export type ProcessLine = 'HRS' | 'PKL' | 'CRM' | '6HI' | 'ANN' | 'SKP' | 'RWD' | 'CRS' | 'CTL' | 'GLV';
@@ -98,7 +98,7 @@ export interface ShiftState {
 }
 
 const INITIAL_SHIFT_STATE = {
-  shiftDate: new Date().toISOString().split('T')[0],
+  shiftDate: currentPlantDate(),
   shiftCode: 'A' as const,
   shiftLogId: null,
   detectedShift: null,
@@ -183,5 +183,5 @@ export const useShiftStore = create<ShiftState>((set) => ({
       },
     }),
 
-  resetSession: () => set({ ...INITIAL_SHIFT_STATE, shiftDate: new Date().toISOString().split('T')[0] }),
+  resetSession: () => set({ ...INITIAL_SHIFT_STATE, shiftDate: currentPlantDate() }),
 }));

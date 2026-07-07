@@ -43,6 +43,16 @@ BPRES,2026-01-01,B,6HI,ROLLING,CPRES,ACME,D,1250,1.2,10`;
       expect(rows[0].machine_code).toBe('6HI');
     });
 
+    it('fills shift_code from the server-provided default when the CSV omits it', () => {
+      const csv = `batch_number,plan_date,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
+BPRES,2026-01-01,6HI,ROLLING,CPRES,ACME,D,1250,1.2,10`;
+      const { rows, rowErrors, headerError } = parsePpcCsv(csv, 'C');
+      expect(headerError).toBeUndefined();
+      expect(rowErrors).toHaveLength(0);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].shift_code).toBe('C');
+    });
+
     it('simple unquoted fields tokenize identically', () => {
       fc.assert(
         fc.property(

@@ -65,7 +65,7 @@ router.get('/plans/:processId/:date', async (req, res) => {
   try {
     const plans = await ImportService.getPlansByProcess(
       req.params.processId,
-      new Date(req.params.date),
+      req.params.date,
     );
     res.json(plans);
   } catch (error: unknown) {

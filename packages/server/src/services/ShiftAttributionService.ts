@@ -2,6 +2,7 @@ import { db } from '../db';
 import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { assertRuntimeAccounting } from '../validation/manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
+import { parseDateOnly } from '../utils/dateOnly';
 
 export interface AttributionSlice {
   orderId: number;
@@ -23,7 +24,7 @@ export class ShiftAttributionService {
       .select('shift_log_id')
       .where('process_id', '=', processId)
       .where('shift_code', '=', shiftCode)
-      .where('prod_date', '=', new Date(prodDate))
+      .where('prod_date', '=', parseDateOnly(prodDate))
       .executeTakeFirst();
     return row ? String(row.shift_log_id) : null;
   }
@@ -51,7 +52,7 @@ export class ShiftAttributionService {
         shift_log_id: slice.shiftLogId,
         machine_code: slice.machineCode,
         shift_code: slice.shiftCode,
-        prod_date: new Date(slice.prodDate),
+        prod_date: parseDateOnly(slice.prodDate),
         runtime_minutes: slice.runtimeMinutes,
         production_mt: slice.productionMt,
         stoppage_minutes: slice.stoppageMinutes,

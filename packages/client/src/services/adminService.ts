@@ -367,12 +367,10 @@ export const adminService = {
   async previewPpcRolling(
     file: File,
     sheetType: PpcXlsxSheetType = 'ROLLING',
-    shiftCode = 'B',
   ): Promise<PpcRollingPreviewResult> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('sheetType', sheetType);
-    formData.append('shiftCode', shiftCode);
     const res = await fetch('/api/6hi/import/ppc/preview', {
       method: 'POST',
       headers: getAuthHeaders(),

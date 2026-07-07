@@ -13,6 +13,7 @@ import { db } from '../db';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
+import { currentPlantDate, startOfDateFilter } from '../utils/dateOnly';
 const QUEUE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED'] as const;
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 const ORDER_STATUS_PRIORITY: Record<string, number> = {
@@ -184,7 +185,7 @@ export class LiveService {
     shiftCode?: string,
   ): Promise<LiveOrderRow[]> {
     const { SixHiQueueService, SixHiShiftService } = await import('./sixHi');
-    const defaultDate = planDate ?? new Date().toISOString().slice(0, 10);
+    const defaultDate = planDate ?? currentPlantDate();
     const defaultShift = shiftCode ?? 'B';
 
     let machines: string[];
@@ -393,12 +394,12 @@ export class LiveService {
     }
 
     // 3. Rejects for today (for shift summary)
-    const today = new Date().toISOString().slice(0, 10);
+    const today = currentPlantDate();
     const rejectedOrders = await db.selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['pb.machine_code', 'pb.ppc_weight_mt'])
       .where('o.status', '=', 'REJECTED')
-      .where('o.updated_at', '>=', new Date(today))
+      .where('o.updated_at', '>=', startOfDateFilter(today))
       .execute();
 
     const rejectsByMachine = new Map<string, { count: number, weightMt: number }>();

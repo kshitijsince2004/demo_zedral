@@ -15,7 +15,7 @@ import { MachineRegistryService } from './MachineRegistryService';
 import { MachineStateEventService } from './MachineStateEventService';
 import {
   ensureOrderMachineTransferTable,
-  loadRecentOrderMachineTransfers,
+  loadRecentOrderMachineTransfersGlobal,
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
 import {
@@ -297,10 +297,134 @@ export class SixHiService {
     return machineCtx;
   }
 
+  private static readonly NON_ASSIGNABLE_ORDER_STATUSES = new Set([
+    'COMPLETED',
+    'REJECTED',
+    'IN_PROGRESS',
+    'STOPPAGE',
+  ]);
+
+  /**
+   * Resolve plan date + shift for Order Assignment (unallocated batches).
+   * Unlike resolveQueueContext, this considers pending-assignment imports — not only
+   * machine_allocated rows used by operator queues.
+   */
+  static async resolveOrderAssignmentContext(
+    planDate: string,
+    shiftCode: string,
+  ): Promise<{ planDate: string; shiftCode: string }> {
+    const planDateObj = this.toPlanDate(planDate);
+    const nonAssignable = [...SixHiService.NON_ASSIGNABLE_ORDER_STATUSES];
+
+    const countUnallocated = async (date: string, shift: string): Promise<number> => {
+      const row = await db.selectFrom('planning.ppc_batch as pb')
+        .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+        .select(db.fn.countAll<number>().as('n'))
+        .where('pb.plan_date', '=', this.toPlanDate(date))
+        .where('pb.shift_code', '=', shift)
+        .where('pb.machine_allocated', '=', false)
+        .where((eb) => eb.or([
+          eb('o.status', 'is', null),
+          eb('o.status', 'not in', nonAssignable),
+        ]))
+        .executeTakeFirst();
+      return Number(row?.n ?? 0);
+    };
+
+    if (await countUnallocated(planDate, shiftCode) > 0) {
+      return { planDate, shiftCode };
+    }
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .select(['pb.shift_code', db.fn.countAll<number>().as('n')])
+      .where('pb.plan_date', '=', planDateObj)
+      .where('pb.machine_allocated', '=', false)
+      .where((eb) => eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'not in', nonAssignable),
+      ]))
+      .groupBy('pb.shift_code')
+      .orderBy('pb.shift_code', 'asc')
+      .execute();
+    for (const row of sameDateShifts) {
+      if (Number(row.n ?? 0) > 0) {
+        return { planDate, shiftCode: row.shift_code };
+      }
+    }
+
+    const latest = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .select(['pb.plan_date', 'pb.shift_code'])
+      .where('pb.machine_allocated', '=', false)
+      .where((eb) => eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'not in', nonAssignable),
+      ]))
+      .orderBy('pb.plan_date', 'desc')
+      .orderBy('pb.shift_code', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .limit(1)
+      .executeTakeFirst();
+    if (latest?.plan_date) {
+      return {
+        planDate: this.formatPlanDate(latest.plan_date),
+        shiftCode: latest.shift_code,
+      };
+    }
+
+    return { planDate, shiftCode };
+  }
+
   /** @deprecated Use resolveQueueContext */
   static async resolveQueueDate(planDate: string, shiftCode: string, subProcess: SixHiSubProcess): Promise<string> {
     const ctx = await this.resolveQueueContext(planDate, shiftCode, subProcess);
     return ctx.planDate;
+  }
+
+  private static readonly INCOMPLETE_ORDER_STATUSES = [
+    'PENDING',
+    'PREPARING',
+    'IN_PROGRESS',
+    'STOPPAGE',
+  ] as const;
+
+  private static async resolveShiftForViewDate(
+    planDate: string,
+    shiftCode: string,
+    subProcess: SixHiSubProcess,
+    machineCode: string,
+  ): Promise<string> {
+    const countForShift = async (shift: string): Promise<number> => {
+      const row = await db.selectFrom('planning.ppc_batch')
+        .select(db.fn.countAll<number>().as('n'))
+        .where('plan_date', '=', this.toPlanDate(planDate))
+        .where('shift_code', '=', shift)
+        .where('sub_process', '=', subProcess)
+        .where((eb) => eb.or([
+          eb.and([
+            eb('machine_code', '=', machineCode),
+            eb('machine_allocated', '=', true),
+          ]),
+          eb('machine_allocated', '=', false),
+        ]))
+        .executeTakeFirst();
+      return Number(row?.n ?? 0);
+    };
+
+    if (await countForShift(shiftCode) > 0) return shiftCode;
+
+    const sameDateShifts = await db.selectFrom('planning.ppc_batch')
+      .select(['shift_code', db.fn.countAll<number>().as('n')])
+      .where('plan_date', '=', this.toPlanDate(planDate))
+      .where('sub_process', '=', subProcess)
+      .groupBy('shift_code')
+      .orderBy('shift_code', 'asc')
+      .execute();
+    for (const row of sameDateShifts) {
+      if (Number(row.n ?? 0) > 0) return row.shift_code;
+    }
+    return shiftCode;
   }
 
   private static async buildQueueCard(
@@ -322,9 +446,12 @@ export class SixHiService {
       destination: string | null;
       roll_finish: string | null;
       ppc_reroll_flag: boolean | null;
+      plan_date: Date | string;
+      shift_code: string;
     },
     subProcess: SixHiSubProcess,
     queuePosition: number,
+    options?: { isBacklog?: boolean },
   ): Promise<SixHiQueueCard> {
     const order = await db.selectFrom('txn.crm6_order')
       .selectAll()
@@ -392,6 +519,9 @@ export class SixHiService {
       activeStoppageCategory,
       productionDurationMin: order?.prod_duration_min ?? undefined,
       prepReady,
+      planDate: this.formatPlanDate(b.plan_date),
+      shiftCode: b.shift_code,
+      isBacklog: options?.isBacklog ?? false,
     };
   }
 
@@ -406,13 +536,21 @@ export class SixHiService {
     machineCode: string;
     queue: SixHiQueueCard[];
     pendingAllocation: SixHiQueueCard[];
+    backlog: SixHiQueueCard[];
   }> {
-    const { planDate: effectiveDate, shiftCode: effectiveShift } =
-      await this.resolveQueueContext(planDate, shiftCode, subProcess, machineCode);
+    const viewDate = planDate;
+    const effectiveShift = await this.resolveShiftForViewDate(
+      viewDate,
+      shiftCode,
+      subProcess,
+      machineCode,
+    );
+    const viewDateObj = this.toPlanDate(viewDate);
+    const incomplete = [...SixHiService.INCOMPLETE_ORDER_STATUSES];
 
     const batches = await db.selectFrom('planning.ppc_batch as pb')
       .selectAll('pb')
-      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
+      .where('pb.plan_date', '=', viewDateObj)
       .where('pb.shift_code', '=', effectiveShift)
       .where('pb.machine_code', '=', machineCode)
       .where('pb.sub_process', '=', subProcess)
@@ -423,10 +561,31 @@ export class SixHiService {
 
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
       .selectAll('pb')
-      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
+      .where('pb.plan_date', '=', viewDateObj)
       .where('pb.shift_code', '=', effectiveShift)
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
+      .orderBy('pb.queue_seq', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    const backlogBatches = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .selectAll('pb')
+      .where('pb.plan_date', '<', viewDateObj)
+      .where('pb.sub_process', '=', subProcess)
+      .where((eb) => eb.or([
+        eb.and([
+          eb('pb.machine_code', '=', machineCode),
+          eb('pb.machine_allocated', '=', true),
+        ]),
+        eb('pb.machine_allocated', '=', false),
+      ]))
+      .where((eb) => eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'in', incomplete),
+      ]))
+      .orderBy('pb.plan_date', 'asc')
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
@@ -445,12 +604,20 @@ export class SixHiService {
       pendingAllocation.push(await this.buildQueueCard(b, subProcess, pendingPos));
     }
 
+    const backlog: SixHiQueueCard[] = [];
+    let backlogPos = 0;
+    for (const b of backlogBatches) {
+      backlogPos++;
+      backlog.push(await this.buildQueueCard(b, subProcess, backlogPos, { isBacklog: true }));
+    }
+
     return {
-      planDate: effectiveDate,
+      planDate: viewDate,
       shiftCode: effectiveShift,
       machineCode,
       queue: cards,
       pendingAllocation,
+      backlog,
     };
   }
 
@@ -579,33 +746,37 @@ export class SixHiService {
     return results;
   }
 
-  static async getOrderAssignmentBoard(planDate: string, shiftCode: string) {
-    const { planDate: effectiveDate, shiftCode: effectiveShift } =
-      await this.resolveQueueContext(planDate, shiftCode, 'ROLLING', '6HI');
+  static async getOrderAssignmentBoard() {
+    const nonAssignable = [...SixHiService.NON_ASSIGNABLE_ORDER_STATUSES];
 
     const batches = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
-      .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
-      .where('pb.shift_code', '=', effectiveShift)
-      .orderBy('pb.machine_allocated', 'asc')
+      .where('pb.machine_allocated', '=', false)
+      .where((eb) => eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'not in', nonAssignable),
+      ]))
+      .orderBy('pb.plan_date', 'asc')
+      .orderBy('pb.shift_code', 'asc')
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
     const orders = [];
     for (const b of batches) {
-      if (b.machine_allocated ?? true) continue;
-
       const subProcess = b.sub_process as SixHiSubProcess;
       const crmOrder = await db.selectFrom('txn.crm6_order')
         .select(['status'])
         .where('batch_id', '=', b.batch_id)
         .executeTakeFirst();
       const status = (crmOrder?.status as string) ?? 'PENDING';
-      if (['COMPLETED', 'REJECTED', 'IN_PROGRESS', 'STOPPAGE'].includes(status)) continue;
+      if (SixHiService.NON_ASSIGNABLE_ORDER_STATUSES.has(status)) continue;
 
       orders.push({
         batchNumber: b.batch_number,
+        planDate: this.formatPlanDate(b.plan_date),
+        shiftCode: b.shift_code,
         customer: b.customer_name,
         product: b.grade_code,
         quantityMt: Number(b.ppc_weight_mt),
@@ -618,22 +789,24 @@ export class SixHiService {
     }
 
     const crmMills = await MachineRegistryService.getCrmMills();
+    const activeStatuses = [...SixHiService.INCOMPLETE_ORDER_STATUSES];
     const machines = await Promise.all(
       crmMills.map(async (entry) => {
         const code = entry.machineCode;
-        const queueCount = await db.selectFrom('planning.ppc_batch')
+        const queueCount = await db.selectFrom('planning.ppc_batch as pb')
+          .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
           .select(db.fn.countAll<number>().as('cnt'))
-          .where('plan_date', '=', this.toPlanDate(effectiveDate))
-          .where('shift_code', '=', effectiveShift)
-          .where('machine_code', '=', code)
-          .where('machine_allocated', '=', true)
+          .where('pb.machine_code', '=', code)
+          .where('pb.machine_allocated', '=', true)
+          .where((eb) => eb.or([
+            eb('o.status', 'is', null),
+            eb('o.status', 'in', activeStatuses),
+          ]))
           .executeTakeFirst();
 
         const active = await db.selectFrom('txn.crm6_order as o')
           .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
           .select(['pb.batch_number'])
-          .where('pb.plan_date', '=', this.toPlanDate(effectiveDate))
-          .where('pb.shift_code', '=', effectiveShift)
           .where('pb.machine_code', '=', code)
           .where('o.status', '=', 'IN_PROGRESS')
           .executeTakeFirst();
@@ -649,14 +822,9 @@ export class SixHiService {
       }),
     );
 
-    const recentTransfers = await loadRecentOrderMachineTransfers(
-      this.toPlanDate(effectiveDate),
-      effectiveShift,
-    );
+    const recentTransfers = await loadRecentOrderMachineTransfersGlobal();
 
     return {
-      planDate: effectiveDate,
-      shiftCode: effectiveShift,
       orders,
       machines,
       recentTransfers,

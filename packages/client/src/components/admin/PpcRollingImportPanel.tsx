@@ -25,7 +25,6 @@ const OP_SELECT =
 export function PpcRollingImportPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [sheetType, setSheetType] = useState<PpcXlsxSheetType>('ROLLING');
-  const [shiftCode, setShiftCode] = useState('B');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [parsedSheetName, setParsedSheetName] = useState('');
   const [rows, setRows] = useState<PpcRollingPreviewRow[]>([]);
@@ -61,7 +60,7 @@ export function PpcRollingImportPanel() {
     setError(null);
     setCommitResult(null);
     try {
-      const result = await adminService.previewPpcRolling(file, sheetType, shiftCode);
+      const result = await adminService.previewPpcRolling(file, sheetType);
       setSessionId(result.sessionId);
       setParsedSheetName(result.sheetName ?? '');
       setRows(result.rows);
@@ -126,10 +125,10 @@ export function PpcRollingImportPanel() {
         <span className="font-mono">From Work Center</span> (X → 2HI, Y → 4HI, Z → 6HI) when present;
         otherwise rows default to 6HI. Skin-pass sheets use{' '}
         <span className="font-mono">SP thickness</span> / <span className="font-mono">SP Surface Finish</span>.
-        Plan date comes from the sheet; shift defaults below when the file has no shift column.
+        Plan date comes from the sheet; shift is derived automatically during import.
       </p>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3">
         <div>
           <label className={OP_LABEL}>Sheet to import</label>
           <select
@@ -142,18 +141,6 @@ export function PpcRollingImportPanel() {
                 {opt.label}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <label className={OP_LABEL}>Shift (when not in file)</label>
-          <select
-            value={shiftCode}
-            onChange={(e) => setShiftCode(e.target.value)}
-            className={OP_SELECT}
-          >
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
           </select>
         </div>
       </div>

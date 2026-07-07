@@ -17,6 +17,8 @@ import {
   PREVIEW_SESSION_TTL_MS,
 } from './previewSessionStore';
 import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
+import { currentPlantDate, parseDateOnly } from '../utils/dateOnly';
+import { ShiftDetectionService } from './ShiftDetectionService';
 
 interface PpcRow {
   batch_number: string;
@@ -195,7 +197,7 @@ export class PPCImportService {
     if (!counters.has(key)) {
       const maxSeq = await conn.selectFrom('planning.ppc_batch')
         .select(conn.fn.max('queue_seq').as('max_seq'))
-        .where('plan_date', '=', new Date(planDate))
+        .where('plan_date', '=', parseDateOnly(planDate))
         .where('shift_code', '=', shiftCode)
         .where('machine_code', '=', machineCode)
         .executeTakeFirst();
@@ -273,7 +275,7 @@ export class PPCImportService {
       .executeTakeFirst();
 
     const batchValues = {
-      plan_date: new Date(row.plan_date),
+      plan_date: parseDateOnly(row.plan_date),
       shift_code: row.shift_code,
       machine_code: row.machine_code,
       sub_process: row.sub_process,
@@ -332,7 +334,8 @@ export class PPCImportService {
   }
 
   static async importFromCsvText(fileName: string, csvText: string, userId: number) {
-    const parsed = parsePpcCsv(csvText);
+    const detectedShift = await ShiftDetectionService.getCurrentShift();
+    const parsed = parsePpcCsv(csvText, detectedShift.shiftCode);
     if (parsed.headerError) {
       return { headerError: parsed.headerError, batchId: null, status: 'FAILED' as const, loaded: 0, errors: [] };
     }
@@ -410,9 +413,9 @@ export class PPCImportService {
     fileName: string,
     userId: number,
     sheetType: PpcXlsxSheetType,
-    shiftCode: string,
   ) {
-    const parsed = parseRollingPlanXlsx(buffer, { sheetType, shiftCode });
+    const detectedShift = await ShiftDetectionService.getCurrentShift();
+    const parsed = parseRollingPlanXlsx(buffer, { sheetType, shiftCode: detectedShift.shiftCode });
     if (parsed.headerError) {
       return {
         headerError: parsed.headerError,
@@ -426,8 +429,8 @@ export class PPCImportService {
     }
 
     const sessionId = randomUUID();
-    const planDate = parsed.rows.find((r) => r.planDate)?.planDate ?? new Date().toISOString().slice(0, 10);
-    const effectiveShift = parsed.rows[0]?.shiftCode ?? shiftCode.toUpperCase();
+    const planDate = parsed.rows.find((r) => r.planDate)?.planDate ?? currentPlantDate();
+    const effectiveShift = parsed.rows[0]?.shiftCode ?? detectedShift.shiftCode.toUpperCase();
 
     previewSessionStore.set(sessionId, {
       sessionId,
@@ -603,7 +606,7 @@ export class PPCImportService {
       .executeTakeFirst();
 
     const batchValues = {
-      plan_date: new Date(row.planDate),
+      plan_date: parseDateOnly(row.planDate),
       shift_code: row.shiftCode,
       machine_code: row.machineCode,
       sub_process: row.subProcess,

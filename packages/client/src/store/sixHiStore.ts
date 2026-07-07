@@ -103,7 +103,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     set({ workspaceOpen: true, workspaceBatch: batchNo });
     void get().loadPanelOrder(batchNo);
   },
-  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null, combinedRun: null }),
+  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null }),
   setPanelOrder: (order) => set({ panelOrder: order }),
   setMachineActive: (active) => set({ machineActive: active }),
   setShiftSummary: (summary) => set({ shiftSummary: summary }),
@@ -140,7 +140,13 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     try {
       const mc = get().machineCode;
       const active = await apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`);
-      set({ machineActive: active });
+      const combinedRun = get().combinedRun;
+      const nextCombinedRun = active && combinedRun?.batchNumbers.includes(active.batchNumber)
+        ? combinedRun
+        : active
+          ? null
+          : null;
+      set({ machineActive: active, combinedRun: nextCombinedRun });
       if (active?.batchNumber) {
         const { workspaceOpen, workspaceBatch } = get();
         if (!workspaceOpen || workspaceBatch === active.batchNumber) {

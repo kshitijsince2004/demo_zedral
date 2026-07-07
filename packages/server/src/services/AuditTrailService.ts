@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { isAuditPersistenceEnabled } from '../audit/auditConfig';
+import { endOfDateFilter, startOfDateFilter } from '../utils/dateOnly';
 
 /** M1-08 baseline audit_log row shape (matches doc/M1_schema.sql). */
 export interface AuditLogEntry {
@@ -64,8 +65,10 @@ export class AuditTrailService {
     }
     
     // Default 90 days if not provided
-    const toDate = filters.to ? new Date(filters.to) : new Date();
-    const fromDate = filters.from ? new Date(filters.from) : new Date(toDate.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const toDate = filters.to ? endOfDateFilter(filters.to) : new Date();
+    const fromDate = filters.from
+      ? startOfDateFilter(filters.from)
+      : new Date(toDate.getTime() - 90 * 24 * 60 * 60 * 1000);
     
     q = q.where('ts', '>=', fromDate).where('ts', '<=', toDate);
     countQ = countQ.where('ts', '>=', fromDate).where('ts', '<=', toDate);

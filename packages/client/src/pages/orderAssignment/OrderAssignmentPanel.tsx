@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
-import { useShiftStore } from '../../store/shiftStore';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
@@ -9,6 +8,8 @@ import { FieldWrapper } from '../../components/forms/FieldWrapper';
 
 type AssignmentOrder = {
   batchNumber: string;
+  planDate: string;
+  shiftCode: string;
   customer: string;
   product: string;
   quantityMt: number;
@@ -41,8 +42,6 @@ type TransferAudit = {
 };
 
 type AssignmentBoard = {
-  planDate: string;
-  shiftCode: string;
   orders: AssignmentOrder[];
   machines: AssignmentMachine[];
   recentTransfers: TransferAudit[];
@@ -61,10 +60,6 @@ function canTransferOrder(order: AssignmentOrder): boolean {
 }
 
 export function OrderAssignmentPanel() {
-  const { shiftDate, shiftCode } = useShiftStore();
-  const date = shiftDate || new Date().toISOString().slice(0, 10);
-  const shift = shiftCode || 'A';
-
   const [board, setBoard] = useState<AssignmentBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,16 +75,14 @@ export function OrderAssignmentPanel() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiClient.get<AssignmentBoard>(
-        `/6hi/order-assignment?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`,
-      );
+      const data = await apiClient.get<AssignmentBoard>('/6hi/order-assignment');
       setBoard(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
       setLoading(false);
     }
-  }, [date, shift]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -188,11 +181,8 @@ export function OrderAssignmentPanel() {
   return (
     <div className="flex flex-col gap-4 min-h-0 flex-1">
       <div className="shrink-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Plan {board?.planDate ?? date} · Shift {board?.shiftCode ?? shift}
-        </p>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Assign or bulk-transfer orders using live machine registry data.
+        <p className="text-sm text-muted-foreground">
+          All importable PPC orders across every plan date and shift. Assign or bulk-transfer using live machine registry data.
         </p>
       </div>
 
@@ -237,7 +227,7 @@ export function OrderAssignmentPanel() {
               <p className="text-center text-muted-foreground py-12 text-sm">Loading orders…</p>
             )}
             {!loading && filteredOrders.length === 0 && (
-              <p className="text-center text-muted-foreground py-12 text-sm">No orders for this shift</p>
+              <p className="text-center text-muted-foreground py-12 text-sm">No importable orders in the PPC plan</p>
             )}
             {filteredOrders.map((order) => {
               const isSelected = selectedBatches.has(order.batchNumber);
@@ -285,6 +275,9 @@ export function OrderAssignmentPanel() {
                       <span className="truncate">{order.product}</span>
                       <span>{order.quantityMt} MT</span>
                       <span className="font-semibold text-foreground">{machineLabel}</span>
+                      <span className="font-mono col-span-2 md:col-span-4">
+                        Plan {order.planDate} · Shift {order.shiftCode}
+                      </span>
                     </div>
                     {!canTransferOrder(order) && (
                       <p className="text-xs text-warning font-medium mt-1">

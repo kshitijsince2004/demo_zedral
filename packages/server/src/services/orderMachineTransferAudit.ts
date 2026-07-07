@@ -76,6 +76,30 @@ export async function recordOrderMachineTransfer(
   `.execute(executor);
 }
 
+function mapTransferRows(rows: {
+  transfer_id: string;
+  batch_number: string;
+  source_machine_code: string;
+  destination_machine_code: string;
+  sub_process: string;
+  reason: string | null;
+  transferred_at: Date;
+  assigned_by_name: string | null;
+  transfer_type: string;
+}[]): OrderMachineTransferRow[] {
+  return rows.map((r) => ({
+    transferId: String(r.transfer_id),
+    batchNumber: r.batch_number,
+    fromMachine: r.source_machine_code,
+    toMachine: r.destination_machine_code,
+    subProcess: r.sub_process,
+    reason: r.reason ?? undefined,
+    assignedBy: r.assigned_by_name ?? 'Unknown',
+    transferredAt: r.transferred_at.toISOString(),
+    transferType: r.transfer_type ?? 'SINGLE',
+  }));
+}
+
 export async function loadRecentOrderMachineTransfers(
   planDate: Date,
   shiftCode: string,
@@ -108,15 +132,32 @@ export async function loadRecentOrderMachineTransfers(
     LIMIT ${limit}
   `.execute(db);
 
-  return result.rows.map((r) => ({
-    transferId: String(r.transfer_id),
-    batchNumber: r.batch_number,
-    fromMachine: r.source_machine_code,
-    toMachine: r.destination_machine_code,
-    subProcess: r.sub_process,
-    reason: r.reason ?? undefined,
-    assignedBy: r.assigned_by_name ?? 'Unknown',
-    transferredAt: r.transferred_at.toISOString(),
-    transferType: r.transfer_type ?? 'SINGLE',
-  }));
+  return mapTransferRows(result.rows);
+}
+
+export async function loadRecentOrderMachineTransfersGlobal(
+  limit = 50,
+): Promise<OrderMachineTransferRow[]> {
+  await ensureOrderMachineTransferTable();
+  const result = await sql<{
+    transfer_id: string;
+    batch_number: string;
+    source_machine_code: string;
+    destination_machine_code: string;
+    sub_process: string;
+    reason: string | null;
+    transferred_at: Date;
+    assigned_by_name: string | null;
+    transfer_type: string;
+  }>`
+    SELECT t.transfer_id, t.batch_number, t.source_machine_code, t.destination_machine_code,
+           t.sub_process, t.reason, t.transferred_at, t.transfer_type,
+           u.full_name AS assigned_by_name
+    FROM txn.order_machine_transfer t
+    LEFT JOIN security.app_user u ON u.user_id = t.assigned_by
+    ORDER BY t.transferred_at DESC
+    LIMIT ${limit}
+  `.execute(db);
+
+  return mapTransferRows(result.rows);
 }

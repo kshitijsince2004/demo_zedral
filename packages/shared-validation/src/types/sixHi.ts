@@ -102,6 +102,13 @@ export interface SixHiQueueCard {
   /** PENDING order with saved production draft (operator prepared before start). */
   prepReady?: boolean;
 
+  planDate?: string;
+
+  shiftCode?: string;
+
+  /** Incomplete order from a plan date before the operator's selected view date. */
+  isBacklog?: boolean;
+
 }
 
 

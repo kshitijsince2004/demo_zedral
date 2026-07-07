@@ -5,10 +5,12 @@ import {
   hubTabsForMill,
   normalizeMillTab,
 } from '../../lib/millConfig';
+import { currentPlantDate } from '../../lib/dateFormat';
 import { Search, RefreshCw } from 'lucide-react';
 import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiPillTabs } from '../../components/sixHi/SixHiPillTabs';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
+import { SixHiBacklogBadge } from '../../components/sixHi/SixHiBacklogBadge';
 import { SixHiBatchDetailPanel } from '../../components/sixHi/SixHiBatchDetailPanel';
 import { MachineAllocationModal, type CrmMillCode, type MachineAllocationMode } from '../../components/sixHi/MachineAllocationModal';
 import { invalidateMachineRegistryCache } from '../../lib/machineRegistry';
@@ -55,7 +57,7 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { shiftDate, shiftCode } = useShiftStore();
+  const { shiftCode } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
@@ -68,6 +70,8 @@ export function SixHiHub() {
 
   const [queue, setQueue] = useState<SixHiQueueCard[]>([]);
   const [pendingQueue, setPendingQueue] = useState<SixHiQueueCard[]>([]);
+  const [backlogQueue, setBacklogQueue] = useState<SixHiQueueCard[]>([]);
+  const [viewDate, setViewDate] = useState(currentPlantDate());
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
   const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
@@ -81,7 +85,7 @@ export function SixHiHub() {
   const [isCombineMode, setIsCombineMode] = useState(false);
   const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
 
-  const date = shiftDate || new Date().toISOString().slice(0, 10);
+  const date = viewDate;
   const shift = shiftCode || 'A';
   const queueMachine = pathMachine;
   const userRoles = useAuthStore((s) => s.user?.roles || []);
@@ -113,14 +117,10 @@ export function SixHiHub() {
       );
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
-      if (!Array.isArray(res) && res.planDate) {
-        useShiftStore.setState({
-          shiftDate: res.planDate,
-          shiftCode: (res.shiftCode ?? shift) as 'A' | 'B' | 'C',
-        });
-      }
+      const backlog: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.backlog ?? []);
       setQueue(items);
       setPendingQueue(pending);
+      setBacklogQueue(backlog);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         logout();
@@ -134,6 +134,7 @@ export function SixHiHub() {
       }
       setQueue([]);
       setPendingQueue([]);
+      setBacklogQueue([]);
     } finally {
       setLoading(false);
     }
@@ -145,7 +146,10 @@ export function SixHiHub() {
     return () => clearInterval(id);
   }, [loadQueue, queueRefreshToken]);
 
-  const allOrders = useMemo(() => [...pendingQueue, ...queue], [pendingQueue, queue]);
+  const allOrders = useMemo(
+    () => [...backlogQueue, ...pendingQueue, ...queue],
+    [backlogQueue, pendingQueue, queue],
+  );
 
   useEffect(() => {
     const filtered = statusFilter === 'ALL' ? allOrders : allOrders.filter((c) => matchesFilter(c, statusFilter));
@@ -171,6 +175,11 @@ export function SixHiHub() {
   const filteredQueue = useMemo(
     () => allOrders.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
     [allOrders, statusFilter, search],
+  );
+
+  const filteredBacklog = useMemo(
+    () => backlogQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
+    [backlogQueue, statusFilter, search],
   );
 
   const filteredPending = useMemo(
@@ -313,7 +322,7 @@ export function SixHiHub() {
     await loadQueue();
   };
 
-  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean }) => {
+  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean; backlog?: boolean }) => {
     const isSelected = isTransferMode
       ? selectedForTransfer.has(card.batchNumber)
       : isCombineMode
@@ -352,6 +361,7 @@ export function SixHiHub() {
           isSelected && isCombineMode ? 'bg-success/10 border-l-4 border-l-success' : '',
           isActive ? 'ring-1 ring-inset ring-warning/30' : '',
           opts?.pending ? 'bg-secondary/40' : '',
+          card.isBacklog ? 'bg-destructive/5' : '',
         ].join(' ')}
       >
         <div className="flex items-center justify-between gap-3 mb-2">
@@ -362,6 +372,7 @@ export function SixHiHub() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {card.isBacklog && <SixHiBacklogBadge planDate={card.planDate} />}
             {isCombineMode && (
               <span className={[
                 'h-6 w-6 rounded-md border flex items-center justify-center text-xs font-bold',
@@ -404,7 +415,19 @@ export function SixHiHub() {
         title="Orders"
         subtitle={`${queueMachine} Mill · Shift ${shift} · ${date} · ${subProcessLabel}`}
         actions={
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap justify-end">
+            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Date
+              <input
+                type="date"
+                value={viewDate}
+                onChange={(e) => {
+                  setViewDate(e.target.value || currentPlantDate());
+                  setSelectedBatch(null);
+                }}
+                className="min-h-9 rounded-md border border-border bg-white px-3 text-sm font-mono text-foreground normal-case tracking-normal"
+              />
+            </label>
             {canTransfer && (
               <button
                 type="button"
@@ -494,6 +517,16 @@ export function SixHiHub() {
               <div className="text-center py-12 px-6">
                 <p className="text-muted-foreground text-base mb-2">No orders match this filter</p>
               </div>
+            )}
+            {!loading && filteredBacklog.length > 0 && (
+              <>
+                <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
+                    Backlog · {filteredBacklog.length}
+                  </p>
+                </div>
+                {filteredBacklog.map((card) => renderQueueRow(card, { backlog: true }))}
+              </>
             )}
             {!loading && filteredPending.length > 0 && (
               <>

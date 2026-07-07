@@ -3,6 +3,7 @@ import { ShiftDetectionService, resolveShiftFromClock } from './ShiftDetectionSe
 import { ShiftAttributionService } from './ShiftAttributionService';
 import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { MachineHandoverService } from './MachineHandoverService';
+import { formatDateOnly, parseDateOnly } from '../utils/dateOnly';
 
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
 
@@ -15,9 +16,9 @@ export interface BoundaryShiftContext {
 
 function previousShift(shiftCode: string, prodDate: string): { shiftCode: string; prodDate: string } {
   if (shiftCode === 'A') {
-    const d = new Date(prodDate);
+    const d = parseDateOnly(prodDate);
     d.setDate(d.getDate() - 1);
-    return { shiftCode: 'C', prodDate: d.toISOString().slice(0, 10) };
+    return { shiftCode: 'C', prodDate: formatDateOnly(d) };
   }
   if (shiftCode === 'B') return { shiftCode: 'A', prodDate };
   if (shiftCode === 'C') return { shiftCode: 'B', prodDate };

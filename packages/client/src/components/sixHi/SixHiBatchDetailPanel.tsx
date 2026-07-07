@@ -1,5 +1,6 @@
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
+import { SixHiBacklogBadge } from './SixHiBacklogBadge';
 import { ZButton } from '../primitives/ZButton';
 import { ArrowRightLeft, Play } from 'lucide-react';
 import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
@@ -47,6 +48,10 @@ export function SixHiBatchDetailPanel({
     ['Weight', `${batch.weightMt} Metric Tons`, true],
   ];
 
+  if (batch.planDate) {
+    fields.splice(1, 0, ['Planned Date', `${batch.planDate}${batch.shiftCode ? ` · Shift ${batch.shiftCode}` : ''}`]);
+  }
+
   if (batch.machineAllocated === false) {
     const hint = batch.suggestedMachineCode;
     fields.splice(1, 0, ['Assigned Mill', hint ? `Unassigned · hint ${hint}` : 'Unassigned — select mill']);
@@ -76,11 +81,16 @@ export function SixHiBatchDetailPanel({
   return (
     <div className="bg-white border border-border rounded-2xl h-full flex flex-col shadow-sm overflow-hidden">
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border/60">
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
-        <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{primaryOrderId(batch)}</h2>
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
-          Select ID {selectIdOf(batch)} · Batch {batch.batchNumber}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
+            <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{primaryOrderId(batch)}</h2>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
+              Select ID {selectIdOf(batch)} · Batch {batch.batchNumber}
+            </p>
+          </div>
+          {batch.isBacklog && <SixHiBacklogBadge planDate={batch.planDate} large />}
+        </div>
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 flex-1 min-h-0 overflow-y-auto content-start">

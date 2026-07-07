@@ -13,6 +13,7 @@ import {
   parseDrilldownPage,
   parsePlantHeadDrilldownMetric,
 } from '../reporting/plantHeadDrilldown';
+import { currentPlantDate } from '../utils/dateOnly';
 
 const router = Router();
 router.use(require('express').json());
@@ -129,7 +130,7 @@ router.get('/drilldown', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, 
 
 router.get('/daily', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
-    const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+    const date = (req.query.date as string) || currentPlantDate();
     const data = await DailyReportService.getDailyReport(date);
     res.json(data);
   } catch (error: any) {

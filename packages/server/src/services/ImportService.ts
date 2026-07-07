@@ -9,6 +9,7 @@ import {
   rowsToErrorCsv,
 } from '../utils/csvParser';
 import { ImportRowError, validateImportRow } from './importRowValidator';
+import { parseDateOnly } from '../utils/dateOnly';
 
 export type ImportSource = 'CSV' | 'SAP' | 'MANUAL' | 'XLSX';
 export type ImportBatchStatus = 'PENDING' | 'VALIDATED' | 'LOADED' | 'FAILED' | 'PARTIAL';
@@ -345,7 +346,7 @@ export class ImportService {
   }
 
   /** Plans for a process/date — uses documented planning tables. */
-  static async getPlansByProcess(processCode: string, targetDate: Date) {
+  static async getPlansByProcess(processCode: string, targetDate: string | Date) {
     const process = await db
       .selectFrom('master.process')
       .select('process_id')
@@ -354,7 +355,7 @@ export class ImportService {
 
     if (!process) return [];
 
-    const day = new Date(targetDate.toISOString().split('T')[0]);
+    const day = parseDateOnly(targetDate);
 
     return db
       .selectFrom('planning.coil_plan as cp')

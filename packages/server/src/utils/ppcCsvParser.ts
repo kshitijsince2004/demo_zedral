@@ -123,7 +123,7 @@ export interface PPCParseResult {
   rowErrors: { row: number; message: string }[];
 }
 
-export function parsePpcCsv(csvText: string): PPCParseResult {
+export function parsePpcCsv(csvText: string, defaultShiftCode = 'B'): PPCParseResult {
   const table = tokenizeCsvText(csvText.trim());
   if (table.length < 2) {
     return { rows: [], headerError: 'CSV must have a header row and at least one data row', rowErrors: [] };
@@ -133,7 +133,7 @@ export function parsePpcCsv(csvText: string): PPCParseResult {
   const colMap: (keyof PPCImportRow | null)[] = headers.map(normalizeHeader);
 
   const required: (keyof PPCImportRow)[] = [
-    'batch_number', 'plan_date', 'shift_code', 'machine_code', 'sub_process',
+    'batch_number', 'plan_date', 'machine_code', 'sub_process',
     'coil_no', 'customer_name', 'grade_code', 'width_mm', 'ppc_thk_mm', 'ppc_weight_mt',
   ];
 
@@ -178,14 +178,16 @@ export function parsePpcCsv(csvText: string): PPCParseResult {
     }
     if (raw.shift_code) {
       raw.shift_code = String(raw.shift_code).trim().toUpperCase();
+    } else {
+      raw.shift_code = defaultShiftCode.trim().toUpperCase();
     }
 
     if (!raw.batch_number) {
       rowErrors.push({ row: rowNum, message: 'batch_number is required' });
       continue;
     }
-    if (!raw.plan_date || !raw.shift_code || !raw.machine_code || !raw.sub_process) {
-      rowErrors.push({ row: rowNum, message: 'date, shift, machine, and process are required' });
+    if (!raw.plan_date || !raw.machine_code || !raw.sub_process) {
+      rowErrors.push({ row: rowNum, message: 'date, machine, and process are required' });
       continue;
     }
     if (!['ROLLING', 'SKIN_PASS'].includes(raw.sub_process)) {

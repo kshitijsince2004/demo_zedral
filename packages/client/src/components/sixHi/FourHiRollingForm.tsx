@@ -12,6 +12,8 @@ interface RollingWorkspaceProps {
   compact?: boolean;
 }
 
+type RollingDecimalField = 'actualWeightMt' | 'etr' | 'dtr';
+
 function buildInitialRolling(order: SixHiOrderDetail): SixHiRollingData {
   const ppcDest = order.ppcDestination ?? 'ANNEALING';
   if (order.rolling) return order.rolling;
@@ -34,11 +36,31 @@ function buildInitialRolling(order: SixHiOrderDetail): SixHiRollingData {
   };
 }
 
+function toDraft(value?: number): string {
+  return value == null ? '' : String(value);
+}
+
+function isDecimalDraft(value: string): boolean {
+  return /^(\d+(\.\d*)?|\.\d*)?$/.test(value.trim());
+}
+
+function parseDecimalDraft(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '.') return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorkspaceProps) {
   const ppcDest = order.ppcDestination ?? 'ANNEALING';
   const initial = buildInitialRolling(order);
 
   const [data, setData] = useState<SixHiRollingData>(initial);
+  const [drafts, setDrafts] = useState<Record<RollingDecimalField, string>>({
+    actualWeightMt: toDraft(initial.actualWeightMt),
+    etr: toDraft(initial.etr),
+    dtr: toDraft(initial.dtr),
+  });
   const [overrideDest, setOverrideDest] = useState(initial.destinationOverride);
   const locked = order.status === 'COMPLETED';
   const effectiveDest = overrideDest ? data.destination : ppcDest;
@@ -60,6 +82,27 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
       ? 'Re-roll'
       : null;
 
+  const updateDecimalDraft = (field: RollingDecimalField, raw: string) => {
+    if (!isDecimalDraft(raw)) return;
+    setDrafts((prev) => ({ ...prev, [field]: raw }));
+
+    if (raw.trim() && !raw.endsWith('.')) {
+      const parsed = parseDecimalDraft(raw);
+      setData((prev) => ({ ...prev, [field]: parsed }));
+      return;
+    }
+
+    if (!raw.trim() || raw === '.') {
+      setData((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const commitDecimalDraft = (field: RollingDecimalField) => {
+    const parsed = parseDecimalDraft(drafts[field]);
+    setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
+    setData((prev) => ({ ...prev, [field]: parsed }));
+  };
+
   if (compact) {
     return (
       <div className="flex flex-col min-h-0 flex-1 h-full">
@@ -79,8 +122,9 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
                 inputMode="decimal"
                 enterKeyHint="next"
                 autoComplete="off"
-                value={data.actualWeightMt ?? ''}
-                onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })}
+                value={drafts.actualWeightMt}
+                onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)}
+                onBlur={() => commitDecimalDraft('actualWeightMt')}
                 className="min-h-14 text-xl"
                 disabled={locked}
               />
@@ -113,10 +157,10 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
             {effectiveDest === 'ANNEALING' && (
               <div className="grid grid-cols-2 gap-1.5">
                 <FieldWrapper label="Entry Tension">
-                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.etr ?? ''} onChange={(e) => setData({ ...data, etr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
+                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.etr} onChange={(e) => updateDecimalDraft('etr', e.target.value)} onBlur={() => commitDecimalDraft('etr')} className="min-h-11 text-base" disabled={locked} />
                 </FieldWrapper>
                 <FieldWrapper label="Delivery Tension">
-                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.dtr ?? ''} onChange={(e) => setData({ ...data, dtr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-11 text-base" disabled={locked} />
+                  <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.dtr} onChange={(e) => updateDecimalDraft('dtr', e.target.value)} onBlur={() => commitDecimalDraft('dtr')} className="min-h-11 text-base" disabled={locked} />
                 </FieldWrapper>
               </div>
             )}
@@ -156,7 +200,7 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
       </div>
       <div className="bg-white border border-border rounded-2xl p-4">
         <FieldWrapper label="Actual Weight (Metric Tons)">
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={data.actualWeightMt ?? ''} onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} />
+          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
         </FieldWrapper>
       </div>
       <PassTracker passes={data.passes} onChange={(passes) => setData({ ...data, passes })} disabled={locked} />
@@ -181,8 +225,8 @@ export function FourHiRollingForm({ order, onSave, busy, compact }: RollingWorks
         )}
         {data.destination === 'ANNEALING' && (
           <div className="grid grid-cols-2 gap-3">
-            <FieldWrapper label="Entry Tension"><ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.etr ?? ''} onChange={(e) => setData({ ...data, etr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} /></FieldWrapper>
-            <FieldWrapper label="Delivery Tension"><ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.dtr ?? ''} onChange={(e) => setData({ ...data, dtr: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} /></FieldWrapper>
+            <FieldWrapper label="Entry Tension"><ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.etr} onChange={(e) => updateDecimalDraft('etr', e.target.value)} onBlur={() => commitDecimalDraft('etr')} className="min-h-14 text-lg" disabled={locked} /></FieldWrapper>
+            <FieldWrapper label="Delivery Tension"><ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.dtr} onChange={(e) => updateDecimalDraft('dtr', e.target.value)} onBlur={() => commitDecimalDraft('dtr')} className="min-h-14 text-lg" disabled={locked} /></FieldWrapper>
           </div>
         )}
         {data.destination === 'REWINDING' && (

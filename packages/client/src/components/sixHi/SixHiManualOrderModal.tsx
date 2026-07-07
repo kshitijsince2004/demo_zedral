@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore } from '../../store/sixHiStore';
+import { currentPlantDate } from '../../lib/dateFormat';
 import { millSupportsRolling } from '../../lib/millConfig';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { ZButton } from '../primitives/ZButton';
@@ -59,7 +60,7 @@ export function SixHiManualOrderModal() {
     try {
       const payload = {
         batch_number: form.batch_number.trim(),
-        plan_date: shiftDate || new Date().toISOString().slice(0, 10),
+        plan_date: shiftDate || currentPlantDate(),
         shift_code: shiftCode || 'A',
         machine_code: machineCode,
         sub_process: millSupportsRolling(machineCode) ? form.sub_process : 'SKIN_PASS',

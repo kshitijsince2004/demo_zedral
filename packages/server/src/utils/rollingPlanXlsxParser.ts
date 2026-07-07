@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { translatePpcRoute } from './PpcRouteTranslator';
+import { currentPlantDate, formatDateOnly } from './dateOnly';
 
 export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING';
 export type PpcMillCode = '6HI' | '4HI' | '2HI';
@@ -174,7 +175,7 @@ function excelDateToIso(val: unknown): string | null {
   const s = String(val).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  if (!isNaN(d.getTime())) return formatDateOnly(d);
   return null;
 }
 
@@ -327,7 +328,7 @@ export function parseRollingPlanXlsx(
     rows.push({
       rowNum: i + 1,
       batchNumber,
-      planDate: planDateIso ?? new Date().toISOString().slice(0, 10),
+      planDate: planDateIso ?? currentPlantDate(),
       shiftCode,
       machineCode,
       subProcess,

@@ -21,8 +21,10 @@ import {
   SixHiShiftService,
   SixHiStoppageService,
 } from '../services/sixHi';
+import { currentPlantDate } from '../utils/dateOnly';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
+import { ShiftDetectionService } from '../services/ShiftDetectionService';
 import multer from 'multer';
 
 const router = Router();
@@ -32,6 +34,13 @@ function respondSixHiServerError(res: import('express').Response, context: strin
   console.error(`${context}:`, error);
   const message = error instanceof Error ? error.message : 'Import failed';
   res.status(500).json({ error: message });
+}
+
+async function shiftCodeFromQueryOrCurrent(rawShift: unknown, userId: number): Promise<string> {
+  const explicit = String(rawShift ?? '').trim().toUpperCase();
+  if (explicit) return explicit;
+  const detected = await ShiftDetectionService.getCurrentShift({ userId });
+  return detected.shiftCode.toUpperCase();
 }
 
 function requireSixHi(operation: LineAccessLevel) {
@@ -73,13 +82,11 @@ router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole(
       : sheetTypeRaw === 'REWINDING' ? 'REWINDING'
       : sheetTypeRaw === 'ANNEALING' ? 'ANNEALING'
       : 'ROLLING';
-    const shiftCode = String(req.body?.shiftCode ?? 'B').toUpperCase();
     const result = await PPCImportService.previewRollingXlsx(
       req.file.buffer,
       req.file.originalname,
       req.user!.id,
       sheetType,
-      shiftCode,
     );
     if (result.headerError) return res.status(400).json({ error: result.headerError });
     res.status(201).json(result);
@@ -233,8 +240,9 @@ router.get('/active-order', requireSixHi('READ'), async (req, res) => {
 router.get('/queue', requireSixHi('READ'), async (req, res) => {
   try {
     const subProcess = String(req.query.subProcess ?? 'ROLLING').toUpperCase().replace(' ', '_');
-    const planDate = String(req.query.date ?? new Date().toISOString().slice(0, 10));
-    const shiftCode = String(req.query.shift ?? 'B').toUpperCase();
+    const detectedShift = shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id);
+    const planDate = String(req.query.date ?? currentPlantDate());
+    const shiftCode = await detectedShift;
     const machine = String(req.query.machine ?? '6HI').toUpperCase();
     if (!['ROLLING', 'SKIN_PASS'].includes(subProcess)) {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
@@ -298,9 +306,7 @@ router.get(
   requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
   async (req, res) => {
     try {
-      const planDate = String(req.query.date ?? new Date().toISOString().slice(0, 10));
-      const shiftCode = String(req.query.shift ?? 'A');
-      const board = await SixHiQueueService.getOrderAssignmentBoard(planDate, shiftCode);
+      const board = await SixHiQueueService.getOrderAssignmentBoard();
       res.json(board);
     } catch (e: unknown) {
       res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load order assignment' });

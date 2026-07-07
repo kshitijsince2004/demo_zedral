@@ -13,6 +13,7 @@ import {
   resolveColumns,
 } from './registerDictionary';
 import { ASYNC_ROW_THRESHOLD } from '../jobs/ExportJobService';
+import { currentPlantDate } from '../../utils/dateOnly';
 
 export const RawRegisterReport: ReportDefinition = {
   id: 'RAW',
@@ -55,7 +56,7 @@ export const RawRegisterReport: ReportDefinition = {
       ?? parseRawScope(scope).processId
       ?? 'MULTI';
     const ext = format === 'XLSX' ? 'xlsx' : 'csv';
-    const today = new Date().toISOString().slice(0, 10);
+    const today = currentPlantDate();
 
     if (useStreaming) {
       return {

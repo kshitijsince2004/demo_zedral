@@ -5,6 +5,13 @@ import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 
 type SkinPassMetric = 'ANN_HARD' | 'RW_TENSION';
+type SkinPassDecimalField =
+  | 'outputThkMm'
+  | 'actualWeightMt'
+  | 'annHard'
+  | 'loadMinT'
+  | 'loadMaxT'
+  | 'stretchPct';
 
 interface SkinPassWorkspaceProps {
   order: SixHiOrderDetail;
@@ -49,6 +56,21 @@ function prepareSaveData(data: SixHiSkinPassData, metric: SkinPassMetric): SixHi
   return { ...data, annHard: undefined };
 }
 
+function toDraft(value?: number): string {
+  return value == null ? '' : String(value);
+}
+
+function isDecimalDraft(value: string): boolean {
+  return /^(\d+(\.\d*)?|\.\d*)?$/.test(value.trim());
+}
+
+function parseDecimalDraft(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '.') return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function MetricToggle({
   metric,
   onChange,
@@ -85,6 +107,14 @@ function MetricToggle({
 
 export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWorkspaceProps) {
   const [data, setData] = useState<SixHiSkinPassData>(order.skinPass ?? {});
+  const [drafts, setDrafts] = useState<Record<SkinPassDecimalField, string>>({
+    outputThkMm: toDraft(order.skinPass?.outputThkMm),
+    actualWeightMt: toDraft(order.skinPass?.actualWeightMt),
+    annHard: toDraft(order.skinPass?.annHard),
+    loadMinT: toDraft(order.skinPass?.loadMinT),
+    loadMaxT: toDraft(order.skinPass?.loadMaxT),
+    stretchPct: toDraft(order.skinPass?.stretchPct),
+  });
   const [metric, setMetric] = useState<SkinPassMetric>(() => initialMetricChoice(order.skinPass));
   const [rwTensionInput, setRwTensionInput] = useState(() =>
     formatRwTension(order.skinPass?.rwTension1, order.skinPass?.rwTension2),
@@ -97,6 +127,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
       setRwTensionInput('');
       setData((prev) => ({ ...prev, rwTension1: undefined, rwTension2: undefined }));
     } else {
+      setDrafts((prev) => ({ ...prev, annHard: '' }));
       setData((prev) => ({ ...prev, annHard: undefined }));
     }
   };
@@ -104,6 +135,27 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
   const updateRwTensionInput = (value: string) => {
     setRwTensionInput(value);
     setData((prev) => ({ ...prev, ...parseRwTension(value) }));
+  };
+
+  const updateDecimalDraft = (field: SkinPassDecimalField, raw: string) => {
+    if (!isDecimalDraft(raw)) return;
+    setDrafts((prev) => ({ ...prev, [field]: raw }));
+
+    if (raw.trim() && !raw.endsWith('.')) {
+      const parsed = parseDecimalDraft(raw);
+      setData((prev) => ({ ...prev, [field]: parsed }));
+      return;
+    }
+
+    if (!raw.trim() || raw === '.') {
+      setData((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const commitDecimalDraft = (field: SkinPassDecimalField) => {
+    const parsed = parseDecimalDraft(drafts[field]);
+    setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
+    setData((prev) => ({ ...prev, [field]: parsed }));
   };
 
   const save = () => {
@@ -132,8 +184,9 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
               inputMode="decimal"
               enterKeyHint="next"
               autoComplete="off"
-              value={data.outputThkMm ?? ''}
-              onChange={(e) => setData({ ...data, outputThkMm: e.target.value ? Number(e.target.value) : undefined })}
+              value={drafts.outputThkMm}
+              onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)}
+              onBlur={() => commitDecimalDraft('outputThkMm')}
               className="min-h-12 text-lg"
               disabled={locked}
             />
@@ -144,8 +197,9 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
               inputMode="decimal"
               enterKeyHint="next"
               autoComplete="off"
-              value={data.actualWeightMt ?? ''}
-              onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })}
+              value={drafts.actualWeightMt}
+              onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)}
+              onBlur={() => commitDecimalDraft('actualWeightMt')}
               className="min-h-12 text-lg"
               disabled={locked}
             />
@@ -157,8 +211,9 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
                 type="number"
                 inputMode="decimal"
                 enterKeyHint="next"
-                value={data.annHard ?? ''}
-                onChange={(e) => setData({ ...data, annHard: e.target.value ? Number(e.target.value) : undefined })}
+                value={drafts.annHard}
+                onChange={(e) => updateDecimalDraft('annHard', e.target.value)}
+                onBlur={() => commitDecimalDraft('annHard')}
                 className="min-h-12 text-lg"
                 disabled={locked}
               />
@@ -192,16 +247,16 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
           {data.operatingMode === 'LOAD' && (
             <>
               <FieldWrapper label="Load Minimum (Tonnes)" prominent>
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.loadMinT ?? ''} onChange={(e) => setData({ ...data, loadMinT: Number(e.target.value) })} className="min-h-12 text-lg" disabled={locked} />
+                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-12 text-lg" disabled={locked} />
               </FieldWrapper>
               <FieldWrapper label="Load Maximum (Tonnes)" prominent>
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.loadMaxT ?? ''} onChange={(e) => setData({ ...data, loadMaxT: Number(e.target.value) })} className="min-h-12 text-lg" disabled={locked} />
+                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-12 text-lg" disabled={locked} />
               </FieldWrapper>
             </>
           )}
           {data.operatingMode === 'STRETCH' && (
             <FieldWrapper label="Stretch (%)" prominent>
-              <ZInput type="number" inputMode="decimal" enterKeyHint="done" value={data.stretchPct ?? ''} onChange={(e) => setData({ ...data, stretchPct: Number(e.target.value) })} className="min-h-12 text-lg" disabled={locked} />
+              <ZInput type="number" inputMode="decimal" enterKeyHint="done" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-12 text-lg" disabled={locked} />
             </FieldWrapper>
           )}
         </div>
@@ -224,15 +279,15 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
       </div>
       <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
         <FieldWrapper label="Output Thickness (mm)">
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={data.outputThkMm ?? ''} onChange={(e) => setData({ ...data, outputThkMm: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} />
+          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.outputThkMm} onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)} onBlur={() => commitDecimalDraft('outputThkMm')} className="min-h-14 text-lg" disabled={locked} />
         </FieldWrapper>
         <FieldWrapper label="Actual Weight (Metric Tons)">
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={data.actualWeightMt ?? ''} onChange={(e) => setData({ ...data, actualWeightMt: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} />
+          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
         </FieldWrapper>
         <MetricToggle metric={metric} onChange={switchMetric} locked={locked} />
         {metric === 'ANN_HARD' ? (
           <FieldWrapper label="Annealing Hardness">
-            <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={data.annHard ?? ''} onChange={(e) => setData({ ...data, annHard: e.target.value ? Number(e.target.value) : undefined })} className="min-h-14 text-lg" disabled={locked} />
+            <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.annHard} onChange={(e) => updateDecimalDraft('annHard', e.target.value)} onBlur={() => commitDecimalDraft('annHard')} className="min-h-14 text-lg" disabled={locked} />
           </FieldWrapper>
         ) : (
           <FieldWrapper label="R/W Tension">
@@ -256,12 +311,12 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
         </div>
         {data.operatingMode === 'LOAD' && (
           <div className="grid grid-cols-2 gap-3">
-            <FieldWrapper label="Load Minimum (Tonnes)"><ZInput type="number" inputMode="decimal" value={data.loadMinT ?? ''} onChange={(e) => setData({ ...data, loadMinT: Number(e.target.value) })} className="min-h-14" disabled={locked} /></FieldWrapper>
-            <FieldWrapper label="Load Maximum (Tonnes)"><ZInput type="number" inputMode="decimal" value={data.loadMaxT ?? ''} onChange={(e) => setData({ ...data, loadMaxT: Number(e.target.value) })} className="min-h-14" disabled={locked} /></FieldWrapper>
+            <FieldWrapper label="Load Minimum (Tonnes)"><ZInput type="number" inputMode="decimal" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-14" disabled={locked} /></FieldWrapper>
+            <FieldWrapper label="Load Maximum (Tonnes)"><ZInput type="number" inputMode="decimal" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-14" disabled={locked} /></FieldWrapper>
           </div>
         )}
         {data.operatingMode === 'STRETCH' && (
-          <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={data.stretchPct ?? ''} onChange={(e) => setData({ ...data, stretchPct: Number(e.target.value) })} className="min-h-14" disabled={locked} /></FieldWrapper>
+          <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
       <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>

@@ -64,7 +64,7 @@ describe('rolling plan commit diagnostics', () => {
   it.skipIf(!dbUp || !fs.existsSync(samplePath))('commit first valid row via PPCImportService', async () => {
     const { PPCImportService } = await import('../src/services/PPCImportService');
     const buf = fs.readFileSync(samplePath);
-    const preview = await PPCImportService.previewRollingXlsx(buf, 'ROLLLING PLAN.XLSX', 1, 'ROLLING', 'B');
+    const preview = await PPCImportService.previewRollingXlsx(buf, 'ROLLLING PLAN.XLSX', 1, 'ROLLING');
     expect(preview.headerError).toBeUndefined();
     const first = preview.rows.find((r) => r.errors.length === 0);
     expect(first).toBeDefined();
