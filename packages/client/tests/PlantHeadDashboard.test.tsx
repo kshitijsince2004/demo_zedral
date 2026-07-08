@@ -29,6 +29,16 @@ vi.mock('../src/lib/liveService', () => ({
   },
 }));
 
+vi.mock('../src/services/machineHandoverService', () => ({
+  machineHandoverService: {
+    getOverview: vi.fn().mockResolvedValue({ pending: [], recent: [], awaitingAcceptance: 0 }),
+  },
+}));
+
+vi.mock('../src/components/export/ExportProgressModal', () => ({
+  ExportProgressModal: () => null,
+}));
+
 function renderDashboard() {
   return render(
     <MemoryRouter>

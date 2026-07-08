@@ -65,13 +65,19 @@ export function PlantHeadDashboard() {
     try {
       const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
       setData(result);
-      const hResult = await machineHandoverService.getOverview();
-      setHandovers(hResult.recent || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+
+    // Handover logs are supplemental — failure must not block the command center.
+    try {
+      const hResult = await machineHandoverService.getOverview();
+      setHandovers(hResult.recent || []);
+    } catch {
+      setHandovers([]);
     }
   }, [windowDays]);
 
