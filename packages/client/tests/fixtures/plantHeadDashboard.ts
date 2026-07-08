@@ -20,6 +20,7 @@ export function buildExtendedPlantHeadDashboardPayload(
   return {
     window: 7,
     generatedAt: new Date().toISOString(),
+    backlogCount: 0,
     plantWideOee: 85,
     oeeTarget: 80,
     oeeTrend: [{ date: 'Mon', oee: 85 }],

@@ -14,6 +14,8 @@ interface KpiTile {
   label: string;
   value: string;
   trend: string | null;
+  /** Highlights the value (e.g. pending backlog). */
+  emphasis?: 'warning';
 }
 
 export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
@@ -53,11 +55,17 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
       value: liveKpis != null ? `${liveKpis.machinesRunningPct}%` : '—',
       trend: null,
     },
+    {
+      label: 'Backlog',
+      value: `${data.backlogCount} ${data.backlogCount === 1 ? 'order' : 'orders'}`,
+      trend: null,
+      emphasis: data.backlogCount > 0 ? 'warning' : undefined,
+    },
   ];
 
   return (
     <div
-      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
+      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-7 gap-4"
       data-testid="plant-kpi-strip"
       role="group"
       aria-label="Plant KPI summary"
@@ -69,10 +77,17 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
           <div
             key={kpi.label}
             className="bg-card text-card-foreground border border-border rounded-lg p-6 shadow-sm flex flex-col"
+            data-testid={kpi.label === 'Backlog' ? 'plant-kpi-backlog' : undefined}
           >
             <span className="text-sm font-medium text-muted-foreground mb-1">{kpi.label}</span>
             <div className="flex items-baseline gap-2 mt-auto">
-              <span className="text-2xl font-bold text-foreground">{kpi.value}</span>
+              <span
+                className={`text-2xl font-bold ${
+                  kpi.emphasis === 'warning' ? 'text-destructive' : 'text-foreground'
+                }`}
+              >
+                {kpi.value}
+              </span>
               {kpi.trend && (
                 <span
                   className={`text-xs font-medium ${

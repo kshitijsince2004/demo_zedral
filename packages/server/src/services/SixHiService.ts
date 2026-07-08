@@ -10,6 +10,7 @@ import type {
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
+import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -74,6 +75,84 @@ export class SixHiService {
       supervisorId: userId,
     });
     return String(id);
+  }
+
+  /**
+   * Re-attribute an order to the operator's actual active shift when production begins.
+   *
+   * Orders are seeded (at creation) with the PLANNED shift copied from the PPC batch.
+   * For a backlog order (planned for a previous day/shift but produced today) that
+   * planned attribution is wrong: production must be credited to the shift where it
+   * actually ran. This MOVES the order (and its child/attribution rows) to the current
+   * active shift — it is never duplicated — and refreshes the cached production totals
+   * of both the previous and the new shift so no double counting can occur.
+   *
+   * The current active shift is resolved via the existing ShiftDetectionService
+   * (machine session → override → clock), i.e. the single source of truth for "now".
+   *
+   * @returns the authoritative shift_log_id the order is attributed to, or null.
+   */
+  static async reattributeOrderToActiveShift(
+    orderId: string | number,
+    userId: number,
+    machineCode?: string,
+  ): Promise<string | null> {
+    const id = String(orderId);
+    const current = await db.selectFrom('txn.crm6_order')
+      .select(['shift_log_id'])
+      .where('order_id', '=', id)
+      .executeTakeFirst();
+    if (!current) return null;
+
+    const detected = await ShiftDetectionService.getCurrentShift({ userId, machineCode });
+    const prodDate = this.toPlanDate(detected.prodDate);
+    const shiftCode = detected.shiftCode.toUpperCase();
+
+    const targetShiftLogId = await this.ensureActiveShiftLog(userId, prodDate, shiftCode);
+    const oldShiftLogId = current.shift_log_id != null ? String(current.shift_log_id) : null;
+
+    // No-op when the order is already attributed to the active shift (normal same-shift orders).
+    if (oldShiftLogId === String(targetShiftLogId)) {
+      return String(targetShiftLogId);
+    }
+
+    await db.transaction().execute(async (trx) => {
+      await trx.updateTable('txn.crm6_order')
+        .set({
+          shift_log_id: targetShiftLogId,
+          prod_date: prodDate,
+          production_day: prodDate,
+          shift_code: shiftCode,
+          updated_at: new Date(),
+        } as any)
+        .where('order_id', '=', id)
+        .execute();
+
+      await trx.updateTable('txn.crm6_rolling')
+        .set({ shift_code: shiftCode, prod_date: prodDate } as any)
+        .where('order_id', '=', id)
+        .execute();
+    });
+
+    // Machine-centric attribution slices (runtime/utilization) follow the order too.
+    // Slices are only created at shift-boundary processing, so at production start there
+    // are normally none; the .catch guards the rare (order, shift_log, machine) collision.
+    await db.updateTable('txn.order_shift_attribution')
+      .set({ shift_log_id: targetShiftLogId, shift_code: shiftCode, prod_date: prodDate } as any)
+      .where('order_id', '=', id)
+      .execute()
+      .catch((err) => console.error('[SixHi] reattribute attribution slice failed:', err));
+
+    // Recompute cached production totals for BOTH shifts: the old shift must no longer
+    // count this order, the new shift must now include it.
+    if (oldShiftLogId) {
+      await this.syncShiftProductionCache(oldShiftLogId).catch((err) =>
+        console.error('[SixHi] reattribute old-shift cache refresh failed:', err));
+    }
+    await this.syncShiftProductionCache(String(targetShiftLogId)).catch((err) =>
+      console.error('[SixHi] reattribute new-shift cache refresh failed:', err));
+
+    return String(targetShiftLogId);
   }
 
   private static async totalStoppageMinutes(orderId: number | string, asOf: Date = new Date()): Promise<number> {
@@ -584,6 +663,11 @@ export class SixHiService {
       .where((eb) => eb.or([
         eb('o.status', 'is', null),
         eb('o.status', 'in', incomplete),
+        eb.and([
+          eb('o.status', '=', 'COMPLETED'),
+          sql<boolean>`o.prod_end_at >= ${viewDateObj}::date`,
+          sql<boolean>`o.prod_end_at < ${viewDateObj}::date + interval '32 hours'`,
+        ]),
       ]))
       .orderBy('pb.plan_date', 'asc')
       .orderBy('pb.queue_seq', 'asc')
@@ -1119,7 +1203,7 @@ export class SixHiService {
     }
 
     const orderRow = await db.selectFrom('txn.crm6_order')
-      .select(['order_id', 'status', 'coil_no'])
+      .select(['order_id', 'status', 'coil_no', 'prod_start_at'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     if (!orderRow) {
@@ -1156,7 +1240,11 @@ export class SixHiService {
     }
 
     await db.updateTable('txn.crm6_order')
-      .set({ status: 'IN_PROGRESS', prod_start_at: new Date(), updated_at: new Date() })
+      .set({ 
+        status: 'IN_PROGRESS', 
+        prod_start_at: orderRow?.prod_start_at ?? new Date(), 
+        updated_at: new Date() 
+      })
       .where('order_id', '=', orderId)
       .execute();
     const coilNo = orderRow?.coil_no ?? (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
@@ -1164,6 +1252,10 @@ export class SixHiService {
       .set({ status: 'IN_PROCESS' })
       .where('coil_no', '=', coilNo)
       .execute();
+
+    // Production has begun: attribute the order to the operator's actual active shift.
+    // Backlog orders planned for a previous shift are moved to today's shift here.
+    await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
 
     // Persist machine state event: IDLE_ENDED → RUNNING_STARTED
     MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
@@ -1270,6 +1362,9 @@ export class SixHiService {
         .where('coil_no', '=', coilNo)
         .execute();
 
+      // Attribute each order to the operator's actual active shift at production start.
+      await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
+
       MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
         orderId,
         batchNumber,
@@ -1305,9 +1400,21 @@ export class SixHiService {
       durationMin = Math.max(0, wallMin - totalStoppageMin);
       await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
     }
+    const rolling = await db.selectFrom('txn.crm6_rolling')
+      .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+    const skinpass = await db.selectFrom('txn.crm6_skinpass')
+      .select(['actual_weight_mt', 'output_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+
+    const isCompleted = (rolling?.actual_weight_mt != null) || (skinpass?.actual_weight_mt != null);
+    const newStatus = isCompleted ? 'COMPLETED' : 'PENDING';
+
     await db.updateTable('txn.crm6_order')
       .set({
-        status: 'COMPLETED',
+        status: newStatus,
         prod_end_at: endAt,
         prod_duration_min: durationMin,
         updated_at: endAt,
@@ -1319,7 +1426,7 @@ export class SixHiService {
       await db.insertInto('txn.order_remark')
         .values({
           order_id: order.order_id,
-          text: 'Minor defects logged during production completion',
+          text: `Minor defects logged during production ${isCompleted ? 'completion' : 'pause'}`,
           defect_codes: JSON.stringify(defectCodes),
           operator_id: userId,
         })
@@ -1332,44 +1439,38 @@ export class SixHiService {
           operatorId: userId,
           shiftCode: batchPre?.shift_code ?? undefined,
           categoryCode: defectCode,
-          reason: 'Minor defect logged at completion',
+          reason: `Minor defect logged at ${isCompleted ? 'completion' : 'pause'}`,
         }).catch((err) => console.error('[MachineStateEvent] DEFECT_REPORTED failed:', err));
       }
     }
 
-    const rolling = await db.selectFrom('txn.crm6_rolling')
-      .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
-      .where('order_id', '=', order.order_id)
-      .executeTakeFirst();
-    const skinpass = await db.selectFrom('txn.crm6_skinpass')
-      .select(['actual_weight_mt', 'output_thk_mm'])
-      .where('order_id', '=', order.order_id)
-      .executeTakeFirst();
-    const batch = await db.selectFrom('planning.ppc_batch')
-      .select(['customer_name', 'grade_code', 'width_mm', 'shift_code', 'process_route_raw'])
-      .where('batch_id', '=', order.batch_id)
-      .executeTakeFirst();
+    if (isCompleted) {
+      const batch = await db.selectFrom('planning.ppc_batch')
+        .select(['customer_name', 'grade_code', 'width_mm', 'shift_code', 'process_route_raw'])
+        .where('batch_id', '=', order.batch_id)
+        .executeTakeFirst();
 
-    const completionPayload = {
-      outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
-      actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
-      destination: rolling?.destination ?? undefined,
-      gradeCode: batch?.grade_code,
-      widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
-      customerName: batch?.customer_name,
-      shiftCode: batch?.shift_code,
-    };
+      const completionPayload = {
+        outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
+        actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
+        destination: rolling?.destination ?? undefined,
+        gradeCode: batch?.grade_code,
+        widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
+        customerName: batch?.customer_name,
+        shiftCode: batch?.shift_code,
+      };
 
-    if (batch?.process_route_raw) {
-      await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
-    } else {
-      const nextDest = order.sub_process === 'SKIN_PASS'
-        ? 'CTL'
-        : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
-      await db.updateTable('coil.coil')
-        .set({ status: 'DONE', next_dest: nextDest })
-        .where('coil_no', '=', order.coil_no)
-        .execute();
+      if (batch?.process_route_raw) {
+        await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
+      } else {
+        const nextDest = order.sub_process === 'SKIN_PASS'
+          ? 'CTL'
+          : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
+        await db.updateTable('coil.coil')
+          .set({ status: 'DONE', next_dest: nextDest })
+          .where('coil_no', '=', order.coil_no)
+          .execute();
+      }
     }
 
     // Persist machine state event: RUNNING_ENDED → IDLE_STARTED
@@ -1595,11 +1696,8 @@ export class SixHiService {
   }
 
   static async getShiftStoppages(shiftLogId: string, machineCode?: string) {
-    const shiftLog = await db.selectFrom('txn.shift_log')
-      .select(['prod_date', 'shift_code'])
-      .where('shift_log_id', '=', shiftLogId)
-      .executeTakeFirst();
-
+    // Single source of truth: stoppages belong to the shift the order is attributed to
+    // (crm6_order.shift_log_id), consistent with production attribution.
     let query = db.selectFrom('txn.order_stoppage as os')
       .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1615,21 +1713,8 @@ export class SixHiService {
         'os.remarks',
         'o.batch_number',
       ])
-      .orderBy('os.start_at', 'desc');
-
-    query = query.where((eb) => {
-      const byShiftLog = eb('o.shift_log_id', '=', shiftLogId);
-      if (shiftLog) {
-        return eb.or([
-          byShiftLog,
-          eb.and([
-            eb('pb.plan_date', '=', shiftLog.prod_date),
-            eb('pb.shift_code', '=', shiftLog.shift_code),
-          ]),
-        ]);
-      }
-      return byShiftLog;
-    });
+      .orderBy('os.start_at', 'desc')
+      .where('o.shift_log_id', '=', shiftLogId);
 
     if (machineCode) {
       query = query.where('pb.machine_code', '=', machineCode);
@@ -1911,18 +1996,22 @@ export class SixHiService {
     return wt > 0 ? wt : 0;
   }
 
+  /**
+   * Orders attributed to a shift.
+   *
+   * Single source of truth: an order belongs to exactly one shift — its own
+   * `crm6_order.shift_log_id`. We intentionally do NOT fall back to matching the
+   * planned `ppc_batch.plan_date`/`shift_code`, because a backlog order produced
+   * today is re-attributed (moved) to today's shift at production start. Matching
+   * on the planned date as well would count such an order under both the planned
+   * shift and the production shift (double counting).
+   */
   private static async listShiftProductionOrders(shiftLogId: string, machineFilter?: string | string[]) {
-    const shiftLog = await db.selectFrom('txn.shift_log')
-      .select(['prod_date', 'shift_code'])
-      .where('shift_log_id', '=', shiftLogId)
-      .executeTakeFirst();
-    if (!shiftLog) return [];
-
     const machineCodes = machineFilter == null
       ? null
       : Array.isArray(machineFilter) ? machineFilter : [machineFilter];
 
-    const rows = await db
+    let query = db
       .selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
@@ -1935,21 +2024,15 @@ export class SixHiService {
         'o.ppc_weight_mt',
         'pb.ppc_weight_mt as batch_ppc_weight_mt',
       ])
-      .where((eb) => {
-        const byShiftLog = eb('o.shift_log_id', '=', shiftLogId);
-        const byPlan = eb.and([
-          eb('pb.plan_date', '=', shiftLog.prod_date),
-          eb('pb.shift_code', '=', shiftLog.shift_code),
-        ]);
-        if (machineCodes && machineCodes.length > 0) {
-          const byMachine = machineCodes.length === 1
-            ? eb('pb.machine_code', '=', machineCodes[0])
-            : eb('pb.machine_code', 'in', machineCodes);
-          return eb.or([byShiftLog, eb.and([byPlan, byMachine])]);
-        }
-        return eb.or([byShiftLog, byPlan]);
-      })
-      .execute();
+      .where('o.shift_log_id', '=', shiftLogId);
+
+    if (machineCodes && machineCodes.length > 0) {
+      query = machineCodes.length === 1
+        ? query.where('pb.machine_code', '=', machineCodes[0])
+        : query.where('pb.machine_code', 'in', machineCodes);
+    }
+
+    const rows = await query.execute();
 
     const seen = new Set<string>();
     return rows.filter((r) => {

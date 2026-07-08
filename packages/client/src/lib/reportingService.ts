@@ -102,6 +102,8 @@ export interface PlantHeadDashboardData {
   window: 1 | 7 | 30 | 90;
   /** ISO8601 timestamp when the payload was generated. */
   generatedAt: string;
+  /** Count of orders planned before today that are not yet completed/rejected. */
+  backlogCount: number;
   /** Plant-wide OEE (aggregate). */
   plantWideOee: number;
   /** Target OEE (%) for delta context. */

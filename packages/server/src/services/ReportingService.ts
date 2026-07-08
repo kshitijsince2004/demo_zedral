@@ -706,9 +706,26 @@ export class ReportingService {
         actualMt: round1(totals.prod),
       }));
 
+    // Plant-wide backlog: batches planned before today that are not yet
+    // completed/rejected (an order row is either absent or still incomplete).
+    const backlogRow = await reportingDb
+      .selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .select(sql<number>`count(distinct pb.batch_id)`.as('cnt'))
+      .where('pb.plan_date', '<', sql<Date>`CURRENT_DATE`)
+      .where((eb) =>
+        eb.or([
+          eb('o.status', 'is', null),
+          eb('o.status', 'not in', ['COMPLETED', 'REJECTED']),
+        ]),
+      )
+      .executeTakeFirst();
+    const backlogCount = Number(backlogRow?.cnt ?? 0);
+
     return {
       window: windowDays,
       generatedAt: now.toISOString(),
+      backlogCount,
       plantWideOee: plantWideOeeValue,
       oeeTarget: PLANT_OEE_TARGET,
       oeeTrend,

@@ -8,6 +8,7 @@ function buildData(overrides: Partial<ExtendedPlantHeadDashboardData> = {}): Ext
   return {
     window: 7,
     generatedAt: new Date().toISOString(),
+    backlogCount: 0,
     plantWideOee: 85,
     oeeTarget: 80,
     oeeTrend: [],
@@ -103,5 +104,19 @@ describe('PlantKpiStrip', () => {
     );
 
     expect(screen.getByText('75%')).toBeDefined();
+  });
+
+  it('renders the plant-wide backlog tile', () => {
+    render(<PlantKpiStrip data={buildData({ backlogCount: 123 })} />);
+
+    const tile = screen.getByTestId('plant-kpi-backlog');
+    expect(tile).toBeDefined();
+    expect(screen.getByText('123 orders')).toBeDefined();
+  });
+
+  it('shows singular label and no warning emphasis when backlog is empty', () => {
+    render(<PlantKpiStrip data={buildData({ backlogCount: 0 })} />);
+
+    expect(screen.getByText('0 orders')).toBeDefined();
   });
 });
