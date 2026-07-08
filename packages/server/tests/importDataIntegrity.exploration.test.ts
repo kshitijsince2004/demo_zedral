@@ -226,7 +226,12 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
           testUserId(),
         );
         expect(second.errors.find((e) => e.message.includes('Duplicate'))).toBeUndefined();
-        expect(second.loaded).toBe(1);
+        // Re-importing an unallocated batch is a safe upsert. Under the production-safety
+        // import contract, inserts are counted in `loaded` and updates in `updated`;
+        // exactly one row is upserted either way (not a duplicate error).
+        expect(second.loaded + second.updated).toBe(1);
+        expect(second.updated).toBe(1);
+        expect(second.loaded).toBe(0);
 
         const row = await db.selectFrom('planning.ppc_batch')
           .select('ppc_thk_mm')
