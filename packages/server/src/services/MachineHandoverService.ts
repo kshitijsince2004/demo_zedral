@@ -264,6 +264,7 @@ export class MachineHandoverService {
       machineName: machineRow?.name ?? machineCode,
       processCode: machineRow?.process_code ?? machineCode,
       shift,
+      shiftLogId: shiftLogIdResolved,
       machineStatus,
       activeOrder: active,
       activeOrderDetail,
@@ -503,6 +504,25 @@ export class MachineHandoverService {
 
       return row;
     });
+
+    // Finalize the shift summary from live production data so the summary is
+    // persisted at handover without requiring a separate manual save. Reuses the
+    // existing SixHiService.saveShiftSummary (which recomputes totals from actual
+    // production and syncs the shift_log cache). Non-fatal: a failure here must
+    // not roll back the completed handover.
+    if (preview.shiftLogId) {
+      try {
+        await SixHiShiftService.saveShiftSummary(
+          preview.shiftLogId,
+          input.scrapKg,
+          input.coolantTempDegC,
+          input.coolantPressKgCm2,
+          operatorUserId,
+        );
+      } catch (err) {
+        console.error('[createOutgoingHandover] Shift summary finalization failed:', err);
+      }
+    }
 
     return handover;
   }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
-import { Outlet, useSearchParams } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
+import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
 import { CRM_SHIFT_PROCESS_CODE } from '../../lib/millConfig';
 import { OperatorShell } from '../layout/operator/OperatorShell';
 import { useShiftStore } from '../../store/shiftStore';
@@ -20,11 +21,14 @@ import { OrderEndModal } from './OrderEndModal';
 import { SixHiManualOrderModal } from './SixHiManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
+import { ShiftEndModal } from './ShiftEndModal';
 import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
 
 export function SixHiLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { machineCode: pathMill } = useWorkspaceBase();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { basePath, machineCode: pathMill } = useWorkspaceBase();
   const activeMachine = useAuthStore((s) => s.activeMachine);
   const logout = useAuthStore((s) => s.logout);
   const { shiftLogId } = useShiftStore();
@@ -52,6 +56,12 @@ export function SixHiLayout() {
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [startError, setStartError] = useState<{ message: string; activeBatch?: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Suppress the automatic shift-end prompt while the operator is already on the
+  // handover / summary pages (they are actively completing the handover there).
+  const onHandoverRoute = /\/(handover|shift-summary)\/?$/.test(location.pathname);
+  const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
+  const handoverPath = basePath ? `${basePath}/handover` : null;
 
   useEffect(() => {
     setMachineCode(pathMill);
@@ -338,6 +348,23 @@ export function SixHiLayout() {
       )}
 
       <SixHiManualOrderModal />
+
+      <ShiftEndModal
+        open={shiftWatcher.visible}
+        status={shiftWatcher.status}
+        shiftCode={shiftWatcher.sessionShiftCode}
+        shiftName={shiftWatcher.sessionShiftName}
+        windowStart={shiftWatcher.windowStart}
+        windowEnd={shiftWatcher.windowEnd}
+        prodDate={shiftWatcher.prodDate}
+        newShiftCode={shiftWatcher.newShiftCode}
+        newShiftName={shiftWatcher.newShiftName}
+        reminderMinutes={Math.round(SHIFT_END_REMINDER_MS / 60_000)}
+        onRemindLater={shiftWatcher.remindLater}
+        onHandover={() => {
+          if (handoverPath) navigate(handoverPath);
+        }}
+      />
 
       {remarkOpen && activeBatch && (
         <OrderRemarkModal

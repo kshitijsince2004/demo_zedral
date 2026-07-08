@@ -1,6 +1,13 @@
 import { apiClient } from './apiClient';
 import { useShiftStore } from '../store/shiftStore';
 
+/**
+ * Mirrors the server ShiftDetectionService.DetectedShift union. When a machine has
+ * an ACTIVE session the shift is pinned (`source: 'SESSION'`) and windowStart/windowEnd
+ * come from that session's shift, not the wall clock.
+ */
+export type DetectedShiftSource = 'CLOCK' | 'OVERRIDE' | 'SESSION' | 'FALLBACK';
+
 export interface DetectedShift {
   shiftCode: string;
   shiftName: string;
@@ -8,7 +15,7 @@ export interface DetectedShift {
   windowStart: string;
   windowEnd: string;
   detectedAt: string;
-  source: 'CLOCK' | 'OVERRIDE';
+  source: DetectedShiftSource;
   overrideId?: number;
   overrideReason?: string;
 }

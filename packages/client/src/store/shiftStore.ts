@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { currentPlantDate, formatShiftDate } from '../lib/dateFormat';
+import type { DetectedShiftSource } from '../lib/shiftDetection';
 
 export type CoilStatus = 'planned' | 'open' | 'done';
 export type ProcessLine = 'HRS' | 'PKL' | 'CRM' | '6HI' | 'ANN' | 'SKP' | 'RWD' | 'CRS' | 'CTL' | 'GLV';
@@ -39,10 +40,13 @@ export interface CapturedValues {
 }
 
 export interface DetectedShiftContext {
+  shiftCode: string;
+  /** Raw production date (YYYY-MM-DD) for the pinned shift — used for IST end-time math. */
+  prodDate: string;
   shiftName: string;
   windowStart: string;
   windowEnd: string;
-  source: 'CLOCK' | 'OVERRIDE';
+  source: DetectedShiftSource;
   overrideReason?: string;
 }
 
@@ -78,7 +82,7 @@ export interface ShiftState {
     shiftName: string;
     windowStart: string;
     windowEnd: string;
-    source: 'CLOCK' | 'OVERRIDE';
+    source: DetectedShiftSource;
     overrideReason?: string;
   }) => void;
   setProcessLine: (line: ProcessLine) => void;
@@ -175,6 +179,8 @@ export const useShiftStore = create<ShiftState>((set) => ({
       shiftDate: formatShiftDate(shift.prodDate),
       shiftCode: shift.shiftCode as 'A' | 'B' | 'C',
       detectedShift: {
+        shiftCode: shift.shiftCode,
+        prodDate: formatShiftDate(shift.prodDate),
         shiftName: shift.shiftName,
         windowStart: shift.windowStart,
         windowEnd: shift.windowEnd,
