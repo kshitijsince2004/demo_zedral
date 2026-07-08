@@ -30,6 +30,8 @@ interface OrderStoppageModalProps {
   initialRollOutNo?: string;
   initialRollOutCode?: string;
   subtitle?: string;
+  title?: string;
+  startButtonLabel?: string;
   /** When 'before', roll changes are applied before start/update/end (manual stoppage). */
   rollChangeTiming?: 'before' | 'after';
   onClose: () => void;
@@ -86,6 +88,8 @@ export function OrderStoppageModal({
   initialRollOutNo,
   initialRollOutCode,
   subtitle,
+  title,
+  startButtonLabel = 'Confirm Stoppage',
   rollChangeTiming = 'after',
   onClose,
   onStart,
@@ -192,7 +196,7 @@ export function OrderStoppageModal({
       <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] w-full max-w-lg mx-auto border border-border bg-white rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
         <div className="shrink-0">
           <h3 className="text-lg font-bold text-foreground">
-            {hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage'}
+            {title ?? (hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage')}
           </h3>
           {subtitle && (
             <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
@@ -279,7 +283,7 @@ export function OrderStoppageModal({
           <ZButton variant="ghost" onClick={onClose} className="min-h-14 flex-1">Cancel</ZButton>
           {!hasActiveStoppage ? (
             <ZButton variant="accent" onClick={handleStart} disabled={busy || !canSubmitStart || !onStart} className="min-h-14 flex-1">
-              Confirm Stoppage
+              {startButtonLabel}
             </ZButton>
           ) : (
             <>

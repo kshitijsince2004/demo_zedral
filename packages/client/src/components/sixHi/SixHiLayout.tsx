@@ -375,7 +375,9 @@ export function SixHiLayout() {
         initialRollInCode={manualStoppage?.active?.rollInCode}
         initialRollOutNo={manualStoppage?.active?.rollOutNo}
         initialRollOutCode={manualStoppage?.active?.rollOutCode}
+        title={manualActiveStoppage ? 'Manage Manual Stoppage' : 'Manual Stoppage'}
         subtitle="Record machine downtime when no production order is active."
+        startButtonLabel="Start Stoppage"
         rollChangeTiming="before"
         onClose={() => setManualStoppageOpen(false)}
         onStart={async (categoryCode, breakdownCode, remarks) => {

@@ -61,6 +61,9 @@ jobs:
       - name: Client tests
         run: npm run test -w @m1/client
 
+      - name: Operator APK bundle (manual stoppage + CRM surface)
+        run: npm run check:operator-bundle -w @m1/client
+
       - name: Run database migrations
         working-directory: packages/server
         run: npm run migrate

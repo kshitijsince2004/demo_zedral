@@ -9,7 +9,7 @@
     "prebuild": "npm run build -w @m1/shared-validation",
     "build": "vite build",
     "build:operator": "vite build --config vite.operator.config.ts --mode operator",
-    "check:operator-bundle": "npm run build:operator && node -e \"const fs=require('fs');const path=require('path');const root=path.join(process.cwd(),'dist-operator');const bad=['\\\"/plant\\\"','maint/','oee/','m3/'];const hits=[];(function walk(dir){for(const name of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,name.name);if(name.isDirectory()) walk(p); else if(/\\.(js|css|html)$/.test(name.name)){const text=fs.readFileSync(p,'utf8');for(const token of bad){if(text.includes(token)) hits.push(p+' -> '+token);}}}})(root); if(hits.length){console.error('Operator bundle purity check failed:\\n'+hits.join('\\n')); process.exit(1);} console.log('Operator bundle purity check passed.');\"",
+    "check:operator-bundle": "npm run build:operator && node scripts/check-operator-bundle.mjs",
     "android:sync": "npm run build:operator && npx cap sync android",
     "android:icons": "python android/scripts/generate_launcher_icons.py",
     "android:open": "npx cap open android",

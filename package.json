@@ -10,6 +10,9 @@
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build -w @m1/shared-validation && npm run build -w @zedral/platform && npm run build -w @zedral/connectors && npm run build -w @zedral/m1-collection && npm run build -w @m1/client && npm run build -w @m1/server",
+    "build:operator": "npm run check:operator-bundle -w @m1/client",
+    "android:sync": "npm run android:sync -w @m1/client",
+    "android:apk": "npm run android:apk -w @m1/client",
     "test": "npm run test --workspaces --if-present",
     "arch:deps": "depcruise --config .dependency-cruiser.cjs packages",
     "arch:test": "npm run test:arch -w @m1/server",
