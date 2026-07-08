@@ -14,10 +14,24 @@ export interface RollChangePayload {
   reasonText?: string;
 }
 
+interface RollDetailsState {
+  rollInNo: string;
+  rollInCode: string;
+  rollOutNo: string;
+  rollOutCode: string;
+}
+
 interface OrderStoppageModalProps {
   open: boolean;
   hasActiveStoppage: boolean;
   activeStoppage?: SixHiOrderStoppage;
+  initialRollInNo?: string;
+  initialRollInCode?: string;
+  initialRollOutNo?: string;
+  initialRollOutCode?: string;
+  subtitle?: string;
+  /** When 'before', roll changes are applied before start/update/end (manual stoppage). */
+  rollChangeTiming?: 'before' | 'after';
   onClose: () => void;
   onStart?: (categoryCode: string, breakdownCode: string | undefined, remarks?: string) => Promise<void>;
   onUpdate: (stoppageId: string, categoryCode: string, breakdownCode?: string, remarks?: string) => Promise<void>;
@@ -25,10 +39,54 @@ interface OrderStoppageModalProps {
   onRollChange?: (data: RollChangePayload) => Promise<void>;
 }
 
+function buildRollDetails(
+  rollInNo?: string,
+  rollInCode?: string,
+  rollOutNo?: string,
+  rollOutCode?: string,
+): RollDetailsState {
+  return {
+    rollInNo: rollInNo ?? '',
+    rollInCode: rollInCode ?? '',
+    rollOutNo: rollOutNo ?? '',
+    rollOutCode: rollOutCode ?? '',
+  };
+}
+
+async function applyRollChanges(
+  onRollChange: ((data: RollChangePayload) => Promise<void>) | undefined,
+  rolls: RollDetailsState,
+  reasonText?: string,
+) {
+  if (!onRollChange) return;
+  if (rolls.rollInNo.trim()) {
+    await onRollChange({
+      rollPosition: 'IN',
+      newRollNo: rolls.rollInNo.trim(),
+      newRollCode: rolls.rollInCode.trim() || undefined,
+      reasonText,
+    });
+  }
+  if (rolls.rollOutNo.trim()) {
+    await onRollChange({
+      rollPosition: 'OUT',
+      newRollNo: rolls.rollOutNo.trim(),
+      newRollCode: rolls.rollOutCode.trim() || undefined,
+      reasonText,
+    });
+  }
+}
+
 export function OrderStoppageModal({
   open,
   hasActiveStoppage,
   activeStoppage,
+  initialRollInNo,
+  initialRollInCode,
+  initialRollOutNo,
+  initialRollOutCode,
+  subtitle,
+  rollChangeTiming = 'after',
   onClose,
   onStart,
   onUpdate,
@@ -38,9 +96,9 @@ export function OrderStoppageModal({
   const { codes: stoppageCodes, loading: codesLoading } = useSixHiStoppageCodes();
   const [displayCode, setDisplayCode] = useState('12');
   const [remarks, setRemarks] = useState('');
-  const [rollPosition, setRollPosition] = useState<'IN' | 'OUT'>('OUT');
-  const [rollNo, setRollNo] = useState('');
-  const [rollCode, setRollCode] = useState('');
+  const [rolls, setRolls] = useState<RollDetailsState>(() =>
+    buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,18 +112,18 @@ export function OrderStoppageModal({
     if (activeStoppage) {
       setDisplayCode(resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode));
       setRemarks(activeStoppage.remarks || '');
+      setRolls(buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode));
     } else {
       const defaultCode = stoppageCodes.find((c) => c.displayCode === '12')?.displayCode ?? stoppageCodes[0]?.displayCode ?? '12';
       setDisplayCode(defaultCode);
       setRemarks('');
-      setRollNo('');
-      setRollCode('');
+      setRolls(buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode));
     }
-  }, [open, activeStoppage, stoppageCodes]);
+  }, [open, activeStoppage, stoppageCodes, initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode]);
 
   if (!open) return null;
 
-  const canSubmitStart = !!selected && (!needsRollChange || rollNo.trim().length > 0);
+  const canSubmitStart = !!selected;
   const canSubmitEnd = !!selected;
 
   const handleStart = async () => {
@@ -73,7 +131,13 @@ export function OrderStoppageModal({
     setBusy(true);
     setError(null);
     try {
+      if (needsRollChange && rollChangeTiming === 'before') {
+        await applyRollChanges(onRollChange, rolls, remarks.trim() || undefined);
+      }
       await onStart(selected.categoryCode, selected.breakdownCode, remarks.trim() || undefined);
+      if (needsRollChange && rollChangeTiming === 'after') {
+        await applyRollChanges(onRollChange, rolls, remarks.trim() || undefined);
+      }
       onClose();
     } catch (err: unknown) {
       setError((err as Error)?.message ?? 'Failed to start stoppage');
@@ -87,14 +151,12 @@ export function OrderStoppageModal({
     setBusy(true);
     setError(null);
     try {
+      if (needsRollChange && rollChangeTiming === 'before') {
+        await applyRollChanges(onRollChange, rolls, remarks || undefined);
+      }
       await onUpdate(activeStoppage.id, selected.categoryCode, selected.breakdownCode, remarks || undefined);
-      if (needsRollChange && onRollChange && rollNo.trim()) {
-        await onRollChange({
-          rollPosition,
-          newRollNo: rollNo.trim(),
-          newRollCode: rollCode || undefined,
-          reasonText: remarks || undefined,
-        });
+      if (needsRollChange && rollChangeTiming === 'after') {
+        await applyRollChanges(onRollChange, rolls, remarks || undefined);
       }
       onClose();
     } catch (err: unknown) {
@@ -109,14 +171,12 @@ export function OrderStoppageModal({
     setBusy(true);
     setError(null);
     try {
+      if (needsRollChange && rollChangeTiming === 'before') {
+        await applyRollChanges(onRollChange, rolls, remarks || undefined);
+      }
       await onEnd(activeStoppage.id, selected.categoryCode, selected.breakdownCode, remarks || undefined);
-      if (needsRollChange && onRollChange && rollNo.trim()) {
-        await onRollChange({
-          rollPosition,
-          newRollNo: rollNo.trim(),
-          newRollCode: rollCode || undefined,
-          reasonText: remarks || undefined,
-        });
+      if (needsRollChange && rollChangeTiming === 'after') {
+        await applyRollChanges(onRollChange, rolls, remarks || undefined);
       }
       onClose();
     } catch (err: unknown) {
@@ -134,6 +194,9 @@ export function OrderStoppageModal({
           <h3 className="text-lg font-bold text-foreground">
             {hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage'}
           </h3>
+          {subtitle && (
+            <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+          )}
           {hasActiveStoppage && (
             <div className="bg-destructive/10 rounded-xl px-4 py-3 mt-3 text-center flex items-center justify-between border border-destructive/30">
               <div className="text-left">
@@ -163,29 +226,42 @@ export function OrderStoppageModal({
           </FieldWrapper>
 
           {needsRollChange && (
-            <div className="space-y-3 border border-border rounded-xl p-4 bg-secondary/60">
-              <p className="text-sm font-bold text-foreground">Roll Change Details (Code 04)</p>
-              <div className="flex gap-2">
-                {(['IN', 'OUT'] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setRollPosition(p)}
-                    className={[
-                      'flex-1 min-h-14 rounded-xl border text-sm font-semibold',
-                      rollPosition === p ? 'bg-primary text-white border-primary' : 'border-border bg-white',
-                    ].join(' ')}
-                  >
-                    Roll {p}
-                  </button>
-                ))}
+            <div className="space-y-4">
+              <div className="space-y-3 border border-border rounded-xl p-4 bg-secondary/60">
+                <p className="text-sm font-bold text-foreground">Roll In Details</p>
+                <FieldWrapper label="Roll In No">
+                  <ZInput
+                    value={rolls.rollInNo}
+                    onChange={(e) => setRolls((prev) => ({ ...prev, rollInNo: e.target.value }))}
+                    className="min-h-14 text-lg"
+                  />
+                </FieldWrapper>
+                <FieldWrapper label="Roll In Code">
+                  <ZInput
+                    value={rolls.rollInCode}
+                    onChange={(e) => setRolls((prev) => ({ ...prev, rollInCode: e.target.value }))}
+                    className="min-h-14 text-lg"
+                  />
+                </FieldWrapper>
               </div>
-              <FieldWrapper label="New Roll No">
-                <ZInput value={rollNo} onChange={(e) => setRollNo(e.target.value)} className="min-h-14 text-lg" />
-              </FieldWrapper>
-              <FieldWrapper label="Roll Code">
-                <ZInput value={rollCode} onChange={(e) => setRollCode(e.target.value)} className="min-h-14 text-lg" />
-              </FieldWrapper>
+
+              <div className="space-y-3 border border-border rounded-xl p-4 bg-secondary/60">
+                <p className="text-sm font-bold text-foreground">Roll Out Details</p>
+                <FieldWrapper label="Roll Out No">
+                  <ZInput
+                    value={rolls.rollOutNo}
+                    onChange={(e) => setRolls((prev) => ({ ...prev, rollOutNo: e.target.value }))}
+                    className="min-h-14 text-lg"
+                  />
+                </FieldWrapper>
+                <FieldWrapper label="Roll Out Code">
+                  <ZInput
+                    value={rolls.rollOutCode}
+                    onChange={(e) => setRolls((prev) => ({ ...prev, rollOutCode: e.target.value }))}
+                    className="min-h-14 text-lg"
+                  />
+                </FieldWrapper>
+              </div>
             </div>
           )}
 

@@ -749,6 +749,75 @@ export class ReportingService {
     };
   }
 
+  static async getPlantHeadBacklog() {
+    const rows = await reportingDb
+      .selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
+      .select([
+        'pb.batch_id',
+        'pb.batch_number',
+        'pb.coil_no',
+        'pb.slit_id',
+        'pb.plan_date',
+        'pb.shift_code',
+        'pb.machine_code',
+        'pb.sub_process',
+        'pb.customer_name',
+        'pb.grade_code',
+        'pb.ppc_weight_mt',
+        'o.status as order_status',
+        'm.name as machine_name',
+      ])
+      .where('pb.plan_date', '<', sql<Date>`CURRENT_DATE`)
+      .where((eb) =>
+        eb.or([
+          eb('o.status', 'is', null),
+          eb('o.status', 'not in', ['COMPLETED', 'REJECTED']),
+        ]),
+      )
+      .orderBy('pb.plan_date', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    const today = startOfDay(new Date());
+
+    const orders = rows.map((row) => {
+      const planDate = row.plan_date instanceof Date
+        ? row.plan_date
+        : new Date(String(row.plan_date));
+      const daysPending = Math.max(
+        0,
+        Math.floor((today.getTime() - startOfDay(planDate).getTime()) / DAY_MS),
+      );
+      const subProcess = String(row.sub_process ?? '');
+      const stageLabel = subProcess === 'SKIN_PASS'
+        ? 'Skin Pass'
+        : subProcess === 'ROLLING'
+          ? 'Rolling'
+          : subProcess || undefined;
+
+      return {
+        batchNumber: row.batch_number,
+        batchId: String(row.batch_id),
+        coilNo: row.coil_no,
+        slitId: row.slit_id ?? undefined,
+        planDate: formatDateKey(planDate),
+        shiftCode: row.shift_code,
+        status: row.order_status ?? 'PENDING',
+        machineCode: row.machine_code ?? undefined,
+        machineName: row.machine_name ?? undefined,
+        stage: stageLabel,
+        customer: row.customer_name ?? undefined,
+        grade: row.grade_code ?? undefined,
+        weightMt: Number(row.ppc_weight_mt ?? 0),
+        daysPending,
+      };
+    });
+
+    return { total: orders.length, orders };
+  }
+
   static async getManagementDashboard(period: ReportingPeriod) {
     const ranges = resolvePeriodRanges(period);
 

@@ -10,6 +10,7 @@ import { mergePlantHeadWithLive } from '../../lib/plantHeadLiveMerge';
 import { subscribeProductionChanged } from '../../lib/productionSync';
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
+import { BacklogDetailDrawer } from '../../components/plant-head/BacklogDetailDrawer';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
 import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQualityDowntimeArea';
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
@@ -24,6 +25,7 @@ export function PlantHeadDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
+  const [backlogOpen, setBacklogOpen] = useState(false);
   const { snapshot } = useLiveSnapshot();
 
   const load = useCallback(async (silent = false) => {
@@ -147,8 +149,14 @@ export function PlantHeadDashboard() {
 
         {/* KPI Strip */}
         <section aria-label="Key performance indicators">
-          <PlantKpiStrip data={displayData} liveKpis={liveKpis} />
+          <PlantKpiStrip
+            data={displayData}
+            liveKpis={liveKpis}
+            onBacklogClick={() => setBacklogOpen(true)}
+          />
         </section>
+
+        <BacklogDetailDrawer open={backlogOpen} onClose={() => setBacklogOpen(false)} />
 
         {/* Live Machine Status Board */}
         {liveMachines.length > 0 && (

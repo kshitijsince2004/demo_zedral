@@ -74,6 +74,15 @@ router.get(
   },
 );
 
+router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (_req, res) => {
+  try {
+    const data = await DashboardReportingService.getPlantHeadBacklog();
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const windowDays = parsePlantHeadWindow(req.query.window);

@@ -31,6 +31,23 @@ export interface CombinedProductionRun {
   orders: CombinedProductionRunSummary[];
 }
 
+export interface ManualStoppageState {
+  eligible: boolean;
+  active: {
+    eventId: string;
+    categoryCode?: string;
+    categoryLabel?: string;
+    breakdownCode?: string;
+    reason?: string;
+    startedAt: string;
+    shiftCode?: string;
+    rollInNo?: string;
+    rollInCode?: string;
+    rollOutNo?: string;
+    rollOutCode?: string;
+  } | null;
+}
+
 interface SixHiStore {
   processTab: SixHiProcessTab;
   machineCode: CrmMachineCode;
@@ -38,6 +55,7 @@ interface SixHiStore {
   workspaceBatch: string | null;
   panelOrder: SixHiOrderDetail | null;
   machineActive: ActiveMachineOrder | null;
+  manualStoppage: ManualStoppageState | null;
   shiftSummary: SixHiShiftSummary | null;
   busy: boolean;
   manualOrderOpen: boolean;
@@ -55,6 +73,7 @@ interface SixHiStore {
   closeWorkspace: () => void;
   setPanelOrder: (order: SixHiOrderDetail | null) => void;
   setMachineActive: (active: ActiveMachineOrder | null) => void;
+  setManualStoppage: (state: ManualStoppageState | null) => void;
   setShiftSummary: (summary: SixHiShiftSummary | null) => void;
   setBusy: (busy: boolean) => void;
   setCombinedRun: (run: CombinedProductionRun | null) => void;
@@ -76,6 +95,7 @@ const INITIAL_SixHi_STATE = {
   workspaceBatch: null as string | null,
   panelOrder: null as SixHiOrderDetail | null,
   machineActive: null as ActiveMachineOrder | null,
+  manualStoppage: null as ManualStoppageState | null,
   shiftSummary: null as SixHiShiftSummary | null,
   busy: false,
   manualOrderOpen: false,
@@ -106,6 +126,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null }),
   setPanelOrder: (order) => set({ panelOrder: order }),
   setMachineActive: (active) => set({ machineActive: active }),
+  setManualStoppage: (state) => set({ manualStoppage: state }),
   setShiftSummary: (summary) => set({ shiftSummary: summary }),
   setBusy: (busy) => set({ busy }),
   setCombinedRun: (run) => set({ combinedRun: run }),
@@ -139,14 +160,17 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   refreshMachineState: async () => {
     try {
       const mc = get().machineCode;
-      const active = await apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`);
+      const [active, manualStoppage] = await Promise.all([
+        apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`),
+        apiClient.get<ManualStoppageState>(`/6hi/manual-stoppage?machine=${mc}`),
+      ]);
       const combinedRun = get().combinedRun;
       const nextCombinedRun = active && combinedRun?.batchNumbers.includes(active.batchNumber)
         ? combinedRun
         : active
           ? null
           : null;
-      set({ machineActive: active, combinedRun: nextCombinedRun });
+      set({ machineActive: active, manualStoppage, combinedRun: nextCombinedRun });
       if (active?.batchNumber) {
         const { workspaceOpen, workspaceBatch } = get();
         if (!workspaceOpen || workspaceBatch === active.batchNumber) {
@@ -156,7 +180,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
         set({ panelOrder: null });
       }
     } catch {
-      set({ machineActive: null });
+      set({ machineActive: null, manualStoppage: null });
     }
   },
 

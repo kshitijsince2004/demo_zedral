@@ -468,6 +468,14 @@ export class SixHiService {
     'STOPPAGE',
   ] as const;
 
+  /** Shift codes earlier in the same production day (A→B→C cycle). */
+  private static earlierShiftCodesOnSameDay(shiftCode: string): string[] {
+    const order = ['A', 'B', 'C'];
+    const idx = order.indexOf(shiftCode.toUpperCase());
+    if (idx <= 0) return [];
+    return order.slice(0, idx);
+  }
+
   private static async resolveShiftForViewDate(
     planDate: string,
     shiftCode: string,
@@ -648,10 +656,21 @@ export class SixHiService {
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
+    const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(effectiveShift);
     const backlogBatches = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
-      .where('pb.plan_date', '<', viewDateObj)
+      .where((eb) => {
+        const priorDay = eb('pb.plan_date', '<', viewDateObj);
+        if (earlierSameDayShifts.length === 0) return priorDay;
+        return eb.or([
+          priorDay,
+          eb.and([
+            eb('pb.plan_date', '=', viewDateObj),
+            eb('pb.shift_code', 'in', earlierSameDayShifts),
+          ]),
+        ]);
+      })
       .where('pb.sub_process', '=', subProcess)
       .where((eb) => eb.or([
         eb.and([
@@ -1061,6 +1080,10 @@ export class SixHiService {
           passes: passes.map((p) => ({ passNo: p.pass_no, thicknessMm: Number(p.thickness_mm) })),
           totalPasses: r.total_passes ?? passes.length,
           finalThkMm: r.final_thk_mm ? Number(r.final_thk_mm) : undefined,
+          rollInNo: r.roll_in_no ?? undefined,
+          rollInCode: r.roll_in_code ?? undefined,
+          rollOutNo: r.roll_out_no ?? undefined,
+          rollOutCode: r.roll_out_code ?? undefined,
         };
       }
     } else {
@@ -1931,6 +1954,164 @@ export class SixHiService {
     }
 
     return this.getOrder(batchNumber, userId);
+  }
+
+  private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {
+    if (!meta) return {};
+    if (typeof meta === 'string') {
+      try {
+        const parsed = JSON.parse(meta);
+        return typeof parsed === 'object' && parsed ? parsed as Record<string, unknown> : {};
+      } catch {
+        return {};
+      }
+    }
+    return typeof meta === 'object' ? meta as Record<string, unknown> : {};
+  }
+
+  private static async resolveStoppageCategoryLabel(categoryCode?: string | null) {
+    if (!categoryCode) return undefined;
+    const row = await db.selectFrom('master.stoppage_category')
+      .select(['label'])
+      .where('category_code', '=', categoryCode)
+      .executeTakeFirst();
+    return row?.label ?? categoryCode;
+  }
+
+  static async getManualStoppageStatus(machineCode: string = '6HI') {
+    const activeOrder = await this.findActiveMachineOrder(machineCode);
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    const isManualStoppage = Boolean(
+      currentEvent
+      && currentEvent.event_type === 'STOPPAGE_STARTED'
+      && !currentEvent.batch_number,
+    );
+
+    if (!isManualStoppage || !currentEvent) {
+      return { eligible: !activeOrder, active: null };
+    }
+
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    const categoryLabel = await this.resolveStoppageCategoryLabel(currentEvent.category_code);
+
+    return {
+      eligible: !activeOrder,
+      active: {
+        eventId: String(currentEvent.event_id),
+        categoryCode: currentEvent.category_code ?? undefined,
+        categoryLabel,
+        breakdownCode: typeof meta.breakdownCode === 'string' ? meta.breakdownCode : undefined,
+        reason: currentEvent.reason ?? undefined,
+        startedAt: new Date(currentEvent.occurred_at).toISOString(),
+        shiftCode: currentEvent.shift_code ?? undefined,
+        rollInNo: typeof meta.rollInNo === 'string' ? meta.rollInNo : undefined,
+        rollInCode: typeof meta.rollInCode === 'string' ? meta.rollInCode : undefined,
+        rollOutNo: typeof meta.rollOutNo === 'string' ? meta.rollOutNo : undefined,
+        rollOutCode: typeof meta.rollOutCode === 'string' ? meta.rollOutCode : undefined,
+      },
+    };
+  }
+
+  static async startManualStoppage(
+    machineCode: string,
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+    userId: number,
+    rollMeta?: {
+      rollInNo?: string;
+      rollInCode?: string;
+      rollOutNo?: string;
+      rollOutCode?: string;
+    },
+  ) {
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+
+    const activeOrder = await this.findActiveMachineOrder(machineCode);
+    if (activeOrder) {
+      throw new Error('Cannot record manual stoppage while a production order is in progress');
+    }
+
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (currentEvent?.event_type === 'STOPPAGE_STARTED' && !currentEvent.batch_number) {
+      throw new Error('A manual stoppage is already active on this machine');
+    }
+
+    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode });
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_STARTED', {
+      operatorId: userId,
+      shiftCode: shift.shiftCode,
+      categoryCode,
+      reason: remarks,
+      meta: {
+        manual: true,
+        breakdownCode: breakdownCode ?? null,
+        ...rollMeta,
+      },
+    });
+
+    return this.getManualStoppageStatus(machineCode);
+  }
+
+  static async updateManualStoppage(
+    machineCode: string,
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+    rollChange?: {
+      rollPosition?: 'IN' | 'OUT';
+      newRollNo?: string;
+      newRollCode?: string;
+    },
+  ) {
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    const nextMeta: Record<string, unknown> = {
+      ...meta,
+      manual: true,
+      breakdownCode: breakdownCode ?? meta.breakdownCode ?? null,
+    };
+
+    if (rollChange?.rollPosition === 'IN' && rollChange.newRollNo?.trim()) {
+      nextMeta.rollInNo = rollChange.newRollNo.trim();
+      if (rollChange.newRollCode?.trim()) nextMeta.rollInCode = rollChange.newRollCode.trim();
+    }
+    if (rollChange?.rollPosition === 'OUT' && rollChange.newRollNo?.trim()) {
+      nextMeta.rollOutNo = rollChange.newRollNo.trim();
+      if (rollChange.newRollCode?.trim()) nextMeta.rollOutCode = rollChange.newRollCode.trim();
+    }
+
+    await MachineStateEventService.updateOpenEvent(currentEvent.event_id, {
+      categoryCode,
+      reason: remarks,
+      meta: nextMeta,
+    });
+
+    return this.getManualStoppageStatus(machineCode);
+  }
+
+  static async endManualStoppage(machineCode: string, userId: number) {
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+
+    const shiftCode = currentEvent.shift_code ?? undefined;
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_ENDED', {
+      operatorId: userId,
+      shiftCode,
+    });
+    await MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED', {
+      operatorId: userId,
+      shiftCode,
+    });
+
+    return this.getManualStoppageStatus(machineCode);
   }
 
   static async logRollChange(

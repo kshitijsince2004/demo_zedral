@@ -8,6 +8,7 @@ import {
 interface PlantKpiStripProps {
   data: ExtendedPlantHeadDashboardData;
   liveKpis?: LiveKpis;
+  onBacklogClick?: () => void;
 }
 
 interface KpiTile {
@@ -16,9 +17,10 @@ interface KpiTile {
   trend: string | null;
   /** Highlights the value (e.g. pending backlog). */
   emphasis?: 'warning';
+  onClick?: () => void;
 }
 
-export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
+export function PlantKpiStrip({ data, liveKpis, onBacklogClick }: PlantKpiStripProps) {
   const strip = data.kpiStrip;
   const productionTodayMt = liveKpis?.productionTodayMt ?? strip.productionTodayMt;
 
@@ -60,6 +62,7 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
       value: `${data.backlogCount} ${data.backlogCount === 1 ? 'order' : 'orders'}`,
       trend: null,
       emphasis: data.backlogCount > 0 ? 'warning' : undefined,
+      onClick: onBacklogClick,
     },
   ];
 
@@ -73,10 +76,16 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
       {kpis.map((kpi) => {
         const isNegative = kpi.trend?.startsWith('-') ?? false;
         const isNeutral = kpi.trend === '0%';
+        const TileTag = kpi.onClick ? 'button' : 'div';
         return (
-          <div
+          <TileTag
             key={kpi.label}
-            className="bg-card text-card-foreground border border-border rounded-lg p-6 shadow-sm flex flex-col"
+            type={kpi.onClick ? 'button' : undefined}
+            onClick={kpi.onClick}
+            className={[
+              'bg-card text-card-foreground border border-border rounded-lg p-6 shadow-sm flex flex-col text-left',
+              kpi.onClick ? 'cursor-pointer hover:bg-secondary/40 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/30' : '',
+            ].join(' ')}
             data-testid={kpi.label === 'Backlog' ? 'plant-kpi-backlog' : undefined}
           >
             <span className="text-sm font-medium text-muted-foreground mb-1">{kpi.label}</span>
@@ -102,7 +111,7 @@ export function PlantKpiStrip({ data, liveKpis }: PlantKpiStripProps) {
                 </span>
               )}
             </div>
-          </div>
+          </TileTag>
         );
       })}
     </div>

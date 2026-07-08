@@ -19,6 +19,12 @@ export class DashboardReportingService {
     return ReportingService.getPlantHeadDrilldown(...args);
   }
 
+  static getPlantHeadBacklog(
+    ...args: Parameters<typeof ReportingService.getPlantHeadBacklog>
+  ): ReturnType<typeof ReportingService.getPlantHeadBacklog> {
+    return ReportingService.getPlantHeadBacklog(...args);
+  }
+
   static getManagementDashboard(
     ...args: Parameters<typeof ReportingService.getManagementDashboard>
   ): ReturnType<typeof ReportingService.getManagementDashboard> {

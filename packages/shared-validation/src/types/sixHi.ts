@@ -199,6 +199,14 @@ export interface SixHiRollingData {
 
   finalThkMm?: number;
 
+  rollInNo?: string;
+
+  rollInCode?: string;
+
+  rollOutNo?: string;
+
+  rollOutCode?: string;
+
 }
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
-import { Activity, CircleStop, Moon } from 'lucide-react';
+import { Activity, CircleStop, Moon, PauseCircle } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
 import { useSixHiStore } from '../../../store/sixHiStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
@@ -12,9 +12,10 @@ import type { Tone } from '../../../lib/tones';
 
 interface StatusRailProps {
   processCode?: string;
+  onManualStoppage?: () => void;
 }
 
-export function StatusRail({ processCode }: StatusRailProps) {
+export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -31,7 +32,7 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const [clock, setClock] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
   const { basePath } = useWorkspaceBase();
-  const { panelOrder, machineActive, machineCode } = useSixHiStore();
+  const { panelOrder, machineActive, machineCode, manualStoppage } = useSixHiStore();
   const isCrmMill = isCrmMillPath(location.pathname);
   const line = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
@@ -42,7 +43,9 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const activeStatus = panelOrder?.status ?? machineActive?.status;
 
 
-  const crmStoppageActive = isCrmMill && !!panelOrder?.activeStoppage;
+  const crmStoppageActive = isCrmMill && (!!panelOrder?.activeStoppage || !!manualStoppage?.active);
+  const manualStoppageEligible = isCrmMill && !!manualStoppage?.eligible && !manualStoppage?.active;
+  const manualStoppageActive = isCrmMill && !!manualStoppage?.active;
   const crmRunning = isCrmMill
     ? activeStatus === 'IN_PROGRESS' && !crmStoppageActive
     : !runningStoppage;
@@ -175,6 +178,16 @@ export function StatusRail({ processCode }: StatusRailProps) {
             {currentDateStr} {clock}
           </span>
           <GloveModeToggle />
+          {isCrmMill && (manualStoppageEligible || manualStoppageActive) && onManualStoppage && (
+            <button
+              type="button"
+              onClick={onManualStoppage}
+              className="h-10 px-4 rounded-lg border border-destructive/40 bg-destructive/10 text-destructive text-sm font-bold uppercase tracking-wide hover:bg-destructive/20 transition-colors flex items-center gap-2"
+            >
+              <PauseCircle className="h-4 w-4" aria-hidden />
+              {manualStoppageActive ? 'Manage Stop' : 'Manual Stop'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => navigate(handoverPath)}
@@ -192,7 +205,9 @@ export function StatusRail({ processCode }: StatusRailProps) {
           <span className="truncate">
             {crmStoppageActive && panelOrder?.activeStoppage
               ? `${panelOrder.activeStoppage.categoryLabel} — since ${new Date(panelOrder.activeStoppage.startAt).toLocaleTimeString()}`
-              : runningStoppage
+              : manualStoppageActive
+                ? `Manual stoppage — since ${new Date(manualStoppage!.active!.startedAt).toLocaleTimeString()}`
+                : runningStoppage
                 ? `${runningStoppage.reason} — since ${runningStoppage.fromTime}`
                 : 'Stoppage active'}
           </span>

@@ -237,6 +237,67 @@ router.get('/active-order', requireSixHi('READ'), async (req, res) => {
   }
 });
 
+router.get('/manual-stoppage', requireSixHi('READ'), async (req, res) => {
+  try {
+    const machine = parseCrmMillCode(String(req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const status = await SixHiExecutionService.getManualStoppageStatus(machine);
+    res.json(status);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load manual stoppage status' });
+  }
+});
+
+router.post('/manual-stoppage/start', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const status = await SixHiExecutionService.startManualStoppage(
+      machine,
+      parsed.data.categoryCode.trim(),
+      parsed.data.breakdownCode?.trim() || undefined,
+      parsed.data.remarks?.trim() || undefined,
+      req.user!.id,
+    );
+    res.json(status);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to start manual stoppage' });
+  }
+});
+
+router.patch('/manual-stoppage', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const rollChange = req.body.rollChange as {
+      rollPosition?: 'IN' | 'OUT';
+      newRollNo?: string;
+      newRollCode?: string;
+    } | undefined;
+    const status = await SixHiExecutionService.updateManualStoppage(
+      machine,
+      parsed.data.categoryCode.trim(),
+      parsed.data.breakdownCode?.trim() || undefined,
+      parsed.data.remarks?.trim() || undefined,
+      rollChange,
+    );
+    res.json(status);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to update manual stoppage' });
+  }
+});
+
+router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const status = await SixHiExecutionService.endManualStoppage(machine, req.user!.id);
+    res.json(status);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to end manual stoppage' });
+  }
+});
+
 router.get('/queue', requireSixHi('READ'), async (req, res) => {
   try {
     const subProcess = String(req.query.subProcess ?? 'ROLLING').toUpperCase().replace(' ', '_');

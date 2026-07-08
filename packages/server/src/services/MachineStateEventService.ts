@@ -257,4 +257,32 @@ export class MachineStateEventService {
       .orderBy('occurred_at', 'desc')
       .executeTakeFirst();
   }
+
+  /** Update fields on an open machine state event (e.g. manual stoppage details). */
+  static async updateOpenEvent(
+    eventId: string | number | bigint,
+    updates: {
+      categoryCode?: string;
+      reason?: string;
+      meta?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const patch: {
+      category_code?: string;
+      reason?: string | null;
+      meta?: string | null;
+    } = {};
+    if (updates.categoryCode !== undefined) patch.category_code = updates.categoryCode;
+    if (updates.reason !== undefined) patch.reason = updates.reason ?? null;
+    if (updates.meta !== undefined) patch.meta = JSON.stringify(updates.meta);
+
+    if (Object.keys(patch).length === 0) return;
+
+    await db
+      .updateTable('txn.machine_state_event')
+      .set(patch)
+      .where('event_id', '=', String(eventId))
+      .where('ended_at', 'is', null)
+      .execute();
+  }
 }

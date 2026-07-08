@@ -66,11 +66,11 @@ export function ShiftEndModal({
           <div className="bg-secondary text-foreground text-sm p-4 rounded-xl font-medium border border-border">
             {isChanged ? (
               <>
-                The <strong>{shiftName || `Shift ${shiftCode}`}</strong> shift has ended and a new
-                {' '}
-                <strong>{newShiftName || `Shift ${newShiftCode}`}</strong> shift has started. Hand over
-                this session before beginning the new shift so in-progress work stays attributed to the
-                correct shift.
+                Your active session is still on{' '}
+                <strong>{shiftName || `Shift ${shiftCode}`}</strong>, but the wall clock indicates{' '}
+                <strong>{newShiftName || `Shift ${newShiftCode}`}</strong> is now scheduled.
+                Complete the handover before beginning the new shift so in-progress work stays
+                attributed to the correct shift.
               </>
             ) : (
               <>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { useElapsedTimer } from '../../hooks/useElapsedTimer';
 import {
@@ -8,6 +9,7 @@ import {
   type HandoverProductionSnapshot,
   type QueueItem,
   type ActiveOrderDetail,
+  resolveHandoverQueueSnapshot,
 } from '../../services/machineHandoverService';
 import { ZButton } from '../../components/primitives/ZButton';
 import { OperatorShell } from '../../components/layout/operator/OperatorShell';
@@ -101,11 +103,13 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
   const crewNotes = ps?.crewNotes;
   const shiftFields = ps?.shiftManualFields;
 
-  const queue = handover.queue_snapshot;
+  const queue = resolveHandoverQueueSnapshot(handover);
   const allQueueItems: QueueItem[] = [
     ...(queue.rolling ?? []),
     ...(queue.skinpass ?? []),
-  ].slice(0, 5);
+    ...(queue.backlogRolling ?? []),
+    ...(queue.backlogSkinpass ?? []),
+  ];
 
   const openStoppages = (handover.open_stoppages ?? []) as Array<{
     startAt?: string; reason?: string; status?: string;
@@ -121,6 +125,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
     setError(null);
     try {
       await machineHandoverService.accept(handover.handover_id);
+      await bootstrapShiftContext(machineCode);
       onAccepted();
       navigate(basePath);
     } catch (e: unknown) {

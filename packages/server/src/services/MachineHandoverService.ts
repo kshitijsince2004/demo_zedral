@@ -13,7 +13,21 @@ export type MachineHandoverStatus =
   | 'MAINTENANCE'
   | 'STOPPAGE';
 
-export type HandoverPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+export type HandoverPriority = 'LOW' | 'NORMAL' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+function normalizeHandoverPriority(priority?: HandoverPriority): 'LOW' | 'MEDIUM' | 'HIGH' {
+  if (priority === 'LOW') return 'LOW';
+  if (priority === 'HIGH' || priority === 'CRITICAL') return 'HIGH';
+  return 'MEDIUM';
+}
+
+function formatProdDate(value: Date | string): string {
+  if (typeof value === 'string') return value.slice(0, 10);
+  const y = value.getFullYear();
+  const mo = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
 
 export interface OutgoingHandoverInput {
   machineStatus: MachineHandoverStatus;
@@ -276,9 +290,11 @@ export class MachineHandoverService {
       crewSnapshot,
       utilizationMetrics,
       queueSnapshot: {
-        rolling: rollingQueue.queue.slice(0, 5),
-        skinpass: skinQueue.queue.slice(0, 5),
-        pendingAllocation: rollingQueue.pendingAllocation.slice(0, 5),
+        rolling: rollingQueue.queue,
+        skinpass: skinQueue.queue,
+        pendingAllocation: rollingQueue.pendingAllocation,
+        backlogRolling: rollingQueue.backlog,
+        backlogSkinpass: skinQueue.backlog,
       },
       nextShift: {
         shiftCode: nextShiftCode,
@@ -340,13 +356,14 @@ export class MachineHandoverService {
         .set({
           machine_status: input.machineStatus ?? preview.machineStatus,
           remarks: input.remarks?.trim() ?? existingDraft.remarks,
-          handover_priority: input.handoverPriority ?? 'NORMAL',
+          handover_priority: normalizeHandoverPriority(input.handoverPriority),
           breakdown_code: input.breakdownCode ?? null,
           breakdown_description: input.breakdownDescription ?? null,
           downtime_minutes: input.downtimeMinutes ?? null,
           maintenance_status: input.maintenanceStatus ?? null,
           production_snapshot: enrichedProductionSnapshot as any,
           open_stoppages: preview.openStoppages as any,
+          queue_snapshot: preview.queueSnapshot as any,
           batch_number: active?.batchNumber ?? null,
           order_id: orderId,
         })
@@ -373,9 +390,10 @@ export class MachineHandoverService {
         downtime_minutes: input.downtimeMinutes ?? null,
         maintenance_status: input.maintenanceStatus ?? null,
         remarks: input.remarks?.trim() ?? '',
-        handover_priority: input.handoverPriority ?? 'NORMAL',
+        handover_priority: normalizeHandoverPriority(input.handoverPriority),
         production_snapshot: enrichedProductionSnapshot as any,
         open_stoppages: preview.openStoppages as any,
+        queue_snapshot: preview.queueSnapshot as any,
         status: 'DRAFT',
         created_by_boundary: false,
       })
@@ -467,9 +485,10 @@ export class MachineHandoverService {
           downtime_minutes: input.downtimeMinutes ?? null,
           maintenance_status: input.maintenanceStatus ?? null,
           remarks: input.remarks.trim(),
-          handover_priority: input.handoverPriority ?? 'NORMAL',
+          handover_priority: normalizeHandoverPriority(input.handoverPriority),
           production_snapshot: enrichedProductionSnapshot as any,
           open_stoppages: preview.openStoppages as any,
+          queue_snapshot: preview.queueSnapshot as any,
           status: 'PENDING',
           created_by_boundary: false,
         })
@@ -582,7 +601,7 @@ export class MachineHandoverService {
           outgoing_operator_id: outgoingOperatorId,
           machine_status: machineStatus,
           remarks,
-          handover_priority: 'NORMAL',
+          handover_priority: 'MEDIUM',
           queue_snapshot: preview.queueSnapshot,
           production_snapshot: {
             ...preview.productionSnapshot,
@@ -730,10 +749,8 @@ export class MachineHandoverService {
     }
 
     const acceptedAt = new Date();
-    const shift = await ShiftDetectionService.getCurrentShift({
-      userId: incomingUserId,
-      machineCode: handover.machine_code,
-    });
+    const incomingShiftCode = handover.incoming_shift_code;
+    const incomingProdDate = formatProdDate(handover.incoming_prod_date as Date | string);
 
     return db.transaction().execute(async (trx) => {
       const updated = await trx
@@ -751,8 +768,8 @@ export class MachineHandoverService {
         .insertInto('txn.machine_shift_session')
         .values({
           machine_code: handover.machine_code,
-          shift_code: shift.shiftCode,
-          prod_date: shift.prodDate,
+          shift_code: incomingShiftCode,
+          prod_date: incomingProdDate,
           operator_user_id: incomingUserId,
           status: 'ACTIVE',
         })

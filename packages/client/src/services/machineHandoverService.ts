@@ -11,6 +11,8 @@ export interface PendingHandover {
     rolling?: QueueItem[];
     skinpass?: QueueItem[];
     pendingAllocation?: QueueItem[];
+    backlogRolling?: QueueItem[];
+    backlogSkinpass?: QueueItem[];
   };
   production_snapshot: HandoverProductionSnapshot;
   open_stoppages: OpenStoppage[];
@@ -19,6 +21,18 @@ export interface PendingHandover {
   outgoing_prod_date: string;
   created_at: string;
   clarification_notes?: string | null;
+}
+
+export function resolveHandoverQueueSnapshot(handover: PendingHandover) {
+  const direct = handover.queue_snapshot;
+  const fromSnapshot = (handover.production_snapshot as HandoverProductionSnapshot & {
+    queueSnapshot?: PendingHandover['queue_snapshot'];
+  })?.queueSnapshot;
+
+  if (direct && (direct.rolling?.length || direct.skinpass?.length || direct.pendingAllocation?.length)) {
+    return direct;
+  }
+  return fromSnapshot ?? direct ?? { rolling: [], skinpass: [], pendingAllocation: [] };
 }
 
 export interface QueueItem {
@@ -72,6 +86,13 @@ export interface HandoverProductionSnapshot {
   shiftProductionSummary?: ShiftProductionSummary | null;
   utilizationMetrics?: UtilizationMetrics | null;
   activeOrderDetail?: ActiveOrderDetail | null;
+  queueSnapshot?: {
+    rolling?: QueueItem[];
+    skinpass?: QueueItem[];
+    pendingAllocation?: QueueItem[];
+    backlogRolling?: QueueItem[];
+    backlogSkinpass?: QueueItem[];
+  };
 }
 
 export interface OrderSnapshot {

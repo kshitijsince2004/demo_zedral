@@ -97,6 +97,28 @@ export interface PlantHeadKpiStrip {
   qualityTrendPct: number;
 }
 
+export interface PlantHeadBacklogOrder {
+  batchNumber: string;
+  batchId: string;
+  coilNo: string;
+  slitId?: string;
+  planDate: string;
+  shiftCode: string;
+  status: string;
+  machineCode?: string;
+  machineName?: string;
+  stage?: string;
+  customer?: string;
+  grade?: string;
+  weightMt: number;
+  daysPending: number;
+}
+
+export interface PlantHeadBacklogResponse {
+  total: number;
+  orders: PlantHeadBacklogOrder[];
+}
+
 export interface PlantHeadDashboardData {
   /** Selected reporting window in days. */
   window: 1 | 7 | 30 | 90;
@@ -360,6 +382,10 @@ export const reportingService = {
     if (filters?.coils?.length) params.set('coils', filters.coils.join(','));
     const qs = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get<PlantHeadDashboardData>(`/reports/plant-head${qs}`);
+  },
+
+  async getPlantHeadBacklog(): Promise<PlantHeadBacklogResponse> {
+    return apiClient.get<PlantHeadBacklogResponse>('/reports/plant-head/backlog');
   },
 
   /**

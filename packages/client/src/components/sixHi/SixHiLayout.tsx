@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SixHiOrderDetail } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiOrderStoppage } from '@m1/shared-validation';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
@@ -16,6 +16,7 @@ import { machineHandoverService } from '../../services/machineHandoverService';
 import { SixHiWorkspaceModal } from './SixHiWorkspaceModal';
 import { SixHiGlobalProductionPanel } from './SixHiGlobalProductionPanel';
 import { OrderStoppageModal } from './OrderStoppageModal';
+import type { ManualStoppageState } from '../../store/sixHiStore';
 import { OrderRejectionModal } from './OrderRejectionModal';
 import { OrderEndModal } from './OrderEndModal';
 import { SixHiManualOrderModal } from './SixHiManualOrderModal';
@@ -23,6 +24,18 @@ import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
 import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
+
+function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
+  if (!active) return undefined;
+  return {
+    id: active.eventId,
+    categoryCode: active.categoryCode ?? '',
+    categoryLabel: active.categoryLabel ?? active.categoryCode ?? '',
+    breakdownCode: active.breakdownCode,
+    startAt: active.startedAt,
+    remarks: active.reason,
+  };
+}
 
 export function SixHiLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,11 +62,13 @@ export function SixHiLayout() {
     stoppageModalBatch,
     closeStoppageDialog,
     openStoppageDialog,
+    manualStoppage,
   } = useSixHiStore();
 
   const [rejectionOpen, setRejectionOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [remarkOpen, setRemarkOpen] = useState(false);
+  const [manualStoppageOpen, setManualStoppageOpen] = useState(false);
   const [startError, setStartError] = useState<{ message: string; activeBatch?: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -159,6 +174,7 @@ export function SixHiLayout() {
   };
 
   const activeStoppage = panelOrder?.activeStoppage;
+  const manualActiveStoppage = manualStoppageAsOrderStoppage(manualStoppage?.active ?? null);
 
   const handleEnd = () => {
     if (!activeBatch) return;
@@ -191,7 +207,7 @@ export function SixHiLayout() {
 
   return (
     <HandoverAcceptGate machineCode={pathMill}>
-      <OperatorShell processCode={pathMill}>
+      <OperatorShell processCode={pathMill} onManualStoppage={() => setManualStoppageOpen(true)}>
         <div className={[
           'flex flex-1 flex-col min-h-0',
           showPanel && !workspaceOpen ? 'pr-[6.5rem]' : '',
@@ -294,6 +310,10 @@ export function SixHiLayout() {
           open={!!stoppageModalBatch}
           hasActiveStoppage={!!activeStoppage}
           activeStoppage={activeStoppage}
+          initialRollInNo={panelOrder?.rolling?.rollInNo}
+          initialRollInCode={panelOrder?.rolling?.rollInCode}
+          initialRollOutNo={panelOrder?.rolling?.rollOutNo}
+          initialRollOutCode={panelOrder?.rolling?.rollOutCode}
           onClose={closeStoppageDialog}
           onStart={async (categoryCode, breakdownCode, remarks) => {
             await runOrderAction(stoppageBatch, async () =>
@@ -346,6 +366,59 @@ export function SixHiLayout() {
           }}
         />
       )}
+
+      <OrderStoppageModal
+        open={manualStoppageOpen}
+        hasActiveStoppage={!!manualActiveStoppage}
+        activeStoppage={manualActiveStoppage}
+        initialRollInNo={manualStoppage?.active?.rollInNo}
+        initialRollInCode={manualStoppage?.active?.rollInCode}
+        initialRollOutNo={manualStoppage?.active?.rollOutNo}
+        initialRollOutCode={manualStoppage?.active?.rollOutCode}
+        subtitle="Record machine downtime when no production order is active."
+        rollChangeTiming="before"
+        onClose={() => setManualStoppageOpen(false)}
+        onStart={async (categoryCode, breakdownCode, remarks) => {
+          await apiClient.post('/6hi/manual-stoppage/start', {
+            machine: pathMill,
+            categoryCode,
+            breakdownCode,
+            remarks,
+          });
+          await refreshMachineState();
+        }}
+        onUpdate={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
+          await apiClient.patch('/6hi/manual-stoppage', {
+            machine: pathMill,
+            categoryCode,
+            breakdownCode,
+            remarks,
+          });
+          await refreshMachineState();
+        }}
+        onEnd={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
+          await apiClient.patch('/6hi/manual-stoppage', {
+            machine: pathMill,
+            categoryCode,
+            breakdownCode,
+            remarks,
+          });
+          await apiClient.post('/6hi/manual-stoppage/end', { machine: pathMill });
+          await refreshMachineState();
+        }}
+        onRollChange={async (data) => {
+          const active = useSixHiStore.getState().manualStoppage?.active;
+          if (!active) return;
+          await apiClient.patch('/6hi/manual-stoppage', {
+            machine: pathMill,
+            categoryCode: active.categoryCode ?? '',
+            breakdownCode: active.breakdownCode,
+            remarks: active.reason,
+            rollChange: data,
+          });
+          await refreshMachineState();
+        }}
+      />
 
       <SixHiManualOrderModal />
 

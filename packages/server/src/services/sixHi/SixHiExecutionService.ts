@@ -72,4 +72,28 @@ export class SixHiExecutionService {
   ): ReturnType<typeof SixHiService.getProducedMt> {
     return SixHiService.getProducedMt(...args);
   }
+
+  static getManualStoppageStatus(
+    ...args: Parameters<typeof SixHiService.getManualStoppageStatus>
+  ): ReturnType<typeof SixHiService.getManualStoppageStatus> {
+    return SixHiService.getManualStoppageStatus(...args);
+  }
+
+  static startManualStoppage(
+    ...args: Parameters<typeof SixHiService.startManualStoppage>
+  ): ReturnType<typeof SixHiService.startManualStoppage> {
+    return SixHiService.startManualStoppage(...args);
+  }
+
+  static updateManualStoppage(
+    ...args: Parameters<typeof SixHiService.updateManualStoppage>
+  ): ReturnType<typeof SixHiService.updateManualStoppage> {
+    return SixHiService.updateManualStoppage(...args);
+  }
+
+  static endManualStoppage(
+    ...args: Parameters<typeof SixHiService.endManualStoppage>
+  ): ReturnType<typeof SixHiService.endManualStoppage> {
+    return SixHiService.endManualStoppage(...args);
+  }
 }
