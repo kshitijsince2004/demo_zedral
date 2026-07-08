@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { ZBadge } from '../../primitives/ZBadge';
 import { ZButton } from '../../primitives/ZButton';
+import { SyncStatusBadge } from '../../../operator/sync/SyncStatusBadge';
 import type { Tone } from '../../../lib/tones';
 
 interface DeskTopRailProps {
@@ -59,6 +60,8 @@ export function DeskTopRail({
         {trailing}
 
         {roleLabel && <ZBadge tone={roleTone} label={roleLabel} />}
+
+        <SyncStatusBadge />
 
         <span className="font-mono text-xs text-muted-foreground tabular-nums hidden md:block">{clock}</span>
 

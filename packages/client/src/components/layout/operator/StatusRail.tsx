@@ -7,6 +7,7 @@ import { useSixHiStore } from '../../../store/sixHiStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
 import { ZBadge } from '../../primitives/ZBadge';
 import { GloveModeToggle } from '../../ui/GloveModeToggle';
+import { SyncStatusBadge } from '../../../operator/sync/SyncStatusBadge';
 import type { Tone } from '../../../lib/tones';
 
 interface StatusRailProps {
@@ -169,6 +170,7 @@ export function StatusRail({ processCode }: StatusRailProps) {
             <Activity className="h-3.5 w-3.5 text-info" aria-hidden />
             <span className="text-[10px] uppercase tracking-[0.12em] font-medium">Live</span>
           </div>
+          <SyncStatusBadge />
           <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">
             {currentDateStr} {clock}
           </span>

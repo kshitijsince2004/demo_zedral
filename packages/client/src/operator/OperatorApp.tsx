@@ -11,12 +11,10 @@ import { CrmOutgoingHandoverPage } from '../pages/sixHi/CrmOutgoingHandoverPage'
 import { SixHiShiftSummaryPage } from '../pages/sixHi/SixHiShiftSummaryPage';
 import { SixHiQueuePage } from '../pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from '../pages/sixHi/SixHiOrderPage';
-import { SyncStatusBadge } from './sync/SyncStatusBadge';
 
 function OperatorApp() {
   return (
     <BrowserRouter>
-      <SyncStatusBadge />
       <Routes>
         <Route path="/login" element={<Login />} />
 

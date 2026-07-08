@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BadgeCheck, KeyRound } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { useAuthStore } from '../lib/authStore';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/apiClient';
@@ -108,17 +108,6 @@ export function Login() {
     }
   };
 
-  const handleSSOLogin = async () => {
-    try {
-      setError('');
-      const data = await apiClient.post('/auth/token', { code: 'sub-3' });
-      finishLogin(data.accessToken, data.refreshToken);
-    } catch (err: unknown) {
-      const body = (err as { body?: { error?: string } })?.body;
-      setError(body?.error ?? 'SSO login failed');
-    }
-  };
-
   return (
     <div className="theme-operator min-h-screen flex flex-col bg-secondary text-foreground">
       {/* Terminal header strip */}
@@ -126,7 +115,7 @@ export function Login() {
         <div className="flex items-center gap-3">
           <span className="font-mono text-lg font-bold tracking-tight text-white">ZEDRAL</span>
           <span className="text-[10px] uppercase tracking-[0.18em] text-white/70">
-            M1 · Plant 1100
+            Operator Console · Hero Steel
           </span>
         </div>
         <span className="font-mono text-xs text-white/70 tabular-nums">{clock} IST</span>
@@ -169,22 +158,6 @@ export function Login() {
               <ZButton type="submit" variant="accent" fullWidth size="lg">
                 <KeyRound className="h-4 w-4" aria-hidden />
                 Unlock terminal
-              </ZButton>
-
-              <div className="relative py-1">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-card px-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    supervisor / office
-                  </span>
-                </div>
-              </div>
-
-              <ZButton type="button" variant="secondary" fullWidth onClick={handleSSOLogin}>
-                <BadgeCheck className="h-4 w-4" aria-hidden />
-                Corporate SSO
               </ZButton>
             </form>
           </div>

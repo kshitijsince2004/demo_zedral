@@ -44,7 +44,7 @@ export function SyncStatusBadge() {
     <>
       <button
         type="button"
-        className={`fixed right-4 top-4 z-[200] flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-lg ${color}`}
+        className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${color}`}
         onClick={() => parked > 0 && setOpen(true)}
         aria-label={`Sync status: ${label}`}
       >
