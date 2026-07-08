@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import {
@@ -78,7 +78,11 @@ export function SixHiHub() {
   const [allocBatches, setAllocBatches] = useState<SixHiQueueCard[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
+  // Refs for silent background refresh
+  const isFirstLoad = useRef(true);
+  const prevDataRef = useRef<string>('');
   
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
@@ -108,9 +112,13 @@ export function SixHiHub() {
     void useSixHiStore.getState().refreshMachineState();
   }, [pathMachine]);
 
-  const loadQueue = useCallback(async () => {
-    setLoading(true);
-    setQueueError(null);
+  const loadQueue = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setQueueError(null);
+    } else {
+      setSyncing(true);
+    }
     try {
       const res = await apiClient.get(
         `/6hi/queue?subProcess=${apiSubProcess}&date=${date}&shift=${shift}&machine=${queueMachine}`,
@@ -118,31 +126,46 @@ export function SixHiHub() {
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
       const backlog: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.backlog ?? []);
-      setQueue(items);
-      setPendingQueue(pending);
-      setBacklogQueue(backlog);
+
+      // Only update state if data has actually changed — prevents needless re-renders
+      const fingerprint = JSON.stringify({ items, pending, backlog });
+      if (!silent || fingerprint !== prevDataRef.current) {
+        prevDataRef.current = fingerprint;
+        setQueue(items);
+        setPendingQueue(pending);
+        setBacklogQueue(backlog);
+      }
+
+      if (!silent) isFirstLoad.current = false;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         logout();
         navigate('/login', { replace: true });
         return;
       }
-      if (err instanceof ApiError) {
-        setQueueError(err.message || `Queue unavailable (${err.status})`);
-      } else {
-        setQueueError(err instanceof Error ? err.message : 'Failed to load queue');
+      // Only surface errors on the initial load to avoid toast-spam during background syncs
+      if (!silent) {
+        if (err instanceof ApiError) {
+          setQueueError(err.message || `Queue unavailable (${err.status})`);
+        } else {
+          setQueueError(err instanceof Error ? err.message : 'Failed to load queue');
+        }
+        setQueue([]);
+        setPendingQueue([]);
+        setBacklogQueue([]);
       }
-      setQueue([]);
-      setPendingQueue([]);
-      setBacklogQueue([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      setSyncing(false);
     }
   }, [apiSubProcess, date, shift, queueMachine, logout, navigate]);
 
   useEffect(() => {
-    loadQueue();
-    const id = setInterval(loadQueue, 15_000);
+    // Reset first-load flag whenever dependencies change (tab, date, shift, machine)
+    isFirstLoad.current = true;
+    prevDataRef.current = '';
+    loadQueue(false);
+    const id = setInterval(() => void loadQueue(true), 15_000);
     return () => clearInterval(id);
   }, [loadQueue, queueRefreshToken]);
 
@@ -413,7 +436,6 @@ export function SixHiHub() {
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-3 overflow-hidden">
       <ZPageHeader
         title="Orders"
-        subtitle={`${queueMachine} Mill · Shift ${shift} · ${date} · ${subProcessLabel}`}
         actions={
           <div className="flex gap-2 items-center flex-wrap justify-end">
             <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -468,7 +490,7 @@ export function SixHiHub() {
               title="Refresh Queue"
               className="min-h-9 px-3 rounded-md border border-border bg-white text-muted-foreground hover:bg-secondary flex items-center justify-center transition-colors"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
             </button>
             <SixHiPillTabs tabs={tabs} activeId={activeTab} onChange={setTab} />
           </div>
@@ -512,6 +534,7 @@ export function SixHiHub() {
           </div>
 
           <div className="flex-1 overflow-auto">
+            {/* Show spinner only on first/empty load — never during background refreshes */}
             {loading && <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>}
             {!loading && filteredQueue.length === 0 && (
               <div className="text-center py-12 px-6">

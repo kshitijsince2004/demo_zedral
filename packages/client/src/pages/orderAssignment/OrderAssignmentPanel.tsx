@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { ZButton } from '../../components/primitives/ZButton';
@@ -62,7 +62,10 @@ function canTransferOrder(order: AssignmentOrder): boolean {
 export function OrderAssignmentPanel() {
   const [board, setBoard] = useState<AssignmentBoard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isFirstLoad = useRef(true);
+  const prevBoardRef = useRef<string>('');
   const [selectedBatches, setSelectedBatches] = useState<Set<string>>(new Set());
   const [targetMachine, setTargetMachine] = useState('');
   const [reason, setReason] = useState('');
@@ -71,22 +74,34 @@ export function OrderAssignmentPanel() {
   const [filter, setFilter] = useState<'ALL' | 'ROLLING' | 'SKIN_PASS'>('ALL');
   const [bulkMode, setBulkMode] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    } else {
+      setSyncing(true);
+    }
     try {
       const data = await apiClient.get<AssignmentBoard>('/6hi/order-assignment');
-      setBoard(data);
+      const fingerprint = JSON.stringify(data);
+      if (!silent || fingerprint !== prevBoardRef.current) {
+        prevBoardRef.current = fingerprint;
+        setBoard(data);
+      }
+      if (!silent) isFirstLoad.current = false;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load orders');
+      if (!silent) setError(err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      setSyncing(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    const id = setInterval(load, 15_000);
+    isFirstLoad.current = true;
+    prevBoardRef.current = '';
+    void load(false);
+    const id = setInterval(() => void load(true), 15_000);
     return () => clearInterval(id);
   }, [load]);
 
@@ -196,7 +211,7 @@ export function OrderAssignmentPanel() {
           {bulkMode ? 'Exit Bulk Mode' : 'Bulk Transfer'}
         </ZButton>
         <ZButton variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
           Refresh
         </ZButton>
         {bulkMode && (
