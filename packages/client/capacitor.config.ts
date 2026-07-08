@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.zedral.m1operator',
-  appName: 'Zedral M1 Operator',
+  appName: 'Zedral Operator',
   webDir: 'dist-operator',
   server: { androidScheme: 'https' },
   android: { allowMixedContent: true },

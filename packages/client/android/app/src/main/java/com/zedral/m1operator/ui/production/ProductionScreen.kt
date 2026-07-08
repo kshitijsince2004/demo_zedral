@@ -138,8 +138,8 @@ fun ProductionTopTimer() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("ZEDRAL M1", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
-                Text("PLANT 1100 · COLD ROLLING", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
+                Text("ZEDRAL OPERATOR", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+                Text("Operator Console · Hero Steel", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
             }
             Text("00:45:12", style = MaterialTheme.typography.headlineLarge, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
             StatusBadge("Running", Success)

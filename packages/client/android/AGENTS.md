@@ -1,4 +1,4 @@
-# AGENTS.md — Zedral M1 Operator (Android shell)
+# AGENTS.md — Zedral Operator (Android shell)
 
 > Place this file at `packages/client/android/AGENTS.md` after `npx cap add android` generates the folder. Gemini in Android Studio reads it automatically.
 
@@ -7,7 +7,7 @@
 Capacitor 6+ Android shell around a React/TypeScript web bundle (`dist-operator`, built by Vite in the parent `packages/client`). It is an industrial data-capture app for line-mounted tablets in a cold-rolling steel plant. The web layer is NOT edited here — it is maintained in the parent repo with a different IDE. **Only native Android work happens in this folder.**
 
 - **Package / appId:** `com.zedral.m1operator`
-- **App name:** Zedral M1 Operator
+- **App name:** Zedral Operator
 - **Target device:** company-owned Android tablets (16 GB RAM / 128 GB), landscape, mounted at machine lines
 - **Full spec:** `../../..//M1-10_Operator_APK_Conversion.md` §8 (kiosk) and §9 (build/release)
 
