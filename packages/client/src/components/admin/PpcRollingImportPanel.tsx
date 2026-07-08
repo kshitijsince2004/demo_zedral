@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload } from 'lucide-react';
+import { AlertTriangle, Upload } from 'lucide-react';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { useShiftStore } from '../../store/shiftStore';
 import { formatShiftDate } from '../../lib/dateFormat';
@@ -8,6 +8,7 @@ import {
   adminService,
   type PpcRollingPreviewRow,
   type PpcXlsxSheetType,
+  type PpcPreviewRowStatus,
 } from '../../services/adminService';
 import { ZButton } from '../primitives/ZButton';
 
@@ -22,6 +23,22 @@ const OP_LABEL = 'block text-[10px] uppercase tracking-[0.14em] font-medium text
 const OP_SELECT =
   'h-11 w-full rounded-sm border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:border-accent/50';
 
+const PREVIEW_STATUS_LABELS: Record<PpcPreviewRowStatus, { label: string; className: string }> = {
+  'new':                  { label: 'New',               className: 'bg-success/15 text-success' },
+  'safe-update':          { label: 'Safe Update',        className: 'bg-primary/10 text-primary' },
+  'allocation-protected': { label: 'Locked',             className: 'bg-warning/15 text-warning' },
+  'in-production':        { label: 'In Production',      className: 'bg-destructive/15 text-destructive' },
+  'completed':            { label: 'Completed',          className: 'bg-muted text-muted-foreground' },
+  'duplicate-in-file':    { label: 'Duplicate',          className: 'bg-destructive/15 text-destructive' },
+};
+
+/** Rows that must never be imported — checkboxes disabled, excluded from auto-select */
+const DANGEROUS_STATUSES: PpcPreviewRowStatus[] = ['in-production', 'completed', 'duplicate-in-file', 'allocation-protected'];
+
+function isRowImportable(row: PpcRollingPreviewRow): boolean {
+  return row.errors.length === 0 && !DANGEROUS_STATUSES.includes(row.previewStatus);
+}
+
 export function PpcRollingImportPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [sheetType, setSheetType] = useState<PpcXlsxSheetType>('ROLLING');
@@ -32,6 +49,12 @@ export function PpcRollingImportPanel() {
   const [error, setError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<{
     loaded: number;
+    updated: number;
+    skipped: number;
+    skippedDuplicates: number;
+    skippedAllocated: number;
+    skippedProduction: number;
+    skippedCompleted: number;
     errors: { row: number; message: string }[];
     status: string;
     synced?: {
@@ -42,8 +65,10 @@ export function PpcRollingImportPanel() {
     };
   } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [duplicatesInFile, setDuplicatesInFile] = useState(0);
 
   const validRows = useMemo(() => rows.filter((r) => r.errors.length === 0), [rows]);
+  const importableRows = useMemo(() => rows.filter(isRowImportable), [rows]);
   const machineSummary = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const r of validRows) {
@@ -59,12 +84,15 @@ export function PpcRollingImportPanel() {
     setLoading(true);
     setError(null);
     setCommitResult(null);
+    setDuplicatesInFile(0);
     try {
       const result = await adminService.previewPpcRolling(file, sheetType);
       setSessionId(result.sessionId);
       setParsedSheetName(result.sheetName ?? '');
       setRows(result.rows);
-      setSelected(new Set(result.rows.filter((r) => r.errors.length === 0).map((r) => r.batchNumber)));
+      setDuplicatesInFile(result.duplicatesInFile ?? 0);
+      // Auto-select only importable rows (new + safe-update)
+      setSelected(new Set(result.rows.filter(isRowImportable).map((r) => r.batchNumber)));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Preview failed');
     } finally {
@@ -100,7 +128,8 @@ export function PpcRollingImportPanel() {
     }
   };
 
-  const toggleRow = useCallback((batchNumber: string) => {
+  const toggleRow = useCallback((batchNumber: string, row: PpcRollingPreviewRow) => {
+    if (!isRowImportable(row)) return; // silently ignore click on locked rows
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(batchNumber)) next.delete(batchNumber);
@@ -110,12 +139,12 @@ export function PpcRollingImportPanel() {
   }, []);
 
   const toggleAll = useCallback(() => {
-    if (selected.size === validRows.length) {
+    if (selected.size === importableRows.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(validRows.map((r) => r.batchNumber)));
+      setSelected(new Set(importableRows.map((r) => r.batchNumber)));
     }
-  }, [selected.size, validRows]);
+  }, [selected.size, importableRows]);
 
   return (
     <div className="p-4 space-y-4">
@@ -168,9 +197,30 @@ export function PpcRollingImportPanel() {
       {commitResult && (
         <div className="text-sm space-y-2 rounded-2xl border border-border bg-secondary/30 p-4">
           <p>
-            Sync status: <span className="font-semibold text-success">{commitResult.status}</span>
-            {' — '}{commitResult.loaded} batch{commitResult.loaded === 1 ? '' : 'es'} queued to machine orders
+            Import status: <span className="font-semibold text-success">{commitResult.status}</span>
+            {' — '}{commitResult.loaded} new · {commitResult.updated ?? 0} updated
+            {(commitResult.skipped ?? 0) > 0 && (
+              <span className="text-warning ml-1">· {commitResult.skipped} skipped</span>
+            )}
           </p>
+          {(commitResult.skippedAllocated ?? 0) > 0 && (
+            <p className="text-xs text-warning">
+              <AlertTriangle className="inline h-3 w-3 mr-1" />
+              {commitResult.skippedAllocated} batches skipped — already machine-allocated (operationally locked)
+            </p>
+          )}
+          {(commitResult.skippedProduction ?? 0) > 0 && (
+            <p className="text-xs text-destructive">
+              <AlertTriangle className="inline h-3 w-3 mr-1" />
+              {commitResult.skippedProduction} batches skipped — currently IN_PROGRESS
+            </p>
+          )}
+          {(commitResult.skippedCompleted ?? 0) > 0 && (
+            <p className="text-xs text-destructive">
+              <AlertTriangle className="inline h-3 w-3 mr-1" />
+              {commitResult.skippedCompleted} batches skipped — already COMPLETED
+            </p>
+          )}
           {commitResult.synced && commitResult.loaded > 0 && (
             <div className="text-xs text-muted-foreground space-y-1">
               <p>
@@ -204,11 +254,21 @@ export function PpcRollingImportPanel() {
 
       {rows.length > 0 && (
         <>
+          {duplicatesInFile > 0 && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex gap-2 items-start">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                <strong>{duplicatesInFile} duplicate batch number{duplicatesInFile === 1 ? '' : 's'}</strong> detected in this file.
+                Duplicate rows are highlighted below and will be rejected if committed.
+                Please correct the source file and re-upload.
+              </span>
+            </div>
+          )}
           <div className="text-xs text-muted-foreground rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1">
             <p>
               Tab: <span className="font-mono">{parsedSheetName || '—'}</span>
               {' · '}
-              {validRows.length} valid · {rows.length - validRows.length} with errors · {selected.size} selected
+              {importableRows.length} importable · {rows.length - importableRows.length} blocked · {selected.size} selected
             </p>
             {machineSummary && <p>Machines from sheet: {machineSummary}</p>}
           </div>
@@ -228,7 +288,7 @@ export function PpcRollingImportPanel() {
                   <th className="p-3 text-left">
                     <input
                       type="checkbox"
-                      checked={selected.size === validRows.length && validRows.length > 0}
+                      checked={selected.size === importableRows.length && importableRows.length > 0}
                       onChange={toggleAll}
                       aria-label="Select all"
                     />
@@ -241,35 +301,51 @@ export function PpcRollingImportPanel() {
                   <th className="p-3 text-right">Pass</th>
                   <th className="p-3 text-right">Finish</th>
                   <th className="p-3 text-left">Route</th>
+                  <th className="p-3 text-left">Status</th>
                   <th className="p-3 text-left">Errors</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.batchNumber} className="border-t border-border hover:bg-secondary transition-colors">
-                    <td className="p-3">
-                      {row.errors.length === 0 && (
-                        <input
-                          type="checkbox"
-                          checked={selected.has(row.batchNumber)}
-                          onChange={() => toggleRow(row.batchNumber)}
-                          aria-label={`Select ${row.batchNumber}`}
-                        />
-                      )}
-                    </td>
-                    <td className="p-3 font-mono">{row.batchNumber}</td>
-                    <td className="p-3 font-mono">{row.coilNo}</td>
-                    <td className="p-3">
-                      <span className="font-semibold text-foreground">{row.machineCode}</span>
-                    </td>
-                    <td className="p-3">{row.subProcess ?? 'ROLLING'}</td>
-                    <td className="p-3 font-mono">{row.planDate}</td>
-                    <td className="p-3 text-right font-mono">{row.rollingPassNo}</td>
-                    <td className="p-3 text-right font-mono">{row.finishThkMm}</td>
-                    <td className="p-3 font-mono text-[10px]">{row.processRouteRaw}</td>
-                    <td className="p-3 text-destructive">{row.errors.join('; ')}</td>
-                  </tr>
-                ))}
+                  {rows.map((row) => {
+                    const importable = isRowImportable(row);
+                    const status = PREVIEW_STATUS_LABELS[row.previewStatus] ?? PREVIEW_STATUS_LABELS['new'];
+                    return (
+                      <tr
+                        key={row.batchNumber}
+                        className={[
+                          'border-t border-border transition-colors',
+                          importable ? 'hover:bg-secondary' : 'opacity-60',
+                        ].join(' ')}
+                      >
+                        <td className="p-3">
+                          {importable && (
+                            <input
+                              type="checkbox"
+                              checked={selected.has(row.batchNumber)}
+                              onChange={() => toggleRow(row.batchNumber, row)}
+                              aria-label={`Select ${row.batchNumber}`}
+                            />
+                          )}
+                        </td>
+                        <td className="p-3 font-mono">{row.batchNumber}</td>
+                        <td className="p-3 font-mono">{row.coilNo}</td>
+                        <td className="p-3">
+                          <span className="font-semibold text-foreground">{row.machineCode}</span>
+                        </td>
+                        <td className="p-3">{row.subProcess ?? 'ROLLING'}</td>
+                        <td className="p-3 font-mono">{row.planDate}</td>
+                        <td className="p-3 text-right font-mono">{row.rollingPassNo}</td>
+                        <td className="p-3 text-right font-mono">{row.finishThkMm}</td>
+                        <td className="p-3 font-mono text-[10px]">{row.processRouteRaw}</td>
+                        <td className="p-3">
+                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${status.className}`}>
+                            {status.label}
+                          </span>
+                        </td>
+                        <td className="p-3 text-destructive">{row.errors.join('; ')}</td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>

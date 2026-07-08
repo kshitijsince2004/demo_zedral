@@ -20,6 +20,34 @@ import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
 import { currentPlantDate, parseDateOnly } from '../utils/dateOnly';
 import { ShiftDetectionService } from './ShiftDetectionService';
 
+/** Thrown when an import row would overwrite active production data. */
+export class ProductionSafetyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProductionSafetyError';
+  }
+}
+
+/** Classification of an existing batch row w.r.t. production safety. */
+interface SafetyCheck {
+  isNew: boolean;
+  isAllocated: boolean;
+  hasOrder: boolean;
+  orderStatus: string | null;
+  hasProduction: boolean;
+  isDangerous: boolean;
+  skipReason: string | null;
+}
+
+/** Preview status label returned to the client for each row. */
+export type PreviewRowStatus =
+  | 'new'
+  | 'safe-update'
+  | 'allocation-protected'
+  | 'in-production'
+  | 'completed'
+  | 'duplicate-in-file';
+
 interface PpcRow {
   batch_number: string;
   plan_date: string;
@@ -43,7 +71,10 @@ interface PpcRow {
 }
 type DbConn = Kysely<Database>;
 
-function mapPreviewRow(row: ParsedRollingPlanRow) {
+function mapPreviewRow(
+  row: ParsedRollingPlanRow,
+  previewStatus: PreviewRowStatus = 'new',
+) {
   return {
     rowNum: row.rowNum,
     batchNumber: row.batchNumber,
@@ -65,6 +96,7 @@ function mapPreviewRow(row: ParsedRollingPlanRow) {
     rollFinish: row.rollFinish,
     processRouteRaw: row.processRouteRaw,
     errors: row.errors,
+    previewStatus,
   };
 }
 
@@ -94,6 +126,32 @@ function rollingRowToSchemaInput(row: ParsedRollingPlanRow): PpcRow {
 function queueKey(machineCode: string, planDate: string, shiftCode: string): string {
   return `${machineCode}|${planDate}|${shiftCode}`;
 }
+
+/**
+ * Fields safe to update on an already-allocated batch.
+ * Machine allocation, queue position, plan date, shift, and sub-process are locked.
+ */
+const ALLOCATION_SAFE_FIELDS = [
+  'customer_name',
+  'grade_code',
+  'width_mm',
+  'input_thk_mm',
+  'ppc_thk_mm',
+  'finish_thk_mm',
+  'ppc_weight_mt',
+  'destination',
+  'roll_finish',
+  'ppc_reroll_flag',
+  'sap_order_no',
+  'process_route_raw',
+  'process_route_canonical',
+  'ppc_remarks',
+  'import_remark',
+  'min_thk_tol_mm',
+  'max_thk_tol_mm',
+  'import_batch_id',
+  'raw_row_json',
+] as const;
 
 export class PPCImportService {
   /** Auto-provision PPC grades (e.g. D, EDD, C-62) that are not yet in master.grade. */
@@ -208,6 +266,53 @@ export class PPCImportService {
     return next;
   }
 
+  /**
+   * Inspect an existing ppc_batch row to determine whether it is safe to update.
+   * Returns a SafetyCheck describing the threat level and reason for any block.
+   */
+  private static async checkProductionSafety(
+    trx: DbConn,
+    batchId: string | number,
+  ): Promise<SafetyCheck> {
+    const row = await trx.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
+      .leftJoin('txn.crm6_skinpass as sp', 'sp.order_id', 'o.order_id')
+      .select([
+        'pb.machine_allocated',
+        'o.status as order_status',
+        'r.actual_weight_mt as rolling_weight',
+        'sp.actual_weight_mt as skinpass_weight',
+      ])
+      .where('pb.batch_id', '=', String(batchId))
+      .executeTakeFirst();
+
+    if (!row) {
+      // Should not happen — caller verified existing
+      return { isNew: true, isAllocated: false, hasOrder: false, orderStatus: null, hasProduction: false, isDangerous: false, skipReason: null };
+    }
+
+    const isAllocated = Boolean(row.machine_allocated);
+    const hasOrder = row.order_status != null;
+    const orderStatus = row.order_status ?? null;
+    const hasProduction =
+      (row.rolling_weight != null && Number(row.rolling_weight) > 0) ||
+      (row.skinpass_weight != null && Number(row.skinpass_weight) > 0);
+
+    const isDangerous =
+      orderStatus === 'IN_PROGRESS' ||
+      orderStatus === 'COMPLETED' ||
+      hasProduction;
+
+    let skipReason: string | null = null;
+    if (orderStatus === 'IN_PROGRESS') skipReason = 'Order is currently IN_PROGRESS — cannot overwrite planning data';
+    else if (orderStatus === 'COMPLETED') skipReason = 'Order is COMPLETED — production data is immutable';
+    else if (hasProduction) skipReason = 'Production weight already captured — cannot overwrite planning data';
+    else if (isAllocated) skipReason = 'Batch is already machine-allocated — operationally locked for import';
+
+    return { isNew: false, isAllocated, hasOrder, orderStatus, hasProduction, isDangerous, skipReason };
+  }
+
   static async createManualBatch(row: z.infer<typeof SixHiManualOrderSchema>, userId: number) {
     const validation = SixHiManualOrderSchema.safeParse(row);
     if (!validation.success) {
@@ -268,7 +373,11 @@ export class PPCImportService {
     return { batchNumber: data.batch_number };
   }
 
-  private static async upsertPpcRow(trx: DbConn, row: PpcRow, importBatchId: number) {
+  private static async upsertPpcRow(
+    trx: DbConn,
+    row: PpcRow,
+    importBatchId: number,
+  ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; reason?: string }> {
     const existing = await trx.selectFrom('planning.ppc_batch')
       .select('batch_id')
       .where('batch_number', '=', row.batch_number)
@@ -301,6 +410,18 @@ export class PPCImportService {
     let batchId: number;
     if (existing) {
       batchId = Number(existing.batch_id);
+      const safety = await this.checkProductionSafety(trx, batchId);
+
+      if (safety.isDangerous) {
+        throw new ProductionSafetyError(safety.skipReason!);
+      }
+
+      if (safety.isAllocated) {
+        // Operationally locked — skip entirely per policy
+        throw new ProductionSafetyError(safety.skipReason!);
+      }
+
+      // Safe unallocated update — no order or PENDING
       await trx.updateTable('planning.ppc_batch')
         .set(batchValues)
         .where('batch_id', '=', String(batchId))
@@ -331,13 +452,39 @@ export class PPCImportService {
         trx,
       );
     }
+
+    return { action: existing ? 'updated' : 'inserted' };
   }
 
   static async importFromCsvText(fileName: string, csvText: string, userId: number) {
     const detectedShift = await ShiftDetectionService.getCurrentShift();
     const parsed = parsePpcCsv(csvText, detectedShift.shiftCode);
     if (parsed.headerError) {
-      return { headerError: parsed.headerError, batchId: null, status: 'FAILED' as const, loaded: 0, errors: [] };
+      return { headerError: parsed.headerError, batchId: null, status: 'FAILED' as const, loaded: 0, updated: 0, skipped: 0, skippedDuplicates: 0, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0, errors: [] };
+    }
+
+    // ── Phase 1: In-file duplicate detection (hard fail per policy) ──────────
+    const seenInFile = new Map<string, number[]>(); // batchNumber → rowNums
+    for (let i = 0; i < parsed.rows.length; i++) {
+      const bn = String(parsed.rows[i]?.batch_number ?? '').trim();
+      if (!bn) continue;
+      const rowNum = ppcDataRowNumber(i);
+      const existing = seenInFile.get(bn);
+      if (existing) existing.push(rowNum);
+      else seenInFile.set(bn, [rowNum]);
+    }
+    const duplicateEntries = [...seenInFile.entries()].filter(([, rows]) => rows.length > 1);
+    if (duplicateEntries.length > 0) {
+      const report = duplicateEntries
+        .map(([bn, rows]) => `${bn} (rows ${rows.join(', ')})`)
+        .join('; ');
+      return {
+        headerError: `Import rejected — duplicate batch_numbers detected in file: ${report}. Please correct the source file and re-import.`,
+        batchId: null,
+        status: 'FAILED' as const,
+        loaded: 0, updated: 0, skipped: 0, skippedDuplicates: duplicateEntries.length, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0,
+        errors: [],
+      };
     }
 
     const batch = await db.insertInto('planning.import_batch')
@@ -347,6 +494,10 @@ export class PPCImportService {
 
     const errors: { row: number; message: string }[] = [...parsed.rowErrors];
     let loaded = 0;
+    let updated = 0;
+    let skippedAllocated = 0;
+    let skippedProduction = 0;
+    let skippedCompleted = 0;
     const queueCounters = new Map<string, number>();
 
     for (let i = 0; i < parsed.rows.length; i++) {
@@ -359,7 +510,7 @@ export class PPCImportService {
       }
 
       try {
-        await db.transaction().execute(async (trx) => {
+        const result = await db.transaction().execute(async (trx) => {
           await this.ensureShift(row.shift_code, trx);
           await this.ensureGrade(row.grade_code, trx);
           const queueSeq = await this.seedQueueSeq(
@@ -369,23 +520,33 @@ export class PPCImportService {
             row.shift_code,
             queueCounters,
           );
-          await this.upsertPpcRow(trx, { ...validation.data, queue_seq: queueSeq }, Number(batch.import_batch_id));
+          return this.upsertPpcRow(trx, { ...validation.data, queue_seq: queueSeq }, Number(batch.import_batch_id));
         });
-        loaded++;
+        if (result.action === 'inserted') loaded++;
+        else updated++;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Insert failed';
         errors.push({ row: rowNum, message: msg });
+        // Categorize the skip reason
+        if (e instanceof ProductionSafetyError) {
+          const reason = e.message.toLowerCase();
+          if (reason.includes('in_progress')) skippedProduction++;
+          else if (reason.includes('completed')) skippedCompleted++;
+          else if (reason.includes('allocated')) skippedAllocated++;
+        }
       }
     }
 
-    const status = loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
+    const totalLoaded = loaded + updated;
+    const skipped = skippedAllocated + skippedProduction + skippedCompleted;
+    const status = totalLoaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
       .set({ status, error_count: errors.length, row_count: parsed.rows.length })
       .where('import_batch_id', '=', batch.import_batch_id)
       .execute();
 
     // Index successful rows into Elasticsearch
-    if (loaded > 0) {
+    if (totalLoaded > 0) {
       try {
         const rowsToIndex = await db.selectFrom('planning.ppc_batch')
           .selectAll()
@@ -403,6 +564,12 @@ export class PPCImportService {
       batchId: String(batch.import_batch_id),
       status,
       loaded,
+      updated,
+      skipped,
+      skippedDuplicates: 0,
+      skippedAllocated,
+      skippedProduction,
+      skippedCompleted,
       errors,
       headerError: undefined,
     };
@@ -432,6 +599,60 @@ export class PPCImportService {
     const planDate = parsed.rows.find((r) => r.planDate)?.planDate ?? currentPlantDate();
     const effectiveShift = parsed.rows[0]?.shiftCode ?? detectedShift.shiftCode.toUpperCase();
 
+    // ── Enrich rows with production status for preview display ───────────────
+    const allBatchNumbers = parsed.rows.map((r) => r.batchNumber).filter(Boolean);
+
+    // Detect duplicates within the file
+    const batchNumberCounts = new Map<string, number>();
+    for (const bn of allBatchNumbers) batchNumberCounts.set(bn, (batchNumberCounts.get(bn) ?? 0) + 1);
+    const duplicatesInFile = new Set([...batchNumberCounts.entries()].filter(([, n]) => n > 1).map(([bn]) => bn));
+
+    // Bulk fetch existing batches with their order status
+    const existingBatches = allBatchNumbers.length > 0
+      ? await db.selectFrom('planning.ppc_batch as pb')
+          .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+          .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
+          .leftJoin('txn.crm6_skinpass as sp', 'sp.order_id', 'o.order_id')
+          .select([
+            'pb.batch_number',
+            'pb.machine_allocated',
+            'o.status as order_status',
+            'r.actual_weight_mt as rolling_weight',
+            'sp.actual_weight_mt as skinpass_weight',
+          ])
+          .where('pb.batch_number', 'in', allBatchNumbers)
+          .execute()
+      : [];
+
+    const existingMap = new Map(existingBatches.map((b) => [b.batch_number, b]));
+
+    const enrichedRows = parsed.rows.map((row) => {
+      let previewStatus: PreviewRowStatus = 'new';
+
+      if (duplicatesInFile.has(row.batchNumber)) {
+        previewStatus = 'duplicate-in-file';
+      } else {
+        const ex = existingMap.get(row.batchNumber);
+        if (ex) {
+          const hasProduction =
+            (ex.rolling_weight != null && Number(ex.rolling_weight) > 0) ||
+            (ex.skinpass_weight != null && Number(ex.skinpass_weight) > 0);
+
+          if (ex.order_status === 'COMPLETED' || hasProduction) {
+            previewStatus = 'completed';
+          } else if (ex.order_status === 'IN_PROGRESS') {
+            previewStatus = 'in-production';
+          } else if (ex.machine_allocated) {
+            previewStatus = 'allocation-protected';
+          } else {
+            previewStatus = 'safe-update';
+          }
+        }
+      }
+
+      return mapPreviewRow(row, previewStatus);
+    });
+
     previewSessionStore.set(sessionId, {
       sessionId,
       fileName,
@@ -446,11 +667,12 @@ export class PPCImportService {
 
     return {
       sessionId,
-      rows: parsed.rows.map(mapPreviewRow),
+      rows: enrichedRows,
       planDate,
       shiftCode: effectiveShift,
       sheetType: parsed.sheetType ?? sheetType,
       sheetName: parsed.sheetName ?? '',
+      duplicatesInFile: duplicatesInFile.size,
     };
   }
 
@@ -465,7 +687,9 @@ export class PPCImportService {
       if (row) row.machineCode = a.machineCode;
     }
 
-    return session.rows.map(mapPreviewRow);
+    // NB: call through an arrow so Array.map's index argument is not forwarded as
+    // `previewStatus` (which would corrupt every row's status to its numeric index).
+    return session.rows.map(r => mapPreviewRow(r));
   }
 
   static async commitRollingSession(
@@ -483,6 +707,23 @@ export class PPCImportService {
       throw new Error('No rows selected for import');
     }
 
+    // ── Phase 1: In-file duplicate detection (hard fail per policy) ──────────
+    const seenInFile = new Map<string, number[]>(); // batchNumber → rowNums
+    for (const row of rowsToCommit) {
+      const existing = seenInFile.get(row.batchNumber);
+      if (existing) existing.push(row.rowNum);
+      else seenInFile.set(row.batchNumber, [row.rowNum]);
+    }
+    const duplicateEntries = [...seenInFile.entries()].filter(([, rows]) => rows.length > 1);
+    if (duplicateEntries.length > 0) {
+      const report = duplicateEntries
+        .map(([bn, rows]) => `${bn} (rows ${rows.join(', ')})`)
+        .join('; ');
+      throw new Error(
+        `Import rejected — duplicate batch_numbers detected in selected rows: ${report}. Please correct the source file and re-import.`,
+      );
+    }
+
     const batch = await db.insertInto('planning.import_batch')
       .values({
         source: 'XLSX',
@@ -496,6 +737,10 @@ export class PPCImportService {
 
     const errors: { row: number; message: string }[] = [];
     let loaded = 0;
+    let updated = 0;
+    let skippedAllocated = 0;
+    let skippedProduction = 0;
+    let skippedCompleted = 0;
 
     for (const row of rowsToCommit) {
       if (row.errors.length > 0) {
@@ -514,20 +759,32 @@ export class PPCImportService {
       }
 
       try {
-        await db.transaction().execute(async (trx) => {
+        const result = await db.transaction().execute(async (trx) => {
           await this.ensureShift(row.shiftCode, trx);
           await this.ensureGrade(row.gradeCode, trx);
-          await this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
+          return this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
         });
-        const { SixHiConfigService } = await import('./sixHi');
-        await SixHiConfigService.ensureOrder(row.batchNumber, userId);
-        loaded++;
+        if (result.action === 'inserted') {
+          const { SixHiConfigService } = await import('./sixHi');
+          await SixHiConfigService.ensureOrder(row.batchNumber, userId);
+          loaded++;
+        } else {
+          updated++;
+        }
       } catch (e: unknown) {
         errors.push({ row: row.rowNum, message: e instanceof Error ? e.message : 'Insert failed' });
+        if (e instanceof ProductionSafetyError) {
+          const reason = e.message.toLowerCase();
+          if (reason.includes('in_progress')) skippedProduction++;
+          else if (reason.includes('completed')) skippedCompleted++;
+          else if (reason.includes('allocated')) skippedAllocated++;
+        }
       }
     }
 
-    const status = loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
+    const totalLoaded = loaded + updated;
+    const skipped = skippedAllocated + skippedProduction + skippedCompleted;
+    const status = totalLoaded === 0 && loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
       .set({ status, error_count: errors.length, row_count: rowsToCommit.length })
       .where('import_batch_id', '=', batch.import_batch_id)
@@ -537,10 +794,11 @@ export class PPCImportService {
       previewSessionStore.delete(sessionId);
     }
 
-    const syncedRows = rowsToCommit.filter((r) => r.errors.length === 0);
-    const syncedBatchNumbers = syncedRows
-      .filter((r) => !errors.some((e) => e.row === r.rowNum))
-      .map((r) => r.batchNumber);
+    // Only newly inserted rows trigger shift log provisioning and Elasticsearch indexing
+    const syncedRows = rowsToCommit.filter((r) =>
+      r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
+    );
+    const syncedBatchNumbers = syncedRows.map((r) => r.batchNumber);
 
     if (loaded > 0) {
       const { SixHiShiftService } = await import('./sixHi');
@@ -559,12 +817,10 @@ export class PPCImportService {
       }
     }
 
-    const firstSynced = rowsToCommit.find(
-      (r) => r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
-    );
+    const firstSynced = syncedRows[0];
 
     // Index into Elasticsearch
-    if (loaded > 0) {
+    if (totalLoaded > 0) {
       try {
         const rowsToIndex = await db.selectFrom('planning.ppc_batch')
           .selectAll()
@@ -580,6 +836,12 @@ export class PPCImportService {
 
     return {
       loaded,
+      updated,
+      skipped,
+      skippedDuplicates: 0,
+      skippedAllocated,
+      skippedProduction,
+      skippedCompleted,
       errors,
       status,
       synced: loaded > 0
@@ -597,7 +859,7 @@ export class PPCImportService {
     trx: DbConn,
     row: ParsedRollingPlanRow,
     importBatchId: number,
-  ) {
+  ): Promise<{ action: 'inserted' | 'updated' }> {
     const targetThk = row.passTargetThkMm ?? row.finishThkMm;
 
     const existing = await trx.selectFrom('planning.ppc_batch')
@@ -643,31 +905,59 @@ export class PPCImportService {
     let batchId: number;
     if (existing) {
       batchId = Number(existing.batch_id);
+      const safety = await this.checkProductionSafety(trx, batchId);
+
+      if (safety.isDangerous) {
+        throw new ProductionSafetyError(safety.skipReason!);
+      }
+
+      if (safety.isAllocated) {
+        // Batch is operationally locked — reject per policy
+        throw new ProductionSafetyError(safety.skipReason!);
+      }
+
+      // Safe to update — batch exists but is unallocated with no active/completed order
       await trx.updateTable('planning.ppc_batch')
         .set(batchValues)
         .where('batch_id', '=', String(batchId))
         .execute();
-      await trx.deleteFrom('planning.ppc_rolling_pass_plan')
-        .where('batch_id', '=', String(batchId))
-        .execute();
+
+      // Only rebuild pass plans when the batch is completely clean (no order at all)
+      if (!safety.hasOrder) {
+        await trx.deleteFrom('planning.ppc_rolling_pass_plan')
+          .where('batch_id', '=', String(batchId))
+          .execute();
+        for (const plan of row.rollingPassPlans) {
+          await trx.insertInto('planning.ppc_rolling_pass_plan')
+            .values({
+              batch_id: batchId,
+              pass_no: plan.passNo,
+              target_thk_mm: plan.targetThkMm ?? null,
+              roll_finish: plan.rollFinish ?? null,
+              is_required: plan.isRequired,
+            })
+            .execute();
+        }
+      }
+      // If a PENDING order exists, preserve pass plans to avoid disrupting operators
     } else {
       const inserted = await trx.insertInto('planning.ppc_batch')
         .values({ batch_number: row.batchNumber, ...batchValues })
         .returning('batch_id')
         .executeTakeFirstOrThrow();
       batchId = Number(inserted.batch_id);
-    }
 
-    for (const plan of row.rollingPassPlans) {
-      await trx.insertInto('planning.ppc_rolling_pass_plan')
-        .values({
-          batch_id: batchId,
-          pass_no: plan.passNo,
-          target_thk_mm: plan.targetThkMm ?? null,
-          roll_finish: plan.rollFinish ?? null,
-          is_required: plan.isRequired,
-        })
-        .execute();
+      for (const plan of row.rollingPassPlans) {
+        await trx.insertInto('planning.ppc_rolling_pass_plan')
+          .values({
+            batch_id: batchId,
+            pass_no: plan.passNo,
+            target_thk_mm: plan.targetThkMm ?? null,
+            roll_finish: plan.rollFinish ?? null,
+            is_required: plan.isRequired,
+          })
+          .execute();
+      }
     }
 
     await this.ensureCoil(trx, {
@@ -688,6 +978,8 @@ export class PPCImportService {
         trx,
       );
     }
+
+    return { action: existing ? 'updated' : 'inserted' };
   }
 
   /** @deprecated Use SixHiConfigService.transferMachines */

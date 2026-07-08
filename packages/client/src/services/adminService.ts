@@ -18,6 +18,14 @@ import { apiClient, getAuthHeaders } from '../lib/apiClient';
 
 export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING';
 
+export type PpcPreviewRowStatus =
+  | 'new'
+  | 'safe-update'
+  | 'allocation-protected'
+  | 'in-production'
+  | 'completed'
+  | 'duplicate-in-file';
+
 export interface PpcRollingPreviewRow {
   rowNum: number;
   batchNumber: string;
@@ -40,6 +48,8 @@ export interface PpcRollingPreviewRow {
   processRouteRaw: string;
   errors: string[];
   selected?: boolean;
+  /** Production-safety classification returned by the server during preview. */
+  previewStatus: PpcPreviewRowStatus;
 }
 
 export interface PpcRollingPreviewResult {
@@ -49,6 +59,8 @@ export interface PpcRollingPreviewResult {
   shiftCode: string;
   sheetType?: PpcXlsxSheetType;
   sheetName?: string;
+  /** Number of batch_numbers that appear more than once in the uploaded file. */
+  duplicatesInFile?: number;
 }
 
 export type MasterEntity =
@@ -402,6 +414,12 @@ export const adminService = {
     batchNumbers?: string[],
   ): Promise<{
     loaded: number;
+    updated: number;
+    skipped: number;
+    skippedDuplicates: number;
+    skippedAllocated: number;
+    skippedProduction: number;
+    skippedCompleted: number;
     errors: { row: number; message: string }[];
     status: string;
     synced?: {
