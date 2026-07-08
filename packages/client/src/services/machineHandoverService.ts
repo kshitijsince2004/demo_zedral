@@ -155,6 +155,9 @@ export interface HandoverPreview {
     shiftName: string;
     prodDate: string;
     shiftLogId?: string | number | null;
+    windowStart?: string;
+    windowEnd?: string;
+    actualSessionStartAt?: string | null;
   };
   shiftProductionSummary: ShiftProductionSummary | null;
   crewSnapshot: CrewMember[];
@@ -190,6 +193,10 @@ export interface HandoverOverviewRow {
   incomingShiftCode: string;
   createdAt: string;
   acceptedAt?: string;
+  shiftStartAt?: string;
+  shiftEndAt?: string;
+  shiftDurationMinutes?: number;
+  shiftDurationLabel?: string;
   outgoingUsername?: string;
   incomingUsername?: string;
   createdByBoundary?: boolean;

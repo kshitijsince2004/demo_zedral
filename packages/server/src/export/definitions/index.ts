@@ -5,11 +5,14 @@ import { CoilTraceReport } from './CoilTraceReport';
 import { LineLogReport } from './LineLogReport';
 import { RawRegisterReport } from './RawRegisterReport';
 
+import { RejectedOrdersReport } from './RejectedOrdersReport';
+
 const REGISTRY: Record<ExportType, ReportDefinition> = {
   RAW: RawRegisterReport,
   DPR: DprReport,
   LINE_LOG: LineLogReport,
   COIL_TRACE: CoilTraceReport,
+  REJECTED_ORDERS: RejectedOrdersReport,
 };
 
 function stubDefinition(id: ExportType, formats: ExportFormat[]): ReportDefinition {

@@ -6,6 +6,18 @@ import { MachineHeadShell } from '../../components/layout/machinehead/MachineHea
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
 import { useAuthStore } from '../../lib/authStore';
+import { ZButton } from '../../components/primitives/ZButton';
+import { Download, AlertTriangle } from 'lucide-react';
+import { reportingService } from '../../lib/reportingService';
+import { ExportProgressModal } from '../../components/export/ExportProgressModal';
+import { currentPlantDate } from '../../lib/dateFormat';
+
+function formatDuration(minutes?: number): string {
+  if (minutes == null || minutes < 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 function Section({ title, children, empty }: { title: string; children: ReactNode; empty?: boolean }) {
   return (
@@ -36,6 +48,38 @@ export function MachineHeadDashboard() {
   const { snapshot, loading, error, refresh } = useLiveSnapshot();
   const [dashboard, setDashboard] = useState<MachineHeadDashboardData | null>(null);
   const [dashError, setDashError] = useState<string | null>(null);
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [exportDate, setExportDate] = useState(currentPlantDate());
+  const [exportShift, setExportShift] = useState('');
+
+  const handleExportRejected = async (mode: 'day' | 'shift') => {
+    try {
+      const scope: Record<string, string> = {
+        dateFrom: exportDate,
+        dateTo: exportDate,
+      };
+      if (mode === 'shift') {
+        scope.shiftCode = exportShift || dashboard?.shiftSummary.shiftCode || 'A';
+      }
+      const job = await reportingService.createExport({
+        type: 'REJECTED_ORDERS',
+        format: 'XLSX',
+        scope,
+      });
+      setExportJobId(job.jobId);
+    } catch (e: unknown) {
+      alert((e as Error)?.message || 'Export failed to start');
+    }
+  };
+
+  useEffect(() => {
+    if (dashboard?.shiftSummary.shiftCode) {
+      setExportShift(dashboard.shiftSummary.shiftCode);
+    }
+    if (dashboard?.shiftSummary.planDate) {
+      setExportDate(dashboard.shiftSummary.planDate);
+    }
+  }, [dashboard?.shiftSummary.shiftCode, dashboard?.shiftSummary.planDate]);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -215,6 +259,109 @@ export function MachineHeadDashboard() {
               </ul>
             )}
           </Section>
+
+          <Section
+            title={`Rejected Orders${dashboard.rejectedOrderCount != null ? ` (${dashboard.rejectedOrderCount})` : ''}`}
+            empty={!dashboard.rejectedOrders || dashboard.rejectedOrders.length === 0}
+          >
+            {dashboard.rejectedOrders && dashboard.rejectedOrders.length > 0 && (
+              <div className="px-5 pt-3 pb-2 border-b border-border bg-secondary/30 space-y-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Export date
+                    <input
+                      type="date"
+                      value={exportDate}
+                      onChange={(e) => setExportDate(e.target.value)}
+                      className="mt-1 block rounded-lg border border-border bg-white px-3 py-1.5 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Shift
+                    <select
+                      value={exportShift}
+                      onChange={(e) => setExportShift(e.target.value)}
+                      className="mt-1 block rounded-lg border border-border bg-white px-3 py-1.5 text-sm"
+                    >
+                      {['A', 'B', 'C'].map((s) => (
+                        <option key={s} value={s}>Shift {s}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ZButton variant="outline" size="sm" onClick={() => handleExportRejected('day')} className="gap-2">
+                    <Download className="w-4 h-4" /> Export Day
+                  </ZButton>
+                  <ZButton variant="outline" size="sm" onClick={() => handleExportRejected('shift')} className="gap-2">
+                    <Download className="w-4 h-4" /> Export Shift
+                  </ZButton>
+                </div>
+              </div>
+            )}
+            {dashboard.rejectedOrders && dashboard.rejectedOrders.length > 0 && (
+              <ul className="text-xs divide-y divide-border">
+                {dashboard.rejectedOrders.map((r) => (
+                  <li key={`${r.batchNumber}-${r.rejectionTime}`} className="px-5 py-3 hover:bg-secondary transition-colors">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-mono font-bold">{r.batchNumber}</span>
+                      <span className="font-mono font-bold text-destructive">{r.weightMt} MT</span>
+                    </div>
+                    <div className="flex gap-2 items-start mt-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-foreground">{r.reason}</p>
+                        <p className="text-muted-foreground mt-0.5">
+                          Rejected by {r.rejectedBy} on {new Date(r.rejectionTime).toLocaleString()}
+                          {r.machineCode ? ` (${r.machineCode}` : ''}
+                          {r.shiftCode ? ` · Shift ${r.shiftCode}` : ''}
+                          {r.machineCode ? ')' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section title="Shift Handover Logs" empty={!dashboard.handoverOverview?.recent || dashboard.handoverOverview.recent.length === 0}>
+            {dashboard.handoverOverview?.recent && dashboard.handoverOverview.recent.length > 0 && (
+              <ul className="text-xs divide-y divide-border">
+                {dashboard.handoverOverview.recent.map((h) => (
+                  <li key={h.handoverId} className="px-5 py-3 flex flex-col hover:bg-secondary transition-colors">
+                    <div className="flex justify-between mb-1">
+                      <span className="font-bold">{h.machineCode}</span>
+                      <span className="text-muted-foreground font-mono">Shift {h.outgoingShiftCode} → {h.incomingShiftCode}</span>
+                    </div>
+                    <div className="text-muted-foreground">
+                      <span className="inline-block w-32">Shift Start Time:</span>
+                      <span className="font-mono">{new Date(h.shiftStartAt ?? h.createdAt).toLocaleString()}</span>
+                    </div>
+                    {h.shiftEndAt && (
+                      <div className="text-muted-foreground">
+                        <span className="inline-block w-32">Shift End Time:</span>
+                        <span className="font-mono text-emerald-600">{new Date(h.shiftEndAt).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {h.shiftDurationMinutes != null && (
+                      <div className="text-muted-foreground">
+                        <span className="inline-block w-32">Duration:</span>
+                        <span className="font-mono">{h.shiftDurationLabel ?? formatDuration(h.shiftDurationMinutes)}</span>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          {exportJobId && (
+            <ExportProgressModal
+              jobId={exportJobId}
+              onClose={() => setExportJobId(null)}
+            />
+          )}
         </>
       )}
     </MachineHeadShell>

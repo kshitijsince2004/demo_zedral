@@ -186,6 +186,33 @@ export const SixHiManualOrderSchema = z.object({
 
 });
 
+/** Fields required before an operator can end production. */
+export interface EndProductionFieldCheck {
+  subProcess: 'ROLLING' | 'SKIN_PASS';
+  rolling?: {
+    actualWeightMt?: number | null;
+    destination?: string | null;
+    passes?: unknown[] | null;
+  } | null;
+  skinPass?: {
+    actualWeightMt?: number | null;
+    outputThkMm?: number | null;
+  } | null;
+}
+
+export function getEndProductionMissingFields(order: EndProductionFieldCheck): string[] {
+  const missing: string[] = [];
+  if (order.subProcess === 'ROLLING') {
+    if (order.rolling?.actualWeightMt == null) missing.push('Actual Weight (MT)');
+    if (!order.rolling?.passes?.length) missing.push('Pass Data (Thickness)');
+    if (!order.rolling?.destination) missing.push('Destination (Annealing/Rewinding)');
+  } else if (order.subProcess === 'SKIN_PASS') {
+    if (order.skinPass?.actualWeightMt == null) missing.push('Actual Weight (MT)');
+    if (order.skinPass?.outputThkMm == null) missing.push('Output Thickness (mm)');
+  }
+  return missing;
+}
+
 export const PPCImportRowSchema = z.object({
 
   batch_number: z.string().min(1),

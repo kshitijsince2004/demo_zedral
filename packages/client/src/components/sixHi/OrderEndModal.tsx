@@ -2,8 +2,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { ZButton } from '../primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
-import { CheckSquare, X } from 'lucide-react';
-import type { MasterDefectCode } from '@m1/shared-validation';
+import { CheckSquare, X, AlertTriangle } from 'lucide-react';
+import { getEndProductionMissingFields, type MasterDefectCode, type SixHiOrderDetail } from '@m1/shared-validation';
 
 interface OrderEndModalProps {
   open: boolean;
@@ -12,9 +12,10 @@ interface OrderEndModalProps {
   orderSubtitle?: string;
   onClose: () => void;
   onConfirm: (defectCodes: string[]) => Promise<void>;
+  order?: SixHiOrderDetail;
 }
 
-export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, onClose, onConfirm }: OrderEndModalProps) {
+export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, order, onClose, onConfirm }: OrderEndModalProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -42,6 +43,15 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, on
       setBusy(false);
     }
   };
+
+  const missingFields = order
+    ? getEndProductionMissingFields({
+        subProcess: order.subProcess,
+        rolling: order.rolling,
+        skinPass: order.skinPass,
+      })
+    : [];
+  const isBlocked = missingFields.length > 0;
 
   return (
     <>
@@ -93,6 +103,23 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, on
               </div>
             )}
           </div>
+
+          {isBlocked && (
+            <div className="bg-destructive/10 border-2 border-destructive/20 text-destructive p-4 rounded-xl space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 shrink-0" />
+                <h4 className="text-sm font-bold">Mandatory Production Data Missing</h4>
+              </div>
+              <p className="text-xs font-medium opacity-90 pl-7">
+                You must complete the following required fields before ending production:
+              </p>
+              <ul className="list-disc pl-11 text-xs font-medium space-y-1">
+                {missingFields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <div className="shrink-0 flex gap-3 px-5 py-4 border-t border-border bg-secondary/30 rounded-b-[14px]">
@@ -100,7 +127,7 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, on
           <ZButton 
             variant="accent" 
             onClick={handleSubmit} 
-            disabled={busy} 
+            disabled={busy || isBlocked} 
             className="min-h-14 flex-1"
           >
             End Production

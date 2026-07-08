@@ -36,10 +36,11 @@ const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'PREPARING', label: 'Preparing' },
   { id: 'IN_PROGRESS', label: 'In Progress' },
   { id: 'COMPLETED', label: 'Completed' },
+  { id: 'REJECTED', label: 'Rejected' },
 ];
 
 function matchesFilter(card: SixHiQueueCard, filter: StatusFilter): boolean {
-  if (filter === 'ALL') return true;
+  if (filter === 'ALL') return card.status !== 'REJECTED';
   return card.status === filter;
 }
 

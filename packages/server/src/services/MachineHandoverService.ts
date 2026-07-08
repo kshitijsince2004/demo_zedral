@@ -4,6 +4,7 @@ import { ShiftDetectionService } from './ShiftDetectionService';
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
+import { resolveShiftSinceTime, formatDurationMinutes } from '../validation/manufacturingValidation';
 import type { BoundaryShiftContext } from './ShiftBoundaryService';
 
 export type MachineHandoverStatus =
@@ -137,6 +138,21 @@ export class MachineHandoverService {
       userId: operatorUserId,
       machineCode,
     });
+
+    const activeSession = await db
+      .selectFrom('txn.machine_shift_session')
+      .select(['started_at', 'closed_at'])
+      .where('machine_code', '=', machineCode)
+      .where('status', '=', 'ACTIVE')
+      .orderBy('started_at', 'desc')
+      .executeTakeFirst();
+
+    const scheduledWindowStart = shift.windowStart;
+    const scheduledWindowEnd = shift.windowEnd;
+    const actualSessionStartAt = activeSession?.started_at
+      ? new Date(activeSession.started_at).toISOString()
+      : null;
+
     const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
     const rollingQueue = await SixHiQueueService.getQueue('ROLLING', shift.prodDate, shift.shiftCode, machineCode);
     const skinQueue = await SixHiQueueService.getQueue('SKIN_PASS', shift.prodDate, shift.shiftCode, machineCode);
@@ -248,10 +264,7 @@ export class MachineHandoverService {
     // Machine utilization from event-based service for the current shift
     let utilizationMetrics: Record<string, unknown> | null = null;
     try {
-      const shiftStartStr = `${shift.prodDate}T${shift.windowStart}:00+05:30`;
-      const shiftStart = new Date(shiftStartStr);
-      const since = !isNaN(shiftStart.getTime()) ? shiftStart : new Date(Date.now() - 8 * 3600000);
-
+      const since = resolveShiftSinceTime(shift.prodDate, scheduledWindowStart, actualSessionStartAt);
       const util = await MachineStateEventService.getUtilizationSummary(machineCode, 8, since);
       utilizationMetrics = {
         runningPct: util.runningPct,
@@ -277,7 +290,12 @@ export class MachineHandoverService {
       machineCode,
       machineName: machineRow?.name ?? machineCode,
       processCode: machineRow?.process_code ?? machineCode,
-      shift,
+      shift: {
+        ...shift,
+        windowStart: scheduledWindowStart,
+        windowEnd: scheduledWindowEnd,
+        actualSessionStartAt,
+      },
       shiftLogId: shiftLogIdResolved,
       machineStatus,
       activeOrder: active,
@@ -643,25 +661,29 @@ export class MachineHandoverService {
   }
 
   static async getHandoverOverview(machineFilter: string[] | null) {
+    const handoverSelect = [
+      'h.handover_id',
+      'h.machine_code',
+      'h.batch_number',
+      'h.machine_status',
+      'h.status',
+      'h.handover_priority',
+      'h.outgoing_shift_code',
+      'h.incoming_shift_code',
+      'h.outgoing_operator_id',
+      'h.outgoing_prod_date',
+      'h.created_at',
+      'h.accepted_at',
+      'h.created_by_boundary',
+      'ou.username as outgoing_username',
+      'iu.username as incoming_username',
+    ] as const;
+
     let pendingQ = db
       .selectFrom('txn.machine_handover as h')
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
-      .select([
-        'h.handover_id',
-        'h.machine_code',
-        'h.batch_number',
-        'h.machine_status',
-        'h.status',
-        'h.handover_priority',
-        'h.outgoing_shift_code',
-        'h.incoming_shift_code',
-        'h.created_at',
-        'h.accepted_at',
-        'h.created_by_boundary',
-        'ou.username as outgoing_username',
-        'iu.username as incoming_username',
-      ])
+      .select(handoverSelect)
       .where('h.status', '=', 'PENDING')
       .orderBy('h.created_at', 'desc');
 
@@ -678,21 +700,7 @@ export class MachineHandoverService {
       .selectFrom('txn.machine_handover as h')
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
-      .select([
-        'h.handover_id',
-        'h.machine_code',
-        'h.batch_number',
-        'h.machine_status',
-        'h.status',
-        'h.handover_priority',
-        'h.outgoing_shift_code',
-        'h.incoming_shift_code',
-        'h.created_at',
-        'h.accepted_at',
-        'h.created_by_boundary',
-        'ou.username as outgoing_username',
-        'iu.username as incoming_username',
-      ])
+      .select(handoverSelect)
       .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED'])
       .orderBy('h.created_at', 'desc')
       .limit(15);
@@ -705,25 +713,55 @@ export class MachineHandoverService {
 
     const recent = await recentQ.execute();
 
-    const mapRow = (h: typeof pending[0]) => ({
-      handoverId: String(h.handover_id),
-      machineCode: h.machine_code,
-      batchNumber: h.batch_number,
-      machineStatus: h.machine_status,
-      status: h.status,
-      handoverPriority: h.handover_priority,
-      outgoingShiftCode: h.outgoing_shift_code,
-      incomingShiftCode: h.incoming_shift_code,
-      createdAt: new Date(h.created_at as Date).toISOString(),
-      acceptedAt: h.accepted_at ? new Date(h.accepted_at as Date).toISOString() : undefined,
-      outgoingUsername: h.outgoing_username ?? undefined,
-      incomingUsername: h.incoming_username ?? undefined,
-      createdByBoundary: h.created_by_boundary,
-    });
+    const mapRow = async (h: typeof pending[0]) => {
+      const prodDate = h.outgoing_prod_date instanceof Date
+        ? h.outgoing_prod_date.toISOString().slice(0, 10)
+        : String(h.outgoing_prod_date).slice(0, 10);
+
+      const session = await db
+        .selectFrom('txn.machine_shift_session')
+        .select(['started_at', 'closed_at'])
+        .where('machine_code', '=', h.machine_code)
+        .where('operator_user_id', '=', h.outgoing_operator_id)
+        .where('shift_code', '=', h.outgoing_shift_code)
+        .where((eb) => eb(eb.fn('date', [eb.ref('prod_date')]), '=', eb.val(prodDate)))
+        .orderBy('started_at', 'desc')
+        .executeTakeFirst();
+
+      const shiftStartAt = session?.started_at
+        ? new Date(session.started_at).toISOString()
+        : new Date(h.created_at as Date).toISOString();
+      const shiftEndAt = h.accepted_at
+        ? new Date(h.accepted_at as Date).toISOString()
+        : undefined;
+      const shiftDurationMinutes = shiftEndAt
+        ? Math.max(0, Math.round((new Date(shiftEndAt).getTime() - new Date(shiftStartAt).getTime()) / 60000))
+        : undefined;
+
+      return {
+        handoverId: String(h.handover_id),
+        machineCode: h.machine_code,
+        batchNumber: h.batch_number,
+        machineStatus: h.machine_status,
+        status: h.status,
+        handoverPriority: h.handover_priority,
+        outgoingShiftCode: h.outgoing_shift_code,
+        incomingShiftCode: h.incoming_shift_code,
+        createdAt: new Date(h.created_at as Date).toISOString(),
+        acceptedAt: shiftEndAt,
+        shiftStartAt,
+        shiftEndAt,
+        shiftDurationMinutes,
+        shiftDurationLabel: shiftDurationMinutes != null ? formatDurationMinutes(shiftDurationMinutes) : undefined,
+        outgoingUsername: h.outgoing_username ?? undefined,
+        incomingUsername: h.incoming_username ?? undefined,
+        createdByBoundary: h.created_by_boundary,
+      };
+    };
 
     return {
-      pending: pending.map(mapRow),
-      recent: recent.map(mapRow),
+      pending: await Promise.all(pending.map(mapRow)),
+      recent: await Promise.all(recent.map(mapRow)),
       awaitingAcceptance: pending.length,
     };
   }

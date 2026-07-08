@@ -1,4 +1,4 @@
-export type ExportType = 'DPR' | 'LINE_LOG' | 'COIL_TRACE' | 'RAW';
+export type ExportType = 'DPR' | 'LINE_LOG' | 'COIL_TRACE' | 'RAW' | 'REJECTED_ORDERS';
 
 export * from './rdm';
 

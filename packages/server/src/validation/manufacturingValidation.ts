@@ -67,6 +67,27 @@ export function resolveShiftWindowBounds(
   };
 }
 
+/** Resolve the effective shift/session start for utilization and metrics. */
+export function resolveShiftSinceTime(
+  prodDate: string,
+  scheduledWindowStart: string,
+  actualSessionStartAt?: string | null,
+): Date {
+  if (actualSessionStartAt) {
+    const actual = new Date(actualSessionStartAt);
+    if (!Number.isNaN(actual.getTime())) return actual;
+  }
+  const bounds = resolveShiftWindowBounds(prodDate, scheduledWindowStart, scheduledWindowStart);
+  return bounds.start;
+}
+
+export function formatDurationMinutes(minutes: number): string {
+  if (minutes < 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 export function assertWithinShiftWindow(
   intervalStart: Date,
   intervalEnd: Date,

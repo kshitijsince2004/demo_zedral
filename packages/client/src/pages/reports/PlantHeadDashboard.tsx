@@ -8,6 +8,18 @@ import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
 import { mergePlantHeadWithLive } from '../../lib/plantHeadLiveMerge';
 import { subscribeProductionChanged } from '../../lib/productionSync';
+import { machineHandoverService, type HandoverOverviewRow } from '../../services/machineHandoverService';
+import { ExportProgressModal } from '../../components/export/ExportProgressModal';
+import { ZButton } from '../../components/primitives/ZButton';
+import { Download } from 'lucide-react';
+import { currentPlantDate } from '../../lib/dateFormat';
+
+function formatDuration(minutes?: number): string {
+  if (minutes == null || minutes < 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
 import { BacklogDetailDrawer } from '../../components/plant-head/BacklogDetailDrawer';
@@ -25,8 +37,26 @@ export function PlantHeadDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
+  const [handovers, setHandovers] = useState<HandoverOverviewRow[]>([]);
   const [backlogOpen, setBacklogOpen] = useState(false);
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [exportDate, setExportDate] = useState(currentPlantDate());
+  const [exportShift, setExportShift] = useState('A');
   const { snapshot } = useLiveSnapshot();
+
+  const startRejectedExport = async (mode: 'day' | 'shift') => {
+    try {
+      const scope: Record<string, string> = {
+        dateFrom: exportDate,
+        dateTo: exportDate,
+      };
+      if (mode === 'shift') scope.shiftCode = exportShift;
+      const job = await reportingService.createExport({ type: 'REJECTED_ORDERS', format: 'XLSX', scope });
+      setExportJobId(job.jobId);
+    } catch (e: unknown) {
+      alert((e as Error)?.message || 'Export failed');
+    }
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -35,6 +65,8 @@ export function PlantHeadDashboard() {
     try {
       const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
       setData(result);
+      const hResult = await machineHandoverService.getOverview();
+      setHandovers(hResult.recent || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
     } finally {
@@ -177,7 +209,80 @@ export function PlantHeadDashboard() {
 
         {/* Quality + Downtime */}
         <section>
-          <PlantQualityDowntimeArea data={displayData} />
+            <PlantQualityDowntimeArea data={displayData} />
+
+            <div className="bg-white border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col h-[400px]">
+              <div className="flex items-center justify-between border-b border-border/50 bg-secondary/50 px-5 py-3 shrink-0 gap-3">
+                <div className="flex items-center gap-2 text-primary font-bold">
+                  <Factory className="w-5 h-5 text-muted-foreground" />
+                  <h2>Shift Handover Logs</h2>
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <input
+                    type="date"
+                    value={exportDate}
+                    onChange={(e) => setExportDate(e.target.value)}
+                    className="rounded-lg border border-border bg-white px-2 py-1 text-xs"
+                    aria-label="Export date"
+                  />
+                  <select
+                    value={exportShift}
+                    onChange={(e) => setExportShift(e.target.value)}
+                    className="rounded-lg border border-border bg-white px-2 py-1 text-xs"
+                    aria-label="Export shift"
+                  >
+                    {['A', 'B', 'C'].map((s) => (
+                      <option key={s} value={s}>Shift {s}</option>
+                    ))}
+                  </select>
+                  <ZButton variant="outline" size="sm" onClick={() => startRejectedExport('day')} className="gap-1 shrink-0">
+                    <Download className="w-4 h-4" /> Day
+                  </ZButton>
+                  <ZButton variant="outline" size="sm" onClick={() => startRejectedExport('shift')} className="gap-1 shrink-0">
+                    <Download className="w-4 h-4" /> Shift
+                  </ZButton>
+                </div>
+              </div>
+              <div className="p-0 overflow-y-auto min-h-0 relative bg-muted/5 flex-1">
+                {handovers.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">No recent handovers.</div>
+                ) : (
+                  <ul className="text-sm divide-y divide-border">
+                    {handovers.map((h) => (
+                      <li key={h.handoverId} className="px-5 py-3 hover:bg-white transition-colors">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold text-foreground">{h.machineCode}</span>
+                          <span className="text-muted-foreground font-mono text-xs bg-muted/30 px-2 py-0.5 rounded">
+                            Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
+                          </span>
+                        </div>
+                        <div className="space-y-1 text-xs text-muted-foreground mt-2">
+                          <div>
+                            <span className="font-medium">Shift Start Time:</span>{' '}
+                            {new Date(h.shiftStartAt ?? h.createdAt).toLocaleString()}
+                          </div>
+                          {h.shiftEndAt && (
+                            <div>
+                              <span className="font-medium text-emerald-600">Shift End Time:</span>{' '}
+                              {new Date(h.shiftEndAt).toLocaleString()}
+                            </div>
+                          )}
+                          {h.shiftDurationMinutes != null && (
+                            <div>
+                              <span className="font-medium">Duration:</span>{' '}
+                              {h.shiftDurationLabel ?? formatDuration(h.shiftDurationMinutes)}
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            {exportJobId && (
+              <ExportProgressModal jobId={exportJobId} onClose={() => setExportJobId(null)} />
+            )}
         </section>
 
         {/* Machine Utilization + Orders */}

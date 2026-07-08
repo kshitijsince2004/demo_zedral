@@ -213,6 +213,12 @@ export interface HandoverOverviewRow {
   incomingShiftCode: string;
   createdAt: string;
   acceptedAt?: string;
+  /** Actual operator session / handover start from machine_shift_session. */
+  shiftStartAt?: string;
+  /** Actual handover completion time (accepted_at). */
+  shiftEndAt?: string;
+  shiftDurationMinutes?: number;
+  shiftDurationLabel?: string;
   outgoingUsername?: string;
   incomingUsername?: string;
   createdByBoundary?: boolean;
@@ -243,6 +249,18 @@ export interface MachineHeadDashboardData {
     recent: HandoverOverviewRow[];
     awaitingAcceptance: number;
   };
+  rejectedOrders?: {
+    batchNumber: string;
+    machineCode: string;
+    rejectionTime: string;
+    reason: string;
+    rejectedBy: string;
+    weightMt: number;
+    shiftCode?: string;
+    planDate?: string;
+    subProcess?: string;
+  }[];
+  rejectedOrderCount?: number;
 }
 
 export interface LiveSnapshot {

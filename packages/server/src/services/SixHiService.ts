@@ -1431,9 +1431,34 @@ export class SixHiService {
       .select(['actual_weight_mt', 'output_thk_mm'])
       .where('order_id', '=', order.order_id)
       .executeTakeFirst();
+    const passes = await db.selectFrom('txn.crm6_rolling_pass')
+      .select('pass_no')
+      .where('order_id', '=', order.order_id)
+      .execute();
 
-    const isCompleted = (rolling?.actual_weight_mt != null) || (skinpass?.actual_weight_mt != null);
-    const newStatus = isCompleted ? 'COMPLETED' : 'PENDING';
+    const { getEndProductionMissingFields } = await import('@m1/shared-validation');
+    const missingFields = getEndProductionMissingFields({
+      subProcess: order.sub_process as 'ROLLING' | 'SKIN_PASS',
+      rolling: rolling
+        ? {
+            actualWeightMt: rolling.actual_weight_mt != null ? Number(rolling.actual_weight_mt) : null,
+            destination: rolling.destination,
+            passes,
+          }
+        : null,
+      skinPass: skinpass
+        ? {
+            actualWeightMt: skinpass.actual_weight_mt != null ? Number(skinpass.actual_weight_mt) : null,
+            outputThkMm: skinpass.output_thk_mm != null ? Number(skinpass.output_thk_mm) : null,
+          }
+        : null,
+    });
+    if (missingFields.length > 0) {
+      throw new Error(`Mandatory production data missing: ${missingFields.join(', ')}`);
+    }
+
+    const isCompleted = true;
+    const newStatus = 'COMPLETED';
 
     await db.updateTable('txn.crm6_order')
       .set({

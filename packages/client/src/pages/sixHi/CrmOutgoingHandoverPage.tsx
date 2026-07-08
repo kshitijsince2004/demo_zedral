@@ -11,7 +11,7 @@ import {
 import { ZButton } from '../../components/primitives/ZButton';
 import {
   AlertTriangle, CheckCircle2, Clock, Package, Users, Wrench,
-  ChevronRight, Lock, Edit3, AlertCircle, Zap, BarChart2,
+  ChevronRight, ChevronDown, Lock, Edit3, AlertCircle, Zap, BarChart2,
 } from 'lucide-react';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -147,6 +147,8 @@ export function CrmOutgoingHandoverPage() {
 
   // Section 9 — crew notes
   const [crewNotes, setCrewNotes] = useState('');
+
+  const [queueExpanded, setQueueExpanded] = useState(false);
 
   // Section 10 — outgoing notes (mandatory)
   const [outgoingNotes, setOutgoingNotes] = useState('');
@@ -292,8 +294,11 @@ export function CrmOutgoingHandoverPage() {
   const queue = p.queueSnapshot;
   const allQueueItems = [...(queue.rolling ?? []), ...(queue.skinpass ?? [])].slice(0, 5);
 
-  const shiftStart = p.shift.windowStart ?? '—';
-  const shiftEnd = p.shift.windowEnd ?? '—';
+  const scheduledShiftStart = p.shift.windowStart ?? '—';
+  const scheduledShiftEnd = p.shift.windowEnd ?? '—';
+  const actualSessionStart = p.shift.actualSessionStartAt
+    ? new Date(p.shift.actualSessionStartAt).toLocaleString()
+    : '—';
 
   function formatMin(min?: number) {
     if (min == null) return '—';
@@ -351,8 +356,9 @@ export function CrmOutgoingHandoverPage() {
                 <LockedField label="Shift" value={p.shift.shiftCode} />
                 <LockedField label="Machine" value={p.machineName} />
                 <LockedField label="Process" value={p.processCode} />
-                <LockedField label="Shift Start" value={shiftStart} />
-                <LockedField label="Shift End" value={shiftEnd} />
+                <LockedField label="Scheduled Shift Start" value={scheduledShiftStart} />
+                <LockedField label="Scheduled Shift End" value={scheduledShiftEnd} />
+                <LockedField label="Actual Session Start" value={actualSessionStart} />
                 <LockedField label="Next Shift" value={p.nextShift.shiftCode} />
                 <LockedField label="Next Shift Date" value={p.nextShift.prodDate} />
               </div>
@@ -638,22 +644,35 @@ export function CrmOutgoingHandoverPage() {
             {/* SECTION 8 — Next Orders in Queue (LOCKED) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <div className="bg-white border border-border rounded-2xl p-5">
-              <SectionHeader icon={<ChevronRight className="h-4 w-4" />} title="Next Orders in Queue" badge="Incoming operator reference" locked />
-              {allQueueItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">Queue is empty</p>
-              ) : (
-                <div className="space-y-2">
-                  {allQueueItems.map((item, i) => (
-                    <div key={item.batchNumber} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-3">
-                      <span className="w-6 h-6 bg-primary/10 text-primary text-xs font-black rounded-full flex items-center justify-center shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono font-bold text-sm text-foreground">{item.batchNumber}</p>
-                        <p className="text-xs text-muted-foreground truncate">{item.customer ?? '—'} · {item.subProcess?.replace(/_/g, ' ')}</p>
-                      </div>
-                      <span className="text-xs font-bold text-muted-foreground shrink-0">{item.weightMt ? `${item.weightMt} MT` : '—'}</span>
-                    </div>
-                  ))}
+              <div 
+                className="flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity" 
+                onClick={() => setQueueExpanded(!queueExpanded)}
+              >
+                <div className="flex-1">
+                  <SectionHeader icon={queueExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />} title="Next Orders in Queue" badge="Incoming operator reference" locked />
                 </div>
+                <div className="text-sm font-medium text-muted-foreground mb-4">
+                  {allQueueItems.length} orders
+                </div>
+              </div>
+              
+              {queueExpanded && (
+                allQueueItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center border-t border-border/50 mt-2">Queue is empty</p>
+                ) : (
+                  <div className="space-y-2 border-t border-border/50 pt-4 mt-2">
+                    {allQueueItems.map((item, i) => (
+                      <div key={item.batchNumber} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-3">
+                        <span className="w-6 h-6 bg-primary/10 text-primary text-xs font-black rounded-full flex items-center justify-center shrink-0">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono font-bold text-sm text-foreground">{item.batchNumber}</p>
+                          <p className="text-xs text-muted-foreground truncate">{item.customer ?? '—'} · {item.subProcess?.replace(/_/g, ' ')}</p>
+                        </div>
+                        <span className="text-xs font-bold text-muted-foreground shrink-0">{item.weightMt ? `${item.weightMt} MT` : '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
 

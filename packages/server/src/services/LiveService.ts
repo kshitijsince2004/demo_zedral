@@ -9,6 +9,7 @@ import type {
   MachineCommandCenterData,
   OrderJourneyView,
 } from '@m1/shared-validation';
+import { sql } from 'kysely';
 import { db } from '../db';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -856,6 +857,38 @@ export class LiveService {
           .limit(10)
           .execute();
 
+    const rejectedQ = db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
+      .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
+      .select([
+        'pb.batch_number',
+        'pb.machine_code',
+        'pb.shift_code',
+        'pb.plan_date',
+        'o.sub_process',
+        'o.prod_end_at',
+        sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('reason'),
+        sql<string>`COALESCE(u.full_name, 'Unknown')`.as('operator'),
+        'pb.ppc_weight_mt',
+      ])
+      .where('o.status', '=', 'REJECTED')
+      .orderBy('o.prod_end_at', 'desc')
+      .limit(10);
+
+    const rejectedCountQ = db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select(sql<number>`count(*)::int`.as('n'))
+      .where('o.status', '=', 'REJECTED');
+      
+    const rejectedScopedQ = machineFilter ? rejectedQ.where('pb.machine_code', 'in', machineFilter) : rejectedQ;
+    const rejected = await rejectedScopedQ.execute();
+    const rejectedCountScopedQ = machineFilter
+      ? rejectedCountQ.where('pb.machine_code', 'in', machineFilter)
+      : rejectedCountQ;
+    const rejectedCountRow = await rejectedCountScopedQ.executeTakeFirst();
+    const rejectedOrderCount = rejectedCountRow?.n ?? 0;
+
     let stoppageQ = db.selectFrom('txn.order_stoppage as os')
       .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -889,6 +922,8 @@ export class LiveService {
           operatorActivity: [],
           productionHistory: [],
           handoverOverview: { pending: [], recent: [], awaitingAcceptance: 0 },
+          rejectedOrders: [],
+          rejectedOrderCount: 0,
         };
       }
       stoppageQ = stoppageQ.where('pb.machine_code', 'in', machineFilter);
@@ -973,6 +1008,18 @@ export class LiveService {
             ),
           })),
       ),
+      rejectedOrders: rejected.map((r) => ({
+        batchNumber: r.batch_number,
+        machineCode: r.machine_code,
+        rejectionTime: new Date(r.prod_end_at || Date.now()).toISOString(),
+        reason: r.reason || 'No reason provided',
+        rejectedBy: r.operator || 'Unknown',
+        weightMt: Number(r.ppc_weight_mt || 0),
+        shiftCode: r.shift_code ?? undefined,
+        planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+        subProcess: r.sub_process ?? undefined,
+      })),
+      rejectedOrderCount,
     };
   }
 }

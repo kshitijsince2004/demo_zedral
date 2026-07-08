@@ -64,6 +64,8 @@ function normalizeType(raw?: string): ExportType {
 
   if (v === 'COIL_TRACE') return 'COIL_TRACE';
 
+  if (v === 'REJECTED_ORDERS') return 'REJECTED_ORDERS';
+
   return 'RAW';
 
 }
@@ -98,10 +100,9 @@ function scopeLabel(type: ExportType, scope: Record<string, unknown>): string {
 
   if (type === 'LINE_LOG') return `LOG:${scope.process_code ?? scope.processId ?? 'line'}`;
 
-  const processId = scope.processId ? String(scope.processId) : 'MULTI';
+  if (type === 'REJECTED_ORDERS') return `REJECTED:${scope.dateFrom ?? 'all'}`;
 
-  return processId;
-
+  return `RAW:${Object.keys(scope).join(',')}`;
 }
 
 

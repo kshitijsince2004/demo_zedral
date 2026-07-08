@@ -229,6 +229,7 @@ export function SixHiLayout() {
           batchNumber={activeBatch}
           orderLabel={modalOrderLabel}
           orderSubtitle={modalOrderSubtitle}
+          order={panelOrder ?? undefined}
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {

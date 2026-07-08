@@ -7,6 +7,7 @@ import {
   clockRangeMinutes,
   ManufacturingValidationError,
   resolveShiftWindowBounds,
+  resolveShiftSinceTime,
 } from '../src/validation/manufacturingValidation';
 
 describe('manufacturingValidation', () => {
@@ -52,5 +53,17 @@ describe('manufacturingValidation', () => {
   it('calculates overnight clock range minutes', () => {
     expect(clockRangeMinutes('22:00', '06:00')).toBe(480);
     expect(clockRangeMinutes('06:00', '14:00')).toBe(480);
+  });
+
+  it('prefers actual session start for utilization since time', () => {
+    const actual = '2026-07-08T08:15:00.000Z';
+    const since = resolveShiftSinceTime('2026-07-08', '06:00', actual);
+    expect(since.toISOString()).toBe(actual);
+  });
+
+  it('falls back to scheduled window start when session start is absent', () => {
+    const since = resolveShiftSinceTime('2026-07-08', '06:00', null);
+    expect(since.getHours()).toBe(6);
+    expect(since.getMinutes()).toBe(0);
   });
 });

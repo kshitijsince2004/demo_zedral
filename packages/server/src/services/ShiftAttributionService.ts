@@ -160,6 +160,7 @@ export class ShiftAttributionService {
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['o.batch_number', 'o.status', 'o.sub_process', 'pb.machine_code'])
       .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+      .where('o.shift_log_id', '=', shiftLogId)
       .$if(!!machineCode, (qb) => qb.where('pb.machine_code', '=', machineCode!))
       .execute();
 

@@ -1,0 +1,30 @@
+/** Allow REJECTED_ORDERS export type on audit.export_job. */
+exports.up = (pgm) => {
+  pgm.sql(`
+    ALTER TABLE audit.export_job
+      DROP CONSTRAINT IF EXISTS export_job_type_check;
+
+    ALTER TABLE audit.export_job
+      ALTER COLUMN export_type TYPE VARCHAR(24);
+
+    ALTER TABLE audit.export_job
+      ADD CONSTRAINT export_job_type_check
+      CHECK (export_type IN ('DPR', 'LINE_LOG', 'COIL_TRACE', 'RAW', 'REJECTED_ORDERS'));
+  `);
+};
+
+exports.down = (pgm) => {
+  pgm.sql(`
+    DELETE FROM audit.export_job WHERE export_type = 'REJECTED_ORDERS';
+
+    ALTER TABLE audit.export_job
+      DROP CONSTRAINT IF EXISTS export_job_type_check;
+
+    ALTER TABLE audit.export_job
+      ALTER COLUMN export_type TYPE VARCHAR(16);
+
+    ALTER TABLE audit.export_job
+      ADD CONSTRAINT export_job_type_check
+      CHECK (export_type IN ('DPR', 'LINE_LOG', 'COIL_TRACE', 'RAW'));
+  `);
+};
