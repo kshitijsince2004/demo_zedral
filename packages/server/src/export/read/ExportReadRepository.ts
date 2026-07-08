@@ -325,11 +325,16 @@ export class ExportReadRepository {
       }
     }
 
-    // CRM6 order-level stoppages
+    // CRM6 order-level stoppages.
+    // Shift/day attribution is derived from the order's shift_log (the single source of
+    // truth used everywhere else, incl. re-attributed backlog orders) rather than from a
+    // hardcoded shift. For a monthly DPR (scope.shiftCode undefined) this keeps each
+    // stoppage in its actual shift column instead of collapsing them all into shift A.
     let orderQ = db
       .selectFrom('txn.order_stoppage as os')
       .innerJoin('txn.crm6_order as o', 'os.order_id', 'o.order_id')
       .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.shift_log as osl', 'o.shift_log_id', 'osl.shift_log_id')
       .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
       .leftJoin('master.stoppage_code as bc', 'os.breakdown_code', 'bc.stoppage_code')
       .select([
@@ -341,6 +346,8 @@ export class ExportReadRepository {
         'o.sub_process',
         'o.production_day',
         'pb.machine_code',
+        'osl.shift_code as shift_log_shift_code',
+        'osl.prod_date as shift_log_prod_date',
         'sc.label',
         'sc.dpr_category',
         'sc.agency_code',
@@ -360,12 +367,16 @@ export class ExportReadRepository {
       const areaCode = resolveCrm6AreaCode(machineCode, s.sub_process, false);
       if (!areaMatches(scope, areaCode)) continue;
 
-      const prodDate = s.production_day ? toDateString(s.production_day) : scope.dateFrom;
+      const shiftCode = s.shift_log_shift_code ?? scope.shiftCode ?? 'A';
+      if (!shiftMatches(scope, shiftCode)) continue;
+
+      const dateSource = s.shift_log_prod_date ?? s.production_day;
+      const prodDate = dateSource ? toDateString(dateSource) : scope.dateFrom;
       events.push({
         eventId: `order:${s.stoppage_id}`,
         areaCode,
         prodDate,
-        shiftCode: scope.shiftCode ?? 'A',
+        shiftCode,
         minutes: s.duration_min ?? 0,
         agencyCode: (s.breakdown_agency ?? s.agency_code ?? 'OP') as StoppageAgency,
         reasonCode: s.breakdown_code ?? s.category_code,

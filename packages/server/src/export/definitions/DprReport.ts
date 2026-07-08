@@ -1,7 +1,7 @@
 import type { AuthUser } from '../../services/authService';
 import { filterRunsByAreaAccess, getScopedDprAreaCodes } from '../auth/exportAuthz';
 import { DprAggregator } from '../aggregation/DprAggregator';
-import { bindDprWorkbook, dprFilename, loadDprLayout } from '../layouts/TemplateBinder';
+import { bindDprWorkbook } from '../layouts/TemplateBinder';
 import { injectDprTemplate } from '../dpr/DprTemplateInjector';
 import {
   ExportReadRepository,
@@ -70,6 +70,12 @@ export const DprReport: ReportDefinition = {
     const sourceRecordCount = input.runs.length + input.stoppages.length + input.dispositions.length;
     const scopedAreas = getScopedDprAreaCodes(user);
 
+    // The DPR must always be a faithful clone of the official master template
+    // (dpr_blank_master.xlsx), produced by the injection path. The from-scratch grid
+    // binder produces a structurally different, style-less, formula-less workbook that
+    // does NOT match the template, so it must never be shipped silently. If injection
+    // fails we fail closed (the export job is marked FAILED by ExportJobRunner with the
+    // logged reason) rather than delivering a non-conforming workbook.
     try {
       const injected = await injectDprTemplate(rdm, {
         allowedAreaCodes: scopedAreas,
@@ -82,21 +88,15 @@ export const DprReport: ReportDefinition = {
         sourceRecordCount,
         deterministic: true,
       };
-    } catch {
-      const layout = loadDprLayout();
-      const bound = bindDprWorkbook(rdm, layout);
-      return {
-        rows: bound.delayRows,
-        filename: dprFilename(month),
-        sheets: [{ name: bound.delaySheetName, rows: bound.delayRows }],
-        gridSheets: [
-          { name: bound.monthSheetName, cells: bound.monthCells },
-          { name: bound.delaySheetName, cells: bound.delayCells },
-        ],
-        dataVersion: `DPR:${month}:${rdm.days.length}:${rdm.delayLog.length}`,
-        sourceRecordCount,
-        deterministic: true,
-      };
+    } catch (err) {
+      console.error(
+        `[DPR] Template injection failed for month ${month}; failing export (no non-template fallback). Reason:`,
+        err,
+      );
+      throw new Error(
+        `DPR export failed: could not inject the official template for ${month}. `
+        + `Cause: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   },
 };

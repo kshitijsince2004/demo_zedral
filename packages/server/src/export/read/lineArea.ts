@@ -1,5 +1,7 @@
 /** DPR line-area resolution helpers. */
 
+import { formatDateOnly } from '../../utils/dateOnly';
+
 const CRM6_AREA_BY_KEY: Record<string, string> = {
   '4HI:ROLLING:false': '4HI_R',
   '4HI:ROLLING:true': '4HI_RR',
@@ -59,8 +61,11 @@ export function resolveProcessArea(
 }
 
 export function toDateString(value: Date | string): string {
-  if (typeof value === 'string') return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  // Use plant-local calendar parts (the app-wide date-only convention). A Postgres
+  // `date` column is returned by pg as a JS Date at LOCAL midnight; formatting it via
+  // toISOString() (UTC) shifts it a day earlier in positive-offset zones (e.g. IST),
+  // which would misattribute DPR production/stoppages to the wrong calendar day.
+  return formatDateOnly(value);
 }
 
 export function toNumber(value: unknown): number | null {
