@@ -25,6 +25,10 @@ export function OperatorShell({ processCode = 'HRS', children, bare = false }: O
   const navOffset = isCrmMill ? 'ml-16' : 'ml-14';
   const showStatusRail = !bare && !(isCrmMill && workspaceOpen);
 
+  React.useEffect(() => {
+    console.info(`[OperatorShell] Operator Screen initialized`, { processCode });
+  }, [processCode]);
+
   return (
     <div className="theme-operator h-screen overflow-hidden bg-background text-foreground">
       <OperatorNavRail processCode={processCode} onLogout={() => setLogoutOpen(true)} />

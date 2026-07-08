@@ -184,7 +184,6 @@ export function SixHiCapturePage() {
       <div className="shrink-0 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-foreground">Capture</h1>
-          <p className="text-sm text-muted-foreground">{machineCode} · Shift {shiftCode} · {formatShiftDate(shiftDate)}</p>
         </div>
         {order && (
           <ZButton

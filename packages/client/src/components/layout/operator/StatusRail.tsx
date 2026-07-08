@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
-import { formatShiftDate, formatShiftWindowTime } from '../../../lib/dateFormat';
 import { Activity, CircleStop, Moon } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
-import { useAuthStore } from '../../../lib/authStore';
 import { useSixHiStore } from '../../../store/sixHiStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
 import { ZBadge } from '../../primitives/ZBadge';
@@ -19,20 +17,20 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
-    shiftDate,
-    shiftCode,
-    detectedShift,
     processLine,
     targetMt,
     producedMt,
     runningStoppage,
     stoppages,
+    detectedShift,
+    shiftCode,
   } = useShiftStore();
-  const username = useAuthStore((s) => s.username);
+
 
   const [clock, setClock] = useState('');
+  const [currentDateStr, setCurrentDateStr] = useState('');
   const { basePath } = useWorkspaceBase();
-  const { panelOrder, machineActive, processTab, machineCode } = useSixHiStore();
+  const { panelOrder, machineActive, machineCode } = useSixHiStore();
   const isCrmMill = isCrmMillPath(location.pathname);
   const line = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
@@ -41,33 +39,61 @@ export function StatusRail({ processCode }: StatusRailProps) {
   const totalStoppageMins = stoppages.reduce((sum, s) => sum + (s.durationMins || 0), 0);
   const activeBatch = machineActive?.batchNumber ?? panelOrder?.batchNumber;
   const activeStatus = panelOrder?.status ?? machineActive?.status;
-  const processLabel = processTab === 'skinpass' ? 'Skin Pass' : 'Rolling';
+
 
   const crmStoppageActive = isCrmMill && !!panelOrder?.activeStoppage;
   const crmRunning = isCrmMill
     ? activeStatus === 'IN_PROGRESS' && !crmStoppageActive
     : !runningStoppage;
 
-  const displayDate = formatShiftDate(shiftDate);
-  const windowLabel = detectedShift
-    ? `${formatShiftWindowTime(detectedShift.windowStart)}–${formatShiftWindowTime(detectedShift.windowEnd)}`
-    : null;
+
 
   useEffect(() => {
+    console.info('[StatusRail] Component mounted');
+    console.info('[StatusRail] Clock initialized. Timezone: Asia/Kolkata (IST)');
+
+    let lastDateStr = '';
+
     const tick = () => {
-      setClock(
-        new Date().toLocaleTimeString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        }) + ' IST',
-      );
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }) + ' IST';
+
+      const dateStr = now.toLocaleDateString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+
+      const isoStr = now.toLocaleDateString('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+
+      setClock(timeStr);
+      setCurrentDateStr(dateStr);
+
+      if (lastDateStr && lastDateStr !== dateStr) {
+        console.info(`[StatusRail] Date rolled over at midnight to: ${isoStr}`);
+      }
+      lastDateStr = dateStr;
     };
     tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    const id = setInterval(tick, 1000) as unknown as number;
+    console.info(`[StatusRail] Clock timer created with ID: ${id}`);
+    
+    return () => {
+      clearInterval(id);
+      console.info(`[StatusRail] Clock timer cleanup for ID: ${id}`);
+    };
   }, []);
 
   const handoverPath = basePath ? `${basePath}/handover` : '/coming-soon/6HI';
@@ -77,23 +103,9 @@ export function StatusRail({ processCode }: StatusRailProps) {
       <div className="flex items-stretch min-h-[52px]">
         <div className="flex items-center gap-3 px-4 border-r border-border min-w-[140px]">
           <span className="font-mono text-lg font-semibold tracking-tight text-primary">{line}</span>
-          <div className="flex flex-col leading-none gap-0.5">
-            <span className="z-rail-label">Shift</span>
-            <span className="font-mono text-xs text-foreground">
-              {detectedShift?.shiftName ?? `Shift ${shiftCode}`}
-              {detectedShift?.source === 'OVERRIDE' ? ' *' : ''}
-            </span>
-            <span className="text-[10px] text-muted-foreground">
-              {displayDate} · {shiftCode}
-              {windowLabel ? ` · ${windowLabel}` : ''}
-            </span>
-            {isCrmMill && (
-              <span className="text-[10px] text-muted-foreground mt-0.5">
-                {processLabel}
-                {username ? ` · ${username}` : ''}
-              </span>
-            )}
-          </div>
+          <span className="text-sm font-medium text-muted-foreground border-l border-border pl-3 py-1">
+            {detectedShift?.shiftName ?? `Shift ${shiftCode}`}
+          </span>
         </div>
 
         {isCrmMill && (
@@ -158,7 +170,7 @@ export function StatusRail({ processCode }: StatusRailProps) {
             <span className="text-[10px] uppercase tracking-[0.12em] font-medium">Live</span>
           </div>
           <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">
-            {clock}
+            {currentDateStr} {clock}
           </span>
           <GloveModeToggle />
           <button

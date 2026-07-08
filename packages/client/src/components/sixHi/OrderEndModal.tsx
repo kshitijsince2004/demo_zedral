@@ -62,7 +62,7 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, on
 
         <div className="flex-1 overflow-auto p-5 space-y-6">
           <div className="bg-secondary text-foreground text-sm p-4 rounded-xl font-medium border border-border">
-            Are you sure you want to complete this order? The machine will return to IDLE state.
+            Are you sure you want to end the active production run? The machine will return to IDLE state.
           </div>
 
           <div className="space-y-3">
