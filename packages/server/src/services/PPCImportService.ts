@@ -17,7 +17,7 @@ import {
   PREVIEW_SESSION_TTL_MS,
 } from './previewSessionStore';
 import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
-import { currentPlantDate, parseDateOnly } from '../utils/dateOnly';
+import { currentPlantDate, postgresDateOnly } from '../utils/dateOnly';
 import { ShiftDetectionService } from './ShiftDetectionService';
 
 /** Thrown when an import row would overwrite active production data. */
@@ -323,7 +323,7 @@ export class PPCImportService {
         .select(conn.fn.max('queue_seq').as('max_seq'))
         .where('machine_code', '=', machineCode)
         .where('sub_process', '=', subProcess)
-        .where('plan_date', '=', parseDateOnly(planDate))
+        .where('plan_date', '=', postgresDateOnly(planDate))
         .where('shift_code', '=', shiftCode)
         .executeTakeFirst();
       counters.set(key, Number(maxSeq?.max_seq) || 0);
@@ -477,7 +477,7 @@ export class PPCImportService {
     }
 
     const batchValues = {
-      plan_date: parseDateOnly(row.plan_date),
+      plan_date: postgresDateOnly(row.plan_date),
       shift_code: row.shift_code,
       machine_code: row.machine_code,
       sub_process: row.sub_process,
@@ -967,7 +967,7 @@ export class PPCImportService {
     }
 
     const batchValues = {
-      plan_date: parseDateOnly(row.planDate),
+      plan_date: postgresDateOnly(row.planDate),
       shift_code: row.shiftCode,
       machine_code: row.machineCode,
       sub_process: row.subProcess,

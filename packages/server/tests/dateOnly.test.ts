@@ -4,6 +4,7 @@ import {
   endOfDateFilter,
   formatDateOnly,
   parseDateOnly,
+  postgresDateOnly,
   startOfDateFilter,
 } from '../src/utils/dateOnly';
 
@@ -25,5 +26,10 @@ describe('dateOnly helpers', () => {
 
   it('returns a YYYY-MM-DD plant date string', () => {
     expect(currentPlantDate()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('postgresDateOnly keeps calendar day for Postgres DATE on UTC hosts', () => {
+    expect(postgresDateOnly('2026-06-15')).toBe('2026-06-15');
+    expect(postgresDateOnly(parseDateOnly('2026-06-15'))).toBe('2026-06-15');
   });
 });
