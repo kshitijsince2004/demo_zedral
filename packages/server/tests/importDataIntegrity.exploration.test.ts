@@ -16,6 +16,7 @@ import {
 } from '../src/services/previewSessionStore';
 import { db } from '../src/db';
 import { getIntegrationTestUserId } from './helpers/integrationFixtures';
+import { formatDateOnly } from '../src/utils/dateOnly';
 
 async function isDbReachable(): Promise<boolean> {
   try {
@@ -270,7 +271,7 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
           .execute();
         expect(rows).toHaveLength(1);
         expect(rows[0].batch_number).toBe(batchNo);
-        expect(String(rows[0].plan_date).slice(0, 10)).toBe('2026-06-15');
+        expect(formatDateOnly(rows[0].plan_date)).toBe('2026-06-15');
       });
     });
 

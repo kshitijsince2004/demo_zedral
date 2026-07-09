@@ -123,8 +123,8 @@ function rollingRowToSchemaInput(row: ParsedRollingPlanRow): PpcRow {
   };
 }
 
-function queueKey(machineCode: string, subProcess: string): string {
-  return `${machineCode}|${subProcess}`;
+function queueKey(machineCode: string, subProcess: string, planDate: string, shiftCode: string): string {
+  return `${machineCode}|${subProcess}|${planDate}|${shiftCode}`;
 }
 
 /** Identity for pending merge — all order-defining fields except plan_date/shift/batch_number. */
@@ -313,15 +313,18 @@ export class PPCImportService {
     conn: DbConn,
     machineCode: string,
     subProcess: string,
+    planDate: string,
+    shiftCode: string,
     counters: Map<string, number>,
   ): Promise<number> {
-    const key = queueKey(machineCode, subProcess);
+    const key = queueKey(machineCode, subProcess, planDate, shiftCode);
     if (!counters.has(key)) {
       const maxSeq = await conn.selectFrom('planning.ppc_batch')
         .select(conn.fn.max('queue_seq').as('max_seq'))
         .where('machine_code', '=', machineCode)
         .where('sub_process', '=', subProcess)
-        .where('machine_allocated', '=', true)
+        .where('plan_date', '=', parseDateOnly(planDate))
+        .where('shift_code', '=', shiftCode)
         .executeTakeFirst();
       counters.set(key, Number(maxSeq?.max_seq) || 0);
     }
@@ -607,6 +610,8 @@ export class PPCImportService {
             trx,
             row.machine_code,
             row.sub_process,
+            row.plan_date,
+            row.shift_code,
             queueCounters,
           );
           return this.upsertPpcRow(trx, { ...validation.data, queue_seq: queueSeq }, Number(batch.import_batch_id));
