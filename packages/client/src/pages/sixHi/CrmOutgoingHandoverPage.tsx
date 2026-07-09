@@ -14,6 +14,9 @@ import {
   ChevronRight, ChevronDown, Lock, Edit3, AlertCircle, Zap, BarChart2,
 } from 'lucide-react';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { flattenHandoverQueue } from '../../lib/handoverQueue';
+import { primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -148,8 +151,10 @@ export function CrmOutgoingHandoverPage() {
 
   // Section 9 — crew notes
   const [crewNotes, setCrewNotes] = useState('');
+  const [crewRoster, setCrewRoster] = useState<MachineCrewMember[]>([]);
+  const [selectedRosterIds, setSelectedRosterIds] = useState<Set<string>>(new Set());
 
-  const [queueExpanded, setQueueExpanded] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(true);
 
   // Section 10 — outgoing notes (mandatory)
   const [outgoingNotes, setOutgoingNotes] = useState('');
@@ -200,6 +205,34 @@ export function CrmOutgoingHandoverPage() {
       .finally(() => setLoading(false));
   }, [machineCode]);
 
+  useEffect(() => {
+    if (!preview?.machineCode) return;
+    if (preview.machineCrewRoster?.length) {
+      setCrewRoster(preview.machineCrewRoster.map((c) => ({
+        id: c.id,
+        machineCode: preview.machineCode,
+        memberName: c.memberName,
+        roleLabel: c.roleLabel,
+      })));
+      return;
+    }
+    void machineCrewService
+      .list(preview.machineCode)
+      .then((res) => setCrewRoster(res.crew))
+      .catch(() => setCrewRoster([]));
+  }, [preview?.machineCode, preview?.machineCrewRoster]);
+
+  const toggleRosterMember = (member: MachineCrewMember) => {
+    setSelectedRosterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(member.id)) next.delete(member.id);
+      else next.add(member.id);
+      const selected = crewRoster.filter((c) => next.has(c.id));
+      setCrewNotes(selected.map((c) => `${c.memberName} (${c.roleLabel})`).join(', '));
+      return next;
+    });
+  };
+
   // ── Auto-save draft ────────────────────────────────────────────────────────
   const buildPayload = useCallback(() => ({
     machineStatus,
@@ -213,7 +246,8 @@ export function CrmOutgoingHandoverPage() {
     shiftRemarks: shiftRemarks || undefined,
     orderSnapshot: Object.keys(orderSnapshot).length ? orderSnapshot : undefined,
     crewNotes: crewNotes || undefined,
-  }), [machineStatus, machineCondition, conditionRemarks, outgoingNotes, priority, scrapKg, coolantTemp, coolantPress, shiftRemarks, orderSnapshot, crewNotes]);
+    selectedCrewIds: selectedRosterIds.size ? [...selectedRosterIds] : undefined,
+  }), [machineStatus, machineCondition, conditionRemarks, outgoingNotes, priority, scrapKg, coolantTemp, coolantPress, shiftRemarks, orderSnapshot, crewNotes, selectedRosterIds]);
 
   const saveDraft = useCallback(async () => {
     if (!preview) return;
@@ -293,7 +327,7 @@ export function CrmOutgoingHandoverPage() {
   const hasActiveStoppage = openStoppages.some((s) => !s.status || s.status === 'OPEN');
   const prod = p.shiftProductionSummary;
   const queue = p.queueSnapshot;
-  const allQueueItems = [...(queue.rolling ?? []), ...(queue.skinpass ?? [])].slice(0, 5);
+  const allQueueItems = flattenHandoverQueue(queue, 10);
 
   const scheduledShiftStart = p.shift.windowStart ?? '—';
   const scheduledShiftEnd = p.shift.windowEnd ?? '—';
@@ -666,7 +700,10 @@ export function CrmOutgoingHandoverPage() {
                       <div key={item.batchNumber} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-3">
                         <span className="w-6 h-6 bg-primary/10 text-primary text-xs font-black rounded-full flex items-center justify-center shrink-0">{i + 1}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="font-mono font-bold text-sm text-foreground">{item.batchNumber}</p>
+                          <p className="font-mono font-bold text-sm text-primary">
+                            {item.motherCoil ?? primaryOrderId({ motherCoil: '', batchNumber: item.batchNumber })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">Batch {item.batchNumber}</p>
                           <p className="text-xs text-muted-foreground truncate">{item.customer ?? '—'} · {item.subProcess?.replace(/_/g, ' ')}</p>
                         </div>
                         <span className="text-xs font-bold text-muted-foreground shrink-0">{item.weightMt ? `${item.weightMt} MT` : '—'}</span>
@@ -681,9 +718,38 @@ export function CrmOutgoingHandoverPage() {
             {/* SECTION 9 — Crew Details */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <div className="bg-white border border-border rounded-2xl p-5">
-              <SectionHeader icon={<Users className="h-4 w-4" />} title="Crew Details" />
-              {p.crewSnapshot && p.crewSnapshot.length > 0 ? (
+              <SectionHeader icon={<Users className="h-4 w-4" />} title="Crew Details" badge="From machine crew roster" />
+              {crewRoster.length > 0 ? (
+                <div className="mb-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                    Select crew on shift (tap to add/remove)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {crewRoster.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => toggleRosterMember(member)}
+                        className={[
+                          'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+                          selectedRosterIds.has(member.id)
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-secondary text-foreground border-border hover:bg-muted',
+                        ].join(' ')}
+                      >
+                        {member.memberName} · {member.roleLabel}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground mb-3">
+                  No crew roster for this machine. Add members in Machine Head → Crew Management.
+                </p>
+              )}
+              {p.crewSnapshot && p.crewSnapshot.length > 0 && (
                 <div className="space-y-2 mb-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Shift log crew</p>
                   {p.crewSnapshot.map((c) => (
                     <div key={c.id} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-2.5">
                       <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-black flex items-center justify-center">{c.operatorName[0]}</div>
@@ -694,8 +760,6 @@ export function CrmOutgoingHandoverPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground mb-3">No crew loaded from shift log. Add notes below.</p>
               )}
               <ManualField label="Crew Notes / Updates">
                 <textarea

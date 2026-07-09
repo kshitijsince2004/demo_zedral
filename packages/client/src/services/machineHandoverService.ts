@@ -29,7 +29,16 @@ export function resolveHandoverQueueSnapshot(handover: PendingHandover) {
     queueSnapshot?: PendingHandover['queue_snapshot'];
   })?.queueSnapshot;
 
-  if (direct && (direct.rolling?.length || direct.skinpass?.length || direct.pendingAllocation?.length)) {
+  if (
+    direct
+    && (
+      direct.rolling?.length
+      || direct.skinpass?.length
+      || direct.pendingAllocation?.length
+      || direct.backlogRolling?.length
+      || direct.backlogSkinpass?.length
+    )
+  ) {
     return direct;
   }
   return fromSnapshot ?? direct ?? { rolling: [], skinpass: [], pendingAllocation: [] };
@@ -42,6 +51,7 @@ export interface QueueItem {
   weightMt?: number;
   subProcess?: string;
   queueSeq?: number;
+  motherCoil?: string;
 }
 
 export interface OpenStoppage {
@@ -77,6 +87,7 @@ export interface HandoverProductionSnapshot {
   machineCondition?: string;
   machineConditionRemarks?: string | null;
   crewNotes?: string | null;
+  selectedCrewMembers?: Array<{ id: string; memberName: string; roleLabel: string }>;
   shiftManualFields?: {
     scrapKg?: number | null;
     coolantTempDegC?: number | null;
@@ -148,6 +159,8 @@ export interface HandoverPreview {
     rolling: QueueItem[];
     skinpass: QueueItem[];
     pendingAllocation: QueueItem[];
+    backlogRolling?: QueueItem[];
+    backlogSkinpass?: QueueItem[];
   };
   nextShift: { shiftCode: string; prodDate: string };
   shift: {
@@ -161,6 +174,7 @@ export interface HandoverPreview {
   };
   shiftProductionSummary: ShiftProductionSummary | null;
   crewSnapshot: CrewMember[];
+  machineCrewRoster?: Array<{ id: string; memberName: string; roleLabel: string }>;
   utilizationMetrics: UtilizationMetrics | null;
 }
 
@@ -180,6 +194,7 @@ export interface HandoverSubmitPayload {
   shiftRemarks?: string;
   orderSnapshot?: OrderSnapshot;
   crewNotes?: string;
+  selectedCrewIds?: string[];
 }
 
 export interface HandoverOverviewRow {

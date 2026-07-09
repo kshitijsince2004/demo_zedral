@@ -4,7 +4,7 @@ import { ScanLine } from 'lucide-react';
 import { apiClient } from '../lib/apiClient';
 import { ZBadge } from '../components/primitives/ZBadge';
 
-export function SetupPage() {
+export function SetupPage({ embedded = false }: { embedded?: boolean }) {
   const [status, setStatus] = useState<string>('Waiting for barcode scan…');
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -68,6 +68,40 @@ export function SetupPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [processBarcode]);
 
+  const card = (
+    <div className="w-full max-w-md border border-border bg-background rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+        <ScanLine className="h-5 w-5 text-accent shrink-0" aria-hidden />
+        <div>
+          <h1 className="text-base font-semibold tracking-tight">Terminal assignment</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Plant desk · scan the BIND barcode to register a device
+          </p>
+        </div>
+      </div>
+
+      <div className="p-5 flex flex-col gap-4">
+        <div className="p-4 rounded-sm border border-border bg-secondary/40 font-mono text-sm min-h-[72px] flex items-center justify-center text-center">
+          {status}
+        </div>
+
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground text-center">
+          Expected format: BIND-6HI, BIND-4HI, …
+        </p>
+
+        {error && (
+          <div className="p-3 rounded-sm bg-destructive/10 text-destructive border border-destructive/30 text-sm">
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return <div className="max-w-lg">{card}</div>;
+  }
+
   return (
     <div className="theme-operator min-h-screen flex flex-col bg-secondary text-foreground">
       <header className="border-b border-border px-6 py-3 flex items-center justify-between">
@@ -81,33 +115,7 @@ export function SetupPage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-md border border-border bg-background rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center gap-3">
-            <ScanLine className="h-5 w-5 text-accent shrink-0" aria-hidden />
-            <div>
-              <h1 className="text-base font-semibold tracking-tight">Terminal assignment</h1>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Admin or supervisor login required · scan the BIND barcode
-              </p>
-            </div>
-          </div>
-
-          <div className="p-5 flex flex-col gap-4">
-            <div className="p-4 rounded-sm border border-border bg-secondary/40 font-mono text-sm min-h-[72px] flex items-center justify-center text-center">
-              {status}
-            </div>
-
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground text-center">
-              Expected format: BIND-6HI, BIND-4HI, …
-            </p>
-
-            {error && (
-              <div className="p-3 rounded-sm bg-destructive/10 text-destructive border border-destructive/30 text-sm">
-                {error}
-              </div>
-            )}
-          </div>
-        </div>
+        {card}
       </main>
     </div>
   );

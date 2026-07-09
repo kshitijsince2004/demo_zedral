@@ -293,7 +293,7 @@ router.put('/:id/submit', async (req, res) => {
   }
 });
 
-router.put('/:id/approve', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+router.put('/:id/approve', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
     await ShiftLogService.approve(req.params.id, req.user!.id);
@@ -304,7 +304,7 @@ router.put('/:id/approve', requireRole([UserRole.SUPERVISOR]), async (req, res) 
   }
 });
 
-router.put('/:id/reject', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+router.put('/:id/reject', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
     await ShiftLogService.reject(req.params.id, req.user!.id, req.body.note);
@@ -315,7 +315,7 @@ router.put('/:id/reject', requireRole([UserRole.SUPERVISOR]), async (req, res) =
   }
 });
 
-router.put('/:id/reopen', requireRole([UserRole.SUPERVISOR]), async (req, res) => {
+router.put('/:id/reopen', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
     await ShiftLogService.reopen(req.params.id);

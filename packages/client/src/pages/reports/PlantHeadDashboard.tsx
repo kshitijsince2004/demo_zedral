@@ -23,6 +23,9 @@ function formatDuration(minutes?: number): string {
 
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
 import { BacklogDetailDrawer } from '../../components/plant-head/BacklogDetailDrawer';
+import { RejectedOrdersDrawer } from '../../components/plant-head/RejectedOrdersDrawer';
+import { OrderDetailModal } from '../../components/live/OrderDetailModal';
+import type { LiveOrderDetail } from '@m1/shared-validation';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
 import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQualityDowntimeArea';
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
@@ -39,6 +42,10 @@ export function PlantHeadDashboard() {
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
   const [handovers, setHandovers] = useState<HandoverOverviewRow[]>([]);
   const [backlogOpen, setBacklogOpen] = useState(false);
+  const [rejectedOpen, setRejectedOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedDetail, setSelectedDetail] = useState<LiveOrderDetail | null>(null);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
   const [exportDate, setExportDate] = useState(currentPlantDate());
   const [exportShift, setExportShift] = useState('A');
@@ -57,6 +64,20 @@ export function PlantHeadDashboard() {
       alert((e as Error)?.message || 'Export failed');
     }
   };
+
+  const openOrderDetail = useCallback(async (batchNumber: string) => {
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setSelectedDetail(null);
+    try {
+      const detail = await liveService.getOrderDetail(batchNumber);
+      setSelectedDetail(detail);
+    } catch {
+      setSelectedDetail(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -195,6 +216,25 @@ export function PlantHeadDashboard() {
         </section>
 
         <BacklogDetailDrawer open={backlogOpen} onClose={() => setBacklogOpen(false)} />
+        <RejectedOrdersDrawer
+          open={rejectedOpen}
+          onClose={() => setRejectedOpen(false)}
+          date={exportDate}
+          shiftCode={exportShift}
+          onSelect={(batchNumber) => {
+            setRejectedOpen(false);
+            void openOrderDetail(batchNumber);
+          }}
+        />
+        <OrderDetailModal
+          open={detailOpen}
+          order={selectedDetail}
+          loading={detailLoading}
+          onClose={() => {
+            setDetailOpen(false);
+            setSelectedDetail(null);
+          }}
+        />
 
         {/* Live Machine Status Board */}
         {liveMachines.length > 0 && (
@@ -241,6 +281,9 @@ export function PlantHeadDashboard() {
                       <option key={s} value={s}>Shift {s}</option>
                     ))}
                   </select>
+                  <ZButton variant="outline" size="sm" onClick={() => setRejectedOpen(true)} className="gap-1 shrink-0">
+                    Rejected Orders
+                  </ZButton>
                   <ZButton variant="outline" size="sm" onClick={() => startRejectedExport('day')} className="gap-1 shrink-0">
                     <Download className="w-4 h-4" /> Day
                   </ZButton>
@@ -293,7 +336,12 @@ export function PlantHeadDashboard() {
 
         {/* Machine Utilization + Orders */}
         <section>
-          <PlantOperationsArea data={displayData} liveMachines={liveMachines} liveOrders={liveOrders} />
+          <PlantOperationsArea
+            data={displayData}
+            liveMachines={liveMachines}
+            liveOrders={liveOrders}
+            onOrderClick={(batchNumber) => void openOrderDetail(batchNumber)}
+          />
         </section>
 
         {/* Ops Feed */}

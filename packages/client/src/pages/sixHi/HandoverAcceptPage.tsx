@@ -18,6 +18,8 @@ import {
   Users, Wrench, Clock, AlertCircle, FileText,
 } from 'lucide-react';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { flattenHandoverQueue } from '../../lib/handoverQueue';
+import { primaryOrderId } from '../../lib/sixHiOrderIdentity';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -102,15 +104,11 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
   const machineCondition = ps?.machineCondition ?? 'NORMAL';
   const conditionRemarks = ps?.machineConditionRemarks;
   const crewNotes = ps?.crewNotes;
+  const selectedCrewMembers = ps?.selectedCrewMembers ?? [];
   const shiftFields = ps?.shiftManualFields;
 
   const queue = resolveHandoverQueueSnapshot(handover);
-  const allQueueItems: QueueItem[] = [
-    ...(queue.rolling ?? []),
-    ...(queue.skinpass ?? []),
-    ...(queue.backlogRolling ?? []),
-    ...(queue.backlogSkinpass ?? []),
-  ];
+  const allQueueItems: QueueItem[] = flattenHandoverQueue(queue, 15);
 
   const openStoppages = (handover.open_stoppages ?? []) as Array<{
     startAt?: string; reason?: string; status?: string;
@@ -329,7 +327,10 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
                     <div key={item.batchNumber} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-3">
                       <span className="w-6 h-6 bg-primary/10 text-primary text-xs font-black rounded-full flex items-center justify-center shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="font-mono font-bold text-sm">{item.batchNumber}</p>
+                        <p className="font-mono font-bold text-sm text-primary">
+                          {item.motherCoil ?? primaryOrderId({ motherCoil: '', batchNumber: item.batchNumber })}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Batch {item.batchNumber}</p>
                         <p className="text-xs text-muted-foreground truncate">{item.customer ?? '—'} · {item.subProcess?.replace(/_/g, ' ')}</p>
                       </div>
                       <span className="text-xs font-bold text-muted-foreground shrink-0">{item.weightMt ? `${item.weightMt} MT` : '—'}</span>
@@ -340,9 +341,26 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
             )}
 
             {/* ── PANEL 6: Crew ── */}
-            {crewNotes && (
-              <SectionCard icon={<Users className="h-4 w-4" />} title="Crew Notes">
-                <p className="text-sm text-foreground whitespace-pre-wrap">{crewNotes}</p>
+            {(selectedCrewMembers.length > 0 || crewNotes) && (
+              <SectionCard icon={<Users className="h-4 w-4" />} title="Crew Details">
+                {selectedCrewMembers.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    {selectedCrewMembers.map((c) => (
+                      <div key={c.id} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-2.5">
+                        <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-black flex items-center justify-center">
+                          {c.memberName[0]}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm text-foreground">{c.memberName}</p>
+                          <p className="text-xs text-muted-foreground">{c.roleLabel}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {crewNotes && (
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{crewNotes}</p>
+                )}
               </SectionCard>
             )}
 

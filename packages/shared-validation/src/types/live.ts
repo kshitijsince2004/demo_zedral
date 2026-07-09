@@ -1,4 +1,4 @@
-import type { SixHiDestination, SixHiOrderStatus, SixHiSubProcess } from './sixHi';
+import type { OrderRejectionInfo, SixHiDestination, SixHiOrderStatus, SixHiSubProcess } from './sixHi';
 import type { OrderJourneyView } from './processRoute';
 
 export type LiveOrderStatus = SixHiOrderStatus | 'PREPARING';
@@ -288,6 +288,20 @@ export interface LiveOrderDetail extends LiveOrderRow {
   }[];
   remarks: { id: string; text: string; createdAt: string; operatorName?: string }[];
   productionHistory: { step: string; completedAt?: string; status: string }[];
+  rejection?: OrderRejectionInfo;
+}
+
+export interface RejectedOrderRow {
+  batchNumber: string;
+  machineCode: string;
+  rejectionTime: string;
+  reason: string;
+  rejectedBy: string;
+  weightMt: number;
+  shiftCode?: string;
+  planDate?: string;
+  subProcess?: string;
+  coilNo?: string;
 }
 
 export interface MachineAccessEntry {

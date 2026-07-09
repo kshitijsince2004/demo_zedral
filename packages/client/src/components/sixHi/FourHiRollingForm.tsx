@@ -11,6 +11,7 @@ interface RollingWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  readOnly?: boolean;
 }
 
 type RollingDecimalField = 'actualWeightMt' | 'etr' | 'dtr';
@@ -52,7 +53,7 @@ function parseDecimalDraft(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderCount }: RollingWorkspaceProps) {
+export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderCount, readOnly }: RollingWorkspaceProps) {
   const ppcDest = order.ppcDestination ?? 'ANNEALING';
   const initial = buildInitialRolling(order);
 
@@ -63,7 +64,7 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
     dtr: toDraft(initial.dtr),
   });
   const [overrideDest, setOverrideDest] = useState(initial.destinationOverride);
-  const locked = order.status === 'COMPLETED';
+  const locked = readOnly || order.status === 'COMPLETED';
   const effectiveDest = overrideDest ? data.destination : ppcDest;
 
   const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
@@ -182,9 +183,11 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
         </div>
 
         <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+          {!readOnly && (
           <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
             {saveLabel}
           </ZButton>
+          )}
         </div>
       </div>
     );
@@ -238,7 +241,9 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
           <FieldWrapper label="Associate Rewinder"><ZInput value={data.associateRw ?? ''} onChange={(e) => setData({ ...data, associateRw: e.target.value })} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
+      {!readOnly && (
       <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">{saveLabel}</ZButton>
+      )}
     </div>
   );
 }

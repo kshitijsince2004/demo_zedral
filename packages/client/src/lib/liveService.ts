@@ -6,6 +6,7 @@ import type {
   MachineHeadDashboardData,
   MachineStatusCard,
   MachineUtilizationSummary,
+  RejectedOrderRow,
 } from '@m1/shared-validation';
 import { apiClient } from './apiClient';
 
@@ -23,6 +24,17 @@ export const liveService = {
 
   getMachineHeadDashboard: () =>
     apiClient.get<MachineHeadDashboardData>('/live/machine-head-dashboard'),
+
+  getRejectedOrders: (params?: { date?: string; dateFrom?: string; dateTo?: string; shiftCode?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set('date', params.date);
+    if (params?.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params?.dateTo) q.set('dateTo', params.dateTo);
+    if (params?.shiftCode) q.set('shiftCode', params.shiftCode);
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return apiClient.get<{ orders: RejectedOrderRow[]; refreshedAt: string }>(`/live/rejected-orders${suffix}`);
+  },
 
   getMachineState: (machineCode: string) =>
     apiClient.get<MachineCommandCenterData>(`/live/machines/${encodeURIComponent(machineCode)}/state`),

@@ -4,11 +4,13 @@ import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService'
 import { machineStatusLabel } from '../../hooks/useLiveSnapshot';
 import { DataUnavailable } from './DataUnavailable';
 import { ZBadge } from '../primitives/ZBadge';
+import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
 
 interface PlantOperationsAreaProps {
   data: ExtendedPlantHeadDashboardData;
   liveMachines?: MachineStatusCard[];
   liveOrders?: LiveOrderRow[];
+  onOrderClick?: (batchNumber: string) => void;
 }
 
 function liveStatusTone(status: ReturnType<typeof machineStatusLabel>) {
@@ -29,7 +31,7 @@ function orderStatusTone(status: LiveOrderRow['status']) {
   return 'info' as const;
 }
 
-export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOperationsAreaProps) {
+export function PlantOperationsArea({ data, liveMachines, liveOrders, onOrderClick }: PlantOperationsAreaProps) {
   const hasLiveMachines = liveMachines != null && liveMachines.length > 0;
   const hasLiveOrders = liveOrders != null && liveOrders.length > 0;
 
@@ -120,17 +122,21 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders }: PlantOpe
             <table className="w-full text-left">
               <thead className="bg-muted/30 border-b border-border/50 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-5 py-3 font-medium">Order</th>
+                  <th className="px-5 py-3 font-medium">Coil / Order</th>
                   <th className="px-5 py-3 font-medium">Customer</th>
                   <th className="px-5 py-3 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
                 {liveOrders!.slice(0, 8).map((order) => (
-                  <tr key={order.batchNumber} className="hover:bg-muted/30 transition-colors">
+                  <tr
+                    key={order.batchNumber}
+                    className={`hover:bg-muted/30 transition-colors ${onOrderClick ? 'cursor-pointer' : ''}`}
+                    onClick={() => onOrderClick?.(order.batchNumber)}
+                  >
                     <td className="px-5 py-3 align-middle">
-                      <div className="text-sm font-mono font-medium text-foreground">{order.batchNumber}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <OrderIdentityDisplay order={order} size="sm" />
+                      <div className="text-xs text-muted-foreground mt-1">
                         {order.machineName} · {order.currentProcess}
                       </div>
                     </td>

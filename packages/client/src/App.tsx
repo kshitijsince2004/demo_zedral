@@ -6,7 +6,7 @@ import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
 import { RoleHomeRedirect } from './components/RoleHomeRedirect';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { SupervisorRoute, AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
+import { AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from './pages/sixHi/SixHiOrderPage';
@@ -15,9 +15,7 @@ import { CrmOutgoingHandoverPage } from './pages/sixHi/CrmOutgoingHandoverPage';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 
 // Reports & Admin
-import { ExportData } from './pages/reports/ExportData';
 import { ExportHistory } from './pages/reports/ExportHistory';
-import { DprExport } from './pages/reports/DprExport';
 import { PlantDprExport } from './pages/reports/PlantDprExport';
 import { MachineDprExport } from './pages/reports/MachineDprExport';
 import { PlantHeadDashboard } from './pages/reports/PlantHeadDashboard';
@@ -46,8 +44,10 @@ import { UserScopeShell } from './components/UserScopeShell';
 import { UserScopeIndex } from './pages/UserScopeIndex';
 import { LegacyMillRedirect } from './components/LegacyMillRedirect';
 import { MachineHeadDashboard } from './pages/live/MachineHeadDashboard';
+import { MachineHeadCrewPage } from './pages/machinehead/MachineHeadCrewPage';
 import { LiveDashboard } from './pages/live/LiveDashboard';
 import { UnifiedShell } from './components/layout/UnifiedShell';
+import { PlantShiftReviewPage } from './pages/plant/PlantShiftReviewPage';
 
 function UnknownRouteRedirect() {
   const { role, lineAccess, machineAccess, username, token } = useAuthStore();
@@ -67,9 +67,9 @@ function App() {
           path="/setup"
           element={
             <ProtectedRoute>
-              <SupervisorRoute>
-                <SetupPage />
-              </SupervisorRoute>
+              <PlantRoute>
+                <Navigate to="/plant/setup" replace />
+              </PlantRoute>
             </ProtectedRoute>
           }
         />
@@ -106,18 +106,21 @@ function App() {
           <Route path="stoppages" element={<PlantStoppages />} />
           <Route path="alerts" element={<PlantAlerts />} />
           <Route path="order-assignment" element={<OrderAssignmentPanel />} />
+          <Route path="shift-review" element={<PlantShiftReviewPage />} />
+          <Route path="setup" element={<SetupPage embedded />} />
           <Route path="dpr-export" element={<PlantDprExport />} />
           <Route path="exports/history" element={<ExportHistory embedded />} />
         </Route>
         <Route path="/audit" element={<PlantRoute><Navigate to="/plant/audit" replace /></PlantRoute>} />
-        <Route path="/reports/export" element={<SupervisorRoute><ExportData /></SupervisorRoute>} />
-        <Route path="/reports/exports/history" element={<SupervisorRoute><ExportHistory /></SupervisorRoute>} />
-        <Route path="/reports/dpr" element={<SupervisorRoute><DprExport /></SupervisorRoute>} />
+        <Route path="/reports/export" element={<PlantRoute><Navigate to="/plant/dpr-export" replace /></PlantRoute>} />
+        <Route path="/reports/exports/history" element={<PlantRoute><Navigate to="/plant/exports/history" replace /></PlantRoute>} />
+        <Route path="/reports/dpr" element={<PlantRoute><Navigate to="/plant/dpr-export" replace /></PlantRoute>} />
 
         <Route path="/import/rolling" element={<MachineHeadRoute><RollingImportPage /></MachineHeadRoute>} />
         <Route path="/order-assignment" element={<MachineHeadRoute><OrderAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
         <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
         <Route path="/machine-head/exports/history" element={<MachineHeadRoute><ExportHistory embedded /></MachineHeadRoute>} />
 

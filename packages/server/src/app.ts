@@ -9,6 +9,7 @@ import shiftLogRoutes from './routes/shiftLogRoutes';
 import shiftRoutes from './routes/shiftRoutes';
 import stoppageRoutes from './routes/stoppageRoutes';
 import crewRoutes from './routes/crewRoutes';
+import machineCrewRoutes from './routes/machineCrewRoutes';
 import defectRoutes from './routes/defectRoutes';
 import importRoutes from './routes/importRoutes';
 import masterDataRoutes from './routes/masterDataRoutes';
@@ -82,6 +83,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   app.use('/shift-logs', m1Guard, shiftLogRoutes);
   app.use('/stoppages', m1Guard, stoppageRoutes);
   app.use('/crew', m1Guard, crewRoutes);
+  app.use('/machine-crew', m1Guard, machineCrewRoutes);
   app.use('/defects', m1Guard, defectRoutes);
   app.use('/import', m1Guard, importRoutes);
   app.use('/master-data', m1Guard, masterDataRoutes);

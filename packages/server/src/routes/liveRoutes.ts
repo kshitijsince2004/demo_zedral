@@ -41,6 +41,28 @@ router.get('/orders', async (req, res) => {
   }
 });
 
+router.get('/rejected-orders', async (req, res) => {
+  try {
+    const roles = req.user?.roles ?? [];
+    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom.slice(0, 10) : undefined;
+    const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo.slice(0, 10) : undefined;
+    const date = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
+    const shiftCode = typeof req.query.shiftCode === 'string' ? req.query.shiftCode.toUpperCase() : undefined;
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+    const orders = await LiveOrderService.getRejectedOrders(filter, {
+      dateFrom: dateFrom ?? date,
+      dateTo: dateTo ?? date,
+      shiftCode,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    });
+    res.json({ orders, refreshedAt: new Date().toISOString() });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Failed to load rejected orders';
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.get('/orders/:batchNo', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];

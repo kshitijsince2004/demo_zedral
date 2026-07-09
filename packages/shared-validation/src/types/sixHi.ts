@@ -2,6 +2,14 @@
 
 export type SixHiOrderStatus = 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'STOPPAGE' | 'COMPLETED' | 'REJECTED';
 
+export interface OrderRejectionInfo {
+  reason: string;
+  rejectedAt: string;
+  rejectedBy?: string;
+  remarks?: string;
+  defectCodes?: string[];
+}
+
 
 
 export type SixHiSubProcess = 'ROLLING' | 'SKIN_PASS';
@@ -304,6 +312,8 @@ export interface SixHiOrderDetail {
   rollChanges: SixHiRollChange[];
 
   activeStoppage?: SixHiOrderStoppage;
+
+  rejection?: OrderRejectionInfo;
 
 }
 

@@ -19,6 +19,7 @@ interface SkinPassWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  readOnly?: boolean;
 }
 
 function initialMetricChoice(skinPass?: SixHiSkinPassData): SkinPassMetric {
@@ -106,7 +107,7 @@ function MetricToggle({
   );
 }
 
-export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrderCount }: SkinPassWorkspaceProps) {
+export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrderCount, readOnly }: SkinPassWorkspaceProps) {
   const [data, setData] = useState<SixHiSkinPassData>(order.skinPass ?? {});
   const [drafts, setDrafts] = useState<Record<SkinPassDecimalField, string>>({
     outputThkMm: toDraft(order.skinPass?.outputThkMm),
@@ -120,7 +121,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
   const [rwTensionInput, setRwTensionInput] = useState(() =>
     formatRwTension(order.skinPass?.rwTension1, order.skinPass?.rwTension2),
   );
-  const locked = order.status === 'COMPLETED';
+  const locked = readOnly || order.status === 'COMPLETED';
 
   const switchMetric = (next: SkinPassMetric) => {
     setMetric(next);
@@ -269,9 +270,11 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
         </div>
 
         <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+          {!readOnly && (
           <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
             {saveLabel}
           </ZButton>
+          )}
         </div>
       </div>
     );
@@ -324,7 +327,9 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
           <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
+      {!readOnly && (
       <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">{saveLabel}</ZButton>
+      )}
     </div>
   );
 }

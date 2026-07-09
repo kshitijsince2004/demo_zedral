@@ -11,6 +11,7 @@ interface SixHiOrderWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  readOnly?: boolean;
   onSaveRolling: (data: SixHiRollingData) => Promise<void>;
   onSaveSkinPass: (data: SixHiSkinPassData) => Promise<void>;
 }
@@ -20,6 +21,7 @@ export function SixHiOrderWorkspace({
   busy,
   compact,
   combinedOrderCount,
+  readOnly,
   onSaveRolling,
   onSaveSkinPass,
 }: SixHiOrderWorkspaceProps) {
@@ -72,6 +74,7 @@ export function SixHiOrderWorkspace({
             combinedOrderCount={combinedOrderCount}
             onSave={onSaveRolling}
             compact={compact}
+            readOnly={readOnly}
           />
         ) : (
           <SharedSkinPassForm
@@ -80,6 +83,7 @@ export function SixHiOrderWorkspace({
             combinedOrderCount={combinedOrderCount}
             onSave={onSaveSkinPass}
             compact={compact}
+            readOnly={readOnly}
           />
         )}
       </div>

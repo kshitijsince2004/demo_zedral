@@ -65,7 +65,7 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { shiftCode } = useShiftStore();
+  const { shiftCode, shiftDate } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
@@ -80,6 +80,10 @@ export function SixHiHub() {
   const [pendingQueue, setPendingQueue] = useState<SixHiQueueCard[]>([]);
   const [backlogQueue, setBacklogQueue] = useState<SixHiQueueCard[]>([]);
   const [viewDate, setViewDate] = useState(currentPlantDate());
+
+  useEffect(() => {
+    if (shiftDate) setViewDate(shiftDate);
+  }, [shiftDate]);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
   const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
@@ -181,6 +185,11 @@ export function SixHiHub() {
   const allOrders = useMemo(
     () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue]),
     [backlogQueue, pendingQueue, queue],
+  );
+
+  const machineActiveCard = useMemo(
+    () => (machineActive ? allOrders.find((c) => c.batchNumber === machineActive.batchNumber) : undefined),
+    [allOrders, machineActive],
   );
 
   const applyCombinedSelection = useCallback((anchor: SixHiQueueCard) => {
@@ -604,7 +613,7 @@ export function SixHiHub() {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-warning">Machine status</p>
             <p className="text-sm font-semibold text-foreground mt-0.5">
-              Active order <span className="font-mono">{machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+              Active order <span className="font-mono text-primary">{machineActiveCard ? primaryOrderId(machineActiveCard) : machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
             </p>
           </div>
           <SixHiStatusPill status={machineActive.status as SixHiOrderStatus} />
@@ -675,7 +684,7 @@ export function SixHiHub() {
                 {sortQueueSection(filteredPending).map((card) => renderQueueRow(card, { pending: true }))}
               </>
             )}
-            {!loading && filteredAssigned.length > 0 && filteredPending.length > 0 && (
+            {!loading && filteredAssigned.length > 0 && (
               <div className="px-5 py-2 bg-muted/30 border-b border-border">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   {queueMachine} queue · {filteredAssigned.length}

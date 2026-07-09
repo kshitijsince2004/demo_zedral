@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { Activity, ArrowRightLeft, Brain, FileSpreadsheet, LayoutDashboard, Search, Shield, Timer, Users } from 'lucide-react';
+import { Activity, ArrowRightLeft, Brain, ClipboardCheck, FileSpreadsheet, LayoutDashboard, Search, Settings, Shield, Timer, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from './shared/DeskSideNav';
 import { deskNavOffsetClass } from './shared/deskNavLayout';
 import { OfflineBanner } from '../ui/OfflineBanner';
@@ -28,6 +28,13 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     match: (p) => p === '/plant/order-assignment',
   },
   {
+    id: 'shift-review',
+    label: 'Shift Review',
+    icon: ClipboardCheck,
+    path: '/plant/shift-review',
+    match: (p) => p === '/plant/shift-review',
+  },
+  {
     id: 'traceability',
     label: 'Traceability',
     icon: Search,
@@ -54,6 +61,13 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     icon: FileSpreadsheet,
     path: '/plant/dpr-export',
     match: (p) => p === '/plant/dpr-export' || p.startsWith('/plant/exports'),
+  },
+  {
+    id: 'setup',
+    label: 'Device Setup',
+    icon: Settings,
+    path: '/plant/setup',
+    match: (p) => p === '/plant/setup',
   },
   {
     id: 'audit',

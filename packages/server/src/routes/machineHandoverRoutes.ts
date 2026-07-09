@@ -122,6 +122,7 @@ router.post('/:machineCode/draft', async (req, res) => {
       shiftRemarks,
       orderSnapshot,
       crewNotes,
+      selectedCrewIds,
     } = req.body ?? {};
 
     const draft = await MachineHandoverService.saveDraftHandover(
@@ -143,6 +144,7 @@ router.post('/:machineCode/draft', async (req, res) => {
         shiftRemarks,
         orderSnapshot,
         crewNotes,
+        selectedCrewIds,
       },
     );
     res.status(201).json(draft);
@@ -172,6 +174,7 @@ router.post('/:machineCode/outgoing', async (req, res) => {
       shiftRemarks,
       orderSnapshot,
       crewNotes,
+      selectedCrewIds,
     } = req.body ?? {};
 
     const handover = await MachineHandoverService.createOutgoingHandover(
@@ -193,6 +196,7 @@ router.post('/:machineCode/outgoing', async (req, res) => {
         shiftRemarks,
         orderSnapshot,
         crewNotes,
+        selectedCrewIds,
       },
     );
     res.status(201).json(handover);

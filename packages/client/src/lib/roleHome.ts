@@ -21,8 +21,9 @@ export function getRoleHomePath(
   switch (role) {
     case 'MACHINE_HEAD':
       return '/machine-head-dashboard';
-    case 'OPERATOR':
-    case 'SUPERVISOR': {
+    case 'SUPERVISOR':
+      return '/plant';
+    case 'OPERATOR': {
       if (username && usesUserScopeHome(role)) {
         return userScopePath(username, role);
       }

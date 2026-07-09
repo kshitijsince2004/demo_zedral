@@ -318,6 +318,16 @@ export interface MasterMachine {
   capacity_mt: Numeric | null;
 }
 
+export interface MasterMachineCrewRoster {
+  crew_id: Generated<Int8>;
+  machine_code: string;
+  member_name: string;
+  role_label: string;
+  is_active: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface MasterStoppageCategory {
   agency_code: string | null;
   category_code: string;
@@ -1033,6 +1043,7 @@ export interface DB {
   "master.route_code": MasterRouteCode;
   "master.customer": MasterCustomer;
   "master.machine": MasterMachine;
+  "master.machine_crew_roster": MasterMachineCrewRoster;
   "master.stoppage_category": MasterStoppageCategory;
   "master.defect_code": MasterDefectCode;
   "master.furnace": MasterFurnace;

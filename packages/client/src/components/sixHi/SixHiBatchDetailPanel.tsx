@@ -104,7 +104,7 @@ export function SixHiBatchDetailPanel({
     ['Weight', `${batch.weightMt} Metric Tons`, true],
   ];
 
-  if (batch.planDate) {
+  if (batch.isBacklog && batch.planDate) {
     fields.splice(1, 0, ['Planned Date', `${batch.planDate}${batch.shiftCode ? ` · Shift ${batch.shiftCode}` : ''}`]);
   }
 

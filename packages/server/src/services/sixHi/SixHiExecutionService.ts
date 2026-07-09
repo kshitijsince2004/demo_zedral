@@ -55,6 +55,12 @@ export class SixHiExecutionService {
     return SixHiService.rejectOrder(...args);
   }
 
+  static deleteOrder(
+    ...args: Parameters<typeof SixHiService.deleteOrder>
+  ): ReturnType<typeof SixHiService.deleteOrder> {
+    return SixHiService.deleteOrder(...args);
+  }
+
   static logRollChange(
     ...args: Parameters<typeof SixHiService.logRollChange>
   ): ReturnType<typeof SixHiService.logRollChange> {

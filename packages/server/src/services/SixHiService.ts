@@ -8,6 +8,7 @@ import type {
   SixHiSubProcess,
 } from '@m1/shared-validation';
 import { db } from '../db';
+import { loadOrderRejection } from './orderRejectionLoader';
 import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -619,68 +620,59 @@ export class SixHiService {
     backlog: SixHiQueueCard[];
   }> {
     const viewDate = planDate;
-    const effectiveShift = await this.resolveShiftForViewDate(
-      viewDate,
-      shiftCode,
-      subProcess,
-      machineCode,
-    );
     const viewDateObj = this.toPlanDate(viewDate);
     const incomplete = [...SixHiService.INCOMPLETE_ORDER_STATUSES];
 
+    const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(shiftCode);
+    const backlogPlanFilter = (eb: any) => {
+      const priorDay = eb('pb.plan_date', '<', viewDateObj);
+      if (earlierSameDayShifts.length === 0) return priorDay;
+      return eb.or([
+        priorDay,
+        eb.and([
+          eb('pb.plan_date', '=', viewDateObj),
+          eb('pb.shift_code', 'in', earlierSameDayShifts),
+        ]),
+      ]);
+    };
+    const incompleteFilter = (eb: any) =>
+      eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'in', incomplete),
+      ]);
+
+    // Operational assigned queue — machine sequence only (not planned date).
     const batches = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
-      .where('pb.plan_date', '=', viewDateObj)
-      .where('pb.shift_code', '=', effectiveShift)
       .where('pb.machine_code', '=', machineCode)
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', true)
+      .where(incompleteFilter)
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
+    // Operational pending pool — unallocated, excluding PPC backlog bucket.
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
-      .where('pb.plan_date', '=', viewDateObj)
-      .where('pb.shift_code', '=', effectiveShift)
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
+      .where(incompleteFilter)
+      .where((eb) => eb.not(backlogPlanFilter(eb)))
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
-    const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(effectiveShift);
+    // PPC backlog visibility — planned before view date, still unallocated.
     const backlogBatches = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
-      .where((eb) => {
-        const priorDay = eb('pb.plan_date', '<', viewDateObj);
-        if (earlierSameDayShifts.length === 0) return priorDay;
-        return eb.or([
-          priorDay,
-          eb.and([
-            eb('pb.plan_date', '=', viewDateObj),
-            eb('pb.shift_code', 'in', earlierSameDayShifts),
-          ]),
-        ]);
-      })
       .where('pb.sub_process', '=', subProcess)
-      .where((eb) => eb.or([
-        eb.and([
-          eb('pb.machine_code', '=', machineCode),
-          eb('pb.machine_allocated', '=', true),
-        ]),
-        eb('pb.machine_allocated', '=', false),
-      ]))
-      .where((eb) => eb.or([
-        eb('o.status', 'is', null),
-        eb('o.status', 'in', incomplete),
-        eb.and([
-          eb('o.status', '=', 'COMPLETED'),
-          sql<boolean>`o.prod_end_at >= ${viewDateObj}::date`,
-          sql<boolean>`o.prod_end_at < ${viewDateObj}::date + interval '32 hours'`,
-        ]),
-      ]))
+      .where('pb.machine_allocated', '=', false)
+      .where(backlogPlanFilter)
+      .where(incompleteFilter)
       .orderBy('pb.plan_date', 'asc')
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
@@ -709,7 +701,7 @@ export class SixHiService {
 
     return {
       planDate: viewDate,
-      shiftCode: effectiveShift,
+      shiftCode,
       machineCode,
       queue: cards,
       pendingAllocation,
@@ -752,8 +744,6 @@ export class SixHiService {
     await db.transaction().execute(async (trx) => {
       const maxSeq = await trx.selectFrom('planning.ppc_batch')
         .select(trx.fn.max('queue_seq').as('max_seq'))
-        .where('plan_date', '=', batch.plan_date)
-        .where('shift_code', '=', batch.shift_code)
         .where('machine_code', '=', machine)
         .where('sub_process', '=', subProcess)
         .where('machine_allocated', '=', true)
@@ -940,11 +930,14 @@ export class SixHiService {
       .executeTakeFirst();
     if (existing) return String(existing.order_id);
 
-    const shiftLogId = await this.ensureActiveShiftLog(
+    const { ShiftDetectionService } = await import('./ShiftDetectionService');
+    const detected = await ShiftDetectionService.getCurrentShift({
       userId,
-      batch.plan_date,
-      batch.shift_code,
-    );
+      machineCode: batch.machine_code,
+    });
+    const prodDate = this.toPlanDate(detected.prodDate);
+    const activeShift = detected.shiftCode.toUpperCase();
+    const shiftLogId = await this.ensureActiveShiftLog(userId, prodDate, activeShift);
 
     const inputThk = Number(batch.input_thk_mm ?? batch.ppc_thk_mm);
 
@@ -976,9 +969,9 @@ export class SixHiService {
         sub_process: batch.sub_process,
         status: 'PENDING',
         logged_in_user_id: userId,
-        production_day: batch.plan_date,
-        shift_code: batch.shift_code,
-        prod_date: batch.plan_date,
+        production_day: prodDate,
+        shift_code: activeShift,
+        prod_date: prodDate,
       } as any)
       .returning('order_id')
       .executeTakeFirstOrThrow();
@@ -991,8 +984,8 @@ export class SixHiService {
           roll_finish: batch.roll_finish ?? 'MATT',
           rerolling: batch.ppc_reroll_flag ?? false,
           associate_rw: batch.destination === 'REWINDING' ? 'R/W' : null,
-          shift_code: batch.shift_code,
-          prod_date: batch.plan_date,
+          shift_code: activeShift,
+          prod_date: prodDate,
         } as any)
         .execute();
     } else {
@@ -1108,6 +1101,10 @@ export class SixHiService {
     const targetThk = Number(order.ppc_thk_mm);
     const finishThk = ppcBatch?.finish_thk_mm != null ? Number(ppcBatch.finish_thk_mm) : undefined;
 
+    const rejection = resolvedStatus === 'REJECTED'
+      ? await loadOrderRejection(order.order_id)
+      : undefined;
+
     return {
       orderId: String(order.order_id),
       batchNumber: order.batch_number,
@@ -1179,6 +1176,7 @@ export class SixHiService {
         startAt: activeStoppage.start_at.toISOString(),
         remarks: activeStoppage.remarks ?? undefined,
       } : undefined,
+      rejection,
     };
   }
 
@@ -1889,6 +1887,61 @@ export class SixHiService {
       .where('defect_code', '=', defectCode)
       .execute();
     return this.getDefectCodes();
+  }
+
+  static async deleteOrder(batchNumber: string, _userId: number): Promise<{ batchNumber: string }> {
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .select(['batch_id', 'coil_no', 'machine_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch) throw new Error('Order not found');
+
+    const order = await db.selectFrom('txn.crm6_order')
+      .select(['order_id', 'status', 'prod_start_at', 'coil_no'])
+      .where('batch_id', '=', batch.batch_id)
+      .executeTakeFirst();
+
+    if (!order) {
+      throw new Error('No production record exists for this order');
+    }
+
+    const deletableStatuses = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED', 'REJECTED'];
+    if (!deletableStatuses.includes(order.status)) {
+      throw new Error(`Orders with status ${order.status} cannot be deleted`);
+    }
+
+    const openStoppage = await db.selectFrom('txn.order_stoppage')
+      .select('stoppage_id')
+      .where('order_id', '=', order.order_id)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+
+    if (openStoppage) {
+      await db.updateTable('txn.order_stoppage')
+        .set({ end_at: new Date(), duration_min: 0 })
+        .where('stoppage_id', '=', openStoppage.stoppage_id)
+        .execute();
+    }
+
+    if (order.status === 'IN_PROGRESS' || order.status === 'STOPPAGE') {
+      const machineCode = batch.machine_code;
+      if (machineCode) {
+        await MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', { batchNumber });
+        await MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED');
+      }
+    }
+
+    await db.deleteFrom('txn.crm6_order').where('order_id', '=', order.order_id).execute();
+
+    const coilNo = order.coil_no ?? batch.coil_no;
+    if (coilNo) {
+      await db.updateTable('coil.coil')
+        .set({ status: 'PLANNED' })
+        .where('coil_no', '=', coilNo)
+        .execute();
+    }
+
+    return { batchNumber };
   }
 
   static async rejectOrder(

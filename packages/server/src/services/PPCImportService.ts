@@ -123,8 +123,73 @@ function rollingRowToSchemaInput(row: ParsedRollingPlanRow): PpcRow {
   };
 }
 
-function queueKey(machineCode: string, planDate: string, shiftCode: string): string {
-  return `${machineCode}|${planDate}|${shiftCode}`;
+function queueKey(machineCode: string, subProcess: string): string {
+  return `${machineCode}|${subProcess}`;
+}
+
+/** Identity for pending merge — all order-defining fields except plan_date/shift/batch_number. */
+function pendingMergeIdentityKey(row: {
+  coil_no: string;
+  slit_id?: string | null;
+  customer_name: string;
+  grade_code: string;
+  width_mm: number;
+  ppc_thk_mm: number;
+  ppc_weight_mt: number;
+  sub_process: string;
+  machine_code: string;
+  destination?: string | null;
+  roll_finish?: string | null;
+  ppc_reroll_flag?: boolean | null;
+  sap_order_no?: string | null;
+}): string {
+  return [
+    row.coil_no,
+    row.slit_id ?? '',
+    row.customer_name,
+    row.grade_code,
+    row.width_mm,
+    row.ppc_thk_mm,
+    row.ppc_weight_mt,
+    row.sub_process,
+    row.machine_code,
+    row.destination ?? '',
+    row.roll_finish ?? '',
+    row.ppc_reroll_flag ? '1' : '0',
+    row.sap_order_no ?? '',
+  ].join('|');
+}
+
+function batchRowMergeIdentityKey(b: {
+  coil_no: string;
+  slit_id: string | null;
+  customer_name: string;
+  grade_code: string;
+  width_mm: number | string;
+  ppc_thk_mm: number | string;
+  ppc_weight_mt: number | string;
+  sub_process: string;
+  machine_code: string;
+  destination: string | null;
+  roll_finish: string | null;
+  ppc_reroll_flag: boolean | null;
+  sap_order_no: string | null;
+}): string {
+  return pendingMergeIdentityKey({
+    coil_no: b.coil_no,
+    slit_id: b.slit_id,
+    customer_name: b.customer_name,
+    grade_code: b.grade_code,
+    width_mm: Number(b.width_mm),
+    ppc_thk_mm: Number(b.ppc_thk_mm),
+    ppc_weight_mt: Number(b.ppc_weight_mt),
+    sub_process: b.sub_process,
+    machine_code: b.machine_code,
+    destination: b.destination,
+    roll_finish: b.roll_finish,
+    ppc_reroll_flag: b.ppc_reroll_flag,
+    sap_order_no: b.sap_order_no,
+  });
 }
 
 /**
@@ -247,23 +312,43 @@ export class PPCImportService {
   private static async seedQueueSeq(
     conn: DbConn,
     machineCode: string,
-    planDate: string,
-    shiftCode: string,
+    subProcess: string,
     counters: Map<string, number>,
   ): Promise<number> {
-    const key = queueKey(machineCode, planDate, shiftCode);
+    const key = queueKey(machineCode, subProcess);
     if (!counters.has(key)) {
       const maxSeq = await conn.selectFrom('planning.ppc_batch')
         .select(conn.fn.max('queue_seq').as('max_seq'))
-        .where('plan_date', '=', parseDateOnly(planDate))
-        .where('shift_code', '=', shiftCode)
         .where('machine_code', '=', machineCode)
+        .where('sub_process', '=', subProcess)
+        .where('machine_allocated', '=', true)
         .executeTakeFirst();
       counters.set(key, Number(maxSeq?.max_seq) || 0);
     }
     const next = counters.get(key)! + 1;
     counters.set(key, next);
     return next;
+  }
+
+  /** Find an existing pending batch with identical order identity (plan_date may differ). */
+  private static async findMatchingPendingBatch(
+    trx: DbConn,
+    row: PpcRow,
+  ): Promise<{ batch_id: string | number | bigint } | undefined> {
+    const targetKey = pendingMergeIdentityKey(row);
+    const candidates = await trx.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .selectAll('pb')
+      .where('pb.coil_no', '=', row.coil_no)
+      .where('pb.sub_process', '=', row.sub_process)
+      .where('pb.machine_allocated', '=', false)
+      .where((eb) => eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'in', ['PENDING', 'PREPARING']),
+      ]))
+      .execute();
+
+    return candidates.find((c) => batchRowMergeIdentityKey(c) === targetKey);
   }
 
   /**
@@ -378,10 +463,15 @@ export class PPCImportService {
     row: PpcRow,
     importBatchId: number,
   ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; reason?: string }> {
-    const existing = await trx.selectFrom('planning.ppc_batch')
+    let existing = await trx.selectFrom('planning.ppc_batch')
       .select('batch_id')
       .where('batch_number', '=', row.batch_number)
       .executeTakeFirst();
+
+    if (!existing) {
+      const pendingMatch = await this.findMatchingPendingBatch(trx, row);
+      if (pendingMatch) existing = { batch_id: pendingMatch.batch_id };
+    }
 
     const batchValues = {
       plan_date: parseDateOnly(row.plan_date),
@@ -516,8 +606,7 @@ export class PPCImportService {
           const queueSeq = await this.seedQueueSeq(
             trx,
             row.machine_code,
-            row.plan_date,
-            row.shift_code,
+            row.sub_process,
             queueCounters,
           );
           return this.upsertPpcRow(trx, { ...validation.data, queue_seq: queueSeq }, Number(batch.import_batch_id));
@@ -862,10 +951,15 @@ export class PPCImportService {
   ): Promise<{ action: 'inserted' | 'updated' }> {
     const targetThk = row.passTargetThkMm ?? row.finishThkMm;
 
-    const existing = await trx.selectFrom('planning.ppc_batch')
+    let existing = await trx.selectFrom('planning.ppc_batch')
       .select('batch_id')
       .where('batch_number', '=', row.batchNumber)
       .executeTakeFirst();
+
+    if (!existing) {
+      const pendingMatch = await this.findMatchingPendingBatch(trx, rollingRowToSchemaInput(row));
+      if (pendingMatch) existing = { batch_id: pendingMatch.batch_id };
+    }
 
     const batchValues = {
       plan_date: parseDateOnly(row.planDate),

@@ -11,6 +11,7 @@ import type {
 } from '@m1/shared-validation';
 import { sql } from 'kysely';
 import { db } from '../db';
+import { loadOrderRejection } from './orderRejectionLoader';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
@@ -182,13 +183,9 @@ export class LiveService {
 
   static async getActiveOrders(
     machineFilter: string[] | null,
-    planDate?: string,
-    shiftCode?: string,
+    _planDate?: string,
+    _shiftCode?: string,
   ): Promise<LiveOrderRow[]> {
-    const { SixHiQueueService, SixHiShiftService } = await import('./sixHi');
-    const defaultDate = planDate ?? currentPlantDate();
-    const defaultShift = shiftCode ?? 'B';
-
     let machines: string[];
     if (machineFilter === null) {
       machines = await MachineRegistryService.getOperationalMachineCodes(null);
@@ -197,18 +194,6 @@ export class LiveService {
     } else {
       machines = machineFilter;
     }
-
-    const machineContextsMap = await SixHiQueueService.resolveMachinePlanContexts(
-      defaultDate,
-      defaultShift,
-      machines,
-    );
-    const machineContexts = machines.map((machineCode) => ({
-      machineCode,
-      ...(machineContextsMap.get(machineCode) ?? { planDate: defaultDate, shiftCode: defaultShift }),
-    }));
-
-    if (machineContexts.length === 0) return [];
 
     let q = db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
@@ -237,17 +222,7 @@ export class LiveService {
         's.output_thk_mm',
       ])
       .where('pb.machine_allocated', '=', true)
-      .where((eb) =>
-        eb.or(
-          machineContexts.map((ctx) =>
-            eb.and([
-              eb('pb.machine_code', '=', ctx.machineCode),
-              eb('pb.plan_date', '=', SixHiShiftService.toPlanDate(ctx.planDate)),
-              eb('pb.shift_code', '=', ctx.shiftCode),
-            ]),
-          ),
-        ),
-      )
+      .where('pb.machine_code', 'in', machines)
       .where((eb) =>
         eb.or([
           eb('o.status', 'in', [...QUEUE_STATUSES]),
@@ -723,6 +698,11 @@ export class LiveService {
       .map((s) => s.label)
       .join(', ');
 
+    const status = mapSixHiStatus(batch.status ?? 'PENDING', prepReady);
+    const rejection = status === 'REJECTED' && batch.order_id
+      ? await loadOrderRejection(batch.order_id)
+      : undefined;
+
     return {
       batchNumber: batch.batch_number,
       customer: batch.customer_name,
@@ -732,7 +712,7 @@ export class LiveService {
       currentProcess: processLabel(batch.sub_process),
       operatorName: batch.operator_name ?? undefined,
       runtimeMin,
-      status: mapSixHiStatus(batch.status ?? 'PENDING', prepReady),
+      status,
       weightMt: Number(batch.ppc_weight_mt),
       destination: batch.destination === 'REWINDING' ? 'REWINDING' : batch.destination === 'ANNEALING' ? 'ANNEALING' : undefined,
       subProcess: batch.sub_process as LiveOrderDetail['subProcess'],
@@ -762,7 +742,62 @@ export class LiveService {
         operatorName: r.full_name ?? undefined,
       })),
       productionHistory,
+      rejection,
     };
+  }
+
+  static async getRejectedOrders(
+    machineFilter: string[] | null,
+    opts: { dateFrom?: string; dateTo?: string; shiftCode?: string; limit?: number } = {},
+  ) {
+    const limit = opts.limit ?? 50;
+    let q = db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
+      .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
+      .select([
+        'pb.batch_number',
+        'pb.machine_code',
+        'pb.shift_code',
+        'pb.plan_date',
+        'pb.coil_no',
+        'o.sub_process',
+        'o.prod_end_at',
+        sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('reason'),
+        sql<string>`COALESCE(u.full_name, 'Unknown')`.as('operator'),
+        'pb.ppc_weight_mt',
+      ])
+      .where('o.status', '=', 'REJECTED')
+      .orderBy('o.prod_end_at', 'desc')
+      .limit(limit);
+
+    if (machineFilter !== null) {
+      if (machineFilter.length === 0) return [];
+      q = q.where('pb.machine_code', 'in', machineFilter);
+    }
+    if (opts.dateFrom) {
+      q = q.where(sql`date(pb.plan_date)`, '>=', sql`${opts.dateFrom}::date`);
+    }
+    if (opts.dateTo) {
+      q = q.where(sql`date(pb.plan_date)`, '<=', sql`${opts.dateTo}::date`);
+    }
+    if (opts.shiftCode) {
+      q = q.where('pb.shift_code', '=', opts.shiftCode);
+    }
+
+    const rows = await q.execute();
+    return rows.map((r) => ({
+      batchNumber: r.batch_number,
+      machineCode: r.machine_code,
+      rejectionTime: r.prod_end_at ? new Date(r.prod_end_at).toISOString() : '',
+      reason: r.reason,
+      rejectedBy: r.operator,
+      weightMt: Number(r.ppc_weight_mt),
+      shiftCode: r.shift_code ?? undefined,
+      planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+      subProcess: r.sub_process ?? undefined,
+      coilNo: r.coil_no ?? undefined,
+    }));
   }
 
   /** Production MT for a shift plan (saved weights: completed + in-progress). */

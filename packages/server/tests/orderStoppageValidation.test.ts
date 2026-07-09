@@ -40,6 +40,44 @@ describe('orderStoppageValidation', () => {
     await expect(assertCanStartOrderStoppage('42')).rejects.toThrow(ManufacturingValidationError);
   });
 
+  it('rejects stoppage start overlapping a closed interval', async () => {
+    const closedStart = plantClockDate('2026-06-10', '10:00');
+    const closedEnd = plantClockDate('2026-06-10', '11:00');
+    const overlapStart = plantClockDate('2026-06-10', '10:30');
+
+    const stoppageChain = {
+      select: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([
+        { stoppage_id: '1', start_at: closedStart, end_at: closedEnd },
+      ]),
+    };
+
+    const emptyOrderChain = {
+      leftJoin: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      executeTakeFirst: vi.fn().mockResolvedValue(null),
+    };
+
+    const shiftChain = {
+      select: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([
+        { shift_code: 'A', start_time: '06:00:00', end_time: '14:00:00' },
+      ]),
+    };
+
+    vi.mocked(db.selectFrom).mockImplementation((table: string) => {
+      if (String(table).includes('order_stoppage')) return stoppageChain as never;
+      if (String(table).includes('master.shift')) return shiftChain as never;
+      return emptyOrderChain as never;
+    });
+
+    await expect(validateOrderStoppageStart('42', overlapStart)).rejects.toThrow(/overlaps/);
+  });
+
   it('allows ending a stoppage after shift end when start was in shift', async () => {
     const shiftRow = {
       plan_date: new Date('2026-06-10'),
@@ -121,8 +159,15 @@ describe('validateOrderStoppageStart', () => {
       ]),
     };
 
+    const stoppageChain = {
+      select: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue([]),
+    };
+
     vi.mocked(db.selectFrom).mockImplementation((table: string) => {
       if (String(table).includes('master.shift')) return shiftChain as never;
+      if (String(table).includes('order_stoppage')) return stoppageChain as never;
       return orderChain as never;
     });
 

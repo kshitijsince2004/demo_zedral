@@ -7,6 +7,7 @@ import { MachineStateEventService } from './MachineStateEventService';
 import { resolveShiftSinceTime, formatDurationMinutes } from '../validation/manufacturingValidation';
 import type { BoundaryShiftContext } from './ShiftBoundaryService';
 import { formatPlantDate } from '@m1/shared-validation';
+import type { SixHiQueueCard } from '@m1/shared-validation';
 
 export type MachineHandoverStatus =
   | 'RUNNING'
@@ -25,6 +26,19 @@ function normalizeHandoverPriority(priority?: HandoverPriority): 'LOW' | 'MEDIUM
 
 function formatProdDate(value: Date | string): string {
   return formatPlantDate(value);
+}
+
+function mergeQueueCards(...groups: SixHiQueueCard[][]): SixHiQueueCard[] {
+  const seen = new Set<string>();
+  const merged: SixHiQueueCard[] = [];
+  for (const group of groups) {
+    for (const card of group) {
+      if (seen.has(card.batchNumber)) continue;
+      seen.add(card.batchNumber);
+      merged.push(card);
+    }
+  }
+  return merged;
 }
 
 export interface OutgoingHandoverInput {
@@ -53,6 +67,7 @@ export interface OutgoingHandoverInput {
   };
   // Crew notes (manual fallback when no shift log)
   crewNotes?: string;
+  selectedCrewIds?: string[];
 }
 
 export class MachineHandoverService {
@@ -281,6 +296,14 @@ export class MachineHandoverService {
       console.error('[buildOutgoingPreview] Utilization error:', err);
     }
 
+    const { MachineCrewService } = await import('./MachineCrewService');
+    let machineCrewRoster: Awaited<ReturnType<typeof MachineCrewService.list>> = [];
+    try {
+      machineCrewRoster = await MachineCrewService.list(machineCode);
+    } catch {
+      // Non-fatal when roster table unavailable
+    }
+
     // Reused machineRow resolved at the top of the method
 
     return {
@@ -303,11 +326,15 @@ export class MachineHandoverService {
       openStoppages,
       shiftProductionSummary,
       crewSnapshot,
+      machineCrewRoster,
       utilizationMetrics,
       queueSnapshot: {
         rolling: rollingQueue.queue,
         skinpass: skinQueue.queue,
-        pendingAllocation: rollingQueue.pendingAllocation,
+        pendingAllocation: mergeQueueCards(
+          rollingQueue.pendingAllocation,
+          skinQueue.pendingAllocation,
+        ),
         backlogRolling: rollingQueue.backlog,
         backlogSkinpass: skinQueue.backlog,
       },
@@ -346,12 +373,16 @@ export class MachineHandoverService {
     }
 
     // Merge operator's inputs into production_snapshot for rich incoming view
+    const selectedCrewMembers = (input.selectedCrewIds ?? [])
+      .map((id) => preview.machineCrewRoster?.find((c) => c.id === id))
+      .filter(Boolean);
     const enrichedProductionSnapshot = {
       ...preview.productionSnapshot,
       orderSnapshot: input.orderSnapshot ?? null,
       machineCondition: input.machineCondition ?? 'NORMAL',
       machineConditionRemarks: input.machineConditionRemarks ?? null,
       crewNotes: input.crewNotes ?? null,
+      selectedCrewMembers,
       shiftManualFields: {
         scrapKg: input.scrapKg ?? null,
         coolantTempDegC: input.coolantTempDegC ?? null,
@@ -455,12 +486,16 @@ export class MachineHandoverService {
       orderId = row ? Number(row.order_id) : null;
     }
 
+    const selectedCrewMembers = (input.selectedCrewIds ?? [])
+      .map((id) => preview.machineCrewRoster?.find((c) => c.id === id))
+      .filter(Boolean);
     const enrichedProductionSnapshot = {
       ...preview.productionSnapshot,
       orderSnapshot: input.orderSnapshot ?? null,
       machineCondition: input.machineCondition ?? 'NORMAL',
       machineConditionRemarks: input.machineConditionRemarks ?? null,
       crewNotes: input.crewNotes ?? null,
+      selectedCrewMembers,
       shiftManualFields: {
         scrapKg: input.scrapKg ?? null,
         coolantTempDegC: input.coolantTempDegC ?? null,

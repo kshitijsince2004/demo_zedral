@@ -24,4 +24,10 @@ export class LiveOrderService {
   ): ReturnType<typeof LiveService.getShiftCompletedProductionMt> {
     return LiveService.getShiftCompletedProductionMt(...args);
   }
+
+  static getRejectedOrders(
+    ...args: Parameters<typeof LiveService.getRejectedOrders>
+  ): ReturnType<typeof LiveService.getRejectedOrders> {
+    return LiveService.getRejectedOrders(...args);
+  }
 }

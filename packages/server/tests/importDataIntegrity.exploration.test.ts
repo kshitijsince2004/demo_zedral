@@ -241,6 +241,39 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
       });
     });
 
+    describe('Bug 12 — pending merge when only plan_date changes', () => {
+      it('updates existing pending batch instead of creating duplicate', async () => {
+        const { PPCImportService } = await import('../src/services/PPCImportService');
+        const ts = Date.now();
+        const batchNo = `PLANDATE-${ts}`;
+        const coil = `C-PD-${ts}`;
+        const base = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt`;
+
+        const first = await PPCImportService.importFromCsvText(
+          'first.csv',
+          `${base}\n${batchNo},2026-06-01,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`,
+          testUserId(),
+        );
+        expect(first.loaded).toBe(1);
+
+        const second = await PPCImportService.importFromCsvText(
+          'second.csv',
+          `${base}\n${batchNo},2026-06-15,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`,
+          testUserId(),
+        );
+        expect(second.loaded + second.updated).toBe(1);
+        expect(second.updated).toBe(1);
+
+        const rows = await db.selectFrom('planning.ppc_batch')
+          .select(['batch_number', 'plan_date'])
+          .where('coil_no', '=', coil)
+          .execute();
+        expect(rows).toHaveLength(1);
+        expect(rows[0].batch_number).toBe(batchNo);
+        expect(String(rows[0].plan_date).slice(0, 10)).toBe('2026-06-15');
+      });
+    });
+
     describe('Bug 11 — queue_seq continues from existing max', () => {
       it('assigns queue_seq after existing entries for machine/date/shift', async () => {
         const { PPCImportService } = await import('../src/services/PPCImportService');

@@ -1,6 +1,7 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
 function formatDuration(min?: number): string {
   if (min == null || min <= 0) return '—';
@@ -72,7 +73,11 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
         </div>
       )}
 
-      {order.status === 'REJECTED' && (
+      {order.status === 'REJECTED' && order.rejection && (
+        <OrderRejectionSection rejection={order.rejection} />
+      )}
+
+      {order.status === 'REJECTED' && !order.rejection && (
         <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive font-semibold">
           Order rejected
         </div>

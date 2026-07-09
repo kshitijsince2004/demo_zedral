@@ -2,6 +2,13 @@ import { X } from 'lucide-react';
 import type { LiveOrderDetail } from '@m1/shared-validation';
 import { ProcessRouteTimeline } from './ProcessRouteTimeline';
 import { ZBadge } from '../primitives/ZBadge';
+import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
+import { OrderRejectionSection } from '../orders/OrderRejectionSection';
+import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
+import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
+import { useEffect, useState } from 'react';
+import type { SixHiOrderDetail } from '@m1/shared-validation';
+import { apiClient } from '../../lib/apiClient';
 
 interface OrderDetailModalProps {
   order: LiveOrderDetail | null;
@@ -14,11 +21,41 @@ function statusTone(status: string) {
   if (status === 'IN_PROGRESS' || status === 'PREPARING') return 'info' as const;
   if (status === 'STOPPAGE') return 'warning' as const;
   if (status === 'COMPLETED') return 'success' as const;
+  if (status === 'REJECTED') return 'destructive' as const;
   return 'muted' as const;
 }
 
 export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailModalProps) {
+  const [sixHiOrder, setSixHiOrder] = useState<SixHiOrderDetail | null>(null);
+  const [sixHiLoading, setSixHiLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !order?.batchNumber) {
+      setSixHiOrder(null);
+      return;
+    }
+    let cancelled = false;
+    setSixHiLoading(true);
+    void apiClient
+      .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(order.batchNumber)}`)
+      .then((loaded) => {
+        if (!cancelled) setSixHiOrder(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setSixHiOrder(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSixHiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, order?.batchNumber]);
+
   if (!open) return null;
+
+  const productionOrder = sixHiOrder;
+  const terminal = productionOrder?.status === 'COMPLETED' || productionOrder?.status === 'REJECTED';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-12">
@@ -31,9 +68,13 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 bg-muted/20">
           <div>
-            <h2 className="font-bold text-xl font-mono">{order?.batchNumber ?? 'Loading…'}</h2>
+            {order ? (
+              <OrderIdentityDisplay order={order} size="lg" showSubtitle />
+            ) : (
+              <h2 className="font-bold text-xl font-mono">Loading…</h2>
+            )}
             {order && (
-              <p className="text-sm text-muted-foreground">{order.customer} · {order.grade}</p>
+              <p className="text-sm text-muted-foreground mt-1">{order.customer} · {order.grade}</p>
             )}
           </div>
           <button
@@ -56,7 +97,12 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
 
           {order && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
+              {order.rejection && (
+                <div className="lg:col-span-3">
+                  <OrderRejectionSection rejection={order.rejection} />
+                </div>
+              )}
+
               {/* Main Column - Journey & Primary Details */}
               <div className="lg:col-span-2 space-y-6">
                 <section className="bg-background rounded-2xl border border-border p-5 shadow-sm">
@@ -155,10 +201,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                 <section className="bg-background rounded-2xl border border-border p-4 shadow-sm">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Identifiers</h3>
                   <div className="space-y-3 text-sm">
-                    <div>
-                      <span className="text-muted-foreground text-xs block mb-0.5">Coil Number</span>
-                      <p className="font-mono font-bold text-base">{order.coilNo}</p>
-                    </div>
+                    <OrderIdentityDisplay order={order} size="md" />
                     <div>
                       <span className="text-muted-foreground text-xs block mb-0.5">SAP Order</span>
                       <p className="font-mono">{order.sapOrderNo ?? '—'}</p>
@@ -183,6 +226,33 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                 )}
               </div>
               
+            </div>
+          )}
+
+          {productionOrder && (
+            <div className="mt-6 space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Production Details
+              </h3>
+              {sixHiLoading && (
+                <p className="text-sm text-muted-foreground">Loading production data…</p>
+              )}
+              {terminal && productionOrder && (
+                <div className="bg-background rounded-2xl border border-border p-4 shadow-sm">
+                  <OrderProductionHistory order={productionOrder} />
+                </div>
+              )}
+              {productionOrder && (
+                <SixHiOrderWorkspace
+                  order={productionOrder}
+                  workspaceOpen
+                  workspaceBatch={productionOrder.batchNumber}
+                  readOnly
+                  compact
+                  onSaveRolling={async () => {}}
+                  onSaveSkinPass={async () => {}}
+                />
+              )}
             </div>
           )}
         </div>

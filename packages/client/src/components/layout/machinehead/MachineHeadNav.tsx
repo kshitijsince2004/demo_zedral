@@ -1,4 +1,5 @@
 import { Activity, ArrowRightLeft, FileSpreadsheet, Upload } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
 
 const NAV_ITEMS: DeskNavItem[] = [
@@ -8,6 +9,13 @@ const NAV_ITEMS: DeskNavItem[] = [
     icon: Activity,
     path: '/machine-head-dashboard',
     match: (p) => p === '/machine-head-dashboard',
+  },
+  {
+    id: 'crew',
+    label: 'Crew Management',
+    icon: Users,
+    path: '/machine-head/crew',
+    match: (p) => p === '/machine-head/crew',
   },
   {
     id: 'order-assignment',

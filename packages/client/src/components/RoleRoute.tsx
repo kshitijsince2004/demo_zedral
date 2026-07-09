@@ -92,9 +92,9 @@ export function SupervisorRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute minRole={UserRole.SUPERVISOR}>{children}</RoleRoute>;
 }
 
-/** Requires PLANT_HEAD or higher (plant-wide ops / analytics). */
+/** Requires SUPERVISOR or higher (plant desk + review/approval routes). */
 export function PlantRoute({ children }: { children: React.ReactNode }) {
-  return <RoleRoute minRole={UserRole.PLANT_HEAD}>{children}</RoleRoute>;
+  return <RoleRoute minRole={UserRole.SUPERVISOR}>{children}</RoleRoute>;
 }
 
 /** Requires MACHINE_HEAD or higher (machine-scoped ops). */

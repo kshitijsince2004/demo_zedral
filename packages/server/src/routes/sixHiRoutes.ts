@@ -346,6 +346,32 @@ router.get('/orders/:batchNo', requireSixHi('READ'), async (req, res) => {
   }
 });
 
+router.delete(
+  '/orders/:batchNo',
+  async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+    const roles = req.user.roles;
+    const mayDelete =
+      roles.includes(UserRole.ADMIN) ||
+      roles.includes(UserRole.PLANT_HEAD) ||
+      roles.includes(UserRole.MACHINE_HEAD);
+    if (!mayDelete) return res.status(403).json({ error: 'Forbidden' });
+    if (roles.includes(UserRole.MACHINE_HEAD) && !roles.includes(UserRole.ADMIN) && !roles.includes(UserRole.PLANT_HEAD)) {
+      try {
+        assertLineOperation(req.user, '6HI', 'WRITE');
+      } catch (e: unknown) {
+        return res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
+      }
+    }
+    try {
+      const result = await SixHiExecutionService.deleteOrder(req.params.batchNo, req.user.id);
+      res.json(result);
+    } catch (e: unknown) {
+      res.status(400).json({ error: e instanceof Error ? e.message : 'Delete failed' });
+    }
+  },
+);
+
 router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (req, res) => {
   try {
     const machineCode = String(req.body?.machineCode ?? '').trim();

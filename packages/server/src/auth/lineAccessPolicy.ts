@@ -83,6 +83,8 @@ export function assertLineOperation(
   }
 
   if (user.roles.includes(UserRole.PLANT_HEAD as string)) {
+    if (operation === 'READ') return;
+    if (operation === 'APPROVE' || operation === 'OVERRIDE') return;
     denyPlantHeadMutation(user, operation, code);
   }
 
@@ -102,6 +104,9 @@ export function assertLineOperation(
   }
 
   if (operation === 'APPROVE' || operation === 'OVERRIDE') {
+    if (user.roles.includes(UserRole.PLANT_HEAD as string)) {
+      return;
+    }
     if (!user.roles.includes(UserRole.SUPERVISOR as string)) {
       throw new AuthError('Forbidden: Only supervisors may approve on a line');
     }

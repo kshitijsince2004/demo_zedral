@@ -22,6 +22,8 @@
     "seed:users": "node scripts/seed-pilot-users.mjs",
     "seed:profiles": "node scripts/seed-login-profiles.mjs",
     "seed:machines": "node scripts/seed-machines.mjs",
+    "ensure:crew-table": "node scripts/ensure-crew-table.mjs",
+    "repair:migrations": "node scripts/repair-migration-history.mjs",
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
     "seed:data": "node scripts/seed-pilot-data.mjs",
     "seed:crm6-ppc": "node scripts/seed-crm6-ppc.mjs",
