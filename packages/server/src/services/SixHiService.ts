@@ -754,17 +754,18 @@ export class SixHiService {
 
     if (shiftLogId) {
       const shiftRow = await db.selectFrom('txn.shift_log')
-        .select(['prod_date', 'shift_code'])
+        .select(['prod_date', 'shift_code', 'process_id'])
         .where('shift_log_id', '=', shiftLogId)
         .executeTakeFirst();
       if (shiftRow?.prod_date && shiftRow.shift_code) {
-        query = query.where((eb) => eb.or([
-          eb('o.shift_log_id', '=', shiftLogId),
-          eb.and([
-            eb('o.prod_date', '=', shiftRow.prod_date),
-            eb('o.shift_code', '=', shiftRow.shift_code),
-          ]),
-        ]));
+        const siblingLogs = await db.selectFrom('txn.shift_log')
+          .select('shift_log_id')
+          .where('process_id', '=', shiftRow.process_id)
+          .where('prod_date', '=', shiftRow.prod_date)
+          .where('shift_code', '=', shiftRow.shift_code)
+          .execute();
+        const logIds = siblingLogs.map((row) => String(row.shift_log_id));
+        query = query.where('o.shift_log_id', 'in', logIds.length > 0 ? logIds : [shiftLogId]);
       } else {
         query = query.where('o.shift_log_id', '=', shiftLogId);
       }

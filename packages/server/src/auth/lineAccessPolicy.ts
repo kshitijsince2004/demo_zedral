@@ -83,7 +83,6 @@ export function assertLineOperation(
   }
 
   if (user.roles.includes(UserRole.PLANT_HEAD as string)) {
-    if (operation === 'READ') return;
     if (operation === 'APPROVE' || operation === 'OVERRIDE') return;
     denyPlantHeadMutation(user, operation, code);
   }

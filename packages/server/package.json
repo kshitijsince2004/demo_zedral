@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "(tsc -b || echo 'Type errors ignored') && node -e \"const fs=require('fs');const path=require('path');const d='dist/export/layouts';fs.mkdirSync(d,{recursive:true});fs.copyFileSync('src/export/layouts/dpr_layout.v1.json',d+'/dpr_layout.v1.json');const ll=path.join(d,'line_log');fs.mkdirSync(ll,{recursive:true});for(const f of fs.readdirSync('src/export/layouts/line_log').filter(x=>x.endsWith('.json'))){fs.copyFileSync(path.join('src/export/layouts/line_log',f),path.join(ll,f));}\"",
+    "build": "tsc -b && node -e \"const fs=require('fs');const path=require('path');const d='dist/export/layouts';fs.mkdirSync(d,{recursive:true});fs.copyFileSync('src/export/layouts/dpr_layout.v1.json',d+'/dpr_layout.v1.json');const ll=path.join(d,'line_log');fs.mkdirSync(ll,{recursive:true});for(const f of fs.readdirSync('src/export/layouts/line_log').filter(x=>x.endsWith('.json'))){fs.copyFileSync(path.join('src/export/layouts/line_log',f),path.join(ll,f));}\"",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "npm run test:unit && npm run test:integration",

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { SixHiManualOrderSchema, PPCImportRowSchema, UserRole } from '@m1/shared-validation';
 import type { z } from 'zod';
 import type { Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { db } from '../db';
 import type { Database } from '../db';
 import { parsePpcCsv, ppcDataRowNumber } from '../utils/ppcCsvParser';
@@ -323,7 +324,7 @@ export class PPCImportService {
         .select(conn.fn.max('queue_seq').as('max_seq'))
         .where('machine_code', '=', machineCode)
         .where('sub_process', '=', subProcess)
-        .where('plan_date', '=', postgresDateOnly(planDate))
+        .where(sql`plan_date`, '=', sql`${postgresDateOnly(planDate)}::date`)
         .where('shift_code', '=', shiftCode)
         .executeTakeFirst();
       counters.set(key, Number(maxSeq?.max_seq) || 0);
@@ -337,7 +338,7 @@ export class PPCImportService {
   private static async findMatchingPendingBatch(
     trx: DbConn,
     row: PpcRow,
-  ): Promise<{ batch_id: string | number | bigint } | undefined> {
+  ): Promise<{ batch_id: string } | undefined> {
     const targetKey = pendingMergeIdentityKey(row);
     const candidates = await trx.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
@@ -351,7 +352,8 @@ export class PPCImportService {
       ]))
       .execute();
 
-    return candidates.find((c) => batchRowMergeIdentityKey(c) === targetKey);
+    const match = candidates.find((c) => batchRowMergeIdentityKey(c) === targetKey);
+    return match ? { batch_id: String(match.batch_id) } : undefined;
   }
 
   /**

@@ -27,6 +27,9 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+/** Postgres DATE column — calendar YYYY-MM-DD on the wire. */
+export type DateOnly = ColumnType<string, string | Date, string | Date>;
+
 export interface AuditAuditLog {
   action: string;
   audit_id: Generated<Int8>;
@@ -542,8 +545,10 @@ export interface TxnSixHiOrder {
   ppc_weight_mt: Numeric;
   prod_duration_min: number | null;
   prod_end_at: Timestamp | null;
+  prod_date: DateOnly | null;
   prod_start_at: Timestamp | null;
   production_day: Timestamp | null;
+  shift_code: string | null;
   shift_log_id: Int8 | null;
   slit_id: string | null;
   status: Generated<string>;
