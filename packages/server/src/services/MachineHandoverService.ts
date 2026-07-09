@@ -6,7 +6,8 @@ import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
 import { resolveShiftSinceTime, formatDurationMinutes } from '../validation/manufacturingValidation';
 import type { BoundaryShiftContext } from './ShiftBoundaryService';
-import { formatPlantDate } from '@m1/shared-validation';
+import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
+import { parseCrmMillCode } from '../utils/machineAllocation';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 
 export type MachineHandoverStatus =
@@ -222,26 +223,38 @@ export class MachineHandoverService {
 
     const { nextShiftCode, nextProdDate } = ShiftLogService.getNextShift(
       shift.shiftCode,
-      new Date(shift.prodDate),
+      parsePlantDateOnly(shift.prodDate),
     );
 
-    // Look up shift log ID from shift_log table for current shift
+    // CRM mills share one 6HI shift_log per prod_date+shift — resolve via SixHiService,
+    // not master.machine.process_id (mills may still point at CRM/CRM6).
     let shiftLogIdResolved: string | null = null;
     try {
-      let slQuery = db
-        .selectFrom('txn.shift_log')
-        .select('shift_log_id')
-        .where('shift_code', '=', shift.shiftCode)
-        .where((eb) => eb(eb.fn('date', [eb.ref('prod_date')]), '=', eb.val(shift.prodDate)));
-
-      if (processIdResolved !== null) {
-        slQuery = slQuery.where('process_id', '=', processIdResolved);
+      const crmMill = parseCrmMillCode(machineCode);
+      if (crmMill) {
+        shiftLogIdResolved = await SixHiShiftService.resolveShiftLogIdForPlan(
+          shift.prodDate,
+          shift.shiftCode,
+        );
+        if (!shiftLogIdResolved) {
+          shiftLogIdResolved = await SixHiShiftService.ensureActiveShiftLog(
+            operatorUserId,
+            SixHiShiftService.toPlanDate(shift.prodDate),
+            shift.shiftCode,
+          );
+        }
+      } else if (processIdResolved !== null) {
+        const planDate = parsePlantDateOnly(shift.prodDate);
+        const slRow = await db
+          .selectFrom('txn.shift_log')
+          .select('shift_log_id')
+          .where('process_id', '=', processIdResolved)
+          .where('shift_code', '=', shift.shiftCode)
+          .where('prod_date', '=', planDate)
+          .orderBy('shift_log_id', 'desc')
+          .executeTakeFirst();
+        if (slRow) shiftLogIdResolved = String(slRow.shift_log_id);
       }
-
-      const slRow = await slQuery
-        .orderBy('shift_log_id', 'desc')
-        .executeTakeFirst();
-      if (slRow) shiftLogIdResolved = String(slRow.shift_log_id);
     } catch (err) {
       console.error('[buildOutgoingPreview] Shift log lookup failed:', err);
     }
@@ -268,8 +281,8 @@ export class MachineHandoverService {
           scrapKg: summary.scrapKg,
         };
         crewSnapshot = await CrewService.listByShiftLog(shiftLogIdResolved);
-      } catch {
-        // Non-fatal — shift log may not exist yet
+      } catch (err) {
+        console.error('[buildOutgoingPreview] Shift production summary failed:', err);
       }
     }
 
