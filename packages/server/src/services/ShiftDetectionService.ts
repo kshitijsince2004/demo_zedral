@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { formatPlantDate, plantWallClock } from '@m1/shared-validation';
+import { addPlantDays, formatPlantDate, plantMinutesOfDay } from '@m1/shared-validation';
 
 export type ShiftOverrideReason =
   | 'OVERTIME'
@@ -40,15 +40,7 @@ function parseTimeToMinutes(t: string): number {
 }
 
 function istNow(): Date {
-  return plantWallClock();
-}
-
-function formatDate(d: Date): string {
-  return formatPlantDate(d);
-}
-
-function minutesNow(d: Date): number {
-  return d.getHours() * 60 + d.getMinutes();
+  return new Date();
 }
 
 /** Resolve active shift from master.shift windows (supports overnight Shift C). */
@@ -56,9 +48,9 @@ export function resolveShiftFromClock(
   windows: ShiftWindow[],
   at: Date = istNow(),
 ): { shiftCode: string; shiftName: string; prodDate: string; window: ShiftWindow } {
-  const nowMin = minutesNow(at);
-  const today = formatDate(at);
-  const yesterday = formatDate(new Date(at.getTime() - 86400000));
+  const nowMin = plantMinutesOfDay(at);
+  const today = formatPlantDate(at);
+  const yesterday = addPlantDays(today, -1);
 
   for (const w of windows) {
     const start = parseTimeToMinutes(w.start_time);
@@ -191,7 +183,7 @@ export class ShiftDetectionService {
         return {
           shiftCode: activeSession.shift_code,
           shiftName: activeSession.shift_name,
-          prodDate: formatDate(new Date(activeSession.prod_date as Date)),
+          prodDate: formatPlantDate(new Date(activeSession.prod_date as Date)),
           windowStart: activeSession.start_time.slice(0, 5),
           windowEnd: activeSession.end_time.slice(0, 5),
           detectedAt: at.toISOString(),
@@ -209,7 +201,7 @@ export class ShiftDetectionService {
         return {
           shiftCode: override.selected_shift_code,
           shiftName: w.name,
-          prodDate: formatDate(new Date(override.prod_date)),
+          prodDate: formatPlantDate(new Date(override.prod_date)),
           windowStart: w.start_time,
           windowEnd: w.end_time,
           detectedAt: at.toISOString(),

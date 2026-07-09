@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { plantClockDate } from '@m1/shared-validation';
 
 vi.mock('../src/db', () => ({
   db: {
@@ -66,8 +67,8 @@ describe('orderStoppageValidation', () => {
       return orderChain as never;
     });
 
-    const startAt = new Date('2026-06-10T13:30:00');
-    const endAt = new Date('2026-06-10T15:00:00');
+    const startAt = plantClockDate('2026-06-10', '13:30');
+    const endAt = plantClockDate('2026-06-10', '15:00');
 
     await expect(
       validateOrderStoppageInterval('42', startAt, endAt, '6'),
@@ -79,7 +80,7 @@ describe('assertStoppageStartWithinShift', () => {
   it('allows stoppage end after shift boundary', () => {
     const bounds = resolveShiftWindowBounds('2026-06-10', '06:00', '14:00');
     expect(() =>
-      assertStoppageStartWithinShift(new Date('2026-06-10T13:30:00'), bounds.start, bounds.end),
+      assertStoppageStartWithinShift(plantClockDate('2026-06-10', '13:30'), bounds.start, bounds.end),
     ).not.toThrow();
   });
 
