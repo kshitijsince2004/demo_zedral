@@ -10,7 +10,7 @@ import { ChartPanel } from '../../components/analytics/ChartPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { reportingService } from '../../lib/reportingService';
-import { ExportJobPanel } from '../../components/export/ExportJobPanel';
+import { currentPlantDate } from '../../lib/dateFormat';
 
 const SHIFT_OPTIONS = [
   { value: '', label: 'All shifts' },
@@ -71,7 +71,7 @@ export function ExportData() {
         type: exportType,
         format: format.toUpperCase() as 'CSV' | 'XLSX',
         scope: exportType === 'DPR'
-          ? { month: dateFrom?.slice(0, 7) ?? new Date().toISOString().slice(0, 7) }
+          ? { month: dateFrom?.slice(0, 7) ?? currentPlantDate().slice(0, 7) }
           : scope,
       });
 

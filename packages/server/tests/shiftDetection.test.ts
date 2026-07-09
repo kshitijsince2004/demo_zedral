@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { plantClockDate } from '@m1/shared-validation';
-import { resolveShiftFromClock } from '../src/services/ShiftDetectionService';
+import { resolveShiftFromClock } from '@m1/shared-validation';
 
 const WINDOWS = [
   { shift_code: 'A', name: 'Shift A', start_time: '06:00', end_time: '14:00' },

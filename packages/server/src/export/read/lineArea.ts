@@ -1,6 +1,6 @@
 /** DPR line-area resolution helpers. */
 
-import { formatDateOnly } from '../../utils/dateOnly';
+import { formatPlantDate } from '@m1/shared-validation';
 
 const CRM6_AREA_BY_KEY: Record<string, string> = {
   '4HI:ROLLING:false': '4HI_R',
@@ -65,7 +65,7 @@ export function toDateString(value: Date | string): string {
   // `date` column is returned by pg as a JS Date at LOCAL midnight; formatting it via
   // toISOString() (UTC) shifts it a day earlier in positive-offset zones (e.g. IST),
   // which would misattribute DPR production/stoppages to the wrong calendar day.
-  return formatDateOnly(value);
+  return formatPlantDate(value);
 }
 
 export function toNumber(value: unknown): number | null {

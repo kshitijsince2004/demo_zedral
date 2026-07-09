@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   addPlantDays,
+  DEFAULT_PLANT_SHIFT_WINDOWS,
   formatPlantDate,
+  nextPlantShift,
   parsePlantDateOnly,
   plantClockDate,
+  plantDaysBetween,
   plantWallClock,
+  resolveShiftFromClock,
 } from '../src/utils/plantTime';
 
 describe('plantTime', () => {
@@ -37,5 +41,22 @@ describe('plantTime', () => {
     expect(wall.getDate()).toBe(9);
     expect(wall.getHours()).toBe(14);
     expect(wall.getMinutes()).toBe(0);
+  });
+
+  it('resolves overnight shift C before 06:00 on prior prod date', () => {
+    const at = plantClockDate('2026-06-09', '03:00');
+    const hit = resolveShiftFromClock(DEFAULT_PLANT_SHIFT_WINDOWS, at);
+    expect(hit.shiftCode).toBe('C');
+    expect(hit.prodDate).toBe('2026-06-08');
+  });
+
+  it('computes plant calendar day differences', () => {
+    expect(plantDaysBetween('2026-07-08', '2026-07-09')).toBe(1);
+    expect(plantDaysBetween('2026-07-09', '2026-07-09')).toBe(0);
+  });
+
+  it('advances shift codes on the plant calendar', () => {
+    expect(nextPlantShift('A', '2026-07-09')).toEqual({ shiftCode: 'B', prodDate: '2026-07-09' });
+    expect(nextPlantShift('C', '2026-07-09')).toEqual({ shiftCode: 'A', prodDate: '2026-07-10' });
   });
 });

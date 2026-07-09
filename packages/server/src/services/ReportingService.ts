@@ -21,7 +21,12 @@ import {
 import {
   addPlantDays,
   formatPlantDate,
+  formatDbDate,
+  currentPlantDate,
   parsePlantDateOnly,
+  plantDaysBetween,
+  PLANT_TIME_ZONE,
+  postgresDateOnly,
   startOfPlantDay,
 } from '@m1/shared-validation';
 
@@ -55,8 +60,11 @@ function toNum(value: unknown): number {
   return Number(value || 0);
 }
 
-function formatDayLabel(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' });
+function formatDayLabel(date: Date | string): string {
+  return new Date(parsePlantDateOnly(formatPlantDate(date))).toLocaleDateString('en-US', {
+    weekday: 'short',
+    timeZone: PLANT_TIME_ZONE,
+  });
 }
 
 function formatDateKey(date: Date): string {
@@ -157,7 +165,7 @@ async function fetchShiftRows(
     lineName: r.lineName,
     target_mt: toNum(r.target_mt),
     total_prod_mt: toNum(r.total_prod_mt),
-    prod_date: new Date(r.prod_date),
+    prod_date: parsePlantDateOnly(formatDbDate(r.prod_date)),
     shift_code: r.shift_code,
     state: r.state,
   }));
@@ -714,7 +722,7 @@ export class ReportingService {
       .selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
       .select(sql<number>`count(distinct pb.batch_id)`.as('cnt'))
-      .where('pb.plan_date', '<', sql<Date>`CURRENT_DATE`)
+      .where(sql`pb.plan_date`, '<', sql`${postgresDateOnly(currentPlantDate())}::date`)
       .where((eb) =>
         eb.or([
           eb('o.status', 'is', null),
@@ -771,7 +779,7 @@ export class ReportingService {
         'o.status as order_status',
         'm.name as machine_name',
       ])
-      .where('pb.plan_date', '<', sql<Date>`CURRENT_DATE`)
+      .where(sql`pb.plan_date`, '<', sql`${postgresDateOnly(currentPlantDate())}::date`)
       .where((eb) =>
         eb.or([
           eb('o.status', 'is', null),
@@ -782,16 +790,11 @@ export class ReportingService {
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
-    const today = startOfDay(new Date());
+    const todayKey = currentPlantDate();
 
     const orders = rows.map((row) => {
-      const planDate = row.plan_date instanceof Date
-        ? row.plan_date
-        : new Date(String(row.plan_date));
-      const daysPending = Math.max(
-        0,
-        Math.floor((today.getTime() - startOfDay(planDate).getTime()) / DAY_MS),
-      );
+      const planDateKey = formatDbDate(row.plan_date as Date | string);
+      const daysPending = Math.max(0, plantDaysBetween(planDateKey, todayKey));
       const subProcess = String(row.sub_process ?? '');
       const stageLabel = subProcess === 'SKIN_PASS'
         ? 'Skin Pass'
@@ -804,7 +807,7 @@ export class ReportingService {
         batchId: String(row.batch_id),
         coilNo: row.coil_no,
         slitId: row.slit_id ?? undefined,
-        planDate: formatDateKey(planDate),
+        planDate: planDateKey,
         shiftCode: row.shift_code,
         status: row.order_status ?? 'PENDING',
         machineCode: row.machine_code ?? undefined,

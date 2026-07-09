@@ -1,23 +1,30 @@
 export {
   PLANT_TIME_ZONE,
   IST_OFFSET,
-  formatPlantDate,
   currentPlantDate,
+  formatPlantDate,
+  formatPlantDateTime,
+  formatPlantTime,
+  formatDbDate,
+  addPlantDays,
   parsePlantDateOnly,
   startOfPlantDay,
   endOfPlantDay,
   plantWallClock,
+  plantMinutesOfDay,
   plantClockDate,
   plantClockInstant,
-  addPlantDays,
-  formatPlantDateTime,
+  postgresDateOnly,
+  plantDaysBetween,
+  resolveShiftFromClock,
+  nextPlantShift,
+  DEFAULT_PLANT_SHIFT_WINDOWS,
 } from '@m1/shared-validation';
 
 import {
-  endOfPlantDay,
   formatPlantDate,
   parsePlantDateOnly,
-  startOfPlantDay,
+  postgresDateOnly,
 } from '@m1/shared-validation';
 
 /** @deprecated Use formatPlantDate */
@@ -31,22 +38,10 @@ export function parseDateOnly(value: string | Date): Date {
 }
 
 export function startOfDateFilter(value: string | Date): Date {
-  return startOfPlantDay(value);
+  return parsePlantDateOnly(value);
 }
 
 export function endOfDateFilter(value: string | Date): Date {
-  return endOfPlantDay(value);
-}
-
-/**
- * Calendar date for Postgres DATE columns.
- * Use this for writes/filters — not parseDateOnly(), which is IST midnight as timestamptz
- * and truncates to the previous day when the DB session is UTC (CI).
- */
-export function postgresDateOnly(value: string | Date): string {
-  if (typeof value === 'string') {
-    const raw = value.trim().slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  }
-  return formatPlantDate(value);
+  const raw = formatPlantDate(value);
+  return new Date(`${raw}T23:59:59.999+05:30`);
 }

@@ -1,5 +1,12 @@
 import { db } from '../db';
-import { addPlantDays, formatPlantDate, plantMinutesOfDay } from '@m1/shared-validation';
+import {
+  DEFAULT_PLANT_SHIFT_WINDOWS,
+  formatDbDate,
+  formatPlantDate,
+  postgresDateOnly,
+  resolveShiftFromClock,
+  type PlantShiftWindow,
+} from '@m1/shared-validation';
 
 export type ShiftOverrideReason =
   | 'OVERTIME'
@@ -20,67 +27,15 @@ export interface DetectedShift {
   overrideReason?: string;
 }
 
-interface ShiftWindow {
-  shift_code: string;
-  name: string;
-  start_time: string;
-  end_time: string;
-}
+/** @deprecated Import DEFAULT_PLANT_SHIFT_WINDOWS from @m1/shared-validation */
+export const DEFAULT_SHIFT_WINDOWS = DEFAULT_PLANT_SHIFT_WINDOWS;
 
-/** Plant default shift windows — used when master.shift is empty or unseeded. */
-export const DEFAULT_SHIFT_WINDOWS: ShiftWindow[] = [
-  { shift_code: 'A', name: 'Shift A', start_time: '06:00', end_time: '14:00' },
-  { shift_code: 'B', name: 'Shift B', start_time: '14:00', end_time: '22:00' },
-  { shift_code: 'C', name: 'Shift C', start_time: '22:00', end_time: '06:00' },
-];
-
-function parseTimeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + (m || 0);
-}
-
-function istNow(): Date {
-  return new Date();
-}
-
-/** Resolve active shift from master.shift windows (supports overnight Shift C). */
-export function resolveShiftFromClock(
-  windows: ShiftWindow[],
-  at: Date = istNow(),
-): { shiftCode: string; shiftName: string; prodDate: string; window: ShiftWindow } {
-  const nowMin = plantMinutesOfDay(at);
-  const today = formatPlantDate(at);
-  const yesterday = addPlantDays(today, -1);
-
-  for (const w of windows) {
-    const start = parseTimeToMinutes(w.start_time);
-    const end = parseTimeToMinutes(w.end_time);
-    const overnight = end <= start;
-
-    if (overnight) {
-      if (nowMin >= start) {
-        return { shiftCode: w.shift_code, shiftName: w.name, prodDate: today, window: w };
-      }
-      if (nowMin < end) {
-        return { shiftCode: w.shift_code, shiftName: w.name, prodDate: yesterday, window: w };
-      }
-    } else if (nowMin >= start && nowMin < end) {
-      return { shiftCode: w.shift_code, shiftName: w.name, prodDate: today, window: w };
-    }
-  }
-
-  const fallback = windows[0] ?? DEFAULT_SHIFT_WINDOWS[0];
-  return {
-    shiftCode: fallback.shift_code,
-    shiftName: fallback.name,
-    prodDate: today,
-    window: fallback,
-  };
-}
+/** @deprecated Import resolveShiftFromClock from @m1/shared-validation */
+export { resolveShiftFromClock } from '@m1/shared-validation';
 
 function mapShiftWindowRows(
   rows: Array<{ shift_code: string; name: string; start_time: string; end_time: string }>,
-): ShiftWindow[] {
+): PlantShiftWindow[] {
   return rows.map((r) => ({
     shift_code: r.shift_code,
     name: r.name,
@@ -93,7 +48,7 @@ async function ensureDefaultShiftWindows(): Promise<void> {
   await db
     .insertInto('master.shift')
     .values(
-      DEFAULT_SHIFT_WINDOWS.map((w) => ({
+      DEFAULT_PLANT_SHIFT_WINDOWS.map((w) => ({
         shift_code: w.shift_code,
         name: w.name,
         start_time: w.start_time,
@@ -104,7 +59,7 @@ async function ensureDefaultShiftWindows(): Promise<void> {
     .execute();
 }
 
-async function loadShiftWindows(): Promise<ShiftWindow[]> {
+async function loadShiftWindows(): Promise<PlantShiftWindow[]> {
   const rows = await db
     .selectFrom('master.shift')
     .select(['shift_code', 'name', 'start_time', 'end_time'])
@@ -123,7 +78,7 @@ async function loadShiftWindows(): Promise<ShiftWindow[]> {
     .orderBy('start_time', 'asc')
     .execute();
 
-  return reloaded.length > 0 ? mapShiftWindowRows(reloaded) : [...DEFAULT_SHIFT_WINDOWS];
+  return reloaded.length > 0 ? mapShiftWindowRows(reloaded) : [...DEFAULT_PLANT_SHIFT_WINDOWS];
 }
 
 async function latestOverride(
@@ -168,7 +123,7 @@ export class ShiftDetectionService {
     machineCode?: string;
   }): Promise<DetectedShift> {
     const windows = await loadShiftWindows();
-    const at = istNow();
+    const at = new Date();
 
     if (opts?.machineCode) {
       const activeSession = await db
@@ -178,12 +133,12 @@ export class ShiftDetectionService {
         .where('s.machine_code', '=', opts.machineCode)
         .where('s.status', '=', 'ACTIVE')
         .executeTakeFirst();
-      
+
       if (activeSession) {
         return {
           shiftCode: activeSession.shift_code,
           shiftName: activeSession.shift_name,
-          prodDate: formatPlantDate(new Date(activeSession.prod_date as Date)),
+          prodDate: formatDbDate(activeSession.prod_date as Date),
           windowStart: activeSession.start_time.slice(0, 5),
           windowEnd: activeSession.end_time.slice(0, 5),
           detectedAt: at.toISOString(),
@@ -201,7 +156,7 @@ export class ShiftDetectionService {
         return {
           shiftCode: override.selected_shift_code,
           shiftName: w.name,
-          prodDate: formatPlantDate(new Date(override.prod_date)),
+          prodDate: formatDbDate(override.prod_date),
           windowStart: w.start_time,
           windowEnd: w.end_time,
           detectedAt: at.toISOString(),
@@ -212,7 +167,6 @@ export class ShiftDetectionService {
       }
     }
 
-    // Default to clock (which is considered FALLBACK now since we removed auto shift logic)
     return {
       shiftCode: detected.shiftCode,
       shiftName: detected.shiftName,
@@ -238,7 +192,7 @@ export class ShiftDetectionService {
         user_id: input.userId,
         machine_code: input.machineCode ?? null,
         selected_shift_code: input.selectedShiftCode,
-        prod_date: input.prodDate,
+        prod_date: postgresDateOnly(input.prodDate),
         reason_code: input.reasonCode,
         reason_detail: input.reasonDetail?.trim() || null,
       })

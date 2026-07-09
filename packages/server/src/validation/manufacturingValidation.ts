@@ -3,7 +3,8 @@ import {
   addPlantDays,
   formatPlantDate,
   plantClockDate,
-  plantMinutesOfDay,
+  resolveShiftFromClock,
+  type PlantShiftWindow,
 } from '@m1/shared-validation';
 
 export class ManufacturingValidationError extends Error {
@@ -68,44 +69,23 @@ export interface ShiftWindowSpec {
   end_time: string;
 }
 
-function parseClockTimeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
 /** Resolve which shift window contains an instant, using IST wall clock. */
 export function resolveShiftFromInstant(
   windows: ShiftWindowSpec[],
   at: Date,
 ): { prodDate: string; startTime: string; endTime: string } | null {
   if (windows.length === 0) return null;
-
-  const nowMin = plantMinutesOfDay(at);
-  const today = formatPlantDate(at);
-  const yesterday = addPlantDays(today, -1);
-
-  for (const w of windows) {
-    const start = parseClockTimeToMinutes(w.start_time);
-    const end = parseClockTimeToMinutes(w.end_time);
-    const overnight = end <= start;
-
-    if (overnight) {
-      if (nowMin >= start) {
-        return { prodDate: today, startTime: w.start_time, endTime: w.end_time };
-      }
-      if (nowMin < end) {
-        return { prodDate: yesterday, startTime: w.start_time, endTime: w.end_time };
-      }
-    } else if (nowMin >= start && nowMin < end) {
-      return { prodDate: today, startTime: w.start_time, endTime: w.end_time };
-    }
-  }
-
-  const fallback = windows[0];
+  const mapped: PlantShiftWindow[] = windows.map((w) => ({
+    shift_code: w.shift_code,
+    name: w.shift_code,
+    start_time: w.start_time,
+    end_time: w.end_time,
+  }));
+  const hit = resolveShiftFromClock(mapped, at);
   return {
-    prodDate: today,
-    startTime: fallback.start_time,
-    endTime: fallback.end_time,
+    prodDate: hit.prodDate,
+    startTime: hit.window.start_time,
+    endTime: hit.window.end_time,
   };
 }
 

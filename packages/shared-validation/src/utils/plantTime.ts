@@ -119,3 +119,114 @@ export function formatPlantDateTime(
     ...options,
   });
 }
+
+/** HH:MM on the plant clock (24h). */
+export function formatPlantTime(
+  at: Date = new Date(),
+  options?: Pick<Intl.DateTimeFormatOptions, 'hour' | 'minute' | 'second'>,
+): string {
+  const { hour, minute, second } = readPlantClockParts(at);
+  if (options?.second) {
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+  }
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/**
+ * Calendar date for Postgres DATE columns (writes/filters).
+ * Avoids parsePlantDateOnly() timestamptz truncation on UTC DB hosts.
+ */
+export function postgresDateOnly(value: string | Date): string {
+  if (typeof value === 'string') {
+    const raw = value.trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  }
+  return formatPlantDate(value);
+}
+
+/** Alias — normalize any DB/API date value to YYYY-MM-DD in IST. */
+export function formatDbDate(value: string | Date): string {
+  return formatPlantDate(value);
+}
+
+/** Whole calendar days between two plant dates (b - a). */
+export function plantDaysBetween(from: string | Date, to: string | Date): number {
+  const start = parsePlantDateOnly(formatPlantDate(from)).getTime();
+  const end = parsePlantDateOnly(formatPlantDate(to)).getTime();
+  return Math.floor((end - start) / (24 * 60 * 60 * 1000));
+}
+
+export interface PlantShiftWindow {
+  shift_code: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+}
+
+/** Hero Steels default shift windows (IST). */
+export const DEFAULT_PLANT_SHIFT_WINDOWS: PlantShiftWindow[] = [
+  { shift_code: 'A', name: 'Shift A', start_time: '06:00', end_time: '14:00' },
+  { shift_code: 'B', name: 'Shift B', start_time: '14:00', end_time: '22:00' },
+  { shift_code: 'C', name: 'Shift C', start_time: '22:00', end_time: '06:00' },
+];
+
+function parseClockTimeToMinutes(t: string): number {
+  const [h, m] = String(t).split(':').map(Number);
+  return (h ?? 0) * 60 + (m || 0);
+}
+
+/**
+ * Resolve which shift window contains an instant, using IST wall clock.
+ * Handles overnight Shift C (prod date rolls back before window end).
+ */
+export function resolveShiftFromClock(
+  windows: PlantShiftWindow[],
+  at: Date = new Date(),
+): {
+  shiftCode: string;
+  shiftName: string;
+  prodDate: string;
+  window: PlantShiftWindow;
+} {
+  const nowMin = plantMinutesOfDay(at);
+  const today = formatPlantDate(at);
+  const yesterday = addPlantDays(today, -1);
+  const list = windows.length > 0 ? windows : DEFAULT_PLANT_SHIFT_WINDOWS;
+
+  for (const w of list) {
+    const start = parseClockTimeToMinutes(w.start_time);
+    const end = parseClockTimeToMinutes(w.end_time);
+    const overnight = end <= start;
+
+    if (overnight) {
+      if (nowMin >= start) {
+        return { shiftCode: w.shift_code, shiftName: w.name, prodDate: today, window: w };
+      }
+      if (nowMin < end) {
+        return { shiftCode: w.shift_code, shiftName: w.name, prodDate: yesterday, window: w };
+      }
+    } else if (nowMin >= start && nowMin < end) {
+      return { shiftCode: w.shift_code, shiftName: w.name, prodDate: today, window: w };
+    }
+  }
+
+  const fallback = list[0];
+  return {
+    shiftCode: fallback.shift_code,
+    shiftName: fallback.name,
+    prodDate: today,
+    window: fallback,
+  };
+}
+
+/** Next shift code + production date on the plant calendar. */
+export function nextPlantShift(
+  shiftCode: string,
+  prodDate: string,
+): { shiftCode: string; prodDate: string } {
+  const code = shiftCode.toUpperCase();
+  if (code === 'A') return { shiftCode: 'B', prodDate };
+  if (code === 'B') return { shiftCode: 'C', prodDate };
+  if (code === 'C') return { shiftCode: 'A', prodDate: addPlantDays(prodDate, 1) };
+  return { shiftCode: code, prodDate };
+}

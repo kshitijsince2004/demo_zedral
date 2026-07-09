@@ -1,8 +1,9 @@
 import { db } from '../db';
 import {
   ShiftLogState,
-  addPlantDays,
+  formatDbDate,
   formatPlantDate,
+  nextPlantShift,
   parsePlantDateOnly,
 } from '@m1/shared-validation';
 import {
@@ -212,21 +213,11 @@ export class ShiftLogService {
   
   static getNextShift(currentShiftCode: string, currentDate: Date): { nextShiftCode: string, nextProdDate: Date } {
     const currentDateStr = formatPlantDate(currentDate);
-    let nextShiftCode = '';
-    let nextProdDateStr = currentDateStr;
-
-    if (currentShiftCode === 'A') {
-      nextShiftCode = 'B';
-    } else if (currentShiftCode === 'B') {
-      nextShiftCode = 'C';
-    } else if (currentShiftCode === 'C') {
-      nextShiftCode = 'A';
-      nextProdDateStr = addPlantDays(currentDateStr, 1);
-    } else {
-      nextShiftCode = currentShiftCode;
-    }
-
-    return { nextShiftCode, nextProdDate: parsePlantDateOnly(nextProdDateStr) };
+    const next = nextPlantShift(currentShiftCode, currentDateStr);
+    return {
+      nextShiftCode: next.shiftCode,
+      nextProdDate: parsePlantDateOnly(next.prodDate),
+    };
   }
 
   static getProcessTable(processId: number): string | null {
@@ -265,9 +256,10 @@ export class ShiftLogService {
       .where('se.time_to', 'is', null)
       .execute();
 
+    const prodDateStr = formatDbDate(log.prod_date);
     const { nextShiftCode, nextProdDate } = this.getNextShift(
       log.shift_code,
-      new Date(log.prod_date)
+      parsePlantDateOnly(prodDateStr),
     );
 
     const producedMt = await this.calculateActualProduction(String(log.shift_log_id), log.process_id);
@@ -275,7 +267,7 @@ export class ShiftLogService {
     return {
       shiftLogId: String(log.shift_log_id),
       processId: log.process_id,
-      prodDate: new Date(log.prod_date),
+      prodDate: parsePlantDateOnly(prodDateStr),
       shiftCode: log.shift_code,
       state: log.state,
       targetMt: Number(log.target_mt || 0),
@@ -372,9 +364,10 @@ export class ShiftLogService {
     const { ShiftDetectionService } = await import('./ShiftDetectionService');
     const windows = await ShiftDetectionService.listShiftWindows();
     const window = windows.find(w => w.shift_code === currentLog.shift_code);
+    const prodDateStr = formatDbDate(currentLog.prod_date as Date | string);
     if (window) {
       const { resolveShiftWindowBounds } = await import('../validation/manufacturingValidation');
-      const bounds = resolveShiftWindowBounds(currentLog.prod_date as Date, window.start_time, window.end_time);
+      const bounds = resolveShiftWindowBounds(prodDateStr, window.start_time, window.end_time);
       if (Date.now() < bounds.end.getTime()) {
         throw new Error(`Shift handover cannot be completed before the current shift's scheduled end time (${window.end_time}).`);
       }
@@ -382,7 +375,7 @@ export class ShiftLogService {
 
     const { nextShiftCode, nextProdDate } = this.getNextShift(
       currentLog.shift_code,
-      new Date(currentLog.prod_date)
+      parsePlantDateOnly(prodDateStr),
     );
 
     await ShiftLogValidationService.assertValid(String(currentShiftLogId));
