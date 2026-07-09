@@ -753,7 +753,21 @@ export class SixHiService {
       .where('o.status', 'in', ['COMPLETED', 'REJECTED']);
 
     if (shiftLogId) {
-      query = query.where('o.shift_log_id', '=', shiftLogId);
+      const shiftRow = await db.selectFrom('txn.shift_log')
+        .select(['prod_date', 'shift_code'])
+        .where('shift_log_id', '=', shiftLogId)
+        .executeTakeFirst();
+      if (shiftRow?.prod_date && shiftRow.shift_code) {
+        query = query.where((eb) => eb.or([
+          eb('o.shift_log_id', '=', shiftLogId),
+          eb.and([
+            eb('o.prod_date', '=', shiftRow.prod_date),
+            eb('o.shift_code', '=', shiftRow.shift_code),
+          ]),
+        ]));
+      } else {
+        query = query.where('o.shift_log_id', '=', shiftLogId);
+      }
     } else {
       query = query
         .where('pb.plan_date', '=', this.toPlanDate(planDate))

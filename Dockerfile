@@ -53,6 +53,7 @@ COPY --from=builder /app/packages/platform/dist packages/platform/dist
 COPY --from=builder /app/packages/modules/m1-collection/dist packages/modules/m1-collection/dist
 COPY packages/server/migrations packages/server/migrations
 COPY packages/server/scripts packages/server/scripts
+COPY packages/server/assets packages/server/assets
 COPY doc doc
 COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 

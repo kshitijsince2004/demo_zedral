@@ -138,13 +138,38 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
     let activeLog;
 
     if (requestedDate && requestedShift) {
+      const planDate = SixHiShiftService.toPlanDate(requestedDate);
       activeLog = await db.selectFrom('txn.shift_log')
         .selectAll()
         .where('process_id', '=', process.process_id)
         .where('state', '=', 'DRAFT')
-        .where('prod_date', '=', SixHiShiftService.toPlanDate(requestedDate))
+        .where('prod_date', '=', planDate)
         .where('shift_code', '=', requestedShift)
         .executeTakeFirst();
+
+      // Submitted shifts are no longer DRAFT but operators still need that shift log
+      // (e.g. completed-order history). Do not fall back to an unrelated DRAFT shift.
+      if (!activeLog) {
+        activeLog = await db.selectFrom('txn.shift_log')
+          .selectAll()
+          .where('process_id', '=', process.process_id)
+          .where('prod_date', '=', planDate)
+          .where('shift_code', '=', requestedShift)
+          .orderBy('shift_log_id', 'desc')
+          .executeTakeFirst();
+      }
+
+      if (!activeLog && processCode === '6HI' && req.user) {
+        const shiftLogId = await SixHiShiftService.ensureActiveShiftLog(
+          req.user.id,
+          planDate,
+          requestedShift,
+        );
+        activeLog = await db.selectFrom('txn.shift_log')
+          .selectAll()
+          .where('shift_log_id', '=', shiftLogId)
+          .executeTakeFirst();
+      }
     }
 
     if (!activeLog) {
@@ -153,18 +178,6 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
         .where('process_id', '=', process.process_id)
         .where('state', '=', 'DRAFT')
         .orderBy('prod_date', 'desc')
-        .executeTakeFirst();
-    }
-
-    if (!activeLog && requestedDate && requestedShift && processCode === '6HI' && req.user) {
-      const shiftLogId = await SixHiShiftService.ensureActiveShiftLog(
-        req.user.id,
-        SixHiShiftService.toPlanDate(requestedDate),
-        requestedShift,
-      );
-      activeLog = await db.selectFrom('txn.shift_log')
-        .selectAll()
-        .where('shift_log_id', '=', shiftLogId)
         .executeTakeFirst();
     }
 
