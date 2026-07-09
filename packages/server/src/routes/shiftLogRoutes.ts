@@ -12,6 +12,7 @@ import {
 } from '../services/shiftLogValidationService';
 import { OverrideRequest } from '../services/overrideService';
 import { SixHiExecutionService, SixHiShiftService } from '../services/sixHi';
+import { formatPlantDate } from '@m1/shared-validation';
 
 function validationErrorResponse(error: unknown) {
   if (error instanceof ShiftLogValidationGateError) {
@@ -205,9 +206,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     res.json({
       shiftLogId: String(activeLog.shift_log_id),
-      shiftDate: activeLog.prod_date instanceof Date
-        ? activeLog.prod_date.toISOString().slice(0, 10)
-        : String(activeLog.prod_date).slice(0, 10),
+      shiftDate: formatPlantDate(activeLog.prod_date),
       shiftCode: activeLog.shift_code,
       targetMt: Number(activeLog.target_mt || 0),
       producedMt: totalProducedMt,

@@ -22,7 +22,7 @@ export function ProductionHeader({ order, timerLabel }: ProductionHeaderProps) {
         <div>
           <h2 className="font-mono text-xl font-semibold">{primaryOrderId(order)}</h2>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Select ID {selectIdOf(order)} · Batch {order.batchNumber}
+            Slit ID {selectIdOf(order)} · Batch {order.batchNumber}
           </p>
         </div>
         <div className="flex items-center gap-2">

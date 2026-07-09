@@ -18,6 +18,12 @@ import {
   buildDrilldownEnvelope,
   type PlantHeadDrilldownMetric,
 } from '../reporting/plantHeadDrilldown';
+import {
+  addPlantDays,
+  formatPlantDate,
+  parsePlantDateOnly,
+  startOfPlantDay,
+} from '@m1/shared-validation';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -42,7 +48,7 @@ interface PeriodRange {
 }
 
 function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return startOfPlantDay(d);
 }
 
 function toNum(value: unknown): number {
@@ -50,15 +56,15 @@ function toNum(value: unknown): number {
 }
 
 function formatDayLabel(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'short' });
+  return date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' });
 }
 
 function formatDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return formatPlantDate(date);
 }
 
 function resolvePeriodRanges(period: ReportingPeriod, now = new Date()): PeriodRange {
-  const today = startOfDay(now);
+  const today = startOfPlantDay(now);
 
   switch (period) {
     case 'shift':
@@ -348,9 +354,7 @@ async function fetchEntryIdsForShifts(shiftIds: string[]): Promise<string[]> {
 }
 
 function windowStart(windowDays: number, end = new Date()): Date {
-  const from = new Date(end);
-  from.setDate(from.getDate() - (windowDays - 1));
-  return from;
+  return parsePlantDateOnly(addPlantDays(formatPlantDate(end), -(windowDays - 1)));
 }
 
 async function fetchTopDefects(
@@ -474,8 +478,7 @@ export class ReportingService {
     const pendingRes = await pendingQuery.executeTakeFirst();
     const pendingReviewCount = Number(pendingRes?.count || 0);
 
-    const recentFrom = new Date();
-    recentFrom.setDate(recentFrom.getDate() - 30);
+    const recentFrom = parsePlantDateOnly(addPlantDays(formatPlantDate(new Date()), -30));
     const [recentShifts, shiftDurationMap] = await Promise.all([
       fetchShiftRows(lines, recentFrom, new Date()),
       fetchShiftDurationMap(),
@@ -621,8 +624,7 @@ export class ReportingService {
         };
       });
 
-    const prevTo = new Date(trendFrom);
-    prevTo.setDate(prevTo.getDate() - 1);
+    const prevTo = parsePlantDateOnly(addPlantDays(formatPlantDate(trendFrom), -1));
     const prevFrom = windowStart(windowDays, prevTo);
     const previousShifts = await fetchShiftRows([], prevFrom, prevTo);
     const [entryIds, previousEntryIds] = await Promise.all([
@@ -964,7 +966,7 @@ export class ReportingService {
           shiftLogId: shift.shift_log_id,
           lineId: shift.lineId,
           lineName: shift.lineName,
-          prodDate: shift.prod_date.toISOString(),
+          prodDate: formatPlantDate(shift.prod_date),
           shiftCode: shift.shift_code,
           plannedMt: round1(shift.target_mt),
           actualMt: round1(shift.total_prod_mt),
@@ -985,7 +987,7 @@ export class ReportingService {
             shiftLogId: shift.shift_log_id,
             lineId: shift.lineId,
             lineName: shift.lineName,
-            prodDate: shift.prod_date.toISOString(),
+            prodDate: formatPlantDate(shift.prod_date),
             shiftCode: shift.shift_code,
             oee: metrics.oee,
             availability: metrics.availability,
@@ -1007,7 +1009,7 @@ export class ReportingService {
             shiftLogId: shift.shift_log_id,
             lineId: shift.lineId,
             lineName: shift.lineName,
-            prodDate: shift.prod_date.toISOString(),
+            prodDate: formatPlantDate(shift.prod_date),
             shiftCode: shift.shift_code,
             yieldPct,
             rejectionRatePct,
@@ -1074,7 +1076,7 @@ export class ReportingService {
             reason: r.reason,
             durationMin: toNum(r.durationMin),
             shiftCode: r.shiftCode,
-            prodDate: new Date(r.prodDate).toISOString(),
+            prodDate: formatPlantDate(r.prodDate),
             type: r.isPlanned ? 'PLANNED' : 'UNPLANNED',
           }));
         }
@@ -1151,7 +1153,7 @@ export class ReportingService {
         coilNo: scope.coilNo || '—',
         processId: shift.lineId,
         shiftCode: shift.shift_code,
-        date: shift.prod_date.toISOString(),
+        date: formatPlantDate(shift.prod_date),
         value: round1(value),
         unit: metric === 'throughput' ? 'MT' : '%',
       };

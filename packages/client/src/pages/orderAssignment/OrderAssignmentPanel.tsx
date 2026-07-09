@@ -5,6 +5,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 type AssignmentOrder = {
   batchNumber: string;
@@ -430,7 +431,7 @@ export function OrderAssignmentPanel() {
                     <td className="px-4 py-2.5">{t.transferType ?? 'SINGLE'}</td>
                     <td className="px-4 py-2.5">{t.assignedBy}</td>
                     <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
-                      {new Date(t.transferredAt).toLocaleString()}
+                      {formatPlantDateTime(t.transferredAt)}
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{t.reason ?? '—'}</td>
                   </tr>

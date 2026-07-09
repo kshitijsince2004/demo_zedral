@@ -17,6 +17,7 @@ import {
   AlertTriangle, CheckCircle2, Package, ChevronRight,
   Users, Wrench, Clock, AlertCircle, FileText,
 } from 'lucide-react';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -361,7 +362,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
             {/* Handover Created At */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
               <Clock className="h-3.5 w-3.5" />
-              Handover created: {new Date(handover.created_at).toLocaleString()}
+              Handover created: {formatPlantDateTime(handover.created_at)}
             </div>
 
             {/* Error */}

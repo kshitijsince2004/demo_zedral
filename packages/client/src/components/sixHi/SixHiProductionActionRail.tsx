@@ -104,7 +104,7 @@ export function SixHiProductionActionRail({
         <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">
           {primaryOrderId(order)}
         </p>
-        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Sel {selectIdOf(order)}</p>
+        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Slit {selectIdOf(order)}</p>
         <SixHiStatusPill status={order.status} preparing={preparing} />
       </div>
 

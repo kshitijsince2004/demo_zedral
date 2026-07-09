@@ -9,7 +9,7 @@ async function check() {
   const res = await client.query(`
     SELECT column_name, data_type 
     FROM information_schema.columns 
-    WHERE table_schema = 'security' AND table_name = 'app_user';
+    WHERE table_schema = 'security' AND table_name = 'role';
   `);
   console.log(res.rows);
 

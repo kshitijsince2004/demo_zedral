@@ -3,6 +3,7 @@ import type { AuthUser } from '../../services/authService';
 import { getScopedLineCodes } from '../../auth/lineAccessPolicy';
 import type { ProcessRunRow } from './types';
 import { ExportReadRepository } from './ExportReadRepository';
+import { addPlantDays, currentPlantDate } from '@m1/shared-validation';
 
 export const RAW_BATCH_SIZE = 500;
 
@@ -63,12 +64,9 @@ export function parseRawScope(scope: Record<string, unknown>): RawRegisterScope 
 }
 
 function defaultDateRange(): { dateFrom: string; dateTo: string } {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
   return {
-    dateFrom: from.toISOString().slice(0, 10),
-    dateTo: to.toISOString().slice(0, 10),
+    dateFrom: addPlantDays(currentPlantDate(), -30),
+    dateTo: currentPlantDate(),
   };
 }
 

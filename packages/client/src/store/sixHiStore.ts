@@ -1,11 +1,15 @@
 import { create } from 'zustand';
-import type { SixHiOrderDetail, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiQueueCard, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
 import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
 import { canRecordStoppage } from '../lib/sixHiRuntime';
 import { notifyProductionChanged } from '../lib/productionSync';
 import { useShiftStore } from './shiftStore';
+import { detectCombinedRunFromQueue, dedupeQueueCards } from '../lib/combinedProductionRun';
+import { formatShiftDate } from '../lib/dateFormat';
+
+let machineStateRefreshGen = 0;
 
 export type SixHiProcessTab = 'rolling' | 'skinpass';
 
@@ -120,10 +124,14 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   closeManualOrder: () => set({ manualOrderOpen: false }),
   requestQueueRefresh: () => set({ queueRefreshToken: get().queueRefreshToken + 1 }),
   openWorkspace: (batchNo) => {
+    const combined = get().combinedRun;
+    const batch = combined?.batchNumbers.includes(batchNo)
+      ? combined.primaryBatchNumber
+      : batchNo;
     set({ workspaceOpen: true, workspaceBatch: batchNo });
-    void get().loadPanelOrder(batchNo);
+    void get().loadPanelOrder(batch);
   },
-  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null }),
+  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null, combinedRun: null }),
   setPanelOrder: (order) => set({ panelOrder: order }),
   setMachineActive: (active) => set({ machineActive: active }),
   setManualStoppage: (state) => set({ manualStoppage: state }),
@@ -158,29 +166,58 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   },
 
   refreshMachineState: async () => {
+    const refreshGen = ++machineStateRefreshGen;
     try {
       const mc = get().machineCode;
       const [active, manualStoppage] = await Promise.all([
         apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`),
         apiClient.get<ManualStoppageState>(`/6hi/manual-stoppage?machine=${mc}`),
       ]);
-      const combinedRun = get().combinedRun;
-      const nextCombinedRun = active && combinedRun?.batchNumbers.includes(active.batchNumber)
-        ? combinedRun
-        : active
-          ? null
-          : null;
+
+      if (refreshGen !== machineStateRefreshGen) return;
+
+      const { workspaceOpen, combinedRun } = get();
+      let nextCombinedRun = combinedRun;
+
+      if (active?.batchNumber) {
+        try {
+          const { shiftDate, shiftCode } = useShiftStore.getState();
+          const params = `machine=${mc}&date=${formatShiftDate(shiftDate)}&shift=${shiftCode || 'A'}`;
+          const [rolling, skinPass] = await Promise.all([
+            apiClient.get<{ queue: SixHiQueueCard[] }>(`/6hi/queue?${params}&subProcess=ROLLING`),
+            apiClient.get<{ queue: SixHiQueueCard[] }>(`/6hi/queue?${params}&subProcess=SKIN_PASS`),
+          ]);
+          const queue = dedupeQueueCards([...(rolling.queue ?? []), ...(skinPass.queue ?? [])]);
+          const detected = detectCombinedRunFromQueue(queue, mc, active.batchNumber);
+          if (detected) {
+            nextCombinedRun = detected;
+          } else if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
+            nextCombinedRun = null;
+          }
+        } catch {
+          if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
+            nextCombinedRun = null;
+          }
+        }
+      } else if (!workspaceOpen) {
+        nextCombinedRun = null;
+      }
+
+      if (refreshGen !== machineStateRefreshGen) return;
+
       set({ machineActive: active, manualStoppage, combinedRun: nextCombinedRun });
       if (active?.batchNumber) {
-        const { workspaceOpen, workspaceBatch } = get();
-        if (!workspaceOpen || workspaceBatch === active.batchNumber) {
-          await get().loadPanelOrder(active.batchNumber);
+        const { workspaceOpen: wsOpen, workspaceBatch } = get();
+        const formBatch = nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
+        if (!wsOpen || workspaceBatch === active.batchNumber || workspaceBatch === formBatch) {
+          await get().loadPanelOrder(formBatch);
         }
       } else if (!get().workspaceOpen) {
-        set({ panelOrder: null });
+        set({ panelOrder: null, combinedRun: null });
       }
     } catch {
-      set({ machineActive: null, manualStoppage: null });
+      if (refreshGen !== machineStateRefreshGen) return;
+      set({ machineActive: null, manualStoppage: null, combinedRun: null });
     }
   },
 

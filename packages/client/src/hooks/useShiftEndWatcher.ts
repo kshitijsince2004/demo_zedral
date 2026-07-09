@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { useShiftStore } from '../store/shiftStore';
 import type { DetectedShift } from '../lib/shiftDetection';
+import { addPlantDays, IST_OFFSET } from '@m1/shared-validation';
 
 /**
  * Default interval used when the operator postpones the shift-end prompt via
@@ -17,9 +18,6 @@ const CLOCK_CHECK_MS = 20_000;
  * previous session is still pinned. Mirrors the existing 15s operator polling.
  */
 const SHIFT_POLL_MS = 15_000;
-
-/** IST is a fixed UTC+05:30 offset (no DST), so this literal is always correct. */
-const IST_OFFSET = '+05:30';
 
 export type ShiftEndStatus = 'none' | 'ended' | 'changed';
 
@@ -48,9 +46,7 @@ function toMinutes(hhmm: string): number | null {
 }
 
 function addDays(isoDate: string, days: number): string {
-  const d = new Date(`${isoDate.slice(0, 10)}T00:00:00${IST_OFFSET}`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+  return addPlantDays(isoDate, days);
 }
 
 /**

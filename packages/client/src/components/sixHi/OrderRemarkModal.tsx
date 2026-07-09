@@ -6,6 +6,7 @@ import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { apiClient } from '../../lib/apiClient';
 import type { MasterDefectCode } from '@m1/shared-validation';
+import { DEFECT_OTHER_CODE, resolveDefectCodes } from '../../lib/defectCodes';
 
 interface RemarkDefectRow {
   defectCode: string;
@@ -32,7 +33,7 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
   const { data: defectsData } = useSWR(open ? '/6hi/master/defect-codes' : null, async (url) => {
     return apiClient.get(url) as Promise<MasterDefectCode[]>;
   });
-  const defects = Array.isArray(defectsData) ? defectsData : [];
+  const defects = resolveDefectCodes(defectsData);
 
   if (!open) return null;
 
@@ -58,11 +59,16 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
     try {
       const payload = defectRows
         .filter((row) => row.defectCode)
-        .map((row) => ({
-          defectCode: row.defectCode,
-          quantityAffected: row.quantityAffected ? Number(row.quantityAffected) : undefined,
-          remarks: row.remarks.trim() || undefined,
-        }));
+        .map((row) => {
+          const code = row.defectCode === DEFECT_OTHER_CODE
+            ? (row.remarks.trim() ? `OTHER:${row.remarks.trim()}` : DEFECT_OTHER_CODE)
+            : row.defectCode;
+          return {
+            defectCode: code,
+            quantityAffected: row.quantityAffected ? Number(row.quantityAffected) : undefined,
+            remarks: row.defectCode === DEFECT_OTHER_CODE ? undefined : (row.remarks.trim() || undefined),
+          };
+        });
       await onSave(text.trim(), payload);
       setText('');
       setDefectRows([]);
@@ -141,7 +147,7 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
                         ))}
                       </select>
                     </FieldWrapper>
-                    {selected && (
+                    {selected && row.defectCode !== DEFECT_OTHER_CODE && (
                       <p className="text-xs text-muted-foreground">{selected.defectName}</p>
                     )}
                     <FieldWrapper label="Quantity Affected (Optional)">
@@ -152,7 +158,7 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
                         placeholder="MT or units"
                       />
                     </FieldWrapper>
-                    <FieldWrapper label="Defect Remarks">
+                    <FieldWrapper label={row.defectCode === DEFECT_OTHER_CODE ? 'Other defect remarks' : 'Defect Remarks'} required={row.defectCode === DEFECT_OTHER_CODE}>
                       <ZInput
                         value={row.remarks}
                         onChange={(e) => updateRow(index, { remarks: e.target.value })}

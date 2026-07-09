@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auditService, type AuditRecord } from '../../services/auditService';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 export function AuditTrailView() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
@@ -59,7 +60,7 @@ export function AuditTrailView() {
                   <td className="px-3 py-2">{row.field ?? '—'}</td>
                   <td className="px-3 py-2">{row.old_value ?? '—'}</td>
                   <td className="px-3 py-2">{row.new_value ?? '—'}</td>
-                  <td className="px-3 py-2">{new Date(row.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2">{formatPlantDateTime(row.timestamp)}</td>
                 </tr>
               ))}
             </tbody>

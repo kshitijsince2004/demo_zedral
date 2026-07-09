@@ -18,6 +18,7 @@ interface SkinPassWorkspaceProps {
   onSave: (data: SixHiSkinPassData) => Promise<void>;
   busy?: boolean;
   compact?: boolean;
+  combinedOrderCount?: number;
 }
 
 function initialMetricChoice(skinPass?: SixHiSkinPassData): SkinPassMetric {
@@ -105,7 +106,7 @@ function MetricToggle({
   );
 }
 
-export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWorkspaceProps) {
+export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrderCount }: SkinPassWorkspaceProps) {
   const [data, setData] = useState<SixHiSkinPassData>(order.skinPass ?? {});
   const [drafts, setDrafts] = useState<Record<SkinPassDecimalField, string>>({
     outputThkMm: toDraft(order.skinPass?.outputThkMm),
@@ -157,6 +158,10 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
     setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
     setData((prev) => ({ ...prev, [field]: parsed }));
   };
+
+  const saveLabel = combinedOrderCount && combinedOrderCount > 1
+    ? `Save Production Data (${combinedOrderCount} orders)`
+    : 'Save Production Data';
 
   const save = () => {
     const payload =
@@ -265,7 +270,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
 
         <div className="shrink-0 border-t border-border bg-card px-3 py-2">
           <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
-            Save Production Data
+            {saveLabel}
           </ZButton>
         </div>
       </div>
@@ -319,7 +324,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact }: SkinPassWor
           <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-14" disabled={locked} /></FieldWrapper>
         )}
       </div>
-      <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">Save Production Data</ZButton>
+      <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14">{saveLabel}</ZButton>
     </div>
   );
 }

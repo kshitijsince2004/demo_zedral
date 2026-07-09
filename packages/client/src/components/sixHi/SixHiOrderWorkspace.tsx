@@ -10,6 +10,7 @@ interface SixHiOrderWorkspaceProps {
   workspaceBatch: string | null;
   busy?: boolean;
   compact?: boolean;
+  combinedOrderCount?: number;
   onSaveRolling: (data: SixHiRollingData) => Promise<void>;
   onSaveSkinPass: (data: SixHiSkinPassData) => Promise<void>;
 }
@@ -18,6 +19,7 @@ export function SixHiOrderWorkspace({
   order,
   busy,
   compact,
+  combinedOrderCount,
   onSaveRolling,
   onSaveSkinPass,
 }: SixHiOrderWorkspaceProps) {
@@ -60,13 +62,25 @@ export function SixHiOrderWorkspace({
         </div>
       )}
 
-      <PPCInfoCards data={order} compact={compact} />
+      <PPCInfoCards data={order} compact={compact} combinedOrderCount={combinedOrderCount} />
 
       <div className="bg-card border border-border rounded-xl shadow-sm flex-1 min-h-0 flex flex-col overflow-hidden">
         {isRolling ? (
-          <FourHiRollingForm order={order} busy={busy} onSave={onSaveRolling} compact={compact} />
+          <FourHiRollingForm
+            order={order}
+            busy={busy}
+            combinedOrderCount={combinedOrderCount}
+            onSave={onSaveRolling}
+            compact={compact}
+          />
         ) : (
-          <SharedSkinPassForm order={order} busy={busy} onSave={onSaveSkinPass} compact={compact} />
+          <SharedSkinPassForm
+            order={order}
+            busy={busy}
+            combinedOrderCount={combinedOrderCount}
+            onSave={onSaveSkinPass}
+            compact={compact}
+          />
         )}
       </div>
     </div>

@@ -39,6 +39,7 @@
   /* Status Colors */
   --color-success: #22C55E;
   --color-warning: #F59E0B;
+  --color-warning-foreground: #163328;
   --color-info: #3B82F6;
   --color-destructive: #EF4444;
   --color-purple: #8B5CF6;

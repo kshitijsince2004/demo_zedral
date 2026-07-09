@@ -1,6 +1,7 @@
 import { getElasticClient, isElasticAvailable } from './elasticClient';
 import { TRACEABILITY_INDEX } from './traceabilityIndex';
 import { db } from '../db';
+import { formatPlantDate } from '@m1/shared-validation';
 
 /** Shape of a document stored in the traceability index. */
 export interface TraceabilityDoc {
@@ -46,7 +47,7 @@ function batchRowToDoc(row: any): TraceabilityDoc {
     thk_mm: Number(row.ppc_thk_mm),
     input_thk_mm: row.input_thk_mm != null ? Number(row.input_thk_mm) : null,
     plan_date: row.plan_date instanceof Date
-      ? row.plan_date.toISOString().slice(0, 10)
+      ? formatPlantDate(row.plan_date)
       : String(row.plan_date).slice(0, 10),
     indexed_at: new Date().toISOString(),
     batch_number_suggest: row.batch_number,

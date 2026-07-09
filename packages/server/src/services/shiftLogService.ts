@@ -1,5 +1,10 @@
 import { db } from '../db';
-import { ShiftLogState } from '@m1/shared-validation';
+import {
+  ShiftLogState,
+  addPlantDays,
+  formatPlantDate,
+  parsePlantDateOnly,
+} from '@m1/shared-validation';
 import {
   ShiftLogValidationService,
   ValidationGateContext,
@@ -206,8 +211,9 @@ export class ShiftLogService {
 
   
   static getNextShift(currentShiftCode: string, currentDate: Date): { nextShiftCode: string, nextProdDate: Date } {
+    const currentDateStr = formatPlantDate(currentDate);
     let nextShiftCode = '';
-    let nextProdDate = new Date(currentDate);
+    let nextProdDateStr = currentDateStr;
 
     if (currentShiftCode === 'A') {
       nextShiftCode = 'B';
@@ -215,12 +221,12 @@ export class ShiftLogService {
       nextShiftCode = 'C';
     } else if (currentShiftCode === 'C') {
       nextShiftCode = 'A';
-      nextProdDate.setDate(nextProdDate.getDate() + 1);
+      nextProdDateStr = addPlantDays(currentDateStr, 1);
     } else {
       nextShiftCode = currentShiftCode;
     }
 
-    return { nextShiftCode, nextProdDate };
+    return { nextShiftCode, nextProdDate: parsePlantDateOnly(nextProdDateStr) };
   }
 
   static getProcessTable(processId: number): string | null {

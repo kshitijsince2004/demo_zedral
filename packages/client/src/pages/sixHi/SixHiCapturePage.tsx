@@ -16,6 +16,7 @@ import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
+import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 
 function orderProductLabel(order: SixHiOrderDetail) {
@@ -183,7 +184,8 @@ export function SixHiCapturePage() {
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-4 overflow-hidden">
       <div className="shrink-0 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-foreground">Capture</h1>
+          <h1 className="text-xl font-bold text-foreground">Machine Overview</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{machineCode} · Live production status</p>
         </div>
         {order && (
           <ZButton
@@ -259,9 +261,12 @@ export function SixHiCapturePage() {
                 <div className="p-5 space-y-4">
                   <dl className="grid grid-cols-2 gap-3 text-sm">
                     {[
-                      ['Order Number', order.batchNumber],
+                      ['Order', primaryOrderId(order)],
+                      ['Slit ID', selectIdOf(order)],
+                      ['Mother Coil', order.motherCoil],
                       ['Product', orderProductLabel(order)],
                       ['Customer', order.customer],
+                      ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
                       ['Target Quantity', `${targetMt.toFixed(3)} MT`],
                       ['Produced Quantity', `${produced.toFixed(3)} MT`],
                       ['Balance Quantity', `${balance.toFixed(3)} MT`],
@@ -303,21 +308,20 @@ export function SixHiCapturePage() {
             </div>
 
             <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
-              <div className="bg-muted text-muted-foreground px-5 py-3 border-b border-border flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest">Next Prepared Order</p>
-                {nextOrder && (
-                  <span className="text-xs font-semibold bg-white/50 px-2 py-0.5 rounded">
-                    Queue Pos: {nextOrder.queuePosition}
-                  </span>
-                )}
+              <div className="bg-muted text-muted-foreground px-5 py-3 border-b border-border flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest">Upcoming Queue</p>
+                <span className="text-xs font-semibold bg-white/50 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
+                  {allQueueItems.filter((q) => q.status === 'PENDING' || q.status === 'PREPARING').length} orders
+                </span>
               </div>
               {!nextOrder ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">No prepared order in queue.</div>
+                <div className="p-6 text-center text-sm text-muted-foreground">No pending orders in queue.</div>
               ) : (
-                <div className="p-5">
+                <div className="p-5 space-y-4">
                   <dl className="grid grid-cols-2 gap-3 text-sm">
                     {[
-                      ['Order Number', nextOrder.batchNumber],
+                      ['Order', primaryOrderId(nextOrder)],
+                      ['Slit ID', selectIdOf(nextOrder)],
                       ['Product', `${nextOrder.grade} · ${nextOrder.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}`],
                       ['Customer', nextOrder.customer],
                       ['Planned Quantity', `${nextOrder.weightMt} MT`],
@@ -329,6 +333,19 @@ export function SixHiCapturePage() {
                       </div>
                     ))}
                   </dl>
+                  {allQueueItems.filter((q) => q.status === 'PENDING' || q.status === 'PREPARING').length > 1 && (
+                    <ul className="space-y-1 max-h-32 overflow-auto text-xs border-t border-border pt-3">
+                      {allQueueItems
+                        .filter((q) => (q.status === 'PENDING' || q.status === 'PREPARING') && q.batchNumber !== nextOrder.batchNumber)
+                        .slice(0, 8)
+                        .map((q) => (
+                          <li key={q.batchNumber} className="flex justify-between gap-2 text-muted-foreground">
+                            <span className="font-mono truncate">{primaryOrderId(q)}</span>
+                            <span>Pos {q.queuePosition}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>

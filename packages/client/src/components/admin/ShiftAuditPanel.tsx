@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AdminPanel } from './AdminPanel';
 import { ZButton } from '../primitives/ZButton';
 import { shiftAdminService, type ShiftAuditEvent } from '../../lib/shiftAdminService';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 export function ShiftAuditPanel() {
   const [events, setEvents] = useState<ShiftAuditEvent[]>([]);
@@ -42,7 +43,7 @@ export function ShiftAuditPanel() {
               <div className="flex justify-between gap-2">
                 <span className="font-semibold">{e.eventType}</span>
                 <span className="text-muted-foreground font-mono">
-                  {new Date(e.createdAt).toLocaleString()}
+                  {formatPlantDateTime(e.createdAt)}
                 </span>
               </div>
               <div className="text-muted-foreground">

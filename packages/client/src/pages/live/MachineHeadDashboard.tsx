@@ -10,7 +10,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { Download, AlertTriangle } from 'lucide-react';
 import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
-import { currentPlantDate } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 
 function formatDuration(minutes?: number): string {
   if (minutes == null || minutes < 0) return '—';
@@ -252,7 +252,7 @@ export function MachineHeadDashboard() {
                     <span className="font-mono font-bold">{h.batchNumber}</span>
                     <span className="font-mono">{h.weightMt} MT</span>
                     <span className="text-muted-foreground">
-                      {new Date(h.completedAt).toLocaleString()}
+                      {formatPlantDateTime(h.completedAt)}
                     </span>
                   </li>
                 ))}
@@ -312,7 +312,7 @@ export function MachineHeadDashboard() {
                       <div className="flex-1">
                         <p className="text-foreground">{r.reason}</p>
                         <p className="text-muted-foreground mt-0.5">
-                          Rejected by {r.rejectedBy} on {new Date(r.rejectionTime).toLocaleString()}
+                          Rejected by {r.rejectedBy} on {formatPlantDateTime(r.rejectionTime)}
                           {r.machineCode ? ` (${r.machineCode}` : ''}
                           {r.shiftCode ? ` · Shift ${r.shiftCode}` : ''}
                           {r.machineCode ? ')' : ''}
@@ -336,12 +336,12 @@ export function MachineHeadDashboard() {
                     </div>
                     <div className="text-muted-foreground">
                       <span className="inline-block w-32">Shift Start Time:</span>
-                      <span className="font-mono">{new Date(h.shiftStartAt ?? h.createdAt).toLocaleString()}</span>
+                      <span className="font-mono">{formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}</span>
                     </div>
                     {h.shiftEndAt && (
                       <div className="text-muted-foreground">
                         <span className="inline-block w-32">Shift End Time:</span>
-                        <span className="font-mono text-emerald-600">{new Date(h.shiftEndAt).toLocaleString()}</span>
+                        <span className="font-mono text-emerald-600">{formatPlantDateTime(h.shiftEndAt)}</span>
                       </div>
                     )}
                     {h.shiftDurationMinutes != null && (

@@ -2,20 +2,23 @@ import { db } from '../../db';
 import { getUserWithRolesAndAccess } from '../../services/authService';
 import { ExportWorker } from './ExportWorker';
 import type { ExportRequest } from '../types';
+import { getPlantClockParts } from '@m1/shared-validation';
 
 const DEFAULT_CRON_HOUR = Number(process.env.DPR_SCHEDULE_HOUR ?? 7);
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
 
 function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const { year, month } = getPlantClockParts();
+  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 function msUntilNextRun(hour: number): number {
   const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, 0, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
+  const { year, month, day } = getPlantClockParts(now);
+  const next = new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00+05:30`);
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
   return next.getTime() - now.getTime();
 }
 

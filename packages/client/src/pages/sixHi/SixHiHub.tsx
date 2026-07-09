@@ -22,8 +22,14 @@ import { ZInput } from '../../components/primitives/ZInput';
 import { ZPageHeader } from '../../components/ui/operator/ZPageHeader';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import {
+  buildCombinedRunFromCards,
+  cardsShareProductionAction,
+  combinedActionLabel,
+  dedupeQueueCards,
+  findCompatibleOrdersForCombine,
+} from '../../lib/combinedProductionRun';
+import {
   finishOf,
-  isCompatibleCombinedRunOrder,
   primaryOrderId,
   selectIdOf,
 } from '../../lib/sixHiOrderIdentity';
@@ -41,6 +47,7 @@ const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
 
 function matchesFilter(card: SixHiQueueCard, filter: StatusFilter): boolean {
   if (filter === 'ALL') return card.status !== 'REJECTED';
+  if (filter === 'IN_PROGRESS') return card.status === 'IN_PROGRESS' || card.status === 'STOPPAGE';
   return card.status === filter;
 }
 
@@ -87,8 +94,9 @@ export function SixHiHub() {
   
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
-  const [isCombineMode, setIsCombineMode] = useState(false);
-  const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
+  const [anchorBatch, setAnchorBatch] = useState<string | null>(null);
+  const [autoCombinedBatchNumbers, setAutoCombinedBatchNumbers] = useState<Set<string>>(new Set());
+  const combinedSelectionManual = useRef(false);
 
   const date = viewDate;
   const shift = shiftCode || 'A';
@@ -171,29 +179,46 @@ export function SixHiHub() {
   }, [loadQueue, queueRefreshToken]);
 
   const allOrders = useMemo(
-    () => [...backlogQueue, ...pendingQueue, ...queue],
+    () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue]),
     [backlogQueue, pendingQueue, queue],
   );
 
+  const applyCombinedSelection = useCallback((anchor: SixHiQueueCard) => {
+    const compatible = findCompatibleOrdersForCombine(anchor, allOrders, queueMachine);
+    setAutoCombinedBatchNumbers(new Set(compatible.map((o) => o.batchNumber)));
+  }, [allOrders, queueMachine]);
+
+  useEffect(() => {
+    setAnchorBatch(null);
+    setAutoCombinedBatchNumbers(new Set());
+    combinedSelectionManual.current = false;
+  }, [apiSubProcess]);
+
   useEffect(() => {
     const filtered = statusFilter === 'ALL' ? allOrders : allOrders.filter((c) => matchesFilter(c, statusFilter));
-    if (filtered.length > 0 && !selectedBatch) {
-      setSelectedBatch(filtered[0].batchNumber);
-    } else if (filtered.length > 0 && !filtered.find((c) => c.batchNumber === selectedBatch)) {
-      setSelectedBatch(filtered[0].batchNumber);
-    } else if (filtered.length === 0) {
-      setSelectedBatch(null);
+    if (selectedBatch && filtered.some((c) => c.batchNumber === selectedBatch)) {
+      return;
     }
-  }, [allOrders, statusFilter, selectedBatch]);
+    if (filtered.length > 0) {
+      const card = filtered[0];
+      setSelectedBatch(card.batchNumber);
+      setAnchorBatch(card.batchNumber);
+      combinedSelectionManual.current = false;
+      const compatible = findCompatibleOrdersForCombine(card, allOrders, queueMachine);
+      setAutoCombinedBatchNumbers(new Set(compatible.map((o) => o.batchNumber)));
+    } else {
+      setSelectedBatch(null);
+      setAnchorBatch(null);
+      setAutoCombinedBatchNumbers(new Set());
+    }
+  }, [allOrders, statusFilter, selectedBatch, queueMachine]);
 
   const setTab = (id: string) => {
     setSearchParams({ tab: id, status: statusFilter });
-    setSelectedBatch(null);
   };
 
   const setStatus = (id: StatusFilter) => {
     setSearchParams({ tab: activeTab, status: id });
-    setSelectedBatch(null);
   };
 
   const filteredQueue = useMemo(
@@ -216,39 +241,98 @@ export function SixHiHub() {
     [queue, statusFilter, search],
   );
 
+  const isStartable = (card: SixHiQueueCard) =>
+    card.status === 'PENDING' || card.status === 'PREPARING';
+
+  const selectOrder = useCallback((card: SixHiQueueCard) => {
+    if (card.batchNumber === anchorBatch && combinedSelectionManual.current) {
+      setSelectedBatch(card.batchNumber);
+      return;
+    }
+    combinedSelectionManual.current = false;
+    setSelectedBatch(card.batchNumber);
+    setAnchorBatch(card.batchNumber);
+    applyCombinedSelection(card);
+  }, [applyCombinedSelection, anchorBatch]);
+
+  useEffect(() => {
+    if (!anchorBatch || combinedSelectionManual.current) return;
+    const anchor = allOrders.find((c) => c.batchNumber === anchorBatch);
+    if (!anchor) return;
+    applyCombinedSelection(anchor);
+  }, [allOrders, anchorBatch, applyCombinedSelection]);
+
+  const cancelCombinedSelection = () => {
+    if (!anchorBatch) return;
+    combinedSelectionManual.current = true;
+    setAutoCombinedBatchNumbers(new Set([anchorBatch]));
+  };
+
+  const sortedFilteredQueue = useMemo(() => {
+    if (!anchorBatch) return filteredQueue;
+    const anchor = allOrders.find((c) => c.batchNumber === anchorBatch);
+    if (!anchor) return filteredQueue;
+    return [...filteredQueue].sort((a, b) => {
+      const aSameMother = a.motherCoil === anchor.motherCoil ? 0 : 1;
+      const bSameMother = b.motherCoil === anchor.motherCoil ? 0 : 1;
+      if (aSameMother !== bSameMother) return aSameMother - bSameMother;
+      return a.queuePosition - b.queuePosition;
+    });
+  }, [filteredQueue, anchorBatch, allOrders]);
+
+  const sortQueueSection = useCallback(
+    (items: SixHiQueueCard[]) => {
+      if (!anchorBatch) return items;
+      const anchor = allOrders.find((c) => c.batchNumber === anchorBatch);
+      if (!anchor) return items;
+      return [...items].sort((a, b) => {
+        const aSameMother = a.motherCoil === anchor.motherCoil ? 0 : 1;
+        const bSameMother = b.motherCoil === anchor.motherCoil ? 0 : 1;
+        if (aSameMother !== bSameMother) return aSameMother - bSameMother;
+        return a.queuePosition - b.queuePosition;
+      });
+    },
+    [anchorBatch, allOrders],
+  );
+
   const selected = filteredQueue.find((c) => c.batchNumber === selectedBatch)
     ?? allOrders.find((c) => c.batchNumber === selectedBatch)
     ?? null;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {
-      ALL: allOrders.length,
+      ALL: allOrders.filter((card) => card.status !== 'REJECTED').length,
       PENDING: 0,
       PREPARING: 0,
       IN_PROGRESS: 0,
       COMPLETED: 0,
+      REJECTED: 0,
     };
     for (const card of allOrders) {
       c[card.status] = (c[card.status] ?? 0) + 1;
     }
+    c.IN_PROGRESS = (c.IN_PROGRESS ?? 0) + (c.STOPPAGE ?? 0);
     return c;
   }, [allOrders]);
 
   const needsMachineSelection = (card: SixHiQueueCard) =>
     card.machineAllocated === false || !card.machineCode || card.machineCode !== queueMachine;
 
-  const isStartable = (card: SixHiQueueCard) =>
-    card.status === 'PENDING' || card.status === 'PREPARING';
-
   const selectedProductionOrders = useMemo(
-    () => allOrders.filter((card) => selectedForProduction.has(card.batchNumber)),
-    [allOrders, selectedForProduction],
+    () => allOrders.filter((card) => autoCombinedBatchNumbers.has(card.batchNumber)),
+    [allOrders, autoCombinedBatchNumbers],
   );
 
-  const canSelectForCombinedRun = (card: SixHiQueueCard) => {
-    if (!isStartable(card)) return false;
-    const base = selectedProductionOrders[0];
-    return !base || isCompatibleCombinedRunOrder(base, card);
+  const openCombinedView = (cards: SixHiQueueCard[]) => {
+    const primaryBatch = anchorBatch && cards.some((c) => c.batchNumber === anchorBatch)
+      ? anchorBatch
+      : cards[0].batchNumber;
+    const combined = buildCombinedRunFromCards(cards, primaryBatch);
+    if (combined) {
+      useSixHiStore.getState().setCombinedRun(combined);
+    }
+    const primaryCard = cards.find((c) => c.batchNumber === primaryBatch) ?? cards[0];
+    openProductionForCard(primaryCard);
   };
 
   const startCombinedProduction = async (cards: SixHiQueueCard[]) => {
@@ -265,37 +349,67 @@ export function SixHiHub() {
     }
 
     const batchNumbers = cards.map((card) => card.batchNumber);
+    const primaryBatch = anchorBatch && cards.some((c) => c.batchNumber === anchorBatch)
+      ? anchorBatch
+      : cards[0].batchNumber;
     const response = await apiClient.post<{ orders: unknown[] }>('/6hi/orders/start-combined', { batchNumbers });
-    const firstBatch = cards[0].batchNumber;
-    useSixHiStore.getState().setCombinedRun({
-      primaryBatchNumber: firstBatch,
-      batchNumbers,
-      orders: cards.map((card) => ({
-        batchNumber: card.batchNumber,
-        motherCoil: card.motherCoil,
-        slitId: card.slitId,
-        customer: card.customer,
-        weightMt: card.weightMt,
-      })),
-    });
-    setIsCombineMode(false);
-    setSelectedForProduction(new Set());
+    const combined = buildCombinedRunFromCards(cards, primaryBatch);
+    if (combined) {
+      useSixHiStore.getState().setCombinedRun(combined);
+    }
+    setAutoCombinedBatchNumbers(new Set());
     useSixHiStore.getState().requestQueueRefresh();
     await loadQueue();
     if (response.orders.length > 0) {
-      openWorkspace(firstBatch);
+      openProductionForCard(cards.find((c) => c.batchNumber === primaryBatch) ?? cards[0]);
     }
   };
 
+  const moveSelectedToProduction = () => {
+    const cards = selectedProductionOrders;
+    if (cards.length > 1 && cardsShareProductionAction(cards)) {
+      if (cards.every(isStartable)) {
+        void startCombinedProduction(cards).catch((err) => {
+          setQueueError(err instanceof Error ? err.message : 'Failed to start combined production');
+        });
+        return;
+      }
+      openCombinedView(cards);
+      return;
+    }
+    if (cards.length === 1) moveToProduction(cards[0]);
+    else if (selected) moveToProduction(selected);
+  };
+
+  const openProductionForCard = (card: SixHiQueueCard) => {
+    const tab = card.subProcess === 'ROLLING' ? 'rolling' : 'skinpass';
+    if (activeTab !== tab) {
+      setSearchParams({ tab, status: statusFilter });
+    }
+    openWorkspace(card.batchNumber);
+  };
+
   const moveToProduction = (card: SixHiQueueCard) => {
-    if (card.status === 'COMPLETED') return;
+    if (card.status === 'COMPLETED' || card.status === 'REJECTED') {
+      const combined = selectedProductionOrders.length > 1
+        && cardsShareProductionAction(selectedProductionOrders)
+        && selectedProductionOrders.every((c) => c.status === card.status)
+        ? selectedProductionOrders
+        : [card];
+      if (combined.length > 1) {
+        openCombinedView(combined);
+      } else {
+        openProductionForCard(card);
+      }
+      return;
+    }
     if (needsMachineSelection(card)) {
       setAllocMode('production');
       setAllocBatches([card]);
       setAllocOpen(true);
       return;
     }
-    openWorkspace(card.batchNumber);
+    openProductionForCard(card);
   };
 
   const moveToMachine = (card: SixHiQueueCard) => {
@@ -349,12 +463,10 @@ export function SixHiHub() {
   const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean; backlog?: boolean }) => {
     const isSelected = isTransferMode
       ? selectedForTransfer.has(card.batchNumber)
-      : isCombineMode
-        ? selectedForProduction.has(card.batchNumber)
       : card.batchNumber === selectedBatch;
+    const isInCombinedSelection = autoCombinedBatchNumbers.has(card.batchNumber);
     const isActive = machineActive?.batchNumber === card.batchNumber;
     const routeCode = card.subProcess === 'ROLLING' ? '4' : 'X';
-    const combineEligible = canSelectForCombinedRun(card);
 
     return (
       <button
@@ -366,23 +478,16 @@ export function SixHiHub() {
             if (next.has(card.batchNumber)) next.delete(card.batchNumber);
             else next.add(card.batchNumber);
             setSelectedForTransfer(next);
-          } else if (isCombineMode) {
-            if (!combineEligible && !selectedForProduction.has(card.batchNumber)) return;
-            const next = new Set(selectedForProduction);
-            if (next.has(card.batchNumber)) next.delete(card.batchNumber);
-            else next.add(card.batchNumber);
-            setSelectedForProduction(next);
           } else {
-            setSelectedBatch(card.batchNumber);
+            selectOrder(card);
           }
         }}
         className={[
           'w-full text-left border-b border-border px-5 py-4 transition-colors min-h-[88px]',
           'hover:bg-secondary active:bg-secondary',
-          isSelected && !isTransferMode ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
+          isSelected ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
           isSelected && isTransferMode ? 'bg-primary/5 border-l-4 border-l-primary' : '',
-          isCombineMode && !combineEligible && !isSelected ? 'opacity-45' : '',
-          isSelected && isCombineMode ? 'bg-success/10 border-l-4 border-l-success' : '',
+          isInCombinedSelection && selectedProductionOrders.length > 1 ? 'ring-1 ring-inset ring-success/25' : '',
           isActive ? 'ring-1 ring-inset ring-warning/30' : '',
           opts?.pending ? 'bg-secondary/40' : '',
           card.isBacklog ? 'bg-destructive/5' : '',
@@ -392,17 +497,14 @@ export function SixHiHub() {
           <div className="min-w-0">
             <span className="font-mono text-lg font-bold text-foreground block truncate">{primaryOrderId(card)}</span>
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Select ID {selectIdOf(card)} · Batch {card.batchNumber}
+              Slit ID {selectIdOf(card)} · Batch {card.batchNumber}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {card.isBacklog && <SixHiBacklogBadge planDate={card.planDate} />}
-            {isCombineMode && (
-              <span className={[
-                'h-6 w-6 rounded-md border flex items-center justify-center text-xs font-bold',
-                isSelected ? 'bg-success text-white border-success' : 'bg-white border-border text-muted-foreground',
-              ].join(' ')}>
-                {isSelected ? '✓' : ''}
+            {isInCombinedSelection && selectedProductionOrders.length > 1 && (
+              <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-success/15 text-success">
+                Combined
               </span>
             )}
             {opts?.pending && (
@@ -436,9 +538,10 @@ export function SixHiHub() {
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-3 overflow-hidden">
       <ZPageHeader
-        title="Orders"
+        title="Machine"
+        subtitle={`${queueMachine} · ${subProcessLabel}`}
         actions={
-          <div className="flex gap-2 items-center flex-wrap justify-end">
+          <div className="flex gap-2 sm:gap-3 items-center flex-wrap justify-end w-full lg:w-auto">
             <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Date
               <input
@@ -447,6 +550,9 @@ export function SixHiHub() {
                 onChange={(e) => {
                   setViewDate(e.target.value || currentPlantDate());
                   setSelectedBatch(null);
+                  setAnchorBatch(null);
+                  combinedSelectionManual.current = false;
+                  setAutoCombinedBatchNumbers(new Set());
                 }}
                 className="min-h-9 rounded-md border border-border bg-white px-3 text-sm font-mono text-foreground normal-case tracking-normal"
               />
@@ -457,32 +563,24 @@ export function SixHiHub() {
                 onClick={() => {
                   setIsTransferMode(!isTransferMode);
                   setSelectedForTransfer(new Set());
-                  setIsCombineMode(false);
-                  setSelectedForProduction(new Set());
                 }}
                 className={[
-                  "text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border transition-colors",
-                  isTransferMode ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:bg-secondary"
+                  'text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border transition-colors',
+                  isTransferMode ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-muted-foreground border-border hover:bg-secondary',
                 ].join(' ')}
               >
                 {isTransferMode ? 'Cancel Transfer' : 'Bulk Transfer'}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setIsCombineMode(!isCombineMode);
-                setSelectedForProduction(new Set());
-                setIsTransferMode(false);
-                setSelectedForTransfer(new Set());
-              }}
-              className={[
-                "text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border transition-colors",
-                isCombineMode ? "bg-success text-white border-success" : "bg-white text-muted-foreground border-border hover:bg-secondary"
-              ].join(' ')}
-            >
-              {isCombineMode ? 'Cancel Combined' : 'Combined Run'}
-            </button>
+            {selectedProductionOrders.length > 1 && (
+              <button
+                type="button"
+                onClick={cancelCombinedSelection}
+                className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border bg-white text-destructive border-destructive/30 hover:bg-destructive/5 transition-colors"
+              >
+                Cancel Combined Order
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -493,10 +591,25 @@ export function SixHiHub() {
             >
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
             </button>
+            
+            <div className="hidden sm:block h-6 w-px bg-border mx-1" />
+
             <SixHiPillTabs tabs={tabs} activeId={activeTab} onChange={setTab} />
           </div>
         }
       />
+
+      {machineActive && (
+        <div className="shrink-0 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-warning">Machine status</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">
+              Active order <span className="font-mono">{machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+            </p>
+          </div>
+          <SixHiStatusPill status={machineActive.status as SixHiOrderStatus} />
+        </div>
+      )}
 
       {queueError && (
         <div className="shrink-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -510,7 +623,7 @@ export function SixHiHub() {
           <ZInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search mother coil, Select ID, customer, batch…"
+            placeholder="Search mother coil, Slit ID, customer, batch…"
             className="min-h-14 pl-12 text-base"
           />
         </div>
@@ -525,7 +638,7 @@ export function SixHiHub() {
         <div className="flex-1 min-w-0 min-h-0 bg-white border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden order-2 lg:order-1">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between">
             <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              {subProcessLabel} Queue · {filteredQueue.length} orders
+              {subProcessLabel} Queue · {sortedFilteredQueue.length} orders
             </h2>
             {machineActive && (
               <span className="text-xs font-semibold text-warning">
@@ -549,7 +662,7 @@ export function SixHiHub() {
                     Backlog · {filteredBacklog.length}
                   </p>
                 </div>
-                {filteredBacklog.map((card) => renderQueueRow(card, { backlog: true }))}
+                {sortQueueSection(filteredBacklog).map((card) => renderQueueRow(card, { backlog: true }))}
               </>
             )}
             {!loading && filteredPending.length > 0 && (
@@ -559,7 +672,7 @@ export function SixHiHub() {
                     Awaiting machine · {filteredPending.length}
                   </p>
                 </div>
-                {filteredPending.map((card) => renderQueueRow(card, { pending: true }))}
+                {sortQueueSection(filteredPending).map((card) => renderQueueRow(card, { pending: true }))}
               </>
             )}
             {!loading && filteredAssigned.length > 0 && filteredPending.length > 0 && (
@@ -569,7 +682,7 @@ export function SixHiHub() {
                 </p>
               </div>
             )}
-            {!loading && filteredAssigned.map((card) => renderQueueRow(card))}
+            {!loading && sortQueueSection(filteredAssigned).map((card) => renderQueueRow(card))}
           </div>
         </div>
 
@@ -578,7 +691,11 @@ export function SixHiHub() {
             batch={selected}
             subProcessLabel={subProcessLabel}
             currentMill={queueMachine}
-            onOpen={() => selected && moveToProduction(selected)}
+            machineActiveBatch={machineActive?.batchNumber ?? null}
+            combinedCount={selectedProductionOrders.length}
+            combinedBatchNumbers={selectedProductionOrders.map((c) => c.batchNumber)}
+            onOpen={moveSelectedToProduction}
+            onViewCompleted={moveSelectedToProduction}
             onMoveToMachine={() => selected && moveToMachine(selected)}
           />
         </aside>
@@ -601,22 +718,17 @@ export function SixHiHub() {
         </div>
       )}
 
-      {isCombineMode && selectedForProduction.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] bg-foreground text-background rounded-full pl-6 pr-2 py-2 shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-8">
-          <span className="font-bold text-sm tracking-wide">
-            {selectedForProduction.size} compatible order{selectedForProduction.size > 1 ? 's' : ''} selected
+      {!isTransferMode && selectedProductionOrders.length > 1 && selected && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] bg-foreground text-background rounded-full pl-6 pr-2 py-2 shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-8 max-w-[95vw]">
+          <span className="font-bold text-sm tracking-wide whitespace-nowrap">
+            {selectedProductionOrders.length} compatible orders selected
           </span>
           <button
             type="button"
-            className="bg-success hover:bg-success/90 text-white text-sm font-bold px-4 py-2 rounded-full transition-colors disabled:opacity-50"
-            disabled={selectedProductionOrders.length < 2}
-            onClick={() => {
-              void startCombinedProduction(selectedProductionOrders).catch((err) => {
-                setQueueError(err instanceof Error ? err.message : 'Failed to start combined production');
-              });
-            }}
+            className="bg-success hover:bg-success/90 text-white text-sm font-bold px-4 py-2 rounded-full transition-colors whitespace-nowrap"
+            onClick={moveSelectedToProduction}
           >
-            Start Combined Run
+            {combinedActionLabel(selectedProductionOrders)}
           </button>
         </div>
       )}

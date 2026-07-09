@@ -44,10 +44,11 @@ describe('manufacturingValidation', () => {
     expect(() => assertQuantityWithinProduction(8, 10, 'Defect quantity')).not.toThrow();
   });
 
-  it('resolves overnight shift window bounds', () => {
+  it('resolves overnight shift window bounds in IST', () => {
     const bounds = resolveShiftWindowBounds('2026-06-10', '22:00', '06:00');
     expect(bounds.durationMinutes).toBe(480);
-    expect(bounds.end.getTime()).toBeGreaterThan(bounds.start.getTime());
+    expect(bounds.start.toISOString()).toBe('2026-06-10T16:30:00.000Z');
+    expect(bounds.end.toISOString()).toBe('2026-06-11T00:30:00.000Z');
   });
 
   it('calculates overnight clock range minutes', () => {
@@ -63,7 +64,6 @@ describe('manufacturingValidation', () => {
 
   it('falls back to scheduled window start when session start is absent', () => {
     const since = resolveShiftSinceTime('2026-07-08', '06:00', null);
-    expect(since.getHours()).toBe(6);
-    expect(since.getMinutes()).toBe(0);
+    expect(since.toISOString()).toBe('2026-07-08T00:30:00.000Z');
   });
 });

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import useSWR from 'swr';
 import { ZButton } from '../primitives/ZButton';
-import { apiClient } from '../../lib/apiClient';
 import { CheckSquare, X, AlertTriangle } from 'lucide-react';
-import { getEndProductionMissingFields, type MasterDefectCode, type SixHiOrderDetail } from '@m1/shared-validation';
+import { getEndProductionMissingFields, type SixHiOrderDetail } from '@m1/shared-validation';
+import { DefectTagSelector } from './DefectTagSelector';
+import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
 
 interface OrderEndModalProps {
   open: boolean;
@@ -17,14 +17,9 @@ interface OrderEndModalProps {
 
 export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, order, onClose, onConfirm }: OrderEndModalProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [otherRemarks, setOtherRemarks] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const { data: defectsData } = useSWR(open ? '/6hi/master/defect-codes' : null, async (url) => {
-    return apiClient.get(url) as Promise<MasterDefectCode[]>;
-  });
-
-  const defects = Array.isArray(defectsData) ? defectsData : [];
-  
   if (!open) return null;
 
   const toggleTag = (code: string) => {
@@ -33,12 +28,19 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
     );
   };
 
+  const defectCodesForSubmit = () => {
+    if (!selectedTags.includes(DEFECT_OTHER_CODE)) return selectedTags;
+    const remarks = otherRemarks.trim();
+    return remarks ? [...selectedTags.filter((c) => c !== DEFECT_OTHER_CODE), `OTHER:${remarks}`] : selectedTags;
+  };
+
   const handleSubmit = async () => {
     setBusy(true);
     try {
-      await onConfirm(selectedTags);
+      await onConfirm(defectCodesForSubmit());
       onClose();
       setSelectedTags([]);
+      setOtherRemarks('');
     } finally {
       setBusy(false);
     }
@@ -78,30 +80,14 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-foreground">Defect Tags (Optional)</h4>
             <p className="text-xs text-muted-foreground">Select any minor defects observed during this run.</p>
-            {defects.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">Loading defect tags...</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {defects.map((d) => {
-                  const selected = selectedTags.includes(d.defectCode);
-                  return (
-                    <button
-                      key={d.defectCode}
-                      type="button"
-                      onClick={() => toggleTag(d.defectCode)}
-                      className={[
-                        'px-3 py-2 rounded-lg border text-sm font-semibold transition-colors',
-                        selected 
-                          ? 'bg-warning text-warning-foreground border-warning' 
-                          : 'bg-white text-foreground border-border hover:bg-secondary'
-                      ].join(' ')}
-                    >
-                      {d.defectCode} - {d.defectName}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <DefectTagSelector
+              enabled={open}
+              selected={selectedTags}
+              onToggle={toggleTag}
+              otherRemarks={otherRemarks}
+              onOtherRemarksChange={setOtherRemarks}
+              variant="end"
+            />
           </div>
 
           {isBlocked && (

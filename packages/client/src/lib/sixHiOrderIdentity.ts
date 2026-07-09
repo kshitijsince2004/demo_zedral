@@ -38,5 +38,5 @@ export function isCompatibleCombinedRunOrder(base: OrderIdentitySource, candidat
 }
 
 export function orderIdentitySubtitle(order: OrderIdentitySource): string {
-  return `Select ID ${selectIdOf(order)} · Batch ${order.batchNumber}`;
+  return `Slit ID ${selectIdOf(order)} · Batch ${order.batchNumber}`;
 }

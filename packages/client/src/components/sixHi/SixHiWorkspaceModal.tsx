@@ -5,6 +5,7 @@ import { useSixHiStore, isPreparing } from '../../store/sixHiStore';
 import { apiClient } from '../../lib/apiClient';
 import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
+import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
 import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
 
 interface SixHiWorkspaceModalProps {
@@ -21,20 +22,25 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     closeWorkspace,
     loadPanelOrder,
     runOrderAction,
+    setCombinedRun,
   } = useSixHiStore();
 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [combinedRefreshToken, setCombinedRefreshToken] = useState(0);
+
+  const formBatchNumber = combinedRun?.primaryBatchNumber ?? workspaceBatch;
 
   useEffect(() => {
-    if (workspaceOpen && workspaceBatch) {
-      loadPanelOrder(workspaceBatch);
+    if (workspaceOpen && formBatchNumber) {
+      loadPanelOrder(formBatchNumber);
     }
-  }, [workspaceOpen, workspaceBatch, loadPanelOrder]);
+  }, [workspaceOpen, formBatchNumber, loadPanelOrder]);
 
   if (!workspaceOpen || !workspaceBatch) return null;
 
-  const order = panelOrder?.batchNumber === workspaceBatch ? panelOrder : null;
+  const order = panelOrder?.batchNumber === formBatchNumber ? panelOrder : null;
+  const combinedOrderCount = combinedRun?.batchNumbers.length ?? 0;
   const preparing = order ? isPreparing(order, workspaceOpen, workspaceBatch) : false;
   const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [workspaceBatch];
 
@@ -49,6 +55,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
       );
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
+      if (combinedRun) setCombinedRefreshToken((t) => t + 1);
       useSixHiStore.getState().requestQueueRefresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save production data. Please try again.');
@@ -66,6 +73,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
       );
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
+      if (combinedRun) setCombinedRefreshToken((t) => t + 1);
       useSixHiStore.getState().requestQueueRefresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save production data. Please try again.');
@@ -120,10 +128,10 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
           )}
 
           {combinedRun && (
-            <div className="shrink-0 px-4 py-2 bg-success/10 border-b border-success/20 text-success text-sm">
-              <span className="font-bold">Combined production run:</span>{' '}
-              {combinedRun.orders.map((item) => `${item.motherCoil}/${item.slitId ?? '—'} (${item.batchNumber})`).join(', ')}
-            </div>
+            <CombinedProductionOrdersPanel
+              combinedRun={combinedRun}
+              refreshToken={combinedRefreshToken}
+            />
           )}
 
           <div className="flex-1 min-h-0 p-2 overflow-hidden">
@@ -135,6 +143,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
                 workspaceBatch={workspaceBatch}
                 busy={busy}
                 compact
+                combinedOrderCount={combinedOrderCount > 1 ? combinedOrderCount : undefined}
                 onSaveRolling={handleSaveRolling}
                 onSaveSkinPass={handleSaveSkinPass}
               />

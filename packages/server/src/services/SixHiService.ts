@@ -13,6 +13,7 @@ import { ShiftLogService } from './shiftLogService';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
+import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
 import { MachineStateEventService } from './MachineStateEventService';
 import {
   ensureOrderMachineTransferTable,
@@ -187,20 +188,12 @@ export class SixHiService {
   }
 
   static formatPlanDate(value: Date | string): string {
-    const d = value instanceof Date ? value : this.toPlanDate(value);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return formatPlantDate(value);
   }
 
-  /** Parse YYYY-MM-DD as a local calendar date (avoids UTC timezone drift). */
+  /** Parse YYYY-MM-DD at IST midnight. */
   static toPlanDate(value: string | Date): Date {
-    if (value instanceof Date) return value;
-    const raw = String(value).slice(0, 10);
-    const [y, m, d] = raw.split('-').map(Number);
-    if (!y || !m || !d) return new Date(value);
-    return new Date(y, m - 1, d);
+    return parsePlantDateOnly(value);
   }
 
   private static async countMachineBatches(
@@ -1344,7 +1337,7 @@ export class SixHiService {
         finalThk(batch),
       ].join('|');
       if (key !== baseKey) {
-        throw new Error('Selected orders must share Mother Coil, Select ID, Finish, and Final Output Thickness');
+        throw new Error('Selected orders must share Mother Coil, Slit ID, Finish, and Final Output Thickness');
       }
     }
 
@@ -1858,16 +1851,21 @@ export class SixHiService {
     const codes = await db.selectFrom('master.defect_code')
       .selectAll()
       .where('is_active', 'is not', false)
-      .orderBy('defect_code', 'asc')
       .execute();
-    const crm6 = codes.filter((c) => !c.applies_to || c.applies_to.includes('CRM6') || c.applies_to.includes('CRM'));
-    const source = crm6.length > 0 ? crm6 : codes;
-    return source.map(c => ({
+
+    const mapped = codes.map((c) => ({
       defectCode: c.defect_code,
       defectName: c.description,
       category: c.applies_to,
       isActive: c.is_active ?? true,
     }));
+    mapped.sort((a, b) => {
+      const numA = /^\d+$/.test(a.defectCode) ? Number.parseInt(a.defectCode, 10) : Number.MAX_SAFE_INTEGER;
+      const numB = /^\d+$/.test(b.defectCode) ? Number.parseInt(b.defectCode, 10) : Number.MAX_SAFE_INTEGER;
+      if (numA !== numB) return numA - numB;
+      return a.defectCode.localeCompare(b.defectCode, undefined, { numeric: true });
+    });
+    return mapped;
   }
 
   static async saveDefectCode(data: { defectCode: string; defectName: string; category?: string | null }) {

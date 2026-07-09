@@ -1,6 +1,5 @@
 import { db } from '../db';
-
-const PLANT_TZ = 'Asia/Kolkata';
+import { formatPlantDate, plantWallClock } from '@m1/shared-validation';
 
 export type ShiftOverrideReason =
   | 'OVERTIME'
@@ -28,20 +27,24 @@ interface ShiftWindow {
   end_time: string;
 }
 
+/** Plant default shift windows — used when master.shift is empty or unseeded. */
+export const DEFAULT_SHIFT_WINDOWS: ShiftWindow[] = [
+  { shift_code: 'A', name: 'Shift A', start_time: '06:00', end_time: '14:00' },
+  { shift_code: 'B', name: 'Shift B', start_time: '14:00', end_time: '22:00' },
+  { shift_code: 'C', name: 'Shift C', start_time: '22:00', end_time: '06:00' },
+];
+
 function parseTimeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + (m || 0);
 }
 
 function istNow(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: PLANT_TZ }));
+  return plantWallClock();
 }
 
 function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${day}`;
+  return formatPlantDate(d);
 }
 
 function minutesNow(d: Date): number {
@@ -74,13 +77,39 @@ export function resolveShiftFromClock(
     }
   }
 
-  const fallback = windows[0];
+  const fallback = windows[0] ?? DEFAULT_SHIFT_WINDOWS[0];
   return {
-    shiftCode: fallback?.shift_code ?? 'A',
-    shiftName: fallback?.name ?? 'Shift A',
+    shiftCode: fallback.shift_code,
+    shiftName: fallback.name,
     prodDate: today,
     window: fallback,
   };
+}
+
+function mapShiftWindowRows(
+  rows: Array<{ shift_code: string; name: string; start_time: string; end_time: string }>,
+): ShiftWindow[] {
+  return rows.map((r) => ({
+    shift_code: r.shift_code,
+    name: r.name,
+    start_time: String(r.start_time).slice(0, 5),
+    end_time: String(r.end_time).slice(0, 5),
+  }));
+}
+
+async function ensureDefaultShiftWindows(): Promise<void> {
+  await db
+    .insertInto('master.shift')
+    .values(
+      DEFAULT_SHIFT_WINDOWS.map((w) => ({
+        shift_code: w.shift_code,
+        name: w.name,
+        start_time: w.start_time,
+        end_time: w.end_time,
+      })),
+    )
+    .onConflict((oc) => oc.column('shift_code').doNothing())
+    .execute();
 }
 
 async function loadShiftWindows(): Promise<ShiftWindow[]> {
@@ -89,12 +118,20 @@ async function loadShiftWindows(): Promise<ShiftWindow[]> {
     .select(['shift_code', 'name', 'start_time', 'end_time'])
     .orderBy('start_time', 'asc')
     .execute();
-  return rows.map((r) => ({
-    shift_code: r.shift_code,
-    name: r.name,
-    start_time: String(r.start_time).slice(0, 5),
-    end_time: String(r.end_time).slice(0, 5),
-  }));
+
+  if (rows.length > 0) {
+    return mapShiftWindowRows(rows);
+  }
+
+  await ensureDefaultShiftWindows();
+
+  const reloaded = await db
+    .selectFrom('master.shift')
+    .select(['shift_code', 'name', 'start_time', 'end_time'])
+    .orderBy('start_time', 'asc')
+    .execute();
+
+  return reloaded.length > 0 ? mapShiftWindowRows(reloaded) : [...DEFAULT_SHIFT_WINDOWS];
 }
 
 async function latestOverride(

@@ -1,10 +1,10 @@
 import { ShiftBoundaryService } from '../services/ShiftBoundaryService';
+import { plantWallClock } from '@m1/shared-validation';
 
-const PLANT_TZ = 'Asia/Kolkata';
 const BOUNDARY_HOURS_IST = [6, 14, 22];
 
 function istNow(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: PLANT_TZ }));
+  return plantWallClock();
 }
 
 function msUntilNextBoundary(): number {

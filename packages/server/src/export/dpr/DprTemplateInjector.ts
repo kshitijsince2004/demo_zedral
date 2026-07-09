@@ -6,6 +6,7 @@ import { dateString, dprFilename as legacyDprFilename } from '../../dpr/geometry
 import type { DprAreaDayBlock, DprRdm, DelayLogEntry } from '../types/rdm';
 import { areaRow, AREA_TITLE_OFFSET } from './areaGeometry';
 import { zeroAllTemplateInputs, zeroDelaySheetInputs } from './blankDprWorkbook';
+import { formatPlantDate } from '@m1/shared-validation';
 
 /** Excel column numbers for template INPUT cells (1-indexed). */
 const COL = {
@@ -223,10 +224,7 @@ function injectDelaySheet(
 function formatDelayDate(val: ExcelJS.CellValue): string {
   if (val == null) return '';
   if (val instanceof Date) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return formatPlantDate(val);
   }
   const s = String(val);
   const m = s.match(/(\d{2})\.(\d{2})\.(\d{4})/);

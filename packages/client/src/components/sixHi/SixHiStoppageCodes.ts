@@ -45,12 +45,10 @@ async function loadStoppageCodes(): Promise<SixHiStoppageCodeDef[]> {
     .catch(() => {
       // Fallback: return minimal defaults so UI doesn't break
       const fallback: SixHiStoppageCodeDef[] = [
-        { displayCode: '01', categoryCode: 'BREAKDOWN', breakdownCode: 'S_ELEC', label: 'Breakdown', requiresReason: true },
-        { displayCode: '02', categoryCode: 'MATERIAL', label: 'Material Issue', requiresReason: true },
-        { displayCode: '03', categoryCode: 'POWER', label: 'Power Failure', requiresReason: true },
-        { displayCode: '04', categoryCode: 'WR_CHANGE', label: 'Work Roll Change', requiresReason: true, requiresRollChange: true },
-        { displayCode: '05', categoryCode: 'SETUP', label: 'Setup', requiresReason: false },
-        { displayCode: '06', categoryCode: 'QUALITY_HOLD', label: 'Quality Hold', requiresReason: true },
+        { displayCode: '01', categoryCode: '01', label: 'Mechanical', requiresReason: true },
+        { displayCode: '04', categoryCode: '04', label: 'Work Roll Change', requiresReason: true, requiresRollChange: true },
+        { displayCode: '11', categoryCode: '11', label: 'Power Failure', requiresReason: true },
+        { displayCode: '12', categoryCode: '12', label: 'Operational', requiresReason: false },
       ];
       _cachedCodes = fallback;
       return fallback;
@@ -62,12 +60,10 @@ async function loadStoppageCodes(): Promise<SixHiStoppageCodeDef[]> {
 
 /** Backwards-compatible static export — eagerly populated from cache if available. */
 export let SixHi_STOPPAGE_CODES: SixHiStoppageCodeDef[] = _cachedCodes ?? [
-  { displayCode: '01', categoryCode: 'BREAKDOWN', breakdownCode: 'S_ELEC', label: 'Breakdown', requiresReason: true },
-  { displayCode: '02', categoryCode: 'MATERIAL', label: 'Material Issue', requiresReason: true },
-  { displayCode: '03', categoryCode: 'POWER', label: 'Power Failure', requiresReason: true },
-  { displayCode: '04', categoryCode: 'WR_CHANGE', label: 'Work Roll Change', requiresReason: true, requiresRollChange: true },
-  { displayCode: '05', categoryCode: 'SETUP', label: 'Setup', requiresReason: false },
-  { displayCode: '06', categoryCode: 'QUALITY_HOLD', label: 'Quality Hold', requiresReason: true },
+  { displayCode: '01', categoryCode: '01', label: 'Mechanical', requiresReason: true },
+  { displayCode: '04', categoryCode: '04', label: 'Work Roll Change', requiresReason: true, requiresRollChange: true },
+  { displayCode: '11', categoryCode: '11', label: 'Power Failure', requiresReason: true },
+  { displayCode: '12', categoryCode: '12', label: 'Operational', requiresReason: false },
 ];
 
 /** React hook — the preferred way to consume stoppage codes. */

@@ -68,8 +68,14 @@ function RecordForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const { mode, record } = form;
+  const { mode, entity, record } = form;
   const title = mode === 'create' ? 'New Record' : 'Edit Record';
+  const isDefectCode = entity === 'defect_code';
+  const codeLabel = isDefectCode ? 'Defect code' : 'Code';
+  const nameLabel = isDefectCode ? 'Defect name (operator label)' : 'Name';
+  const descriptionLabel = isDefectCode ? 'Symbol (optional)' : 'Description';
+  const namePlaceholder = isDefectCode ? 'e.g. Gauge Variation' : 'Display name';
+  const descriptionPlaceholder = isDefectCode ? 'e.g. GV' : 'Optional description';
 
   return (
     <div
@@ -104,14 +110,14 @@ function RecordForm({
           {/* Code */}
           <div className="flex flex-col gap-1">
             <label htmlFor="record-code" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Code <span aria-hidden="true" className="text-destructive">*</span>
+              {codeLabel} <span aria-hidden="true" className="text-destructive">*</span>
             </label>
             <input
               id="record-code"
               type="text"
               value={record.code ?? ''}
               onChange={(e) => onChange('code', e.target.value)}
-              placeholder="e.g. IS2062"
+              placeholder={isDefectCode ? 'e.g. 1' : 'e.g. IS2062'}
               className="h-14 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               aria-required="true"
             />
@@ -120,14 +126,14 @@ function RecordForm({
           {/* Name */}
           <div className="flex flex-col gap-1">
             <label htmlFor="record-name" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Name <span aria-hidden="true" className="text-destructive">*</span>
+              {nameLabel} <span aria-hidden="true" className="text-destructive">*</span>
             </label>
             <input
               id="record-name"
               type="text"
               value={record.name ?? ''}
               onChange={(e) => onChange('name', e.target.value)}
-              placeholder="Display name"
+              placeholder={namePlaceholder}
               className="h-14 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               aria-required="true"
             />
@@ -136,13 +142,13 @@ function RecordForm({
           {/* Description */}
           <div className="flex flex-col gap-1">
             <label htmlFor="record-description" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Description
+              {descriptionLabel}
             </label>
             <textarea
               id="record-description"
-              value={record.description ?? ''}
-              onChange={(e) => onChange('description', e.target.value)}
-              placeholder="Optional description"
+              value={isDefectCode ? (record.symbol ?? '') : (record.description ?? '')}
+              onChange={(e) => onChange(isDefectCode ? 'symbol' : 'description', e.target.value)}
+              placeholder={descriptionPlaceholder}
               rows={2}
               className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
             />
@@ -314,15 +320,12 @@ export function MasterDataAdmin() {
     setFormSaving(true);
     setFormError(null);
     try {
-      const saved = await adminService.upsertMaster(entity, {
+      await adminService.upsertMaster(entity, {
         ...record,
         isActive: record.isActive ?? true,
       } as MasterRecord);
 
-      setRecords((prev) => {
-        if (mode === 'create') return [...prev, saved];
-        return prev.map((r) => (r.id === saved.id ? saved : r));
-      });
+      await loadRecords(entity);
       setFormState(null);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Save failed. Please try again.');

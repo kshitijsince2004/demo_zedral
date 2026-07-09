@@ -82,8 +82,8 @@ export function MachineAllocationModal({
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {isMulti
-                ? `${primaryOrderId(firstBatch)} · Select ID ${selectIdOf(firstBatch)}`
-                : `Select ID ${selectIdOf(firstBatch)} · Batch ${firstBatch.batchNumber}`}
+                ? `${primaryOrderId(firstBatch)} · Slit ID ${selectIdOf(firstBatch)}`
+                : `Slit ID ${selectIdOf(firstBatch)} · Batch ${firstBatch.batchNumber}`}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">{processLabel} · route {routeCode}</p>
           </div>

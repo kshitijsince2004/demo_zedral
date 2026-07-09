@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { calcPerformance } from '../utils/kpiCalculator';
+import { formatPlantDate } from '@m1/shared-validation';
 
 /** Single source of truth for shift production totals (6HI capture → dashboards). */
 export interface ShiftProductionMetrics {
@@ -17,8 +18,7 @@ export interface ShiftProductionMetrics {
 }
 
 function toPlanDateString(planDate: string | Date): string {
-  if (typeof planDate === 'string') return planDate.slice(0, 10);
-  return planDate.toISOString().slice(0, 10);
+  return formatPlantDate(planDate);
 }
 
 export class ProductionMetricsService {

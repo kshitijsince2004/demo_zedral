@@ -30,12 +30,20 @@ export class MasterDataService {
    * Creates a new master data record.
    */
   static async create(tableName: string, pkColumn: string, data: any) {
-    // Determine if we need to auto-generate a UUID or if it's a serial PK or provided Code
-    const isStringPK = ['master.grade', 'master.surface_finish', 'master.defect_code', 'master.stoppage_code'].includes(tableName);
     let values = { ...data };
-    
+
+    if (tableName === 'master.defect_code') {
+      values = {
+        defect_code: data.defect_code ?? data.code,
+        description: data.description ?? data.name,
+        symbol: data.symbol ?? null,
+        applies_to: data.applies_to ?? data.category ?? 'CRM6',
+        is_active: data.is_active ?? data.isActive ?? true,
+      };
+    }
+
     if (['master.customer', 'master.grade', 'master.defect_code', 'master.stoppage_code', 'master.operator'].includes(tableName)) {
-        values.is_active = true;
+        values.is_active = values.is_active ?? true;
     }
 
     const result = await db.insertInto(tableName as any)
@@ -50,8 +58,23 @@ export class MasterDataService {
    * Updates an existing master data record.
    */
   static async update(tableName: string, pkColumn: string, id: string, data: any) {
+    let values = { ...data };
+    if (tableName === 'master.defect_code') {
+      values = {
+        ...(data.description != null || data.name != null
+          ? { description: data.description ?? data.name }
+          : {}),
+        ...(data.symbol !== undefined ? { symbol: data.symbol } : {}),
+        ...(data.applies_to !== undefined || data.category !== undefined
+          ? { applies_to: data.applies_to ?? data.category }
+          : {}),
+        ...(data.is_active !== undefined || data.isActive !== undefined
+          ? { is_active: data.is_active ?? data.isActive }
+          : {}),
+      };
+    }
     await db.updateTable(tableName as any)
-      .set(data)
+      .set(values)
       .where(pkColumn as any, '=', id)
       .execute();
   }

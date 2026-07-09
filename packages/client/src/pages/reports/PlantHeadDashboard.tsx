@@ -12,7 +12,7 @@ import { machineHandoverService, type HandoverOverviewRow } from '../../services
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
 import { ZButton } from '../../components/primitives/ZButton';
 import { Download } from 'lucide-react';
-import { currentPlantDate } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 
 function formatDuration(minutes?: number): string {
   if (minutes == null || minutes < 0) return '—';
@@ -265,12 +265,12 @@ export function PlantHeadDashboard() {
                         <div className="space-y-1 text-xs text-muted-foreground mt-2">
                           <div>
                             <span className="font-medium">Shift Start Time:</span>{' '}
-                            {new Date(h.shiftStartAt ?? h.createdAt).toLocaleString()}
+                            {formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}
                           </div>
                           {h.shiftEndAt && (
                             <div>
                               <span className="font-medium text-emerald-600">Shift End Time:</span>{' '}
-                              {new Date(h.shiftEndAt).toLocaleString()}
+                              {formatPlantDateTime(h.shiftEndAt)}
                             </div>
                           )}
                           {h.shiftDurationMinutes != null && (

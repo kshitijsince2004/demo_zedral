@@ -6,6 +6,7 @@ import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
 import { resolveShiftSinceTime, formatDurationMinutes } from '../validation/manufacturingValidation';
 import type { BoundaryShiftContext } from './ShiftBoundaryService';
+import { formatPlantDate } from '@m1/shared-validation';
 
 export type MachineHandoverStatus =
   | 'RUNNING'
@@ -23,11 +24,7 @@ function normalizeHandoverPriority(priority?: HandoverPriority): 'LOW' | 'MEDIUM
 }
 
 function formatProdDate(value: Date | string): string {
-  if (typeof value === 'string') return value.slice(0, 10);
-  const y = value.getFullYear();
-  const mo = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${day}`;
+  return formatPlantDate(value);
 }
 
 export interface OutgoingHandoverInput {
@@ -316,7 +313,7 @@ export class MachineHandoverService {
       },
       nextShift: {
         shiftCode: nextShiftCode,
-        prodDate: nextProdDate.toISOString().slice(0, 10),
+        prodDate: formatProdDate(nextProdDate),
       },
     };
   }
@@ -400,7 +397,7 @@ export class MachineHandoverService {
         outgoing_shift_code: preview.shift.shiftCode,
         incoming_shift_code: nextShiftCode,
         outgoing_prod_date: preview.shift.prodDate,
-        incoming_prod_date: nextProdDate.toISOString().slice(0, 10),
+        incoming_prod_date: formatProdDate(nextProdDate),
         outgoing_operator_id: operatorUserId,
         machine_status: input.machineStatus ?? preview.machineStatus,
         breakdown_code: input.breakdownCode ?? null,
@@ -495,7 +492,7 @@ export class MachineHandoverService {
           outgoing_shift_code: preview.shift.shiftCode,
           incoming_shift_code: nextShiftCode,
           outgoing_prod_date: preview.shift.prodDate,
-          incoming_prod_date: nextProdDate.toISOString().slice(0, 10),
+          incoming_prod_date: formatProdDate(nextProdDate),
           outgoing_operator_id: operatorUserId,
           machine_status: input.machineStatus,
           breakdown_code: input.breakdownCode ?? null,
@@ -715,7 +712,7 @@ export class MachineHandoverService {
 
     const mapRow = async (h: typeof pending[0]) => {
       const prodDate = h.outgoing_prod_date instanceof Date
-        ? h.outgoing_prod_date.toISOString().slice(0, 10)
+        ? formatProdDate(h.outgoing_prod_date)
         : String(h.outgoing_prod_date).slice(0, 10);
 
       const session = await db

@@ -9,14 +9,14 @@ import {
   resolveShiftWindowBounds,
 } from '../validation/manufacturingValidation';
 import { publishDowntimeLogged } from '../platform/m1Events';
+import { plantClockDate } from '@m1/shared-validation';
 
 function parseTimeToDate(time: string): Date {
   return new Date(`1970-01-01T${time}`);
 }
 
 function clockTimeToDate(prodDate: Date, time: string): Date {
-  const [h, m] = time.trim().slice(0, 5).split(':').map(Number);
-  return new Date(prodDate.getFullYear(), prodDate.getMonth(), prodDate.getDate(), h ?? 0, m ?? 0, 0, 0);
+  return plantClockDate(prodDate, time);
 }
 
 export class StoppageService {

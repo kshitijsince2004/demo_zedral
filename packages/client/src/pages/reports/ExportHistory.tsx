@@ -11,6 +11,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { reportingService, type ExportJobView, type ExportType } from '../../lib/reportingService';
 import { getAuthHeaders } from '../../lib/apiClient';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 const TYPE_OPTIONS: Array<{ value: '' | ExportType; label: string }> = [
   { value: '', label: 'All types' },
@@ -124,7 +125,7 @@ export function ExportHistory({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="font-mono text-xs truncate">{job.jobId}</span>
                   <span className="text-muted-foreground text-xs">
-                    {job.type ?? 'RAW'} · {new Date(job.createdAt).toLocaleString()}
+                    {job.type ?? 'RAW'} · {formatPlantDateTime(job.createdAt)}
                     {job.rowCount != null ? ` · ${job.rowCount} rows` : ''}
                   </span>
                   {job.dataVersion && (

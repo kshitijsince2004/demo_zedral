@@ -24,6 +24,7 @@ import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
 import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import { resolveCombinedStoppageTargets } from '../../lib/combinedProductionRun';
 
 function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
   if (!active) return undefined;
@@ -63,6 +64,7 @@ export function SixHiLayout() {
     closeStoppageDialog,
     openStoppageDialog,
     manualStoppage,
+    setCombinedRun,
   } = useSixHiStore();
 
   const [rejectionOpen, setRejectionOpen] = useState(false);
@@ -127,7 +129,7 @@ export function SixHiLayout() {
     });
   }, []);
 
-  const activeBatch = workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
+  const activeBatch = combinedRun?.primaryBatchNumber ?? workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
   const stoppageBatch = stoppageModalBatch ?? activeBatch;
   const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : activeBatch ? [activeBatch] : [];
   const modalOrderLabel = combinedRun
@@ -239,6 +241,7 @@ export function SixHiLayout() {
                 )),
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);
+              setCombinedRun(null);
               closeWorkspace();
             } catch (err) {
               if (err instanceof ApiError && err.status === 400) {
@@ -269,6 +272,7 @@ export function SixHiLayout() {
               )),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
+            setCombinedRun(null);
             closeWorkspace();
           }}
         />
@@ -317,8 +321,9 @@ export function SixHiLayout() {
           initialRollOutCode={panelOrder?.rolling?.rollOutCode}
           onClose={closeStoppageDialog}
           onStart={async (categoryCode, breakdownCode, remarks) => {
+            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'start', stoppageBatch);
             await runOrderAction(stoppageBatch, async () =>
-              Promise.all(actionBatchNumbers.map((batchNumber) =>
+              Promise.all(targets.map((batchNumber) =>
                 apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages`, {
                   categoryCode,
                   breakdownCode,
@@ -329,8 +334,9 @@ export function SixHiLayout() {
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
+            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'manage', stoppageBatch);
             await runOrderAction(stoppageBatch, async () =>
-              Promise.all(actionBatchNumbers.map(async (batchNumber) => {
+              Promise.all(targets.map(async (batchNumber) => {
                 const targetStoppageId = batchNumber === activeBatch
                   ? stoppageId
                   : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
@@ -343,9 +349,9 @@ export function SixHiLayout() {
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onEnd={async (stoppageId, categoryCode, breakdownCode, remarks) => {
+            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'manage', stoppageBatch);
             await runOrderAction(stoppageBatch, async () => {
-              // first update the details
-              await Promise.all(actionBatchNumbers.map(async (batchNumber) => {
+              await Promise.all(targets.map(async (batchNumber) => {
                 const targetStoppageId = batchNumber === activeBatch
                   ? stoppageId
                   : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
@@ -355,7 +361,6 @@ export function SixHiLayout() {
                 });
                 return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}/end`, {});
               }));
-              // then end it
               return null;
             });
             if (shiftLogId) await loadShiftSummary(shiftLogId);

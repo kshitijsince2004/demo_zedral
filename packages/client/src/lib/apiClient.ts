@@ -85,6 +85,23 @@ function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
   return isRecord(value) && 'data' in value && 'errors' in value;
 }
 
+function formatApiError(parsed: unknown, status: number): string {
+  if (!isRecord(parsed)) return `Request failed (${status})`;
+  const direct = parsed.error ?? parsed.message;
+  if (typeof direct === 'string') return direct;
+  if (isRecord(direct)) {
+    const formErrors = Array.isArray(direct.formErrors) ? direct.formErrors.filter((e): e is string => typeof e === 'string') : [];
+    const fieldErrors = isRecord(direct.fieldErrors)
+      ? Object.entries(direct.fieldErrors).flatMap(([field, messages]) =>
+          Array.isArray(messages) ? messages.map((m) => `${field}: ${String(m)}`) : [],
+        )
+      : [];
+    const parts = [...formErrors, ...fieldErrors];
+    if (parts.length > 0) return parts.join('; ');
+  }
+  return `Request failed (${status})`;
+}
+
 let refreshInFlight: Promise<string | null> | null = null;
 /** Bumped on login/logout so stale 401 responses cannot clear a fresh session. */
 let authGeneration = 0;
@@ -201,10 +218,7 @@ async function request<T = unknown>(path: string, options: RequestOptions = {}):
   }
 
   if (!res.ok && !raw) {
-    const message =
-      isRecord(parsed) && typeof (parsed.error ?? parsed.message) === 'string'
-        ? String(parsed.error ?? parsed.message)
-        : `Request failed (${res.status})`;
+    const message = formatApiError(parsed, res.status);
     throw new ApiError(message, res.status, parsed);
   }
 

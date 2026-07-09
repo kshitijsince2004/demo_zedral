@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import useSWR from 'swr';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
-import { apiClient, ApiError } from '../../lib/apiClient';
 import { AlertTriangle, X } from 'lucide-react';
-import type { MasterDefectCode } from '@m1/shared-validation';
+import { DefectTagSelector } from './DefectTagSelector';
+import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
 
 const REJECTION_REASONS = [
   { value: 'QUALITY_ISSUE', label: 'Quality Issue' },
@@ -32,15 +31,10 @@ interface OrderRejectionModalProps {
 export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtitle, onClose, onReject }: OrderRejectionModalProps) {
   const [rejectionReason, setRejectionReason] = useState<string>(REJECTION_REASONS[0].value);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [otherDefectRemarks, setOtherDefectRemarks] = useState('');
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const { data: defectsData } = useSWR(open ? '/6hi/master/defect-codes' : null, async (url) => {
-    return apiClient.get(url) as Promise<MasterDefectCode[]>;
-  });
-
-  const defects = Array.isArray(defectsData) ? defectsData : [];
 
   if (!open) return null;
 
@@ -50,26 +44,32 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
     );
   };
 
+  const defectCodesForSubmit = () => {
+    if (!selectedTags.includes(DEFECT_OTHER_CODE)) return selectedTags;
+    const other = otherDefectRemarks.trim();
+    return other ? [...selectedTags.filter((c) => c !== DEFECT_OTHER_CODE), `OTHER:${other}`] : selectedTags;
+  };
+
   const handleSubmit = async () => {
     if (!remarks.trim()) {
       setError('Rejection remarks are required');
       return;
     }
+    if (selectedTags.includes(DEFECT_OTHER_CODE) && !otherDefectRemarks.trim()) {
+      setError('Please enter remarks for the Other defect');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await onReject(batchNumber, rejectionReason, selectedTags, remarks.trim());
+      await onReject(batchNumber, rejectionReason, defectCodesForSubmit(), remarks.trim());
       onClose();
       setRejectionReason(REJECTION_REASONS[0].value);
       setSelectedTags([]);
+      setOtherDefectRemarks('');
       setRemarks('');
     } catch (err: unknown) {
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Order rejection failed';
+      const message = err instanceof Error ? err.message : 'Order rejection failed';
       setError(message);
     } finally {
       setBusy(false);
@@ -125,30 +125,14 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
 
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-foreground">Defect Selection</h4>
-            {defects.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">Loading defect codes…</p>
-            ) : (
-              <div className="flex flex-wrap gap-2 max-h-40 overflow-auto">
-                {defects.map((d) => {
-                  const selected = selectedTags.includes(d.defectCode);
-                  return (
-                    <button
-                      key={d.defectCode}
-                      type="button"
-                      onClick={() => toggleTag(d.defectCode)}
-                      className={[
-                        'px-3 py-2 rounded-lg border text-sm font-semibold transition-colors',
-                        selected
-                          ? 'bg-destructive text-white border-destructive'
-                          : 'bg-white text-foreground border-border hover:bg-secondary',
-                      ].join(' ')}
-                    >
-                      {d.defectCode} - {d.defectName}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <DefectTagSelector
+              enabled={open}
+              selected={selectedTags}
+              onToggle={toggleTag}
+              otherRemarks={otherDefectRemarks}
+              onOtherRemarksChange={setOtherDefectRemarks}
+              variant="reject"
+            />
           </div>
 
           <FieldWrapper label="Remarks" required>

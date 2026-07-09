@@ -8,5 +8,6 @@ export * from './rules/fieldRegistry';
 export * from './rules/configurableRuleEvaluator';
 export * from './rules/m1Forms';
 export * from './utils/calculationEngine';
+export * from './utils/plantTime';
 
 export const isSharedValidationWorking = (): boolean => true;

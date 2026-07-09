@@ -13,6 +13,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Package, Users, Wrench,
   ChevronRight, ChevronDown, Lock, Edit3, AlertCircle, Zap, BarChart2,
 } from 'lucide-react';
+import { formatPlantDateTime } from '../../lib/dateFormat';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ export function CrmOutgoingHandoverPage() {
   const scheduledShiftStart = p.shift.windowStart ?? '—';
   const scheduledShiftEnd = p.shift.windowEnd ?? '—';
   const actualSessionStart = p.shift.actualSessionStartAt
-    ? new Date(p.shift.actualSessionStartAt).toLocaleString()
+    ? formatPlantDateTime(p.shift.actualSessionStartAt)
     : '—';
 
   function formatMin(min?: number) {

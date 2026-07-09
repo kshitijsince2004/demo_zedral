@@ -107,6 +107,52 @@ const MASTER_ENTITY_API_SLUG: Record<MasterEntity, string> = {
   furnace: 'furnaces',
 };
 
+function masterRecordToApi(entity: MasterEntity, record: MasterRecord): Record<string, unknown> {
+  const active = record.isActive !== false;
+  switch (entity) {
+    case 'defect_code':
+      return {
+        defect_code: record.code.trim(),
+        description: (record.description?.trim() || record.name.trim()),
+        symbol: (record.symbol as string | undefined)?.trim() || null,
+        applies_to: (record.applies_to as string | undefined)?.trim() || 'CRM6',
+        is_active: active,
+      };
+    case 'stoppage_category':
+      return {
+        category_code: record.code.trim(),
+        label: (record.description?.trim() || record.name.trim()),
+        is_active: active,
+      };
+    case 'stoppage_code':
+      return {
+        stoppage_code: record.code.trim(),
+        description: (record.description?.trim() || record.name.trim()),
+        is_active: active,
+      };
+    case 'grade':
+      return {
+        grade_code: record.code.trim(),
+        description: record.description?.trim() || record.name.trim(),
+        is_active: active,
+      };
+    case 'customer':
+      return {
+        customer_code: record.code.trim(),
+        customer_name: record.name.trim(),
+        is_active: active,
+      };
+    case 'operator':
+      return {
+        emp_code: record.code.trim(),
+        full_name: record.name.trim(),
+        is_active: active,
+      };
+    default:
+      return { ...record, is_active: active };
+  }
+}
+
 function masterPath(entity: MasterEntity, suffix = ''): string {
   return `/master-data/${MASTER_ENTITY_API_SLUG[entity]}${suffix}`;
 }
@@ -162,8 +208,10 @@ function normalizeMasterRecord(
         ...row,
         id: String(row.defect_code ?? ''),
         code: String(row.defect_code ?? ''),
-        name: String(row.defect_code ?? ''),
+        name: String(row.description ?? row.defect_code ?? ''),
         description: String(row.description ?? ''),
+        symbol: row.symbol != null ? String(row.symbol) : undefined,
+        applies_to: row.applies_to != null ? String(row.applies_to) : 'CRM6',
         isActive: active,
         is_active: active,
       };
@@ -297,10 +345,11 @@ export const adminService = {
   },
 
   upsertMaster(entity: MasterEntity, record: MasterRecord): Promise<MasterRecord> {
+    const payload = masterRecordToApi(entity, record);
     if (record.id) {
-      return apiClient.put<MasterRecord>(`${masterPath(entity)}/${record.id}`, record);
+      return apiClient.put<MasterRecord>(`${masterPath(entity)}/${record.id}`, payload);
     }
-    return apiClient.post<MasterRecord>(masterPath(entity), record);
+    return apiClient.post<MasterRecord>(masterPath(entity), payload);
   },
 
   async setMasterActive(

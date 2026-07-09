@@ -2,6 +2,7 @@ import { canonicalWriteback, buildEventEnvelope, getEventBus } from '@zedral/pla
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { findEquipmentAssetIdByProcessCode, findFirstEquipmentAssetId } from './canonicalRead';
+import { plantClockDate, formatPlantDate } from '@m1/shared-validation';
 
 const PROCESS_ASSET_MAP: Record<string, string> = {
   '6HI': '101',
@@ -19,10 +20,7 @@ function requireTenantId(): string {
 }
 
 function dateAtClockTime(prodDate: Date, time: string): Date {
-  const [hourRaw, minuteRaw] = time.slice(0, 5).split(':');
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
-  return new Date(prodDate.getFullYear(), prodDate.getMonth(), prodDate.getDate(), hour, minute, 0, 0);
+  return plantClockDate(prodDate, time);
 }
 
 async function resolveProcessCode(processId: number): Promise<string | null> {
@@ -195,7 +193,7 @@ export async function publishDowntimeLogged(input: {
         fromTime: input.fromTime,
         toTime: input.toTime,
         durationMin: input.durationMin,
-        prodDate: input.prodDate.toISOString().slice(0, 10),
+        prodDate: formatPlantDate(input.prodDate),
         lineageRef,
       },
     }),

@@ -1,4 +1,10 @@
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
+import {
+  addPlantDays,
+  formatPlantDate,
+  plantClockDate,
+  plantMinutesOfDay,
+} from '@m1/shared-validation';
 
 export class ManufacturingValidationError extends Error {
   constructor(message: string) {
@@ -42,28 +48,64 @@ export function resolveShiftWindowBounds(
   shiftStartTime: string,
   shiftEndTime: string,
 ): { start: Date; end: Date; durationMinutes: number } {
-  const date = prodDate instanceof Date ? prodDate : new Date(prodDate);
-  const y = date.getFullYear();
-  const m = date.getMonth();
-  const d = date.getDate();
-
-  const parse = (t: string) => {
-    const [h, min] = t.trim().slice(0, 5).split(':').map(Number);
-    return { h: h ?? 0, min: min ?? 0 };
-  };
-
-  const startParts = parse(shiftStartTime);
-  const endParts = parse(shiftEndTime);
-  const start = new Date(y, m, d, startParts.h, startParts.min, 0, 0);
-  let end = new Date(y, m, d, endParts.h, endParts.min, 0, 0);
+  const date = formatPlantDate(prodDate);
+  const start = plantClockDate(date, shiftStartTime);
+  let end = plantClockDate(date, shiftEndTime);
   if (end.getTime() <= start.getTime()) {
-    end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    end = plantClockDate(addPlantDays(date, 1), shiftEndTime);
   }
 
   return {
     start,
     end,
     durationMinutes: calcShiftDurationMinutes(shiftStartTime, shiftEndTime),
+  };
+}
+
+export interface ShiftWindowSpec {
+  shift_code: string;
+  start_time: string;
+  end_time: string;
+}
+
+function parseClockTimeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/** Resolve which shift window contains an instant, using IST wall clock. */
+export function resolveShiftFromInstant(
+  windows: ShiftWindowSpec[],
+  at: Date,
+): { prodDate: string; startTime: string; endTime: string } | null {
+  if (windows.length === 0) return null;
+
+  const nowMin = plantMinutesOfDay(at);
+  const today = formatPlantDate(at);
+  const yesterday = addPlantDays(today, -1);
+
+  for (const w of windows) {
+    const start = parseClockTimeToMinutes(w.start_time);
+    const end = parseClockTimeToMinutes(w.end_time);
+    const overnight = end <= start;
+
+    if (overnight) {
+      if (nowMin >= start) {
+        return { prodDate: today, startTime: w.start_time, endTime: w.end_time };
+      }
+      if (nowMin < end) {
+        return { prodDate: yesterday, startTime: w.start_time, endTime: w.end_time };
+      }
+    } else if (nowMin >= start && nowMin < end) {
+      return { prodDate: today, startTime: w.start_time, endTime: w.end_time };
+    }
+  }
+
+  const fallback = windows[0];
+  return {
+    prodDate: today,
+    startTime: fallback.start_time,
+    endTime: fallback.end_time,
   };
 }
 
@@ -100,16 +142,24 @@ export function assertWithinShiftWindow(
 }
 
 /** Validate stoppage start is inside shift; allow end after shift closes so operators can always end active stops. */
+export function stoppageStartWithinShift(
+  intervalStart: Date,
+  shiftStart: Date,
+  shiftEnd: Date,
+): boolean {
+  const toleranceMs = 60_000;
+  return (
+    intervalStart.getTime() >= shiftStart.getTime() - toleranceMs &&
+    intervalStart.getTime() <= shiftEnd.getTime() + toleranceMs
+  );
+}
+
 export function assertStoppageStartWithinShift(
   intervalStart: Date,
   shiftStart: Date,
   shiftEnd: Date,
 ): void {
-  const toleranceMs = 60_000;
-  if (intervalStart.getTime() < shiftStart.getTime() - toleranceMs) {
-    throw new ManufacturingValidationError('Stoppage start is outside the shift window');
-  }
-  if (intervalStart.getTime() > shiftEnd.getTime() + toleranceMs) {
+  if (!stoppageStartWithinShift(intervalStart, shiftStart, shiftEnd)) {
     throw new ManufacturingValidationError('Stoppage start is outside the shift window');
   }
 }

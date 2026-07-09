@@ -6,11 +6,22 @@ async function main() {
   });
   await client.connect();
 
-  const resProcess = await client.query('SELECT * FROM master.process');
-  console.log('Processes:', resProcess.rowCount);
+  console.log("=== Tables ===");
+  const tables = await client.query(`
+    SELECT table_schema, table_name 
+    FROM information_schema.tables 
+    WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+    ORDER BY table_schema, table_name;
+  `);
+  console.log(JSON.stringify(tables.rows, null, 2));
 
-  const resCoils = await client.query('SELECT * FROM coil.coil');
-  console.log('Coils:', resCoils.rowCount);
+  console.log("\n=== Users ===");
+  const users = await client.query("SELECT * FROM security.app_user LIMIT 10;");
+  console.log(JSON.stringify(users.rows, null, 2));
+
+  console.log("\n=== Shifts ===");
+  const shifts = await client.query("SELECT * FROM master.shift;");
+  console.log(JSON.stringify(shifts.rows, null, 2));
 
   await client.end();
 }
