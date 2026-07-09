@@ -1,4 +1,5 @@
 import {
+  Activity,
   Battery,
   BatteryCharging,
   BatteryFull,
@@ -22,6 +23,7 @@ function batteryIcon(level: number, charging: boolean) {
 
 function batteryTone(level: number, charging: boolean): string {
   if (charging) return 'text-success';
+  if (level < 0) return 'text-muted-foreground/60';
   if (level < 20) return 'text-destructive';
   if (level < 40) return 'text-warning';
   return 'text-muted-foreground';
@@ -46,34 +48,41 @@ function wifiLabel(bars: number, connected: boolean, rssi: number): string {
   return `Wi‑Fi signal ${bars}/4 (${rssi} dBm)`;
 }
 
+/** Battery + Wi‑Fi indicators for the operator Android APK status rail only. */
 export function DeviceStatusIndicators() {
   const status = useAndroidDeviceStatus();
 
-  if (!isAndroidApk() || !status) return null;
+  if (!isAndroidApk()) return null;
 
   const BatteryIcon = batteryIcon(status.batteryLevel, status.isCharging);
   const WifiIcon = wifiIcon(status.wifiBars, status.wifiConnected);
   const batteryPct = status.batteryLevel >= 0 ? `${status.batteryLevel}%` : '—';
 
   return (
-    <div className="hidden sm:flex items-center gap-2 pr-1 border-r border-border mr-1">
+    <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Activity className="h-3.5 w-3.5 text-info animate-pulse" aria-hidden />
+        <span className="text-[10px] uppercase tracking-[0.12em] font-medium">Live</span>
+      </div>
+
       <div
         className={`flex items-center gap-1 ${batteryTone(status.batteryLevel, status.isCharging)}`}
         title={status.isCharging ? `Battery ${batteryPct} — charging` : `Battery ${batteryPct}`}
         aria-label={status.isCharging ? `Battery ${batteryPct}, charging` : `Battery ${batteryPct}`}
       >
-        <BatteryIcon className="h-4 w-4 shrink-0" aria-hidden />
-        <span className="font-mono text-[11px] font-semibold tabular-nums">{batteryPct}</span>
+        <BatteryIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="font-mono text-[10px] font-bold tabular-nums min-w-[2ch]">{batteryPct}</span>
       </div>
+
       <div
         className={`flex items-center gap-1 ${wifiTone(status.wifiBars, status.wifiConnected)}`}
         title={wifiLabel(status.wifiBars, status.wifiConnected, status.wifiRssi)}
         aria-label={wifiLabel(status.wifiBars, status.wifiConnected, status.wifiRssi)}
       >
-        <WifiIcon className="h-4 w-4 shrink-0" aria-hidden />
-        {status.wifiConnected && status.wifiBars > 0 && (
-          <span className="font-mono text-[11px] font-semibold tabular-nums">{status.wifiBars}/4</span>
-        )}
+        <WifiIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="font-mono text-[10px] font-bold tabular-nums min-w-[2ch]">
+          {status.wifiConnected ? `${Math.max(status.wifiBars, 1)}/4` : '—'}
+        </span>
       </div>
     </div>
   );

@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Network } from '@capacitor/network';
-import { isAndroidApk, readDeviceStatus, type DeviceStatusSnapshot } from '../operator/native/deviceStatus';
+import {
+  EMPTY_DEVICE_STATUS,
+  isAndroidApk,
+  readDeviceStatus,
+  type DeviceStatusSnapshot,
+} from '../operator/native/deviceStatus';
 
-const POLL_MS = 30_000;
+const POLL_MS = 15_000;
 
-export function useAndroidDeviceStatus(): DeviceStatusSnapshot | null {
-  const [status, setStatus] = useState<DeviceStatusSnapshot | null>(null);
+export function useAndroidDeviceStatus(): DeviceStatusSnapshot {
+  const [status, setStatus] = useState<DeviceStatusSnapshot>(EMPTY_DEVICE_STATUS);
 
   useEffect(() => {
     if (!isAndroidApk()) return;
@@ -14,7 +19,7 @@ export function useAndroidDeviceStatus(): DeviceStatusSnapshot | null {
 
     const poll = async () => {
       const next = await readDeviceStatus();
-      if (!cancelled && next) setStatus(next);
+      if (!cancelled) setStatus(next);
     };
 
     void poll();

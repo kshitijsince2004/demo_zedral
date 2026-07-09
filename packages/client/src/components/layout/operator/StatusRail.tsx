@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
-import { Activity, CircleStop, Moon, PauseCircle } from 'lucide-react';
+import { CircleStop, Moon, PauseCircle } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
 import { useSixHiStore } from '../../../store/sixHiStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
@@ -170,10 +170,6 @@ export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
           ) : (
             <ZBadge tone="muted" label="Idle" dot />
           )}
-          <div className="hidden sm:flex items-center gap-1.5 text-muted-foreground">
-            <Activity className="h-3.5 w-3.5 text-info" aria-hidden />
-            <span className="text-[10px] uppercase tracking-[0.12em] font-medium">Live</span>
-          </div>
           <DeviceStatusIndicators />
           <SyncStatusBadge />
           <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">

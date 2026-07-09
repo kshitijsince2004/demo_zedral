@@ -6,10 +6,12 @@ import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -18,6 +20,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "DeviceStatus")
 public class DeviceStatusPlugin extends Plugin {
+    private static final String TAG = "DeviceStatusPlugin";
 
     @PluginMethod
     public void getStatus(PluginCall call) {
@@ -28,62 +31,78 @@ public class DeviceStatusPlugin extends Plugin {
         }
 
         JSObject ret = new JSObject();
-        ret.put("batteryLevel", readBatteryLevel(ctx));
-        ret.put("isCharging", readIsCharging(ctx));
+        try {
+            int batteryLevel = readBatteryLevel(ctx);
+            boolean isCharging = readIsCharging(ctx);
+            
+            ret.put("batteryLevel", batteryLevel);
+            ret.put("isCharging", isCharging);
 
-        boolean wifiConnected = false;
-        String connectionType = "unknown";
-        int rssi = -127;
+            boolean wifiConnected = false;
+            String connectionType = "none";
+            int rssi = -127;
 
-        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm != null) {
-            Network active = cm.getActiveNetwork();
-            if (active != null) {
-                NetworkCapabilities caps = cm.getNetworkCapabilities(active);
-                if (caps != null) {
-                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                        wifiConnected = true;
-                        connectionType = "wifi";
-                    } else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-                        connectionType = "cellular";
-                    } else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
-                        connectionType = "ethernet";
-                    } else if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                        connectionType = "none";
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Network active = cm.getActiveNetwork();
+                    if (active != null) {
+                        NetworkCapabilities caps = cm.getNetworkCapabilities(active);
+                        if (caps != null) {
+                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                                wifiConnected = true;
+                                connectionType = "wifi";
+                            } else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                                connectionType = "cellular";
+                            } else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                                connectionType = "ethernet";
+                            }
+                        }
+                    }
+                } else {
+                    NetworkInfo info = cm.getActiveNetworkInfo();
+                    if (info != null && info.isConnected()) {
+                        wifiConnected = info.getType() == ConnectivityManager.TYPE_WIFI;
+                        connectionType = info.getTypeName().toLowerCase();
                     }
                 }
-            } else {
-                connectionType = "none";
             }
-        }
 
-        if (wifiConnected) {
-            WifiManager wm = (WifiManager) ctx.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm != null) {
-                WifiInfo info = wm.getConnectionInfo();
-                if (info != null) {
-                    rssi = info.getRssi();
+            if (wifiConnected) {
+                WifiManager wm = (WifiManager) ctx.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm != null) {
+                    WifiInfo info = wm.getConnectionInfo();
+                    if (info != null) {
+                        rssi = info.getRssi();
+                    }
                 }
             }
-        }
 
-        ret.put("wifiConnected", wifiConnected);
-        ret.put("connectionType", connectionType);
-        ret.put("wifiRssi", rssi);
-        ret.put("wifiBars", wifiBarsFromRssi(rssi, wifiConnected));
-        call.resolve(ret);
+            ret.put("wifiConnected", wifiConnected);
+            ret.put("connectionType", connectionType);
+            ret.put("wifiRssi", rssi);
+            ret.put("wifiBars", wifiBarsFromRssi(rssi, wifiConnected));
+            
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting device status", e);
+            call.reject(e.getMessage());
+        }
     }
 
     private static int readBatteryLevel(Context ctx) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
-            if (bm != null) {
-                return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-            }
-        }
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         Intent batteryStatus = ctx.registerReceiver(null, filter);
-        if (batteryStatus == null) return -1;
+        if (batteryStatus == null) {
+            // Fallback for some devices if receiver fails
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
+                if (bm != null) {
+                    return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                }
+            }
+            return -1;
+        }
         int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
         int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
         if (level < 0 || scale <= 0) return -1;
@@ -100,11 +119,14 @@ public class DeviceStatusPlugin extends Plugin {
     }
 
     private static int wifiBarsFromRssi(int rssi, boolean connected) {
-        if (!connected || rssi <= -127) return 0;
+        if (!connected) return 0;
+        // RSSI range is typically -100 to -50
+        // We handle -127 as "unknown/bad"
+        if (rssi <= -100 || rssi == -127) return 0;
         if (rssi >= -55) return 4;
-        if (rssi >= -66) return 3;
-        if (rssi >= -77) return 2;
-        if (rssi >= -88) return 1;
+        if (rssi >= -70) return 3;
+        if (rssi >= -85) return 2;
+        if (rssi >= -95) return 1;
         return 0;
     }
 }

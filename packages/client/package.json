@@ -13,7 +13,7 @@
     "android:sync": "npm run build:operator && npx cap sync android",
     "android:icons": "python android/scripts/generate_launcher_icons.py",
     "android:open": "npx cap open android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
+    "android:apk": "npm run android:sync && node scripts/assemble-android-apk.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest --run"

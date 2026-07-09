@@ -10,6 +10,7 @@ const required = [
   '/6hi/manual-stoppage',
   'Manage Manual Stoppage',
   'Start Stoppage',
+  'DeviceStatus',
 ];
 
 function walk(dir, visit) {
