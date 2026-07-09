@@ -79,7 +79,7 @@ The **Deploy to AWS EC2** workflow (`.github/workflows/deploy-aws.yml`):
 
 - Triggers automatically when CI succeeds on `main`
 - Can be manually dispatched with optional `skip_migrate`
-- SSHs to EC2, runs `deploy/vm-deploy.sh`, verifies `/health`
+- Runs on EC2 self-hosted runner: rsync checkout → `deploy/vm-deploy.sh` → verifies `/health`
 
 ### Manual deploy
 

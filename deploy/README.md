@@ -21,22 +21,17 @@ Internet → :443 host TLS (optional) → :80 docker nginx → backend:3005 → 
 ```mermaid
 flowchart TD
   A[CI succeeds on main] --> B[deploy-aws workflow]
-  B --> C[SSH to EC2]
-  C --> D[curl deploy/vm-deploy.sh]
-  D --> E{Repo exists?}
-  E -->|No| F[git clone to APP_BASE]
-  E -->|Yes| G[resolve_repo_root]
-  F --> G
-  G --> H{Path}
-  H -->|Case A| I["/opt/zedralv2/.git"]
-  H -->|Case B| J["/opt/zedralv2/<repo>/.git"]
-  I --> K[validate Docker + .env]
-  J --> K
-  K --> L[git fetch + reset --hard]
-  L --> M[docker compose pull + up --build]
-  M --> N[health: containers + /health]
-  N --> O[record .last-good-sha]
-  O --> P[External smoke AWS_PUBLIC_URL]
+  B --> C[Self-hosted runner on EC2]
+  C --> D[rsync checkout to APP_BASE]
+  D --> E[vm-deploy.sh]
+  E --> F{Repo exists?}
+  F -->|No| G[bootstrap_repo_if_missing]
+  F -->|Yes| H[validate Docker + .env]
+  G --> H
+  H --> I[docker compose up --build]
+  I --> J[health: containers + /health]
+  J --> K[record .last-good-sha]
+  K --> L[External smoke AWS_PUBLIC_URL]
 ```
 
 ## Repository layout on VM
