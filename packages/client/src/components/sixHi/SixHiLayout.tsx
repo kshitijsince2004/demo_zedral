@@ -197,6 +197,7 @@ export function SixHiLayout() {
         workspaceOpen,
         workspaceBatch,
         busy,
+        combinedRun,
         onStart: handleStart,
         onEnd: handleEnd,
         onReject: () => setRejectionOpen(true),

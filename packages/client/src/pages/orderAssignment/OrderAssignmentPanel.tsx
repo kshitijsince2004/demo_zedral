@@ -79,8 +79,6 @@ export function OrderAssignmentPanel() {
     if (!silent) {
       setLoading(true);
       setError(null);
-    } else {
-      setSyncing(true);
     }
     try {
       const data = await apiClient.get<AssignmentBoard>('/6hi/order-assignment');
@@ -94,7 +92,6 @@ export function OrderAssignmentPanel() {
       if (!silent) setError(err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
       if (!silent) setLoading(false);
-      setSyncing(false);
     }
   }, []);
 
@@ -211,7 +208,15 @@ export function OrderAssignmentPanel() {
         >
           {bulkMode ? 'Exit Bulk Mode' : 'Bulk Transfer'}
         </ZButton>
-        <ZButton variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
+        <ZButton
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setSyncing(true);
+            void load(true).finally(() => setSyncing(false));
+          }}
+          disabled={loading}
+        >
           <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
           Refresh
         </ZButton>

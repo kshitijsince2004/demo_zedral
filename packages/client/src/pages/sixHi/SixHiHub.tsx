@@ -33,6 +33,7 @@ import {
   primaryOrderId,
   selectIdOf,
 } from '../../lib/sixHiOrderIdentity';
+import { jsonFingerprint } from '../../lib/silentRefresh';
 
 type StatusFilter = 'ALL' | SixHiOrderStatus;
 
@@ -65,7 +66,7 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { shiftCode, shiftDate } = useShiftStore();
+  const { shiftCode, shiftDate, shiftLogId } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
@@ -79,6 +80,8 @@ export function SixHiHub() {
   const [queue, setQueue] = useState<SixHiQueueCard[]>([]);
   const [pendingQueue, setPendingQueue] = useState<SixHiQueueCard[]>([]);
   const [backlogQueue, setBacklogQueue] = useState<SixHiQueueCard[]>([]);
+  const [completedQueue, setCompletedQueue] = useState<SixHiQueueCard[]>([]);
+  const [rejectedQueue, setRejectedQueue] = useState<SixHiQueueCard[]>([]);
   const [viewDate, setViewDate] = useState(currentPlantDate());
 
   useEffect(() => {
@@ -129,24 +132,30 @@ export function SixHiHub() {
     if (!silent) {
       setLoading(true);
       setQueueError(null);
-    } else {
-      setSyncing(true);
     }
     try {
-      const res = await apiClient.get(
-        `/6hi/queue?subProcess=${apiSubProcess}&date=${date}&shift=${shift}&machine=${queueMachine}`,
-      );
+      const params = new URLSearchParams({
+        subProcess: apiSubProcess,
+        date,
+        shift,
+        machine: queueMachine,
+      });
+      if (shiftLogId) params.set('shiftLogId', shiftLogId);
+      const res = await apiClient.get(`/6hi/queue?${params.toString()}`);
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
       const backlog: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.backlog ?? []);
+      const completed: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.completed ?? []);
+      const rejected: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.rejected ?? []);
 
-      // Only update state if data has actually changed — prevents needless re-renders
-      const fingerprint = JSON.stringify({ items, pending, backlog });
+      const fingerprint = jsonFingerprint({ items, pending, backlog, completed, rejected });
       if (!silent || fingerprint !== prevDataRef.current) {
         prevDataRef.current = fingerprint;
         setQueue(items);
         setPendingQueue(pending);
         setBacklogQueue(backlog);
+        setCompletedQueue(completed);
+        setRejectedQueue(rejected);
       }
 
       if (!silent) isFirstLoad.current = false;
@@ -166,25 +175,35 @@ export function SixHiHub() {
         setQueue([]);
         setPendingQueue([]);
         setBacklogQueue([]);
+        setCompletedQueue([]);
+        setRejectedQueue([]);
       }
     } finally {
       if (!silent) setLoading(false);
-      setSyncing(false);
     }
-  }, [apiSubProcess, date, shift, queueMachine, logout, navigate]);
+  }, [apiSubProcess, date, shift, queueMachine, shiftLogId, logout, navigate]);
 
   useEffect(() => {
-    // Reset first-load flag whenever dependencies change (tab, date, shift, machine)
     isFirstLoad.current = true;
     prevDataRef.current = '';
-    loadQueue(false);
+    void loadQueue(false);
     const id = setInterval(() => void loadQueue(true), 15_000);
     return () => clearInterval(id);
-  }, [loadQueue, queueRefreshToken]);
+  }, [loadQueue]);
+
+  const queueRefreshMountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!queueRefreshMountedRef.current) {
+      queueRefreshMountedRef.current = true;
+      return;
+    }
+    void loadQueue(true);
+  }, [queueRefreshToken, loadQueue]);
 
   const allOrders = useMemo(
-    () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue]),
-    [backlogQueue, pendingQueue, queue],
+    () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue, ...completedQueue, ...rejectedQueue]),
+    [backlogQueue, pendingQueue, queue, completedQueue, rejectedQueue],
   );
 
   const machineActiveCard = useMemo(
@@ -205,22 +224,27 @@ export function SixHiHub() {
 
   useEffect(() => {
     const filtered = statusFilter === 'ALL' ? allOrders : allOrders.filter((c) => matchesFilter(c, statusFilter));
-    if (selectedBatch && filtered.some((c) => c.batchNumber === selectedBatch)) {
+    setSelectedBatch((current) => {
+      if (current && filtered.some((c) => c.batchNumber === current)) return current;
+      return filtered[0]?.batchNumber ?? null;
+    });
+    setAnchorBatch((current) => {
+      if (current && filtered.some((c) => c.batchNumber === current)) return current;
+      return filtered[0]?.batchNumber ?? null;
+    });
+  }, [allOrders, statusFilter, queueMachine]);
+
+  useEffect(() => {
+    if (combinedSelectionManual.current) return;
+    if (!selectedBatch) {
+      setAutoCombinedBatchNumbers(new Set());
       return;
     }
-    if (filtered.length > 0) {
-      const card = filtered[0];
-      setSelectedBatch(card.batchNumber);
-      setAnchorBatch(card.batchNumber);
-      combinedSelectionManual.current = false;
-      const compatible = findCompatibleOrdersForCombine(card, allOrders, queueMachine);
-      setAutoCombinedBatchNumbers(new Set(compatible.map((o) => o.batchNumber)));
-    } else {
-      setSelectedBatch(null);
-      setAnchorBatch(null);
-      setAutoCombinedBatchNumbers(new Set());
-    }
-  }, [allOrders, statusFilter, selectedBatch, queueMachine]);
+    const card = allOrders.find((c) => c.batchNumber === selectedBatch);
+    if (!card) return;
+    const compatible = findCompatibleOrdersForCombine(card, allOrders, queueMachine);
+    setAutoCombinedBatchNumbers(new Set(compatible.map((o) => o.batchNumber)));
+  }, [selectedBatch, allOrders, queueMachine]);
 
   const setTab = (id: string) => {
     setSearchParams({ tab: id, status: statusFilter });
@@ -249,6 +273,25 @@ export function SixHiHub() {
     () => queue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
     [queue, statusFilter, search],
   );
+
+  const filteredCompleted = useMemo(
+    () => completedQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
+    [completedQueue, statusFilter, search],
+  );
+
+  const filteredRejected = useMemo(
+    () => rejectedQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
+    [rejectedQueue, statusFilter, search],
+  );
+
+  const showOperationalSections = statusFilter !== 'COMPLETED' && statusFilter !== 'REJECTED';
+  const showCompletedSection = statusFilter === 'ALL' || statusFilter === 'COMPLETED';
+  const showRejectedSection = statusFilter === 'REJECTED';
+  const visibleOrderCount = (showOperationalSections
+    ? filteredBacklog.length + filteredPending.length + filteredAssigned.length
+    : 0)
+    + (showCompletedSection ? filteredCompleted.length : 0)
+    + (showRejectedSection ? filteredRejected.length : 0);
 
   const isStartable = (card: SixHiQueueCard) =>
     card.status === 'PENDING' || card.status === 'PREPARING';
@@ -593,7 +636,8 @@ export function SixHiHub() {
             <button
               type="button"
               onClick={() => {
-                useSixHiStore.getState().requestQueueRefresh();
+                setSyncing(true);
+                void loadQueue(true).finally(() => setSyncing(false));
               }}
               title="Refresh Queue"
               className="min-h-9 px-3 rounded-md border border-border bg-white text-muted-foreground hover:bg-secondary flex items-center justify-center transition-colors"
@@ -647,7 +691,7 @@ export function SixHiHub() {
         <div className="flex-1 min-w-0 min-h-0 bg-white border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden order-2 lg:order-1">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between">
             <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              {subProcessLabel} Queue · {sortedFilteredQueue.length} orders
+              {subProcessLabel} Queue · {visibleOrderCount} orders
             </h2>
             {machineActive && (
               <span className="text-xs font-semibold text-warning">
@@ -658,13 +702,13 @@ export function SixHiHub() {
 
           <div className="flex-1 overflow-auto">
             {/* Show spinner only on first/empty load — never during background refreshes */}
-            {loading && <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>}
-            {!loading && filteredQueue.length === 0 && (
+            {loading && visibleOrderCount === 0 && <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>}
+            {!loading && visibleOrderCount === 0 && (
               <div className="text-center py-12 px-6">
                 <p className="text-muted-foreground text-base mb-2">No orders match this filter</p>
               </div>
             )}
-            {!loading && filteredBacklog.length > 0 && (
+            {!loading && showOperationalSections && filteredBacklog.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
@@ -674,7 +718,7 @@ export function SixHiHub() {
                 {sortQueueSection(filteredBacklog).map((card) => renderQueueRow(card, { backlog: true }))}
               </>
             )}
-            {!loading && filteredPending.length > 0 && (
+            {!loading && showOperationalSections && filteredPending.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-secondary/60 border-b border-border">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -684,14 +728,34 @@ export function SixHiHub() {
                 {sortQueueSection(filteredPending).map((card) => renderQueueRow(card, { pending: true }))}
               </>
             )}
-            {!loading && filteredAssigned.length > 0 && (
+            {!loading && showOperationalSections && filteredAssigned.length > 0 && (
               <div className="px-5 py-2 bg-muted/30 border-b border-border">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   {queueMachine} queue · {filteredAssigned.length}
                 </p>
               </div>
             )}
-            {!loading && sortQueueSection(filteredAssigned).map((card) => renderQueueRow(card))}
+            {!loading && showOperationalSections && sortQueueSection(filteredAssigned).map((card) => renderQueueRow(card))}
+            {!loading && showCompletedSection && filteredCompleted.length > 0 && (
+              <>
+                <div className="px-5 py-2 bg-secondary/60 border-b border-border">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Completed · {filteredCompleted.length}
+                  </p>
+                </div>
+                {sortQueueSection(filteredCompleted).map((card) => renderQueueRow(card))}
+              </>
+            )}
+            {!loading && showRejectedSection && filteredRejected.length > 0 && (
+              <>
+                <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
+                    Rejected · {filteredRejected.length}
+                  </p>
+                </div>
+                {sortQueueSection(filteredRejected).map((card) => renderQueueRow(card))}
+              </>
+            )}
           </div>
         </div>
 

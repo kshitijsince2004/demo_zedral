@@ -611,6 +611,7 @@ export class SixHiService {
     planDate: string,
     shiftCode: string,
     machineCode: string = '6HI',
+    shiftLogId?: string,
   ): Promise<{
     planDate: string;
     shiftCode: string;
@@ -618,6 +619,8 @@ export class SixHiService {
     queue: SixHiQueueCard[];
     pendingAllocation: SixHiQueueCard[];
     backlog: SixHiQueueCard[];
+    completed: SixHiQueueCard[];
+    rejected: SixHiQueueCard[];
   }> {
     const viewDate = planDate;
     const viewDateObj = this.toPlanDate(viewDate);
@@ -699,6 +702,27 @@ export class SixHiService {
       backlog.push(await this.buildQueueCard(b, subProcess, backlogPos, { isBacklog: true }));
     }
 
+    const terminalBatches = await this.fetchTerminalBatches(
+      subProcess,
+      machineCode,
+      viewDate,
+      shiftCode,
+      shiftLogId,
+    );
+    const completed: SixHiQueueCard[] = [];
+    const rejected: SixHiQueueCard[] = [];
+    let completedPos = 0;
+    let rejectedPos = 0;
+    for (const row of terminalBatches) {
+      const card = await this.buildQueueCard(
+        row.batch as Parameters<typeof SixHiService.buildQueueCard>[0],
+        subProcess,
+        row.status === 'COMPLETED' ? ++completedPos : ++rejectedPos,
+      );
+      if (row.status === 'COMPLETED') completed.push(card);
+      else rejected.push(card);
+    }
+
     return {
       planDate: viewDate,
       shiftCode,
@@ -706,7 +730,45 @@ export class SixHiService {
       queue: cards,
       pendingAllocation,
       backlog,
+      completed,
+      rejected,
     };
+  }
+
+  /** Completed / rejected orders for operator history — scoped to production shift when available. */
+  private static async fetchTerminalBatches(
+    subProcess: SixHiSubProcess,
+    machineCode: string,
+    planDate: string,
+    shiftCode: string,
+    shiftLogId?: string,
+  ): Promise<Array<{ status: 'COMPLETED' | 'REJECTED'; batch: Record<string, unknown> }>> {
+    let query = db.selectFrom('planning.ppc_batch as pb')
+      .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .selectAll('pb')
+      .select(['o.status'])
+      .where('pb.machine_code', '=', machineCode)
+      .where('pb.sub_process', '=', subProcess)
+      .where('pb.machine_allocated', '=', true)
+      .where('o.status', 'in', ['COMPLETED', 'REJECTED']);
+
+    if (shiftLogId) {
+      query = query.where('o.shift_log_id', '=', shiftLogId);
+    } else {
+      query = query
+        .where('pb.plan_date', '=', this.toPlanDate(planDate))
+        .where('pb.shift_code', '=', shiftCode);
+    }
+
+    const rows = await query
+      .orderBy('o.updated_at', 'desc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    return rows.map((row) => ({
+      status: row.status as 'COMPLETED' | 'REJECTED',
+      batch: row,
+    }));
   }
 
   static async allocateMachine(

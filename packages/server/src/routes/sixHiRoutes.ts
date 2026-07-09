@@ -312,11 +312,13 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
     if (!parsedMachine) {
       return res.status(400).json({ error: 'machine must be 6HI, 4HI, or 2HI' });
     }
+    const shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
     const result = await SixHiQueueService.getQueue(
       subProcess as 'ROLLING' | 'SKIN_PASS',
       planDate,
       shiftCode,
       parsedMachine,
+      shiftLogId,
     );
     res.json(result);
   } catch (e: unknown) {

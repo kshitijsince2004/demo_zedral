@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Play } from 'lucide-react';
 import useSWR from 'swr';
@@ -9,6 +9,7 @@ import { useShiftStore } from '../../store/shiftStore';
 import { subscribeProductionChanged } from '../../lib/productionSync';
 import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummaryPanel';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
+import { CombinedProductionOrdersPanel } from '../../components/sixHi/CombinedProductionOrdersPanel';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
 import { ZButton } from '../../components/primitives/ZButton';
 import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
@@ -17,6 +18,8 @@ import { apiClient, ApiError } from '../../lib/apiClient';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
+import { jsonEqual } from '../../lib/silentRefresh';
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 
 function orderProductLabel(order: SixHiOrderDetail) {
@@ -48,7 +51,7 @@ export function SixHiCapturePage() {
     machineActive,
     machineCode,
     shiftSummary,
-    queueRefreshToken,
+    combinedRun,
     openWorkspace,
     loadPanelOrder,
     loadShiftSummary,
@@ -57,6 +60,10 @@ export function SixHiCapturePage() {
   } = useSixHiStore();
 
   const [stoppageError, setStoppageError] = useState<string | null>(null);
+  const [combinedOrders, setCombinedOrders] = useState<SixHiOrderDetail[]>([]);
+  const combinedOrdersFpRef = useRef('');
+
+  const isCombinedRun = !!combinedRun && combinedRun.batchNumbers.length > 1;
 
   useEffect(() => {
     refreshMachineState();
@@ -64,8 +71,6 @@ export function SixHiCapturePage() {
     const id = setInterval(() => {
       const store = useSixHiStore.getState();
       void store.refreshMachineState();
-      const batch = store.machineActive?.batchNumber;
-      if (batch) void store.loadPanelOrder(batch);
       const { shiftLogId: sid } = useShiftStore.getState();
       if (sid) void store.loadShiftSummary(sid);
     }, 15000);
@@ -74,8 +79,8 @@ export function SixHiCapturePage() {
 
   const queueDate = formatShiftDate(shiftDate);
   const queueShift = shiftCode || 'B';
-  const { data: queueData } = useSWR(
-    machineCode ? ['capture-queue', machineCode, queueDate, queueShift, queueRefreshToken] : null,
+  const { data: queueData, mutate: mutateQueue } = useSWR(
+    machineCode ? ['capture-queue', machineCode, queueDate, queueShift] : null,
     async () => {
       const params = `machine=${machineCode}&date=${queueDate}&shift=${queueShift}`;
       const [rolling, skinPass] = await Promise.all([
@@ -87,6 +92,11 @@ export function SixHiCapturePage() {
         ...(skinPass.queue ?? []),
       ].sort((a, b) => a.queuePosition - b.queuePosition);
       return merged;
+    },
+    {
+      refreshInterval: 15000,
+      revalidateOnFocus: false,
+      compare: (a, b) => jsonEqual(a, b),
     },
   );
   const allQueueItems = queueData ?? [];
@@ -113,6 +123,29 @@ export function SixHiCapturePage() {
     void loadShiftSummary(shiftLogId);
   }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
 
+  useEffect(() => {
+    if (!isCombinedRun || !combinedRun) {
+      combinedOrdersFpRef.current = '';
+      setCombinedOrders([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      combinedRun.batchNumbers.map((batchNumber) =>
+        apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
+      ),
+    ).then((orders) => {
+      if (cancelled) return;
+      const fingerprint = JSON.stringify(orders);
+      if (fingerprint === combinedOrdersFpRef.current) return;
+      combinedOrdersFpRef.current = fingerprint;
+      setCombinedOrders(orders);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCombinedRun, combinedRun?.batchNumbers.join(','), order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt]);
+
   const nextOrder =
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber && (q.status === 'PREPARING' || q.status === 'PENDING')) ??
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber);
@@ -120,15 +153,20 @@ export function SixHiCapturePage() {
   const { data: shiftStoppages, mutate: mutateShiftStoppages } = useSWR(
     shiftLogId ? `/6hi/shift/${shiftLogId}/stoppages?machine=${machineCode}` : null,
     async (url) => apiClient.get(url),
-    { refreshInterval: 15000 },
+    {
+      refreshInterval: 15000,
+      revalidateOnFocus: false,
+      compare: (a, b) => jsonEqual(a, b),
+    },
   );
 
   useEffect(() => {
     return subscribeProductionChanged(() => {
       void mutateShiftStoppages();
+      void mutateQueue();
       void refreshMachineState();
     });
-  }, [mutateShiftStoppages, refreshMachineState]);
+  }, [mutateShiftStoppages, mutateQueue, refreshMachineState]);
 
   const hasActiveStoppage = !!order?.activeStoppage;
   const stoppageAllowed = canRecordStoppage(order);
@@ -157,8 +195,12 @@ export function SixHiCapturePage() {
   const netRuntime = useNetProductionTimer(order);
   const { formatted: stoppageTimer } = useLiveTimer(order?.activeStoppage?.startAt, hasActiveStoppage);
 
-  const targetMt = order?.ppcWeightMt ?? 0;
-  const produced = order ? producedMt(order) : 0;
+  const targetMt = isCombinedRun && combinedRun
+    ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
+    : (order?.ppcWeightMt ?? 0);
+  const produced = isCombinedRun && combinedOrders.length > 0
+    ? (resolveCombinedActualMt(combinedOrders.map(producedMt)) ?? 0)
+    : (order ? producedMt(order) : 0);
   const balance = Math.max(0, targetMt - produced);
 
   const historyRows = (Array.isArray(shiftStoppages) ? shiftStoppages : []).map((s: {
@@ -233,7 +275,9 @@ export function SixHiCapturePage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
               <div className="bg-primary text-white px-5 py-3 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">Current Running Order</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">
+                  {isCombinedRun ? 'Combined Running Orders' : 'Current Running Order'}
+                </p>
                 {order && <SixHiStatusPill status={order.status} />}
               </div>
               {!order ? (
@@ -259,19 +303,35 @@ export function SixHiCapturePage() {
                 </div>
               ) : (
                 <div className="p-5 space-y-4">
+                  {isCombinedRun && combinedRun && (
+                    <CombinedProductionOrdersPanel combinedRun={combinedRun} variant="capture" />
+                  )}
+
                   <dl className="grid grid-cols-2 gap-3 text-sm">
-                    {[
-                      ['Order', primaryOrderId(order)],
-                      ['Slit ID', selectIdOf(order)],
-                      ['Mother Coil', order.motherCoil],
-                      ['Product', orderProductLabel(order)],
-                      ['Customer', order.customer],
-                      ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
-                      ['Target Quantity', `${targetMt.toFixed(3)} MT`],
-                      ['Produced Quantity', `${produced.toFixed(3)} MT`],
-                      ['Balance Quantity', `${balance.toFixed(3)} MT`],
-                      ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
-                    ].map(([label, value]) => (
+                    {(isCombinedRun
+                      ? [
+                        ['Run type', `Combined · ${combinedRun!.batchNumbers.length} orders`],
+                        ['Linked orders', combinedRun!.orders.map((o) => primaryOrderId(o)).join(', ')],
+                        ['Product', orderProductLabel(order)],
+                        ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
+                        ['Combined Target', `${targetMt.toFixed(3)} MT`],
+                        ['Combined Produced', `${produced.toFixed(3)} MT`],
+                        ['Balance', `${balance.toFixed(3)} MT`],
+                        ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
+                      ]
+                      : [
+                        ['Order', primaryOrderId(order)],
+                        ['Slit ID', selectIdOf(order)],
+                        ['Mother Coil', order.motherCoil],
+                        ['Product', orderProductLabel(order)],
+                        ['Customer', order.customer],
+                        ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
+                        ['Target Quantity', `${targetMt.toFixed(3)} MT`],
+                        ['Produced Quantity', `${produced.toFixed(3)} MT`],
+                        ['Balance Quantity', `${balance.toFixed(3)} MT`],
+                        ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
+                      ]
+                    ).map(([label, value]) => (
                       <div key={label} className="bg-secondary rounded-xl px-3 py-3 min-h-[64px]">
                         <dt className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</dt>
                         <dd className="font-mono text-sm font-semibold text-foreground mt-1 break-all">{value}</dd>
@@ -299,9 +359,9 @@ export function SixHiCapturePage() {
                     {hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage'}
                   </ZButton>
 
-                  <ZButton variant="accent" size="lg" fullWidth className="min-h-14" onClick={() => openWorkspace(order.batchNumber)}>
+                  <ZButton variant="accent" size="lg" fullWidth className="min-h-14" onClick={() => openWorkspace(combinedRun?.primaryBatchNumber ?? order.batchNumber)}>
                     <Play className="h-5 w-5" />
-                    Open Production Form
+                    {isCombinedRun ? 'Open Combined Production Form' : 'Open Production Form'}
                   </ZButton>
                 </div>
               )}

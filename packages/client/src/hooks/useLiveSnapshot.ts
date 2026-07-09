@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveSnapshot, MachineLiveStatus } from '@m1/shared-validation';
 import { liveService } from '../lib/liveService';
 import { subscribeProductionChanged } from '../lib/productionSync';
+import { jsonFingerprint } from '../lib/silentRefresh';
 
 /** Shared poll interval for all live machine status views. */
 export const LIVE_POLL_MS = 8_000;
@@ -20,11 +21,16 @@ export function useLiveSnapshot(options?: { enabled?: boolean }) {
   const [snapshot, setSnapshot] = useState<LiveSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const prevFingerprintRef = useRef('');
 
   const refresh = useCallback(async () => {
     try {
       const snap = await liveService.getSnapshot();
-      setSnapshot(snap);
+      const fingerprint = jsonFingerprint(snap);
+      if (fingerprint !== prevFingerprintRef.current) {
+        prevFingerprintRef.current = fingerprint;
+        setSnapshot(snap);
+      }
       setError(null);
     } catch (err: unknown) {
       setError((err as Error)?.message ?? 'Unable to load live data');

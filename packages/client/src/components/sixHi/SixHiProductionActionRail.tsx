@@ -3,15 +3,18 @@ import { AlertTriangle, Ban, Clock, MessageSquare, Play, Square } from 'lucide-r
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
+import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { combinedTargetMt } from '../../lib/combinedWeightAllocation';
 
 interface SixHiProductionActionRailProps {
   order: SixHiOrderDetail;
   workspaceOpen: boolean;
   workspaceBatch: string | null;
   busy?: boolean;
+  combinedRun?: CombinedProductionRun | null;
   onStart: () => void;
   onEnd: () => void;
   onRemark: () => void;
@@ -63,6 +66,7 @@ export function SixHiProductionActionRail({
   workspaceOpen,
   workspaceBatch,
   busy,
+  combinedRun,
   onStart,
   onEnd,
   onRemark,
@@ -95,16 +99,38 @@ export function SixHiProductionActionRail({
         ? 'Preparing'
         : 'Idle';
 
+  const isCombined = !!combinedRun && combinedRun.batchNumbers.length > 1;
+  const combinedTarget = isCombined
+    ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
+    : null;
+
   return (
     <aside
       className="w-[6.5rem] shrink-0 border-l border-border bg-white flex flex-col h-full"
       aria-label="Production controls"
     >
       <div className="shrink-0 px-1.5 py-2 border-b border-border text-center space-y-1">
-        <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">
-          {primaryOrderId(order)}
-        </p>
-        <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Slit {selectIdOf(order)}</p>
+        {isCombined ? (
+          <>
+            <p className="text-[9px] font-bold uppercase tracking-wide text-success">Combined</p>
+            <p className="font-mono text-xs font-bold text-foreground leading-tight">
+              {combinedRun.batchNumbers.length} orders
+            </p>
+            <p className="text-[8px] text-muted-foreground leading-tight">
+              {combinedRun.orders.map((o) => selectIdOf(o)).join(' · ')}
+            </p>
+            {combinedTarget != null && (
+              <p className="text-[8px] font-mono text-muted-foreground">{combinedTarget} MT</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">
+              {primaryOrderId(order)}
+            </p>
+            <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Slit {selectIdOf(order)}</p>
+          </>
+        )}
         <SixHiStatusPill status={order.status} preparing={preparing} />
       </div>
 

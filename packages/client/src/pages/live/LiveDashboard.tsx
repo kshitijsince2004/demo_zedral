@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveOrderDetail, LiveOrderRow } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
@@ -7,6 +7,7 @@ import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { ZBadge } from '../../components/primitives/ZBadge';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
+import { jsonFingerprint } from '../../lib/silentRefresh';
 
 function statusTone(status: string) {
   if (status === 'IN_PROGRESS' || status === 'PREPARING') return 'info' as const;
@@ -24,11 +25,16 @@ export function LiveDashboard() {
   const [detailData, setDetailData] = useState<LiveOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedMachineCode, setSelectedMachineCode] = useState<string | null>(null);
+  const prevOrdersFpRef = useRef('');
 
   const loadOrders = useCallback(async () => {
     try {
       const ordersRes = await liveService.getOrders();
-      setOrders(ordersRes.orders);
+      const fingerprint = jsonFingerprint(ordersRes.orders);
+      if (fingerprint !== prevOrdersFpRef.current) {
+        prevOrdersFpRef.current = fingerprint;
+        setOrders(ordersRes.orders);
+      }
       setOrdersError(null);
     } catch (err: unknown) {
       setOrdersError((err as Error)?.message ?? 'Unable to load orders');

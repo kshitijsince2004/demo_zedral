@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveKpis, LiveOrderRow } from '@m1/shared-validation';
 import {
   reportingService,
@@ -32,6 +32,7 @@ import { PlantOperationsArea } from '../../components/plant-head/PlantOperations
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { AlertTriangle, Factory, RefreshCw } from 'lucide-react';
+import { jsonFingerprint } from '../../lib/silentRefresh';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
@@ -50,6 +51,9 @@ export function PlantHeadDashboard() {
   const [exportDate, setExportDate] = useState(currentPlantDate());
   const [exportShift, setExportShift] = useState('A');
   const { snapshot } = useLiveSnapshot();
+  const prevDataFpRef = useRef('');
+  const prevHandoversFpRef = useRef('');
+  const prevLiveOrdersFpRef = useRef('');
 
   const startRejectedExport = async (mode: 'day' | 'shift') => {
     try {
@@ -80,25 +84,35 @@ export function PlantHeadDashboard() {
   }, []);
 
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    else setRefreshing(true);
+    if (!silent) {
+      setLoading(true);
+      setRefreshing(true);
+    }
     setError(null);
     try {
       const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
-      setData(result);
+      const fingerprint = jsonFingerprint(result);
+      if (!silent || fingerprint !== prevDataFpRef.current) {
+        prevDataFpRef.current = fingerprint;
+        setData(result);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
+      if (!silent) setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) setLoading(false);
+      if (!silent) setRefreshing(false);
     }
 
     // Handover logs are supplemental — failure must not block the command center.
     try {
       const hResult = await machineHandoverService.getOverview();
-      setHandovers(hResult.recent || []);
+      const handoverFp = jsonFingerprint(hResult.recent || []);
+      if (!silent || handoverFp !== prevHandoversFpRef.current) {
+        prevHandoversFpRef.current = handoverFp;
+        setHandovers(hResult.recent || []);
+      }
     } catch {
-      setHandovers([]);
+      if (!silent) setHandovers([]);
     }
   }, [windowDays]);
 
@@ -117,7 +131,14 @@ export function PlantHeadDashboard() {
     const loadOrders = () => {
       liveService
         .getOrders()
-        .then((res) => { if (active) setLiveOrders(res.orders); })
+        .then((res) => {
+          if (!active) return;
+          const fingerprint = jsonFingerprint(res.orders);
+          if (fingerprint !== prevLiveOrdersFpRef.current) {
+            prevLiveOrdersFpRef.current = fingerprint;
+            setLiveOrders(res.orders);
+          }
+        })
         .catch(() => { if (active) setLiveOrders([]); });
     };
     loadOrders();

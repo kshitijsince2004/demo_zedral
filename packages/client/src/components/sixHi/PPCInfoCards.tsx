@@ -29,14 +29,16 @@ export function PPCInfoCards({
   data,
   compact,
   combinedOrderCount,
+  combinedTargetMt,
 }: {
   data: PPCSource;
   compact?: boolean;
   combinedOrderCount?: number;
+  combinedTargetMt?: number;
 }) {
   const isRolling = 'subProcess' in data && data.subProcess === 'ROLLING';
   const batch = 'batchNumber' in data ? data.batchNumber : undefined;
-  const weight = 'ppcWeightMt' in data ? data.ppcWeightMt : ('weightMt' in data ? data.weightMt : 0);
+  const weight = combinedTargetMt ?? ('ppcWeightMt' in data ? data.ppcWeightMt : ('weightMt' in data ? data.weightMt : 0));
 
   return (
     <div className={`bg-card text-card-foreground border border-border rounded-xl shadow flex flex-col shrink-0 ${compact ? 'p-2' : 'p-4'}`}>
@@ -72,7 +74,7 @@ export function PPCInfoCards({
           <p className="text-sm font-mono font-bold text-foreground truncate">{data.widthMm}mm / {finalOutputThicknessOf(data)}mm</p>
         </div>
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
-          {label('Target Wt')}
+          {label(combinedOrderCount && combinedOrderCount > 1 ? 'Combined Target' : 'Target Wt')}
           <p className="text-sm font-mono font-bold text-foreground truncate">{weight} MT</p>
         </div>
         {isRolling && 'ppcDestination' in data && (

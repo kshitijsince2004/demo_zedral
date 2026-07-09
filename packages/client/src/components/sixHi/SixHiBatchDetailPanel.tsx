@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SixHiQueueCard, SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { SixHiBacklogBadge } from './SixHiBacklogBadge';
@@ -7,6 +7,7 @@ import { ArrowRightLeft, Eye, Play } from 'lucide-react';
 import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { apiClient } from '../../lib/apiClient';
 import { OrderProductionHistory } from './OrderProductionHistory';
+import { CombinedProductionHistory } from './CombinedProductionHistory';
 
 interface SixHiBatchDetailPanelProps {
   batch: SixHiQueueCard | null;
@@ -34,6 +35,8 @@ export function SixHiBatchDetailPanel({
   const [orderDetail, setOrderDetail] = useState<SixHiOrderDetail | null>(null);
   const [combinedDetails, setCombinedDetails] = useState<SixHiOrderDetail[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const detailLoadKeyRef = useRef('');
+  const detailFingerprintRef = useRef('');
 
   const isCompleted = batch?.status === 'COMPLETED';
   const isRejected = batch?.status === 'REJECTED';
@@ -45,11 +48,19 @@ export function SixHiBatchDetailPanel({
     if (!batch || !isTerminal) {
       setOrderDetail(null);
       setCombinedDetails([]);
+      detailLoadKeyRef.current = '';
+      detailFingerprintRef.current = '';
       return;
     }
 
     let cancelled = false;
-    setLoadingDetail(true);
+    const loadKey = `${batch.batchNumber}:${combinedBatchNumbers.join(',')}`;
+    const isNewSelection = loadKey !== detailLoadKeyRef.current;
+    if (isNewSelection) {
+      detailLoadKeyRef.current = loadKey;
+      detailFingerprintRef.current = '';
+      setLoadingDetail(true);
+    }
 
     const batchesToLoad = isCombinedTerminal ? combinedBatchNumbers : [batch.batchNumber];
     void Promise.all(
@@ -59,11 +70,15 @@ export function SixHiBatchDetailPanel({
     )
       .then((orders) => {
         if (cancelled) return;
+        const fingerprint = JSON.stringify(orders);
+        if (fingerprint === detailFingerprintRef.current) return;
+        detailFingerprintRef.current = fingerprint;
         setCombinedDetails(orders);
         setOrderDetail(orders.find((o) => o.batchNumber === batch.batchNumber) ?? orders[0] ?? null);
       })
       .catch(() => {
         if (!cancelled) {
+          detailFingerprintRef.current = '';
           setOrderDetail(null);
           setCombinedDetails([]);
         }
@@ -173,18 +188,8 @@ export function SixHiBatchDetailPanel({
           <p className="col-span-2 text-sm text-muted-foreground">Loading production history…</p>
         )}
         {isCombinedTerminal && combinedDetails.length > 0 && (
-          <div className="col-span-2 space-y-4">
-            <p className="text-xs font-semibold text-success">
-              Combined run · {combinedDetails.length} orders
-            </p>
-            {combinedDetails.map((order) => (
-              <div key={order.batchNumber} className="rounded-xl border border-border bg-secondary/20 p-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
-                  Batch {order.batchNumber}
-                </p>
-                <OrderProductionHistory order={order} />
-              </div>
-            ))}
+          <div className="col-span-2">
+            <CombinedProductionHistory orders={combinedDetails} />
           </div>
         )}
         {!isCombinedTerminal && orderDetail && isTerminal && (

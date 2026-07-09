@@ -1,11 +1,13 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiProductionActionRail } from './SixHiProductionActionRail';
+import type { CombinedProductionRun } from '../../store/sixHiStore';
 
 interface SixHiGlobalProductionPanelProps {
   order: SixHiOrderDetail;
   workspaceOpen: boolean;
   workspaceBatch: string | null;
   busy?: boolean;
+  combinedRun?: CombinedProductionRun | null;
   onStart: () => void;
   onEnd: () => void;
   onRemark: () => void;
@@ -27,6 +29,7 @@ export function SixHiGlobalProductionPanel({
   onRemark,
   onReject,
   onStoppage,
+  combinedRun,
   embedded,
 }: SixHiGlobalProductionPanelProps) {
   const rail = (
@@ -35,6 +38,7 @@ export function SixHiGlobalProductionPanel({
       workspaceOpen={workspaceOpen}
       workspaceBatch={workspaceBatch}
       busy={busy}
+      combinedRun={combinedRun}
       onStart={onStart}
       onEnd={onEnd}
       onRemark={onRemark}

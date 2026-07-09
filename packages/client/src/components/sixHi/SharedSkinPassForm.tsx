@@ -19,6 +19,8 @@ interface SkinPassWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  combinedTargetMt?: number;
+  combinedActualMt?: number;
   readOnly?: boolean;
 }
 
@@ -107,11 +109,25 @@ function MetricToggle({
   );
 }
 
-export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrderCount, readOnly }: SkinPassWorkspaceProps) {
+export function SharedSkinPassForm({
+  order,
+  onSave,
+  busy,
+  compact,
+  combinedOrderCount,
+  combinedTargetMt,
+  combinedActualMt,
+  readOnly,
+}: SkinPassWorkspaceProps) {
+  const isCombined = !!combinedOrderCount && combinedOrderCount > 1;
   const [data, setData] = useState<SixHiSkinPassData>(order.skinPass ?? {});
   const [drafts, setDrafts] = useState<Record<SkinPassDecimalField, string>>({
     outputThkMm: toDraft(order.skinPass?.outputThkMm),
-    actualWeightMt: toDraft(order.skinPass?.actualWeightMt),
+    actualWeightMt: toDraft(
+      isCombined
+        ? combinedActualMt ?? order.skinPass?.actualWeightMt
+        : order.skinPass?.actualWeightMt,
+    ),
     annHard: toDraft(order.skinPass?.annHard),
     loadMinT: toDraft(order.skinPass?.loadMinT),
     loadMaxT: toDraft(order.skinPass?.loadMaxT),
@@ -174,8 +190,8 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
 
   if (compact) {
     return (
-      <div className="flex flex-col min-h-0 flex-1 h-full">
-        <div className="flex-1 min-h-0 overflow-y-auto p-3">
+      <div className="flex flex-col">
+        <div className="p-3">
           <div className="bg-white border border-border rounded-xl p-3 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-foreground">Skin Pass</h3>
@@ -197,7 +213,10 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
               disabled={locked}
             />
           </FieldWrapper>
-          <FieldWrapper label="Actual Weight (Metric Tons)" prominent>
+          <FieldWrapper
+            label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}
+            prominent
+          >
             <ZInput
               type="number"
               inputMode="decimal"
@@ -209,6 +228,11 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
               className="min-h-12 text-lg"
               disabled={locked}
             />
+            {isCombined && combinedTargetMt != null && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+              </p>
+            )}
           </FieldWrapper>
           <MetricToggle metric={metric} onChange={switchMetric} locked={locked} compact />
           {metric === 'ANN_HARD' ? (
@@ -269,7 +293,7 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+        <div className="sticky bottom-0 border-t border-border bg-card px-3 py-2 z-10">
           {!readOnly && (
           <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
             {saveLabel}
@@ -289,8 +313,13 @@ export function SharedSkinPassForm({ order, onSave, busy, compact, combinedOrder
         <FieldWrapper label="Output Thickness (mm)">
           <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.outputThkMm} onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)} onBlur={() => commitDecimalDraft('outputThkMm')} className="min-h-14 text-lg" disabled={locked} />
         </FieldWrapper>
-        <FieldWrapper label="Actual Weight (Metric Tons)">
+        <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>
           <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
+          {isCombined && combinedTargetMt != null && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+            </p>
+          )}
         </FieldWrapper>
         <MetricToggle metric={metric} onChange={switchMetric} locked={locked} />
         {metric === 'ANN_HARD' ? (

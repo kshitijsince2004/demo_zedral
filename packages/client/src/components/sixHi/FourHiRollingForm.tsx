@@ -11,6 +11,8 @@ interface RollingWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  combinedTargetMt?: number;
+  combinedActualMt?: number;
   readOnly?: boolean;
 }
 
@@ -53,13 +55,30 @@ function parseDecimalDraft(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderCount, readOnly }: RollingWorkspaceProps) {
+function resolveCombinedActualFromOrder(order: SixHiOrderDetail): number | undefined {
+  return order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt;
+}
+
+export function FourHiRollingForm({
+  order,
+  onSave,
+  busy,
+  compact,
+  combinedOrderCount,
+  combinedTargetMt,
+  combinedActualMt,
+  readOnly,
+}: RollingWorkspaceProps) {
   const ppcDest = order.ppcDestination ?? 'ANNEALING';
   const initial = buildInitialRolling(order);
+  const isCombined = !!combinedOrderCount && combinedOrderCount > 1;
+  const initialCombinedActual = isCombined
+    ? combinedActualMt ?? resolveCombinedActualFromOrder(order)
+    : initial.actualWeightMt;
 
   const [data, setData] = useState<SixHiRollingData>(initial);
   const [drafts, setDrafts] = useState<Record<RollingDecimalField, string>>({
-    actualWeightMt: toDraft(initial.actualWeightMt),
+    actualWeightMt: toDraft(isCombined ? initialCombinedActual : initial.actualWeightMt),
     etr: toDraft(initial.etr),
     dtr: toDraft(initial.dtr),
   });
@@ -111,8 +130,8 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
 
   if (compact) {
     return (
-      <div className="flex flex-col min-h-0 flex-1 h-full">
-        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+      <div className="flex flex-col">
+        <div className="p-3 space-y-3">
           <div className="bg-white border border-border rounded-xl p-3 space-y-2">
             <h3 className="text-base font-bold text-foreground">
               Production{passLabel ? ` · ${passLabel}` : ''}
@@ -122,7 +141,10 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
                 Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
               </p>
             )}
-            <FieldWrapper label="Actual Weight (Metric Tons)" prominent>
+            <FieldWrapper
+              label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}
+              prominent
+            >
               <ZInput
                 type="number"
                 inputMode="decimal"
@@ -134,6 +156,11 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
                 className="min-h-14 text-xl"
                 disabled={locked}
               />
+              {isCombined && combinedTargetMt != null && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+                </p>
+              )}
             </FieldWrapper>
             <div className="flex items-center justify-between gap-1">
               <span className="text-sm font-medium text-muted-foreground">
@@ -182,7 +209,7 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border bg-card px-3 py-2">
+        <div className="sticky bottom-0 border-t border-border bg-card px-3 py-2 z-10">
           {!readOnly && (
           <ZButton variant="primary" size="lg" fullWidth onClick={save} disabled={busy || locked} className="min-h-14 text-base font-bold">
             {saveLabel}
@@ -207,8 +234,13 @@ export function FourHiRollingForm({ order, onSave, busy, compact, combinedOrderC
         )}
       </div>
       <div className="bg-white border border-border rounded-2xl p-4">
-        <FieldWrapper label="Actual Weight (Metric Tons)">
+        <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>
           <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
+          {isCombined && combinedTargetMt != null && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+            </p>
+          )}
         </FieldWrapper>
       </div>
       <PassTracker passes={data.passes} onChange={(passes) => setData({ ...data, passes })} disabled={locked} />

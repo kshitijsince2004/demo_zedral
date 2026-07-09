@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { LiveOrderRow, MachineHeadDashboardData } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
@@ -17,6 +17,7 @@ import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
+import { jsonFingerprint } from '../../lib/silentRefresh';
 
 type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'handover';
 
@@ -105,6 +106,7 @@ export function MachineHeadDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
+  const prevDashboardFpRef = useRef('');
 
   const handleExportRejected = async (mode: 'day' | 'shift') => {
     try {
@@ -152,7 +154,11 @@ export function MachineHeadDashboard() {
   const loadDashboard = useCallback(async () => {
     try {
       const dash = await liveService.getMachineHeadDashboard();
-      setDashboard(dash);
+      const fingerprint = jsonFingerprint(dash);
+      if (fingerprint !== prevDashboardFpRef.current) {
+        prevDashboardFpRef.current = fingerprint;
+        setDashboard(dash);
+      }
       setDashError(null);
     } catch (err: unknown) {
       setDashError((err as Error)?.message ?? 'Unable to load machine dashboard');

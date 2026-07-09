@@ -1,12 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { X, AlertCircle } from 'lucide-react';
-import type { SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
 import { useSixHiStore, isPreparing } from '../../store/sixHiStore';
 import { apiClient } from '../../lib/apiClient';
 import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
+import { CombinedProductionHistory } from './CombinedProductionHistory';
 import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import {
+  allocateCombinedWeight,
+  combinedTargetMt,
+  resolveCombinedActualMt,
+} from '../../lib/combinedWeightAllocation';
 
 interface SixHiWorkspaceModalProps {
   actionRail?: ReactNode;
@@ -22,12 +28,12 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     closeWorkspace,
     loadPanelOrder,
     runOrderAction,
-    setCombinedRun,
   } = useSixHiStore();
 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [combinedRefreshToken, setCombinedRefreshToken] = useState(0);
+  const [combinedOrders, setCombinedOrders] = useState<SixHiOrderDetail[]>([]);
 
   const formBatchNumber = combinedRun?.primaryBatchNumber ?? workspaceBatch;
 
@@ -37,22 +43,75 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     }
   }, [workspaceOpen, formBatchNumber, loadPanelOrder]);
 
+  useEffect(() => {
+    if (!workspaceOpen || !combinedRun || combinedRun.batchNumbers.length <= 1) {
+      setCombinedOrders([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      combinedRun.batchNumbers.map((batchNumber) =>
+        apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
+      ),
+    ).then((orders) => {
+      if (!cancelled) setCombinedOrders(orders);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceOpen, combinedRun?.batchNumbers.join(','), combinedRefreshToken]);
+
+  const combinedOrderCount = combinedRun?.batchNumbers.length ?? 0;
+  const isCombined = combinedOrderCount > 1;
+  const combinedActualMt = isCombined
+    ? resolveCombinedActualMt(
+      combinedOrders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
+    )
+    : undefined;
+
   if (!workspaceOpen || !workspaceBatch) return null;
 
   const order = panelOrder?.batchNumber === formBatchNumber ? panelOrder : null;
-  const combinedOrderCount = combinedRun?.batchNumbers.length ?? 0;
   const preparing = order ? isPreparing(order, workspaceOpen, workspaceBatch) : false;
   const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [workspaceBatch];
+  const combinedTarget = isCombined && combinedRun
+    ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
+    : undefined;
+  const isTerminalCombined = isCombined && order && (order.status === 'COMPLETED' || order.status === 'REJECTED');
+
+  const patchCombinedProduction = async <T extends { actualWeightMt?: number }>(
+    endpoint: 'rolling' | 'skinpass',
+    data: T,
+  ) => {
+    if (!isCombined || !combinedRun) {
+      await Promise.all(actionBatchNumbers.map((batchNumber) =>
+        apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, data),
+      ));
+      return;
+    }
+
+    const targets = combinedRun.orders.map((o) => ({
+      batchNumber: o.batchNumber,
+      targetMt: o.weightMt,
+    }));
+    const allocation = data.actualWeightMt != null
+      ? allocateCombinedWeight(targets, data.actualWeightMt)
+      : null;
+
+    await Promise.all(actionBatchNumbers.map((batchNumber) => {
+      const payload = {
+        ...data,
+        actualWeightMt: allocation?.get(batchNumber) ?? data.actualWeightMt,
+      };
+      return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, payload);
+    }));
+  };
 
   const handleSaveRolling = async (data: SixHiRollingData) => {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () =>
-        Promise.all(actionBatchNumbers.map((batchNumber) =>
-          apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/rolling`, data),
-        )),
-      );
+      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('rolling', data));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);
@@ -66,11 +125,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () =>
-        Promise.all(actionBatchNumbers.map((batchNumber) =>
-          apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/skinpass`, data),
-        )),
-      );
+      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('skinpass', data));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);
@@ -95,10 +150,18 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
               <p className="text-base font-bold shrink-0">Production Console</p>
               {order && (
                 <>
-                  <span className="font-mono text-lg font-bold truncate">{primaryOrderId(order)}</span>
+                  {isCombined ? (
+                    <span className="font-mono text-lg font-bold truncate">
+                      Combined run · {combinedRun!.batchNumbers.length} orders
+                    </span>
+                  ) : (
+                    <span className="font-mono text-lg font-bold truncate">{primaryOrderId(order)}</span>
+                  )}
                   <SixHiStatusPill status={order.status} preparing={preparing} large />
                   <span className="text-sm opacity-80 hidden sm:inline">
-                    {combinedRun ? `${combinedRun.batchNumbers.length} orders` : orderIdentitySubtitle(order)}
+                    {isCombined
+                      ? combinedRun!.batchNumbers.join(', ')
+                      : orderIdentitySubtitle(order)}
                   </span>
                 </>
               )}
@@ -127,27 +190,36 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
             </div>
           )}
 
-          {combinedRun && (
-            <CombinedProductionOrdersPanel
-              combinedRun={combinedRun}
-              refreshToken={combinedRefreshToken}
-            />
-          )}
-
-          <div className="flex-1 min-h-0 p-2 overflow-hidden">
-            {!order && <p className="text-center text-muted-foreground py-16">Loading order…</p>}
-            {order && (
-              <SixHiOrderWorkspace
-                order={order}
-                workspaceOpen={workspaceOpen}
-                workspaceBatch={workspaceBatch}
-                busy={busy}
-                compact
-                combinedOrderCount={combinedOrderCount > 1 ? combinedOrderCount : undefined}
-                onSaveRolling={handleSaveRolling}
-                onSaveSkinPass={handleSaveSkinPass}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            {combinedRun && combinedOrderCount > 1 && !isTerminalCombined && (
+              <CombinedProductionOrdersPanel
+                combinedRun={combinedRun}
+                refreshToken={combinedRefreshToken}
               />
             )}
+
+            <div className="p-2 flex flex-col min-h-0">
+              {!order && <p className="text-center text-muted-foreground py-16">Loading order…</p>}
+              {order && isTerminalCombined && combinedOrders.length > 1 && (
+                <div className="bg-white border border-border rounded-xl p-4">
+                  <CombinedProductionHistory orders={combinedOrders} />
+                </div>
+              )}
+              {order && !isTerminalCombined && (
+                <SixHiOrderWorkspace
+                  order={order}
+                  workspaceOpen={workspaceOpen}
+                  workspaceBatch={workspaceBatch}
+                  busy={busy}
+                  compact
+                  combinedOrderCount={isCombined ? combinedOrderCount : undefined}
+                  combinedTargetMt={combinedTarget}
+                  combinedActualMt={combinedActualMt}
+                  onSaveRolling={handleSaveRolling}
+                  onSaveSkinPass={handleSaveSkinPass}
+                />
+              )}
+            </div>
           </div>
         </div>
 

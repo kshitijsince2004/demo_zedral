@@ -8,6 +8,7 @@ import { notifyProductionChanged } from '../lib/productionSync';
 import { useShiftStore } from './shiftStore';
 import { detectCombinedRunFromQueue, dedupeQueueCards } from '../lib/combinedProductionRun';
 import { formatShiftDate } from '../lib/dateFormat';
+import { jsonEqual } from '../lib/silentRefresh';
 
 let machineStateRefreshGen = 0;
 
@@ -158,6 +159,10 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   loadPanelOrder: async (batchNo) => {
     try {
       const order = await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNo)}`);
+      const prev = get().panelOrder;
+      if (prev?.batchNumber === batchNo && jsonEqual(prev, order)) {
+        return prev;
+      }
       set({ panelOrder: order });
       return order;
     } catch {
@@ -205,7 +210,13 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
 
       if (refreshGen !== machineStateRefreshGen) return;
 
-      set({ machineActive: active, manualStoppage, combinedRun: nextCombinedRun });
+      const prev = get();
+      const patch: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage' | 'combinedRun' | 'panelOrder'>> = {};
+      if (!jsonEqual(prev.machineActive, active)) patch.machineActive = active;
+      if (!jsonEqual(prev.manualStoppage, manualStoppage)) patch.manualStoppage = manualStoppage;
+      if (!jsonEqual(prev.combinedRun, nextCombinedRun)) patch.combinedRun = nextCombinedRun;
+      if (Object.keys(patch).length > 0) set(patch);
+
       if (active?.batchNumber) {
         const { workspaceOpen: wsOpen, workspaceBatch } = get();
         const formBatch = nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
@@ -213,11 +224,19 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
           await get().loadPanelOrder(formBatch);
         }
       } else if (!get().workspaceOpen) {
-        set({ panelOrder: null, combinedRun: null });
+        const clearing: Partial<Pick<SixHiStore, 'panelOrder' | 'combinedRun'>> = {};
+        if (prev.panelOrder !== null) clearing.panelOrder = null;
+        if (prev.combinedRun !== null) clearing.combinedRun = null;
+        if (Object.keys(clearing).length > 0) set(clearing);
       }
     } catch {
       if (refreshGen !== machineStateRefreshGen) return;
-      set({ machineActive: null, manualStoppage: null, combinedRun: null });
+      const prev = get();
+      const clearing: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage' | 'combinedRun'>> = {};
+      if (prev.machineActive !== null) clearing.machineActive = null;
+      if (prev.manualStoppage !== null) clearing.manualStoppage = null;
+      if (prev.combinedRun !== null) clearing.combinedRun = null;
+      if (Object.keys(clearing).length > 0) set(clearing);
     }
   },
 
@@ -226,9 +245,11 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       const machineCode = get().machineCode;
       const qs = machineCode ? `?machine=${encodeURIComponent(machineCode)}` : '';
       const summary = await apiClient.get<SixHiShiftSummary>(`/6hi/shift-summary/${shiftLogId}${qs}`);
+      const prev = get().shiftSummary;
+      if (jsonEqual(prev, summary)) return;
       set({ shiftSummary: summary });
     } catch {
-      set({ shiftSummary: null });
+      if (get().shiftSummary !== null) set({ shiftSummary: null });
     }
   },
 

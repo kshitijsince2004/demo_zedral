@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     SplashScreen.installSplashScreen(this);
     super.onCreate(savedInstanceState);
     registerPlugin(KioskPlugin.class);
+    registerPlugin(DeviceStatusPlugin.class);
 
     // Ensure hardware acceleration is enabled at the window level to mitigate some MTK driver issues
     getWindow().setFlags(

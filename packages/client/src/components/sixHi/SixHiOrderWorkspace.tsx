@@ -11,6 +11,8 @@ interface SixHiOrderWorkspaceProps {
   busy?: boolean;
   compact?: boolean;
   combinedOrderCount?: number;
+  combinedTargetMt?: number;
+  combinedActualMt?: number;
   readOnly?: boolean;
   onSaveRolling: (data: SixHiRollingData) => Promise<void>;
   onSaveSkinPass: (data: SixHiSkinPassData) => Promise<void>;
@@ -21,6 +23,8 @@ export function SixHiOrderWorkspace({
   busy,
   compact,
   combinedOrderCount,
+  combinedTargetMt,
+  combinedActualMt,
   readOnly,
   onSaveRolling,
   onSaveSkinPass,
@@ -34,7 +38,7 @@ export function SixHiOrderWorkspace({
   const { formatted: stopTime } = useLiveTimer(order.activeStoppage?.startAt, isStoppageActive);
 
   return (
-    <div className={`flex flex-col ${compact ? 'gap-2 h-full min-h-0 overflow-hidden' : 'gap-4 min-h-0'}`}>
+    <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-4 min-h-0'}`}>
 
       {(isRunning || isStoppageActive) && (
         <div className={`flex items-center justify-between rounded-xl border shadow-sm transition-colors shrink-0 ${
@@ -64,14 +68,21 @@ export function SixHiOrderWorkspace({
         </div>
       )}
 
-      <PPCInfoCards data={order} compact={compact} combinedOrderCount={combinedOrderCount} />
+      <PPCInfoCards
+        data={order}
+        compact={compact}
+        combinedOrderCount={combinedOrderCount}
+        combinedTargetMt={combinedTargetMt}
+      />
 
-      <div className="bg-card border border-border rounded-xl shadow-sm flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className={`bg-card border border-border rounded-xl shadow-sm ${compact ? '' : 'flex-1 min-h-0 flex flex-col overflow-hidden'}`}>
         {isRolling ? (
           <FourHiRollingForm
             order={order}
             busy={busy}
             combinedOrderCount={combinedOrderCount}
+            combinedTargetMt={combinedTargetMt}
+            combinedActualMt={combinedActualMt}
             onSave={onSaveRolling}
             compact={compact}
             readOnly={readOnly}
@@ -81,6 +92,8 @@ export function SixHiOrderWorkspace({
             order={order}
             busy={busy}
             combinedOrderCount={combinedOrderCount}
+            combinedTargetMt={combinedTargetMt}
+            combinedActualMt={combinedActualMt}
             onSave={onSaveSkinPass}
             compact={compact}
             readOnly={readOnly}
