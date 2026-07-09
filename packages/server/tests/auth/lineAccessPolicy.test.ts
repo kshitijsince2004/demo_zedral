@@ -26,7 +26,7 @@ describe('lineAccessPolicy — Plant Head read-only', () => {
     expect(() => assertLineOperation(plantHead as any, '6HI', 'READ')).not.toThrow();
   });
 
-  it.each(['WRITE', 'APPROVE', 'SUBMIT', 'CORRECT', 'OVERRIDE'] as const)(
+  it.each(['WRITE', 'SUBMIT', 'CORRECT'] as const)(
     'denies %s for Plant Head',
     (op) => {
       expect(() => assertLineOperation(plantHead as any, 'HRS', op)).toThrow(AuthError);
@@ -36,6 +36,13 @@ describe('lineAccessPolicy — Plant Head read-only', () => {
         expect((e as AuthError).message).toContain("Operation '" + op + "'");
         expect((e as AuthError).message).toContain('read-only');
       }
+    },
+  );
+
+  it.each(['APPROVE', 'OVERRIDE'] as const)(
+    'allows %s for Plant Head (shift governance)',
+    (op) => {
+      expect(() => assertLineOperation(plantHead as any, 'HRS', op)).not.toThrow();
     },
   );
 
