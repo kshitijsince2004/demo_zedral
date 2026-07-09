@@ -366,9 +366,14 @@ export class ShiftLogService {
     const window = windows.find(w => w.shift_code === currentLog.shift_code);
     const prodDateStr = formatDbDate(currentLog.prod_date as Date | string);
     if (window) {
-      const { resolveShiftWindowBounds } = await import('../validation/manufacturingValidation');
-      const bounds = resolveShiftWindowBounds(prodDateStr, window.start_time, window.end_time);
-      if (Date.now() < bounds.end.getTime()) {
+      const { canCompleteOutgoingHandover } = await import('../validation/manufacturingValidation');
+      const shiftSpec = {
+        shiftCode: currentLog.shift_code,
+        prodDate: prodDateStr,
+        windowStart: window.start_time,
+        windowEnd: window.end_time,
+      };
+      if (!canCompleteOutgoingHandover(shiftSpec, windows)) {
         throw new Error(`Shift handover cannot be completed before the current shift's scheduled end time (${window.end_time}).`);
       }
     }

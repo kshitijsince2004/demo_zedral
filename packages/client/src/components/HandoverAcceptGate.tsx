@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
 import { ApiError } from '../lib/apiClient';
 import { machineHandoverService, type PendingHandover } from '../services/machineHandoverService';
@@ -14,10 +14,14 @@ interface HandoverAcceptGateProps {
 /** Blocks CRM workspace until incoming operator accepts pending handover. */
 export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGateProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
   const [pending, setPending] = useState<PendingHandover | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const machineAccess = useAuthStore((s) => s.machineAccess);
+
+  // Outgoing operators use /handover to submit — never block that route behind the accept gate.
+  const onOutgoingHandoverRoute = /\/handover\/?$/.test(location.pathname);
 
   const checkPending = useCallback(async () => {
     setLoadError(null);
@@ -42,6 +46,10 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
   useEffect(() => {
     void checkPending();
   }, [checkPending]);
+
+  if (onOutgoingHandoverRoute) {
+    return <>{children}</>;
+  }
 
   if (pending === undefined && !loadError) {
     return (

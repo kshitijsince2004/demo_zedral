@@ -4,7 +4,11 @@ import { ShiftDetectionService } from './ShiftDetectionService';
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
-import { resolveShiftSinceTime, formatDurationMinutes } from '../validation/manufacturingValidation';
+import {
+  canCompleteOutgoingHandover,
+  resolveShiftSinceTime,
+  formatDurationMinutes,
+} from '../validation/manufacturingValidation';
 import type { BoundaryShiftContext } from './ShiftBoundaryService';
 import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
@@ -372,7 +376,7 @@ export class MachineHandoverService {
 
     const { nextShiftCode, nextProdDate } = ShiftLogService.getNextShift(
       preview.shift.shiftCode,
-      new Date(preview.shift.prodDate),
+      parsePlantDateOnly(preview.shift.prodDate),
     );
 
     let orderId: number | null = null;
@@ -476,17 +480,18 @@ export class MachineHandoverService {
 
     const preview = await this.buildOutgoingPreview(machineCode, operatorUserId);
 
-    const { resolveShiftWindowBounds } = await import('../validation/manufacturingValidation');
-    const bounds = resolveShiftWindowBounds(preview.shift.prodDate, preview.shift.windowStart, preview.shift.windowEnd);
-    if (Date.now() < bounds.end.getTime()) {
-      throw new Error(`Shift handover cannot be completed before the current shift's scheduled end time (${preview.shift.windowEnd}).`);
+    const windows = await ShiftDetectionService.listShiftWindows();
+    if (!canCompleteOutgoingHandover(preview.shift, windows)) {
+      throw new Error(
+        `Shift handover cannot be completed before the current shift's scheduled end time (${preview.shift.windowEnd}).`,
+      );
     }
 
     const active = preview.activeOrder;
 
     const { nextShiftCode, nextProdDate } = ShiftLogService.getNextShift(
       preview.shift.shiftCode,
-      new Date(preview.shift.prodDate),
+      parsePlantDateOnly(preview.shift.prodDate),
     );
 
     let orderId: number | null = null;
@@ -833,7 +838,9 @@ export class MachineHandoverService {
 
     const acceptedAt = new Date();
     const incomingShiftCode = handover.incoming_shift_code;
-    const incomingProdDate = formatProdDate(handover.incoming_prod_date as Date | string);
+    const incomingProdDate = parsePlantDateOnly(
+      formatProdDate(handover.incoming_prod_date as Date | string),
+    );
 
     return db.transaction().execute(async (trx) => {
       const updated = await trx
@@ -846,6 +853,13 @@ export class MachineHandoverService {
         .where('handover_id', '=', handoverId)
         .returningAll()
         .executeTakeFirstOrThrow();
+
+      await trx
+        .updateTable('txn.machine_shift_session')
+        .set({ status: 'CLOSED', closed_at: acceptedAt })
+        .where('machine_code', '=', handover.machine_code)
+        .where('status', '=', 'ACTIVE')
+        .execute();
 
       await trx
         .insertInto('txn.machine_shift_session')
@@ -945,7 +959,7 @@ export class MachineHandoverService {
       .values({
         machine_code: machineCode,
         shift_code: shift.shiftCode,
-        prod_date: shift.prodDate,
+        prod_date: parsePlantDateOnly(shift.prodDate),
         operator_user_id: operatorUserId,
         status: 'ACTIVE',
       })

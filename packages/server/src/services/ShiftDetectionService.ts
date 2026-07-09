@@ -126,12 +126,43 @@ export class ShiftDetectionService {
     const at = new Date();
 
     if (opts?.machineCode) {
-      const activeSession = await db
-        .selectFrom('txn.machine_shift_session as s')
-        .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
-        .select(['s.shift_code', 'w.name as shift_name', 's.prod_date', 'w.start_time', 'w.end_time'])
+      const sessionSelect = () =>
+        db
+          .selectFrom('txn.machine_shift_session as s')
+          .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+          .select([
+            's.shift_code',
+            'w.name as shift_name',
+            's.prod_date',
+            'w.start_time',
+            'w.end_time',
+          ]);
+
+      if (opts.userId) {
+        const userSession = await sessionSelect()
+          .where('s.machine_code', '=', opts.machineCode)
+          .where('s.operator_user_id', '=', opts.userId)
+          .where('s.status', '=', 'ACTIVE')
+          .orderBy('s.started_at', 'desc')
+          .executeTakeFirst();
+
+        if (userSession) {
+          return {
+            shiftCode: userSession.shift_code,
+            shiftName: userSession.shift_name,
+            prodDate: formatDbDate(userSession.prod_date as Date),
+            windowStart: String(userSession.start_time).slice(0, 5),
+            windowEnd: String(userSession.end_time).slice(0, 5),
+            detectedAt: at.toISOString(),
+            source: 'SESSION',
+          };
+        }
+      }
+
+      const activeSession = await sessionSelect()
         .where('s.machine_code', '=', opts.machineCode)
         .where('s.status', '=', 'ACTIVE')
+        .orderBy('s.started_at', 'desc')
         .executeTakeFirst();
 
       if (activeSession) {
@@ -139,8 +170,8 @@ export class ShiftDetectionService {
           shiftCode: activeSession.shift_code,
           shiftName: activeSession.shift_name,
           prodDate: formatDbDate(activeSession.prod_date as Date),
-          windowStart: activeSession.start_time.slice(0, 5),
-          windowEnd: activeSession.end_time.slice(0, 5),
+          windowStart: String(activeSession.start_time).slice(0, 5),
+          windowEnd: String(activeSession.end_time).slice(0, 5),
           detectedAt: at.toISOString(),
           source: 'SESSION',
         };

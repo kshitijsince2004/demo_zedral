@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { canCompleteOutgoingHandover } from '../src/validation/manufacturingValidation';
+import { DEFAULT_PLANT_SHIFT_WINDOWS, plantClockDate } from '@m1/shared-validation';
 
 /** Mirrors SixHiService.earlierShiftCodesOnSameDay for unit testing. */
 function earlierShiftCodesOnSameDay(shiftCode: string): string[] {
@@ -42,6 +44,30 @@ describe('shift handover helpers', () => {
     it('preserves LOW and HIGH', () => {
       expect(normalizeHandoverPriority('LOW')).toBe('LOW');
       expect(normalizeHandoverPriority('HIGH')).toBe('HIGH');
+    });
+  });
+
+  describe('canCompleteOutgoingHandover', () => {
+    const shiftB = {
+      shiftCode: 'B',
+      prodDate: '2026-07-09',
+      windowStart: '14:00',
+      windowEnd: '22:00',
+    };
+
+    it('blocks before scheduled shift end while clock is still on the same shift', () => {
+      const at = plantClockDate('2026-07-09', '18:00');
+      expect(canCompleteOutgoingHandover(shiftB, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(false);
+    });
+
+    it('allows after scheduled shift end', () => {
+      const at = plantClockDate('2026-07-09', '22:05');
+      expect(canCompleteOutgoingHandover(shiftB, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(true);
+    });
+
+    it('allows when wall clock has moved to the next shift', () => {
+      const at = plantClockDate('2026-07-09', '22:30');
+      expect(canCompleteOutgoingHandover(shiftB, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(true);
     });
   });
 });

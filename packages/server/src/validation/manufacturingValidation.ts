@@ -1,6 +1,7 @@
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
 import {
   addPlantDays,
+  DEFAULT_PLANT_SHIFT_WINDOWS,
   formatPlantDate,
   plantClockDate,
   resolveShiftFromClock,
@@ -42,6 +43,19 @@ export function assertNoOverlappingIntervals(
       );
     }
   }
+}
+
+/** True when the outgoing operator may submit handover (shift ended or clock moved on). */
+export function canCompleteOutgoingHandover(
+  shift: { shiftCode: string; prodDate: string; windowStart: string; windowEnd: string },
+  windows: PlantShiftWindow[] = DEFAULT_PLANT_SHIFT_WINDOWS,
+  at: Date = new Date(),
+): boolean {
+  const bounds = resolveShiftWindowBounds(shift.prodDate, shift.windowStart, shift.windowEnd);
+  if (at.getTime() >= bounds.end.getTime()) return true;
+
+  const clock = resolveShiftFromClock(windows, at);
+  return clock.shiftCode !== shift.shiftCode.toUpperCase();
 }
 
 export function resolveShiftWindowBounds(
