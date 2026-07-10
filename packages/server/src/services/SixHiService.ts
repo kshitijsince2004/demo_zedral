@@ -571,7 +571,9 @@ export class SixHiService {
       }
     }
 
-    const inputThk = Number(b.input_thk_mm ?? b.ppc_thk_mm);
+    const inputThk = subProcess === 'SKIN_PASS'
+      ? Number(b.input_thk_mm ?? 0)
+      : Number(b.input_thk_mm ?? b.ppc_thk_mm);
     const finishThk = b.finish_thk_mm != null ? Number(b.finish_thk_mm) : undefined;
     const allocated = b.machine_allocated ?? true;
 
@@ -1174,7 +1176,9 @@ export class SixHiService {
           .execute()
       : [];
 
-    const inputThk = Number(order.input_thk_mm ?? order.ppc_thk_mm);
+    const inputThk = order.sub_process === 'SKIN_PASS'
+      ? Number(order.input_thk_mm ?? 0)
+      : Number(order.input_thk_mm ?? order.ppc_thk_mm);
     const targetThk = Number(order.ppc_thk_mm);
     const finishThk = ppcBatch?.finish_thk_mm != null ? Number(ppcBatch.finish_thk_mm) : undefined;
 
@@ -1193,6 +1197,8 @@ export class SixHiService {
       inputThkMm: inputThk,
       targetThkMm: targetThk,
       finishThkMm: finishThk,
+      minThkTolMm: ppcBatch?.min_thk_tol_mm != null ? Number(ppcBatch.min_thk_tol_mm) : undefined,
+      maxThkTolMm: ppcBatch?.max_thk_tol_mm != null ? Number(ppcBatch.max_thk_tol_mm) : undefined,
       machineCode: ppcBatch?.machine_code,
       machineAllocated: ppcBatch?.machine_allocated ?? true,
       rollingPassNo: ppcBatch?.active_rolling_pass_no ? Number(ppcBatch.active_rolling_pass_no) : undefined,
@@ -1372,6 +1378,7 @@ export class SixHiService {
         'slit_id',
         'roll_finish',
         'ppc_thk_mm',
+        'input_thk_mm',
         'finish_thk_mm',
         'machine_code',
         'machine_allocated',
@@ -1386,13 +1393,18 @@ export class SixHiService {
     }
 
     const first = batches[0];
-    const finalThk = (row: typeof first) => String(row.finish_thk_mm ?? row.ppc_thk_mm);
+    const thicknessKey = (row: typeof first) => (
+      row.sub_process === 'SKIN_PASS'
+        ? String(row.input_thk_mm ?? '')
+        : String(row.finish_thk_mm ?? row.ppc_thk_mm)
+    );
+    const thicknessLabel = first.sub_process === 'SKIN_PASS' ? 'Pre-Stage Thickness' : 'Final Output Thickness';
     const normalized = (value: string | null | undefined) => value?.trim() || '';
     const baseKey = [
       first.coil_no,
       normalized(first.slit_id),
       normalized(first.roll_finish),
-      finalThk(first),
+      thicknessKey(first),
     ].join('|');
 
     for (const batch of batches) {
@@ -1409,10 +1421,10 @@ export class SixHiService {
         batch.coil_no,
         normalized(batch.slit_id),
         normalized(batch.roll_finish),
-        finalThk(batch),
+        thicknessKey(batch),
       ].join('|');
       if (key !== baseKey) {
-        throw new Error('Selected orders must share Mother Coil, Slit ID, Finish, and Final Output Thickness');
+        throw new Error(`Selected orders must share Mother Coil, Slit ID, Finish, and ${thicknessLabel}`);
       }
     }
 
@@ -2030,10 +2042,10 @@ export class SixHiService {
   ) {
     const trimmedRemarks = remarks?.trim();
     if (!rejectionReason?.trim()) {
-      throw new Error('Rejection reason is required');
+      throw new Error('Hold reason is required');
     }
     if (!trimmedRemarks) {
-      throw new Error('Rejection remarks are required');
+      throw new Error('Hold remarks are required');
     }
 
     const orderId = await this.ensureOrder(batchNumber, userId);

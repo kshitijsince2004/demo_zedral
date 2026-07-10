@@ -265,6 +265,10 @@ export interface SixHiOrderDetail {
 
   finishThkMm?: number;
 
+  minThkTolMm?: number;
+
+  maxThkTolMm?: number;
+
   machineCode?: string;
 
   machineAllocated?: boolean;

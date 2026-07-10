@@ -23,7 +23,7 @@ const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
   { value: 'OK', label: 'OK' },
   { value: 'HOLD', label: 'Hold' },
-  { value: 'REJECT', label: 'Reject' },
+  { value: 'REJECT', label: 'Order Hold' },
   { value: 'FOR_CTL', label: 'For CTL' },
 ];
 

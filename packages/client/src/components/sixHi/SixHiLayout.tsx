@@ -23,7 +23,7 @@ import { SixHiManualOrderModal } from './SixHiManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
-import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { resolveCombinedStoppageTargets } from '../../lib/combinedProductionRun';
 
 function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
@@ -135,7 +135,7 @@ export function SixHiLayout() {
   const modalOrderLabel = combinedRun
     ? `Combined run (${combinedRun.batchNumbers.length} orders)`
     : panelOrder
-      ? primaryOrderId(panelOrder)
+      ? displayMotherCoilId(panelOrder)
       : activeBatch
         ? `Batch ${activeBatch}`
         : undefined;

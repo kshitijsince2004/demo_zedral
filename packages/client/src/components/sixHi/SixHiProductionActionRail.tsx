@@ -6,7 +6,8 @@ import { isPreparing } from '../../store/sixHiStore';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
 import { combinedTargetMt } from '../../lib/combinedWeightAllocation';
 
 interface SixHiProductionActionRailProps {
@@ -126,9 +127,8 @@ export function SixHiProductionActionRail({
         ) : (
           <>
             <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">
-              {primaryOrderId(order)}
+              {displayMotherCoilId(order)}
             </p>
-            <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Slit {selectIdOf(order)}</p>
           </>
         )}
         <SixHiStatusPill status={order.status} preparing={preparing} />
@@ -153,7 +153,7 @@ export function SixHiProductionActionRail({
         />
         <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         {canReject && (
-          <RailButton label="Reject" icon={Ban} onClick={onReject} disabled={busy} variant="warn" />
+          <RailButton label={HOLD_ACTION_LABEL} icon={Ban} onClick={onReject} disabled={busy} variant="warn" />
         )}
       </div>
 

@@ -80,18 +80,17 @@ export const RejectedOrdersReport: ReportDefinition = {
       .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
       .select([
         'pb.batch_number as Batch Number',
-        'pb.coil_no as Mother Coil',
-        'pb.slit_id as Slit ID',
+        sql<string>`CASE WHEN pb.slit_id IS NOT NULL AND trim(pb.slit_id) <> '' THEN trim(pb.coil_no) || ' ' || trim(pb.slit_id) ELSE trim(pb.coil_no) END`.as('Mother Coil'),
         'pb.customer_name as Customer',
         'pb.grade_code as Grade',
         'pb.machine_code as Machine',
         'pb.shift_code as Shift',
         'pb.plan_date as Production Date',
         'o.sub_process as Process',
-        'o.prod_end_at as Rejection Time',
-        sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('Rejection Reason'),
-        sql<string>`COALESCE(rej.remarks, '')`.as('Rejection Remarks'),
-        sql<string>`COALESCE(u.full_name, 'Unknown')`.as('Rejected By'),
+        'o.prod_end_at as Hold Time',
+        sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('Hold Reason'),
+        sql<string>`COALESCE(rej.remarks, '')`.as('Hold Remarks'),
+        sql<string>`COALESCE(u.full_name, 'Unknown')`.as('Held By'),
         'pb.ppc_weight_mt as PPC Weight (MT)',
       ])
       .where('o.status', '=', 'REJECTED')
@@ -122,8 +121,8 @@ export const RejectedOrdersReport: ReportDefinition = {
     ].join('_');
     const rows = resultRows.map((r) => ({
       ...r,
-      'Rejection Time': r['Rejection Time']
-        ? new Date(r['Rejection Time'] as Date).toISOString()
+      'Hold Time': r['Hold Time']
+        ? new Date(r['Hold Time'] as Date).toISOString()
         : null,
       'Production Date': r['Production Date']
         ? String(r['Production Date']).slice(0, 10)
@@ -132,14 +131,14 @@ export const RejectedOrdersReport: ReportDefinition = {
 
     const result: ReportExecutionResult = {
       rows,
-      filename: `rejected_orders_${scopeLabel}_${today}.${ext}`,
+      filename: `order_hold_${scopeLabel}_${today}.${ext}`,
       dataVersion: `REJ:${rows.length}:${scopeLabel}`,
       rowCount: rows.length,
       deterministic: true,
     };
 
     if (format === 'XLSX') {
-      result.sheets = [{ name: 'Rejected Orders', rows }];
+      result.sheets = [{ name: 'Order Hold', rows }];
     }
 
     return result;

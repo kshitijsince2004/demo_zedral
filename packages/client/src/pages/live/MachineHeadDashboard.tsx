@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { LiveOrderRow, MachineHeadDashboardData } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
+import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { MachineHeadOrderSidePanel } from '../../components/machinehead/MachineHeadOrderSidePanel';
 import { MachineHeadOrderDetailModal } from '../../components/machinehead/MachineHeadOrderDetailModal';
@@ -18,10 +19,20 @@ import { ExportProgressModal } from '../../components/export/ExportProgressModal
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
 import { jsonFingerprint } from '../../lib/silentRefresh';
+import { formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
+import type { MachineStatusCard } from '@m1/shared-validation';
 
 type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'handover';
+type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
 
 const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected'];
+const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
+
+function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
+  if (filter === 'ALL') return true;
+  if (!subProcess) return allowUnknown;
+  return subProcess === filter;
+}
 
 function formatDuration(minutes?: number): string {
   if (minutes == null || minutes < 0) return '—';
@@ -106,6 +117,9 @@ export function MachineHeadDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
+  const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
+  const [machineModalCode, setMachineModalCode] = useState<string | null>(null);
+  const [machineModalData, setMachineModalData] = useState<MachineStatusCard | undefined>();
   const prevDashboardFpRef = useRef('');
 
   const handleExportRejected = async (mode: 'day' | 'shift') => {
@@ -178,14 +192,66 @@ export function MachineHeadDashboard() {
     return all.filter((m) => allowed.has(m.machineCode));
   }, [snapshot?.machines, machineAccess]);
 
+  const tabCount = useCallback((total: number, filtered: number) => (
+    processFilter === 'ALL' ? total : filtered
+  ), [processFilter]);
+
+  const filteredQueue = useMemo(
+    () => dashboard?.orderQueue.filter((o) => matchesProcessFilter(o.subProcess, processFilter)) ?? [],
+    [dashboard?.orderQueue, processFilter],
+  );
+  const filteredProduction = useMemo(
+    () => dashboard?.productionHistory.filter((h) => matchesProcessFilter(h.subProcess, processFilter)) ?? [],
+    [dashboard?.productionHistory, processFilter],
+  );
+  const filteredStoppages = useMemo(
+    () => dashboard?.stoppages.filter((s) => matchesProcessFilter(s.subProcess, processFilter)) ?? [],
+    [dashboard?.stoppages, processFilter],
+  );
+  const filteredRejected = useMemo(
+    () => rejectedOrders.filter((r) => matchesProcessFilter(r.subProcess, processFilter)),
+    [rejectedOrders, processFilter],
+  );
+  const filteredOperatorActivity = useMemo(
+    () => dashboard?.operatorActivity.filter((a) => {
+      const match = dashboard.orderQueue.find((q) => q.batchNumber === a.batchNumber);
+      return matchesProcessFilter(match?.subProcess ?? a.subProcess, processFilter);
+    }) ?? [],
+    [dashboard?.operatorActivity, dashboard?.orderQueue, processFilter],
+  );
+  const filteredHandover = useMemo(() => {
+    const rows = [
+      ...(dashboard?.handoverOverview?.pending ?? []),
+      ...(dashboard?.handoverOverview?.recent ?? []),
+    ];
+    const unique = new Map(rows.map((h) => [h.handoverId, h]));
+    return [...unique.values()].filter((h) => matchesProcessFilter(h.subProcess, processFilter, true));
+  }, [dashboard?.handoverOverview, processFilter]);
+
   const tabs = useMemo(() => [
     { id: 'overview', label: 'Overview' },
-    { id: 'orders', label: tabLabel('Orders', dashboard?.orderQueue.length) },
-    { id: 'production', label: tabLabel('Production', dashboard?.productionHistory.length) },
-    { id: 'stoppages', label: tabLabel('Stoppages', dashboard?.stoppages.length) },
-    { id: 'rejected', label: tabLabel('Rejected', dashboard?.rejectedOrderCount ?? dashboard?.rejectedOrders?.length) },
-    { id: 'handover', label: tabLabel('Handover', dashboard?.handoverOverview?.recent.length) },
-  ], [dashboard]);
+    { id: 'orders', label: tabLabel('Orders', tabCount(dashboard?.orderQueue.length ?? 0, filteredQueue.length)) },
+    { id: 'production', label: tabLabel('Production', tabCount(dashboard?.productionHistory.length ?? 0, filteredProduction.length)) },
+    { id: 'stoppages', label: tabLabel('Stoppages', tabCount(dashboard?.stoppages.length ?? 0, filteredStoppages.length)) },
+    { id: 'rejected', label: tabLabel('Order Hold', tabCount(dashboard?.rejectedOrderCount ?? dashboard?.rejectedOrders?.length ?? 0, filteredRejected.length)) },
+    { id: 'handover', label: tabLabel('Handover', tabCount((dashboard?.handoverOverview?.recent.length ?? 0) + (dashboard?.handoverOverview?.pending.length ?? 0), filteredHandover.length)) },
+  ], [dashboard, filteredQueue.length, filteredProduction.length, filteredStoppages.length, filteredRejected.length, filteredHandover.length, tabCount]);
+
+  const processFilterTabs = useMemo(() => (
+    ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
+  ).map((id) => ({ id, label: formatProcessFilterLabel(id) })), []);
+
+  const openMachineDetail = useCallback((machineCode: string) => {
+    const card = machines.find((m) => m.machineCode === machineCode);
+    setMachineModalCode(machineCode);
+    setMachineModalData(card);
+  }, [machines]);
+
+  useEffect(() => {
+    if (!machineModalCode) return;
+    const card = machines.find((m) => m.machineCode === machineModalCode);
+    if (card) setMachineModalData(card);
+  }, [machines, machineModalCode]);
 
   const selectOrder = useCallback((row: LiveOrderRow) => {
     setSelectedOrder(row);
@@ -244,7 +310,7 @@ export function MachineHeadDashboard() {
               </div>
               <PanelBody empty={machines.length === 0} emptyLabel="No machines in scope">
                 <div className="p-4">
-                  <MachineStatusBoard machines={machines} />
+                  <MachineStatusBoard machines={machines} onSelect={openMachineDetail} />
                 </div>
               </PanelBody>
             </Panel>
@@ -304,9 +370,9 @@ export function MachineHeadDashboard() {
             <div className="px-4 py-2 border-b border-border/60 bg-muted/20 shrink-0">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Order Queue · Rolling + Skin Pass</h3>
             </div>
-            <PanelBody empty={!dashboard?.orderQueue.length}>
+            <PanelBody empty={filteredQueue.length === 0}>
               <ul className="divide-y divide-border">
-                {dashboard?.orderQueue.map((o) => (
+                {filteredQueue.map((o) => (
                   <li
                     key={o.batchNumber}
                     className={orderRowClass(o.batchNumber)}
@@ -322,7 +388,7 @@ export function MachineHeadDashboard() {
                     <span className="text-xs text-muted-foreground shrink-0">
                       {o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : o.subProcess === 'ROLLING' ? 'Rolling' : o.currentProcess}
                     </span>
-                    <span className="text-[10px] font-bold uppercase shrink-0">{o.status}</span>
+                    <span className="text-[10px] font-bold uppercase shrink-0">{formatOrderStatusLabel(o.status)}</span>
                   </li>
                 ))}
               </ul>
@@ -337,9 +403,9 @@ export function MachineHeadDashboard() {
               <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Production History</h3>
               </div>
-              <PanelBody empty={!dashboard?.productionHistory.length}>
+              <PanelBody empty={filteredProduction.length === 0}>
                 <ul className="divide-y divide-border text-xs">
-                  {dashboard?.productionHistory.map((h) => (
+                  {filteredProduction.map((h) => (
                     <li
                       key={`${h.batchNumber}-${h.completedAt}`}
                       className={orderRowClass(h.batchNumber)}
@@ -361,9 +427,9 @@ export function MachineHeadDashboard() {
               <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Operator Activity</h3>
               </div>
-              <PanelBody empty={!dashboard?.operatorActivity.length}>
+              <PanelBody empty={filteredOperatorActivity.length === 0}>
                 <ul className="divide-y divide-border text-xs">
-                  {dashboard?.operatorActivity.map((a) => (
+                  {filteredOperatorActivity.map((a) => (
                     <li
                       key={`${a.batchNumber}-${a.operatorName}`}
                       className={orderRowClass(a.batchNumber)}
@@ -388,7 +454,7 @@ export function MachineHeadDashboard() {
                     >
                       <span className="font-semibold">{a.operatorName}</span>
                       <span className="font-mono font-bold">{a.batchNumber}</span>
-                      <span className="text-muted-foreground">{a.status}</span>
+                      <span className="text-muted-foreground">{formatOrderStatusLabel(a.status)}</span>
                     </li>
                   ))}
                 </ul>
@@ -403,9 +469,9 @@ export function MachineHeadDashboard() {
             <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Breakdowns & Stoppages</h3>
             </div>
-            <PanelBody empty={!dashboard?.stoppages.length}>
+            <PanelBody empty={filteredStoppages.length === 0}>
               <ul className="divide-y divide-border text-xs">
-                {dashboard?.stoppages.map((s) => (
+                {filteredStoppages.map((s) => (
                   <li
                     key={`${s.batchNumber}-${s.startAt}`}
                     className={orderRowClass(s.batchNumber)}
@@ -429,6 +495,7 @@ export function MachineHeadDashboard() {
                   >
                     <span className="font-mono font-bold">{s.batchNumber}</span>
                     <span>{s.category}</span>
+                    {s.remarks && <span className="text-muted-foreground truncate max-w-[12rem]">{s.remarks}</span>}
                     <span className="text-muted-foreground">{s.machineCode}</span>
                   </li>
                 ))}
@@ -474,9 +541,9 @@ export function MachineHeadDashboard() {
                 </ZButton>
               </div>
             </div>
-            <PanelBody empty={!rejectedLoading && rejectedOrders.length === 0} emptyLabel={rejectedLoading ? 'Loading rejected orders…' : 'No rejected orders'}>
+            <PanelBody empty={!rejectedLoading && filteredRejected.length === 0} emptyLabel={rejectedLoading ? 'Loading held orders…' : 'No orders on hold'}>
               <ul className="divide-y divide-border text-xs">
-                {rejectedOrders.map((r) => (
+                {filteredRejected.map((r) => (
                   <li
                     key={`${r.batchNumber}-${r.rejectionTime}`}
                     className={`${orderRowClass(r.batchNumber)} flex-col items-stretch`}
@@ -493,7 +560,7 @@ export function MachineHeadDashboard() {
                       <div>
                         <p>{r.reason}</p>
                         <p className="text-muted-foreground mt-0.5">
-                          {r.rejectedBy} · {formatPlantDateTime(r.rejectionTime)}
+                          Held by {r.rejectedBy} · {formatPlantDateTime(r.rejectionTime)}
                         </p>
                       </div>
                     </div>
@@ -510,14 +577,18 @@ export function MachineHeadDashboard() {
             <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shift Handover Logs</h3>
             </div>
-            <PanelBody empty={!dashboard?.handoverOverview?.recent.length}>
+            <PanelBody empty={filteredHandover.length === 0}>
               <ul className="divide-y divide-border text-xs">
-                {dashboard?.handoverOverview?.recent.map((h) => (
+                {filteredHandover.map((h) => (
                   <li key={h.handoverId} className="px-4 py-3 hover:bg-secondary/50">
                     <div className="flex justify-between mb-1">
                       <span className="font-bold">{h.machineCode}</span>
                       <span className="text-muted-foreground font-mono">Shift {h.outgoingShiftCode} → {h.incomingShiftCode}</span>
                     </div>
+                    <p className="text-muted-foreground">
+                      {h.batchNumber ? `Order ${h.batchNumber}` : 'Machine handover'}
+                      {h.subProcess ? ` · ${h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Cold Rolling'}` : ''}
+                    </p>
                     <p className="text-muted-foreground">
                       Start {formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}
                       {h.shiftEndAt ? ` · End ${formatPlantDateTime(h.shiftEndAt)}` : ''}
@@ -577,6 +648,17 @@ export function MachineHeadDashboard() {
           />
         </div>
 
+        {PROCESS_FILTER_TABS.includes(activeTab) && (
+          <div className="shrink-0 overflow-x-auto pb-1">
+            <ZPillTabs
+              tabs={processFilterTabs}
+              activeId={processFilter}
+              onChange={(id) => setProcessFilter(id as ProcessFilter)}
+              className="min-w-max"
+            />
+          </div>
+        )}
+
         <div
           className={[
             'flex-1 min-h-0 grid gap-4',
@@ -619,6 +701,17 @@ export function MachineHeadDashboard() {
         batchNumber={selectedOrder?.batchNumber ?? null}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
+      />
+
+      <MachineDetailModal
+        open={machineModalCode != null}
+        machineCode={machineModalCode}
+        machineData={machineModalData}
+        processFilter={processFilter}
+        onClose={() => {
+          setMachineModalCode(null);
+          setMachineModalData(undefined);
+        }}
       />
     </MachineHeadShell>
   );

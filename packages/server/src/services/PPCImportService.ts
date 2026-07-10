@@ -478,6 +478,17 @@ export class PPCImportService {
       if (pendingMatch) existing = { batch_id: pendingMatch.batch_id };
     }
 
+    const inputThkMm = row.sub_process === 'SKIN_PASS'
+      ? row.input_thk_mm
+      : (row.input_thk_mm ?? row.ppc_thk_mm + 0.9);
+    if (inputThkMm == null) {
+      throw new Error(
+        row.sub_process === 'SKIN_PASS'
+          ? `Pre-stage thickness required for skin pass batch ${row.batch_number}`
+          : `Input thickness required for batch ${row.batch_number}`,
+      );
+    }
+
     const batchValues = {
       plan_date: postgresDateOnly(row.plan_date),
       shift_code: row.shift_code,
@@ -488,7 +499,7 @@ export class PPCImportService {
       customer_name: row.customer_name,
       grade_code: row.grade_code,
       width_mm: row.width_mm,
-      input_thk_mm: row.input_thk_mm ?? row.ppc_thk_mm + (row.sub_process === 'SKIN_PASS' ? 0.15 : 0.9),
+      input_thk_mm: inputThkMm,
       ppc_thk_mm: row.ppc_thk_mm,
       ppc_weight_mt: row.ppc_weight_mt,
       destination: row.destination ?? null,

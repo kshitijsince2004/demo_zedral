@@ -1,4 +1,4 @@
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 type OrderIdentitySource = {
   motherCoil?: string;
@@ -21,10 +21,7 @@ const sizeClass = {
 } as const;
 
 export function coilNumberOf(order: OrderIdentitySource): string {
-  return primaryOrderId({
-    motherCoil: order.motherCoil ?? order.coilNo ?? '',
-    batchNumber: order.batchNumber,
-  });
+  return displayMotherCoilId(order);
 }
 
 export function OrderIdentityDisplay({
@@ -45,7 +42,7 @@ export function OrderIdentityDisplay({
       </span>
       {showSubtitle && (
         <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block truncate mt-0.5">
-          Slit ID {selectIdOf(order)} · Batch {order.batchNumber}
+          Batch {order.batchNumber}
         </span>
       )}
     </div>

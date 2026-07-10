@@ -1,7 +1,7 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
 function formatDuration(min?: number): string {
@@ -48,7 +48,7 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
         <div className="col-span-2">
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Linked orders</dt>
           <dd className="font-mono text-xs font-semibold mt-1">
-            {orders.map((o) => primaryOrderId(o)).join(' · ')}
+            {orders.map((o) => displayMotherCoilId(o)).join(' · ')}
           </dd>
         </div>
         <div>
@@ -91,7 +91,7 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
             return (
               <li key={order.batchNumber} className="px-3 py-2.5 flex items-center justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <p className="font-mono font-bold text-primary truncate">{primaryOrderId(order)}</p>
+                  <p className="font-mono font-bold text-primary truncate">{displayMotherCoilId(order)}</p>
                   <p className="text-[10px] text-muted-foreground">
                     Slit {selectIdOf(order)} · Batch {order.batchNumber}
                   </p>
@@ -124,7 +124,7 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
           {primary.skinPass.outputThkMm != null && <p>Output: {primary.skinPass.outputThkMm} mm</p>}
           {primary.skinPass.annHard != null && <p>Ann Hard: {primary.skinPass.annHard}</p>}
           {(primary.skinPass.rwTension1 != null || primary.skinPass.rwTension2 != null) && (
-            <p>R/W Tension: {primary.skinPass.rwTension1 ?? '—'}/{primary.skinPass.rwTension2 ?? '—'}</p>
+            <p>SP Tension: {primary.skinPass.rwTension1 ?? '—'}/{primary.skinPass.rwTension2 ?? '—'}</p>
           )}
         </div>
       )}

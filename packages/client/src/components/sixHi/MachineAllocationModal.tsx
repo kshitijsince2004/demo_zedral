@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { millsForSubProcessFromRegistry } from '../../lib/machineRegistry';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 export type CrmMillCode = string;
 
@@ -78,12 +78,12 @@ export function MachineAllocationModal({
               {isProduction ? 'Move to Production' : isMulti ? 'Bulk Transfer' : 'Move to Machine'}
             </p>
             <h2 id="machine-alloc-title" className="font-mono text-lg font-bold mt-1">
-              {isMulti ? `${batches.length} Orders Selected` : primaryOrderId(firstBatch)}
+              {isMulti ? `${batches.length} Orders Selected` : displayMotherCoilId(firstBatch)}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {isMulti
-                ? `${primaryOrderId(firstBatch)} · Slit ID ${selectIdOf(firstBatch)}`
-                : `Slit ID ${selectIdOf(firstBatch)} · Batch ${firstBatch.batchNumber}`}
+                ? `${batches.length} orders selected`
+                : `Batch ${firstBatch.batchNumber}`}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">{processLabel} · route {routeCode}</p>
           </div>

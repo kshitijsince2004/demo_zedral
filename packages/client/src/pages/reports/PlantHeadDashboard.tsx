@@ -24,6 +24,7 @@ function formatDuration(minutes?: number): string {
 import { PlantKpiStrip } from '../../components/plant-head/PlantKpiStrip';
 import { BacklogDetailDrawer } from '../../components/plant-head/BacklogDetailDrawer';
 import { RejectedOrdersDrawer } from '../../components/plant-head/RejectedOrdersDrawer';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
 import type { LiveOrderDetail } from '@m1/shared-validation';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
@@ -303,7 +304,7 @@ export function PlantHeadDashboard() {
                     ))}
                   </select>
                   <ZButton variant="outline" size="sm" onClick={() => setRejectedOpen(true)} className="gap-1 shrink-0">
-                    Rejected Orders
+                    {ORDER_HOLD_STATUS_LABEL}
                   </ZButton>
                   <ZButton variant="outline" size="sm" onClick={() => startRejectedExport('day')} className="gap-1 shrink-0">
                     <Download className="w-4 h-4" /> Day

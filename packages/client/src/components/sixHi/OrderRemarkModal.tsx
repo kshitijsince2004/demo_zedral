@@ -155,7 +155,7 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
                         value={row.quantityAffected}
                         onChange={(e) => updateRow(index, { quantityAffected: e.target.value })}
                         inputMode="decimal"
-                        placeholder="MT or units"
+                        placeholder="MT"
                       />
                     </FieldWrapper>
                     <FieldWrapper label={row.defectCode === DEFECT_OTHER_CODE ? 'Other defect remarks' : 'Defect Remarks'} required={row.defectCode === DEFECT_OTHER_CODE}>

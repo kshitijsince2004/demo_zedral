@@ -6,21 +6,24 @@ import {
   combinedTargetMt,
   resolveCombinedActualMt,
 } from '../../lib/combinedWeightAllocation';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { SixHiStatusPill } from './SixHiStatusPill';
 
 interface CombinedProductionOrdersPanelProps {
   combinedRun: CombinedProductionRun;
   refreshToken?: number;
-  /** Compact layout for capture / overview screens */
   variant?: 'workspace' | 'capture';
+  selectedBatch?: string | null;
+  onSelectBatch?: (batchNumber: string) => void;
 }
 
 export function CombinedProductionOrdersPanel({
   combinedRun,
   refreshToken = 0,
   variant = 'workspace',
+  selectedBatch,
+  onSelectBatch,
 }: CombinedProductionOrdersPanelProps) {
   const [orders, setOrders] = useState<SixHiOrderDetail[]>([]);
 
@@ -59,13 +62,13 @@ export function CombinedProductionOrdersPanel({
   const balanceMt = combinedActualMt != null ? Math.max(0, totalTargetMt - combinedActualMt) : null;
 
   return (
-    <div className={`shrink-0 space-y-2 ${variant === 'capture' ? '' : 'px-3 pb-2'}`}>
+    <div className={`shrink-0 space-y-2 ${variant === 'capture' ? '' : 'px-3 pt-2'}`}>
       <div className="rounded-xl border border-success/30 bg-success/5 px-3 py-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-success">
-          Combined production run · {combinedRun.batchNumbers.length} linked orders
+          Combined production · {combinedRun.batchNumbers.length} active orders
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Enter one combined actual weight — allocation fills smallest orders first, then larger units.
+          Tap an order card for full details. Enter one combined actual weight below.
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
           <div className="rounded-lg bg-white/80 border border-border/50 px-2 py-1.5">
@@ -88,7 +91,7 @@ export function CombinedProductionOrdersPanel({
       </div>
 
       <div className={variant === 'capture' ? 'max-h-56 overflow-y-auto' : ''}>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2">
           {(cards ?? combinedRun.orders).map((order) => {
             const batchNumber = order.batchNumber;
             const detail = cards?.find((o) => o.batchNumber === batchNumber);
@@ -96,27 +99,34 @@ export function CombinedProductionOrdersPanel({
             const produced = allocated ?? detail?.rolling?.actualWeightMt ?? detail?.skinPass?.actualWeightMt;
             const targetMt = detail?.ppcWeightMt ?? ('weightMt' in order ? order.weightMt : 0);
             const status = detail?.status;
+            const isSelected = selectedBatch === batchNumber;
 
             return (
-              <div key={batchNumber} className="rounded-xl border border-border bg-white p-3 relative">
-                <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-success" title="Linked combined run" />
-                <div className="flex items-start justify-between gap-2 pr-3">
-                  <span className="font-mono text-sm font-bold truncate">{primaryOrderId(order)}</span>
+              <button
+                key={batchNumber}
+                type="button"
+                onClick={() => onSelectBatch?.(batchNumber)}
+                className={[
+                  'rounded-xl border bg-white p-3 text-left transition-all',
+                  'hover:border-primary/40 hover:shadow-sm',
+                  isSelected ? 'border-primary ring-2 ring-primary/20 shadow-sm' : 'border-border',
+                ].join(' ')}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-mono text-sm font-bold truncate">{displayMotherCoilId(order)}</span>
                   {status && <SixHiStatusPill status={status} />}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Slit {selectIdOf(order)} · Batch {batchNumber}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="text-[10px] text-muted-foreground mt-1 font-mono">Batch {batchNumber}</p>
+                <p className="text-xs mt-2">
                   <span className="font-semibold text-foreground">
                     {produced != null ? `${produced} MT` : '—'}
                   </span>
-                  {' '}/ {targetMt} MT
-                  {allocation && produced != null && (
-                    <span className="block text-[10px] text-success mt-0.5">Allocated fill</span>
-                  )}
+                  <span className="text-muted-foreground"> / {targetMt} MT</span>
                 </p>
-              </div>
+                {isSelected && (
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-primary mt-2">Viewing details →</p>
+                )}
+              </button>
             );
           })}
         </div>

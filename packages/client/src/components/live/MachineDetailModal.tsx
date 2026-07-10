@@ -3,6 +3,7 @@ import type { MachineCommandCenterData, MachineStatusCard } from '@m1/shared-val
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { Activity, AlertTriangle, Power, ShieldAlert, X } from 'lucide-react';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { liveService } from '../../lib/liveService';
 
 interface MachineDetailModalProps {
@@ -10,6 +11,18 @@ interface MachineDetailModalProps {
   onClose: () => void;
   machineCode: string | null;
   machineData?: MachineStatusCard;
+  processFilter?: 'ALL' | 'ROLLING' | 'SKIN_PASS';
+}
+
+function matchesProcess(subProcess: string | undefined, filter: 'ALL' | 'ROLLING' | 'SKIN_PASS'): boolean {
+  if (filter === 'ALL') return true;
+  return subProcess === filter;
+}
+
+function processLabel(subProcess?: string): string {
+  if (subProcess === 'SKIN_PASS') return 'Skin Pass';
+  if (subProcess === 'ROLLING') return 'Cold Rolling';
+  return subProcess ?? '';
 }
 
 function statusCardClass(status: string) {
@@ -36,7 +49,7 @@ function SummaryCard({ label, value, sub, accent }: { label: string; value: stri
   );
 }
 
-export function MachineDetailModal({ open, onClose, machineCode, machineData }: MachineDetailModalProps) {
+export function MachineDetailModal({ open, onClose, machineCode, machineData, processFilter = 'ALL' }: MachineDetailModalProps) {
   const [detail, setDetail] = useState<MachineCommandCenterData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,11 +89,33 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
   if (!open || !machineCode) return null;
 
   const machineName = detail?.machineName ?? machineData?.machineName ?? machineCode;
-  const currentOrder = detail?.currentOrder?.batchNumber ?? machineData?.currentOrder;
+  const showCurrentOrder = !detail?.currentOrder
+    || matchesProcess(detail.currentOrder.subProcess, processFilter);
+  const currentOrder = showCurrentOrder
+    ? (detail?.currentOrder?.batchNumber ?? machineData?.currentOrder)
+    : undefined;
   const operator = detail?.currentOperator ?? machineData?.currentOperator;
   const shift = detail?.shiftCode ?? machineData?.shiftCode;
   const utilization = detail?.utilization;
   const timeline = detail?.timeline ?? [];
+  const stoppageReason = machineData?.activeStoppageReason ?? detail?.activeStoppage?.reason;
+  const operatorRemarks = detail?.activeStoppage?.remarks ?? machineData?.operatorRemarks;
+  const activeOrders = (detail?.activeOrders?.length ?? 0) > 1
+    ? detail!.activeOrders!
+    : (machineData?.activeOrderCount ?? 0) > 1 && machineData?.activeOrders
+      ? machineData.activeOrders
+      : null;
+  const activeOrderCount = activeOrders?.length ?? machineData?.activeOrderCount ?? 0;
+  const filteredQueue = (detail?.orderQueue ?? []).filter((o) => matchesProcess(o.subProcess, processFilter));
+  const filteredCompleted = (detail?.completedOrders ?? []).filter((o) => matchesProcess(o.subProcess, processFilter));
+
+  function thicknessLine(o: { subProcess?: string; inputThkMm?: number; targetThkMm?: number }): string | null {
+    if (o.targetThkMm == null) return null;
+    if (o.subProcess === 'SKIN_PASS') {
+      return `Pre ${o.inputThkMm ?? '—'} → Target ${o.targetThkMm} mm`;
+    }
+    return `Target ${o.targetThkMm} mm`;
+  }
 
   return (
     <>
@@ -124,9 +159,34 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
               </div>
               <div>
                 <span className="text-xs font-semibold text-muted-foreground block mb-1">Production Status</span>
-                <span className="font-bold">{currentOrder ? 'Active Order' : 'No Active Order'}</span>
+                <span className="font-bold">
+                  {activeOrderCount > 1 ? `${activeOrderCount} Orders Running` : currentOrder ? 'Active Order' : 'No Active Order'}
+                </span>
               </div>
-              {currentOrder && (
+              {activeOrderCount > 1 && activeOrders ? (
+                <div className="col-span-2 bg-background border border-border/40 shadow-sm rounded-lg p-4 mt-2 mb-2 space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground block">
+                    {activeOrderCount} Orders Running
+                  </span>
+                  {activeOrders.map((o) => {
+                    const rich = 'subProcess' in o ? o : detail?.activeOrders?.find((d) => d.batchNumber === o.batchNumber);
+                    const thk = rich && 'targetThkMm' in rich ? thicknessLine(rich) : null;
+                    return (
+                      <div key={o.batchNumber} className="rounded-lg border border-border/60 px-3 py-2">
+                        <p className="font-mono text-sm font-bold">{o.coilNo ?? o.batchNumber}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {o.customer ?? '—'} · {formatOrderStatusLabel(o.status)}
+                          {o.weightMt != null ? ` · ${o.weightMt} MT` : ''}
+                        </p>
+                        {thk && <p className="text-[11px] font-mono text-muted-foreground mt-1">{thk}</p>}
+                        {'runtimeMin' in o && o.runtimeMin != null && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Runtime {o.runtimeMin} min</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : currentOrder && (
                 <div className="col-span-2 bg-background border border-border/40 shadow-sm rounded-lg p-4 mt-2 mb-2">
                   <span className="text-xs font-semibold text-muted-foreground block mb-1">Current Order</span>
                   <span className="font-mono text-lg font-bold">{currentOrder}</span>
@@ -143,10 +203,24 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
                 <span className="text-xs font-semibold text-muted-foreground block mb-1">Shift</span>
                 <span className="font-bold">{shift || '—'}</span>
               </div>
-              {detail?.activeStoppage && (
+              {(detail?.activeStoppage || stoppageReason) && (
+                <div className="col-span-2 mt-2 space-y-2">
+                  <div>
+                    <span className="text-xs font-semibold text-muted-foreground block mb-1">Stoppage Cause</span>
+                    <span className="font-bold">{stoppageReason ?? detail?.activeStoppage?.reason ?? '—'}</span>
+                  </div>
+                  {operatorRemarks && (
+                    <div>
+                      <span className="text-xs font-semibold text-muted-foreground block mb-1">Operator Remarks</span>
+                      <span className="text-sm">{operatorRemarks}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!detail?.activeStoppage && !stoppageReason && operatorRemarks && (
                 <div className="col-span-2 mt-2">
-                  <span className="text-xs font-semibold text-muted-foreground block mb-1">Stoppage Reason</span>
-                  <span className="font-bold">{detail.activeStoppage.reason}</span>
+                  <span className="text-xs font-semibold text-muted-foreground block mb-1">Operator Remarks</span>
+                  <span className="text-sm">{operatorRemarks}</span>
                 </div>
               )}
             </div>
@@ -165,11 +239,49 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData }: 
             </section>
           )}
 
-          {detail?.nextOrder && (
+          {detail?.nextOrder && matchesProcess(detail.nextOrder.subProcess, processFilter) && (
             <section className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow">
               <h3 className="text-sm font-semibold tracking-tight mb-2">Next In Queue</h3>
               <p className="font-mono text-lg font-semibold">{detail.nextOrder.batchNumber}</p>
-              <p className="text-sm text-muted-foreground mt-1">{detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}
+                {detail.nextOrder.subProcess ? ` · ${processLabel(detail.nextOrder.subProcess)}` : ''}
+              </p>
+            </section>
+          )}
+
+          {detail?.orderQueue && filteredQueue.length > 0 && (
+            <section className="bg-card border border-border rounded-xl p-6 shadow">
+              <h3 className="text-sm font-semibold tracking-tight mb-3">Orders in Queue</h3>
+              <ul className="divide-y divide-border text-sm">
+                {filteredQueue.map((o) => (
+                  <li key={o.batchNumber} className="py-2 flex justify-between gap-2 items-center">
+                    <span className="font-mono font-semibold">{o.batchNumber}</span>
+                    <span className="text-muted-foreground truncate">{o.customer}</span>
+                    {o.subProcess && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">{processLabel(o.subProcess)}</span>
+                    )}
+                    <span className="text-xs font-bold uppercase shrink-0">{formatOrderStatusLabel(o.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {detail?.completedOrders && filteredCompleted.length > 0 && (
+            <section className="bg-card border border-border rounded-xl p-6 shadow">
+              <h3 className="text-sm font-semibold tracking-tight mb-3">Completed Orders</h3>
+              <ul className="divide-y divide-border text-sm">
+                {filteredCompleted.map((o) => (
+                  <li key={`${o.batchNumber}-${o.completedAt}`} className="py-2 flex justify-between gap-2 items-center">
+                    <span className="font-mono font-semibold">{o.batchNumber}</span>
+                    <span className="text-muted-foreground">{o.weightMt} MT</span>
+                    {o.subProcess && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">{processLabel(o.subProcess)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
 

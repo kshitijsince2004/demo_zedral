@@ -79,7 +79,7 @@ export const SixHiSkinPassUpdateSchema = z
       const hasRw = data.rwTension1 != null || data.rwTension2 != null;
       return !(hasAnn && hasRw);
     },
-    { message: 'Provide either Annealing Hardness or R/W Tension, not both' },
+    { message: 'Provide either Annealing Hardness or SP Tension, not both' },
   );
 
 

@@ -1,6 +1,6 @@
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 import { Package } from 'lucide-react';
-import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, finishOf, selectIdOf, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
 
 type PPCSource = Pick<
   SixHiOrderDetail,
@@ -37,6 +37,8 @@ export function PPCInfoCards({
   combinedTargetMt?: number;
 }) {
   const isRolling = 'subProcess' in data && data.subProcess === 'ROLLING';
+  const isSkinPass = 'subProcess' in data && data.subProcess === 'SKIN_PASS';
+  const thickness = thicknessDisplayForProcess(data);
   const batch = 'batchNumber' in data ? data.batchNumber : undefined;
   const weight = combinedTargetMt ?? ('ppcWeightMt' in data ? data.ppcWeightMt : ('weightMt' in data ? data.weightMt : 0));
 
@@ -45,7 +47,7 @@ export function PPCInfoCards({
       <div className={`flex items-center justify-between border-b border-border/50 ${compact ? 'mb-2 pb-1' : 'mb-4 pb-2'}`}>
         <h3 className="text-[10px] font-bold uppercase tracking-widest text-info flex items-center gap-2">
           <Package className="w-4 h-4" /> {combinedOrderCount && combinedOrderCount > 1 ? 'Shared Specs' : 'Current Order'}
-          <span className="text-foreground ml-1">{primaryOrderId(data)}</span>
+          <span className="text-foreground ml-1">{displayMotherCoilId(data)}</span>
         </h3>
         {combinedOrderCount && combinedOrderCount > 1 ? (
           <span className="text-[9px] uppercase font-bold text-success bg-success/10 px-2 py-0.5 rounded">
@@ -70,8 +72,12 @@ export function PPCInfoCards({
           <p className="text-sm font-mono font-bold text-foreground truncate">{selectIdOf(data)}</p>
         </div>
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
-          {label('Width / Final Thk')}
-          <p className="text-sm font-mono font-bold text-foreground truncate">{data.widthMm}mm / {finalOutputThicknessOf(data)}mm</p>
+          {label(isSkinPass ? 'Pre-Stage / Target' : 'Width / Thickness')}
+          <p className="text-sm font-mono font-bold text-foreground truncate">
+            {isSkinPass
+              ? `${thickness.preValue} → ${thickness.targetValue ?? '—'} mm`
+              : `${data.widthMm}mm / ${thickness.targetValue ?? thickness.preValue}mm`}
+          </p>
         </div>
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
           {label(combinedOrderCount && combinedOrderCount > 1 ? 'Combined Target' : 'Target Wt')}

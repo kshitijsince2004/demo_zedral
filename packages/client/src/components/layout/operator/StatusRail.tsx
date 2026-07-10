@@ -170,7 +170,9 @@ export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
           ) : (
             <ZBadge tone="muted" label="Idle" dot />
           )}
+-
           <DeviceStatusIndicators />
+
           <SyncStatusBadge />
           <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">
             {currentDateStr} {clock}

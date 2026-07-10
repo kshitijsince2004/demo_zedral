@@ -733,7 +733,8 @@ export class MachineHandoverService {
       .selectFrom('txn.machine_handover as h')
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
-      .select(handoverSelect)
+      .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
+      .select([...handoverSelect, 'pb.sub_process'])
       .where('h.status', '=', 'PENDING')
       .orderBy('h.created_at', 'desc');
 
@@ -750,7 +751,8 @@ export class MachineHandoverService {
       .selectFrom('txn.machine_handover as h')
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
-      .select(handoverSelect)
+      .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
+      .select([...handoverSelect, 'pb.sub_process'])
       .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED'])
       .orderBy('h.created_at', 'desc')
       .limit(15);
@@ -806,6 +808,7 @@ export class MachineHandoverService {
         outgoingUsername: h.outgoing_username ?? undefined,
         incomingUsername: h.incoming_username ?? undefined,
         createdByBoundary: h.created_by_boundary,
+        subProcess: h.sub_process ?? undefined,
       };
     };
 

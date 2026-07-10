@@ -47,6 +47,18 @@ function statusFromActiveOrder(
   return null;
 }
 
+function pickOperatorRemarks(
+  activeOrder?: { stoppage_remarks?: string | null },
+  ev?: { reason?: string | null; category_code?: string | null },
+): string | undefined {
+  const orderRemarks = activeOrder?.stoppage_remarks?.trim();
+  if (orderRemarks) return orderRemarks;
+  const eventReason = ev?.reason?.trim();
+  if (!eventReason) return undefined;
+  if (ev?.category_code && eventReason === ev.category_code) return undefined;
+  return eventReason;
+}
+
 function resolveMachineLiveStatus(
   masterStatus: string | null | undefined,
   event: {
@@ -333,10 +345,12 @@ export class LiveService {
             'o.prod_start_at',
             'o.updated_at',
             'pb.coil_no',
+            'pb.customer_name',
             'pb.queue_seq',
             'u.full_name as operator_name',
             'os.category_code as stoppage_category',
             'os.start_at as stoppage_start_at',
+            'os.remarks as stoppage_remarks',
             'sc.label as stoppage_label',
             'r.actual_weight_mt as rolling_weight',
             's.actual_weight_mt as skinpass_weight',
@@ -349,9 +363,15 @@ export class LiveService {
           .execute()
       : [];
 
+    const activeOrdersByMachine = new Map<string, typeof activeOrderRows>();
     const activeOrderByMachine = new Map<string, typeof activeOrderRows[0]>();
     for (const row of activeOrderRows) {
       if (!row.machine_code) continue;
+      const bucket = activeOrdersByMachine.get(row.machine_code) ?? [];
+      if (!bucket.some((r) => r.batch_number === row.batch_number)) {
+        bucket.push(row);
+        activeOrdersByMachine.set(row.machine_code, bucket);
+      }
       const existing = activeOrderByMachine.get(row.machine_code);
       if (!existing) {
         activeOrderByMachine.set(row.machine_code, row);
@@ -392,6 +412,7 @@ export class LiveService {
     return machines.map((m): MachineStatusCard => {
       const ev = eventsByMachine.get(m.machine_code);
       const activeOrder = activeOrderByMachine.get(m.machine_code);
+      const machineActiveOrders = activeOrdersByMachine.get(m.machine_code) ?? [];
       const rejects = rejectsByMachine.get(m.machine_code) ?? { count: 0, weightMt: 0 };
       const orderStats = activeOrder ?? (ev?.batch_number
         ? orderStatsByBatch.get(ev.batch_number)
@@ -428,6 +449,9 @@ export class LiveService {
         activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
           ? (ev?.stoppage_label ?? activeOrder?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? activeOrder?.stoppage_category ?? undefined)
           : undefined,
+        operatorRemarks: (status === 'STOPPAGE' || status === 'BREAKDOWN' || status === 'RUNNING' || status === 'IDLE')
+          ? pickOperatorRemarks(activeOrder, ev)
+          : undefined,
         lastOrderBatchNumber: status === 'IDLE' ? (ev?.batch_number ?? activeOrder?.batch_number ?? undefined) : undefined,
         lastOperatorName: status === 'IDLE'
           ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
@@ -440,6 +464,16 @@ export class LiveService {
         lastUpdateAt: orderStats?.updated_at ? new Date(orderStats.updated_at).toISOString() : undefined,
         processCode: m.process_code ?? undefined,
         shiftCode: ev?.shift_code ?? undefined,
+        activeOrderCount: machineActiveOrders.length > 1 ? machineActiveOrders.length : undefined,
+        activeOrders: machineActiveOrders.length > 1
+          ? machineActiveOrders.map((o) => ({
+              batchNumber: o.batch_number,
+              coilNo: o.coil_no ?? undefined,
+              status: o.status,
+              customer: o.customer_name ?? undefined,
+              weightMt: o.ppc_weight_mt != null ? Number(o.ppc_weight_mt) : undefined,
+            }))
+          : undefined,
       };
     });
   }
@@ -458,40 +492,58 @@ export class LiveService {
 
     // Active order details
     let currentOrder: MachineCommandCenterData['currentOrder'] | undefined;
-    const activeOrder = await db.selectFrom('txn.crm6_order as o')
+    const activeOrders = await db.selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
       .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
       .select([
-        'pb.batch_number', 'pb.customer_name', 'pb.grade_code', 'pb.sub_process',
+        'pb.batch_number', 'pb.coil_no', 'pb.customer_name', 'pb.grade_code', 'pb.sub_process',
         'pb.ppc_weight_mt', 'pb.ppc_thk_mm', 'pb.input_thk_mm',
-        'o.prod_start_at', 'o.prod_duration_min',
+        'o.status', 'o.prod_start_at', 'o.prod_duration_min',
         'r.actual_weight_mt as rolling_actual',
         's.actual_weight_mt as skinpass_actual',
       ])
       .where('pb.machine_code', '=', machineCode)
       .where('pb.machine_allocated', '=', true)
-      .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'PENDING', 'PREPARING'])
+      .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
       .orderBy('pb.queue_seq', 'asc')
-      .executeTakeFirst();
+      .execute();
 
-    if (activeOrder) {
-      let runtimeMin = activeOrder.prod_duration_min ? Number(activeOrder.prod_duration_min) : undefined;
-      if (!runtimeMin && activeOrder.prod_start_at) {
-        runtimeMin = Math.round((Date.now() - new Date(activeOrder.prod_start_at).getTime()) / 60000);
+    const activeOrder = activeOrders[0];
+    const activeOrderSummaries = activeOrders.map((row) => {
+      let runtimeMin = row.prod_duration_min ? Number(row.prod_duration_min) : undefined;
+      if (!runtimeMin && row.prod_start_at) {
+        runtimeMin = Math.round((Date.now() - new Date(row.prod_start_at).getTime()) / 60000);
       }
-      const actualMt = activeOrder.rolling_actual ?? activeOrder.skinpass_actual;
-      currentOrder = {
-        batchNumber: activeOrder.batch_number,
-        customer: activeOrder.customer_name,
-        grade: activeOrder.grade_code,
-        subProcess: activeOrder.sub_process,
-        weightMt: Number(activeOrder.ppc_weight_mt),
-        runningSinceAt: activeOrder.prod_start_at ? new Date(activeOrder.prod_start_at).toISOString() : undefined,
+      const actualMt = row.rolling_actual ?? row.skinpass_actual;
+      return {
+        batchNumber: row.batch_number,
+        coilNo: row.coil_no ?? undefined,
+        customer: row.customer_name,
+        grade: row.grade_code,
+        subProcess: row.sub_process,
+        status: row.status,
+        weightMt: Number(row.ppc_weight_mt),
+        targetThkMm: Number(row.ppc_thk_mm),
+        inputThkMm: row.input_thk_mm ? Number(row.input_thk_mm) : undefined,
         runtimeMin,
         actualWeightMt: actualMt ? Number(actualMt) : undefined,
-        targetThkMm: Number(activeOrder.ppc_thk_mm),
-        inputThkMm: activeOrder.input_thk_mm ? Number(activeOrder.input_thk_mm) : undefined,
+      };
+    });
+
+    if (activeOrder) {
+      const summary = activeOrderSummaries[0];
+      currentOrder = {
+        batchNumber: summary.batchNumber,
+        customer: summary.customer,
+        grade: summary.grade,
+        subProcess: summary.subProcess,
+        weightMt: summary.weightMt,
+        runningSinceAt: activeOrder.prod_start_at ? new Date(activeOrder.prod_start_at).toISOString() : undefined,
+        runtimeMin: summary.runtimeMin,
+        actualWeightMt: summary.actualWeightMt,
+        targetThkMm: summary.targetThkMm,
+        inputThkMm: summary.inputThkMm,
       };
     }
 
@@ -510,10 +562,11 @@ export class LiveService {
       if (stop) {
         activeStoppage = {
           stoppageId: String(stop.stoppage_id),
-          reason: stop.remarks ?? stop.label ?? stop.category_code,
+          reason: stop.label ?? stop.category_code,
           categoryCode: stop.category_code,
           startAt: new Date(stop.start_at).toISOString(),
           operatorName: stop.full_name ?? undefined,
+          remarks: stop.remarks?.trim() || undefined,
         };
       }
     }
@@ -529,6 +582,38 @@ export class LiveService {
 
     const nextOrder = await this.getNextOrder(machineCode);
 
+    const orderQueue = await db.selectFrom('planning.ppc_batch as pb')
+      .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .select([
+        'pb.batch_number',
+        'pb.customer_name',
+        'pb.ppc_weight_mt',
+        'pb.sub_process',
+        'o.status',
+        'pb.queue_seq',
+      ])
+      .where('pb.machine_code', '=', machineCode)
+      .where('pb.machine_allocated', '=', true)
+      .where('o.status', 'in', ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'])
+      .orderBy('pb.queue_seq', 'asc')
+      .limit(20)
+      .execute();
+
+    const completedOrders = await db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'pb.batch_number',
+        'pb.customer_name',
+        'pb.ppc_weight_mt',
+        'pb.sub_process',
+        'o.prod_end_at',
+      ])
+      .where('pb.machine_code', '=', machineCode)
+      .where('o.status', '=', 'COMPLETED')
+      .orderBy('o.prod_end_at', 'desc')
+      .limit(15)
+      .execute();
+
     return {
       machineCode: machine.machine_code,
       machineName: machine.name,
@@ -536,12 +621,28 @@ export class LiveService {
       currentOperator: card.currentOperator,
       shiftCode: card.shiftCode,
       currentOrder,
+      activeOrderCount: activeOrderSummaries.length > 1 ? activeOrderSummaries.length : undefined,
+      activeOrders: activeOrderSummaries.length > 1 ? activeOrderSummaries : undefined,
       activeStoppage,
       idleHistory,
       stoppageHistory,
       timeline,
       utilization,
       nextOrder: nextOrder ?? undefined,
+      orderQueue: orderQueue.map((q) => ({
+        batchNumber: q.batch_number,
+        customer: q.customer_name,
+        status: q.status,
+        weightMt: Number(q.ppc_weight_mt),
+        subProcess: q.sub_process,
+      })),
+      completedOrders: completedOrders.map((c) => ({
+        batchNumber: c.batch_number,
+        customer: c.customer_name,
+        completedAt: c.prod_end_at ? new Date(c.prod_end_at).toISOString() : '',
+        weightMt: Number(c.ppc_weight_mt),
+        subProcess: c.sub_process,
+      })),
     };
   }
 
@@ -549,7 +650,7 @@ export class LiveService {
   static async getNextOrder(machineCode: string) {
     const row = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
-      .select(['pb.batch_number', 'pb.customer_name', 'pb.queue_seq', 'pb.ppc_weight_mt'])
+      .select(['pb.batch_number', 'pb.customer_name', 'pb.queue_seq', 'pb.ppc_weight_mt', 'pb.sub_process'])
       .where('pb.machine_code', '=', machineCode)
       .where('pb.machine_allocated', '=', true)
       .where((eb) => eb.or([
@@ -564,6 +665,7 @@ export class LiveService {
       customer: row.customer_name,
       queuePosition: row.queue_seq ?? 1,
       weightMt: Number(row.ppc_weight_mt),
+      subProcess: row.sub_process ?? undefined,
     };
   }
   static async getShiftQueueContext(userId: number): Promise<{ planDate: string; shiftCode: string }> {
@@ -931,7 +1033,9 @@ export class LiveService {
       .select([
         'pb.batch_number',
         'pb.machine_code',
+        'pb.sub_process',
         'sc.label as category',
+        'os.remarks',
         'os.duration_min',
         'os.start_at',
       ])
@@ -1019,6 +1123,8 @@ export class LiveService {
         category: s.category,
         durationMin: s.duration_min ? Number(s.duration_min) : undefined,
         startAt: new Date(s.start_at).toISOString(),
+        subProcess: s.sub_process ?? undefined,
+        remarks: s.remarks?.trim() || undefined,
       })),
       operatorActivity: orders
         .filter((o) => o.operatorName)
@@ -1027,6 +1133,7 @@ export class LiveService {
           batchNumber: o.batchNumber,
           machineCode: o.machineCode,
           status: o.status,
+          subProcess: o.subProcess,
         })),
       handoverOverview,
       productionHistory: await Promise.all(
@@ -1041,6 +1148,7 @@ export class LiveService {
               c.sub_process,
               Number(c.ppc_weight_mt),
             ),
+            subProcess: c.sub_process ?? undefined,
           })),
       ),
       rejectedOrders: rejected.map((r) => ({

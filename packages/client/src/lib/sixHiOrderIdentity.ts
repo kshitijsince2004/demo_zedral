@@ -12,6 +12,18 @@ export function selectIdOf(order: { slitId?: string }): string {
   return order.slitId?.trim() || '—';
 }
 
+/** Display: mother coil + slit when slit exists (e.g. "1100038319 A"). */
+export function displayMotherCoilId(order: {
+  motherCoil?: string;
+  batchNumber: string;
+  slitId?: string;
+  coilNo?: string;
+}): string {
+  const coil = (order.motherCoil ?? order.coilNo ?? order.batchNumber).trim();
+  const slit = order.slitId?.trim();
+  return slit ? `${coil} ${slit}` : coil;
+}
+
 export function primaryOrderId(order: { motherCoil: string; batchNumber: string }): string {
   return order.motherCoil?.trim() || order.batchNumber;
 }
@@ -20,16 +32,66 @@ export function finalOutputThicknessOf(order: Pick<OrderIdentitySource, 'finishT
   return order.finishThkMm ?? order.targetThkMm;
 }
 
+/** Skin Pass: PPC Pre-Stage Thickness column → input_thk_mm */
+export function preStageThicknessOf(order: { subProcess?: string; inputThkMm?: number }): number | undefined {
+  if (order.subProcess !== 'SKIN_PASS') return undefined;
+  return order.inputThkMm;
+}
+
+/** Skin Pass: PPC Skin Pass Thickness column → ppc_thk_mm / targetThkMm */
+export function skinPassTargetThicknessOf(order: { subProcess?: string; targetThkMm?: number }): number | undefined {
+  if (order.subProcess !== 'SKIN_PASS') return undefined;
+  return order.targetThkMm;
+}
+
+/** Display label + value for thickness in PPC/order cards (process-aware). */
+export function thicknessDisplayForProcess(order: {
+  subProcess?: string;
+  inputThkMm?: number;
+  targetThkMm?: number;
+  finishThkMm?: number;
+}): { preLabel: string; preValue: number; targetLabel?: string; targetValue?: number } {
+  if (order.subProcess === 'SKIN_PASS') {
+    return {
+      preLabel: 'Pre-Stage Thickness',
+      preValue: order.inputThkMm ?? 0,
+      targetLabel: 'Target Thickness',
+      targetValue: order.targetThkMm,
+    };
+  }
+  return {
+    preLabel: 'Input Thickness',
+    preValue: order.inputThkMm ?? 0,
+    targetLabel: 'Final Output Thickness',
+    targetValue: finalOutputThicknessOf(order),
+  };
+}
+
 export function finishOf(order: Partial<Pick<SixHiQueueCard, 'rollFinish'>> & Partial<Pick<SixHiOrderDetail, 'ppcRollFinish'>>): string {
   return order.rollFinish ?? order.ppcRollFinish ?? '—';
 }
 
-export function combinedRunKey(order: OrderIdentitySource): string {
+/** Thickness used to validate combined-run compatibility (process-aware). */
+export function combinedRunThicknessKey(order: {
+  subProcess?: string;
+  inputThkMm?: number;
+  finishThkMm?: number;
+  targetThkMm?: number;
+}): string {
+  if (order.subProcess === 'SKIN_PASS') {
+    return String(order.inputThkMm ?? '');
+  }
+  return String(order.finishThkMm ?? order.targetThkMm ?? '');
+}
+
+export function combinedRunKey(
+  order: OrderIdentitySource & { subProcess?: string; inputThkMm?: number },
+): string {
   return [
     primaryOrderId(order),
     selectIdOf(order),
     finishOf(order),
-    finalOutputThicknessOf(order),
+    combinedRunThicknessKey(order),
   ].join('|');
 }
 
@@ -38,5 +100,5 @@ export function isCompatibleCombinedRunOrder(base: OrderIdentitySource, candidat
 }
 
 export function orderIdentitySubtitle(order: OrderIdentitySource): string {
-  return `Slit ID ${selectIdOf(order)} · Batch ${order.batchNumber}`;
+  return `Batch ${order.batchNumber}`;
 }

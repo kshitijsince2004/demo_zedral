@@ -4,7 +4,8 @@ import { SixHiStatusPill } from './SixHiStatusPill';
 import { SixHiBacklogBadge } from './SixHiBacklogBadge';
 import { ZButton } from '../primitives/ZButton';
 import { ArrowRightLeft, Eye, Play } from 'lucide-react';
-import { finalOutputThicknessOf, finishOf, primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
+import { finishOf, displayMotherCoilId, selectIdOf, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
 import { apiClient } from '../../lib/apiClient';
 import { OrderProductionHistory } from './OrderProductionHistory';
 import { CombinedProductionHistory } from './CombinedProductionHistory';
@@ -106,6 +107,7 @@ export function SixHiBatchDetailPanel({
     && !!currentMill
     && batch.machineCode === currentMill;
 
+  const thickness = thicknessDisplayForProcess(batch);
   const fields: [string, string, boolean?][] = [
     ['Process Route', `${subProcessLabel} (route ${routeCode})`],
     ['Customer', batch.customer],
@@ -113,8 +115,10 @@ export function SixHiBatchDetailPanel({
     ['Slit ID', selectIdOf(batch), true],
     ['Batch Number', batch.batchNumber, true],
     ['Width', `${batch.widthMm} mm`, true],
-    ['Input Thickness', `${batch.inputThkMm} mm`, true],
-    ['Final Output Thickness', `${finalOutputThicknessOf(batch)} mm`, true],
+    [thickness.preLabel, `${thickness.preValue} mm`, true],
+    ...(thickness.targetLabel && thickness.targetValue != null
+      ? [[thickness.targetLabel, `${thickness.targetValue} mm`, true] as [string, string, boolean?]]
+      : []),
     ['Finish', finishOf(batch), true],
     ['Weight', `${batch.weightMt} Metric Tons`, true],
   ];
@@ -147,7 +151,7 @@ export function SixHiBatchDetailPanel({
     ? combinedCount > 1
       ? `View Combined History (${combinedCount})`
       : isRejected
-        ? 'View Rejection Details'
+        ? `View ${ORDER_HOLD_STATUS_LABEL} Details`
         : 'View Production History'
     : combinedCount > 1
       ? `Start Combined Production (${combinedCount})`
@@ -167,7 +171,7 @@ export function SixHiBatchDetailPanel({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
-            <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{primaryOrderId(batch)}</h2>
+            <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{displayMotherCoilId(batch)}</h2>
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
               Slit ID {selectIdOf(batch)} · Batch {batch.batchNumber}
             </p>

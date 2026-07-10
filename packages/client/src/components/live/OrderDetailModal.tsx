@@ -8,7 +8,7 @@ import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
 import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
 import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
-import { apiClient } from '../../lib/apiClient';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 
 interface OrderDetailModalProps {
   order: LiveOrderDetail | null;
@@ -169,7 +169,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                   <div className="p-4 space-y-4 text-sm">
                     <div>
                       <span className="text-muted-foreground text-xs block mb-1">Status</span>
-                      <ZBadge tone={statusTone(order.status)} label={order.status} />
+                      <ZBadge tone={statusTone(order.status)} label={formatOrderStatusLabel(order.status)} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>

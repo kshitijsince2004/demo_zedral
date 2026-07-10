@@ -35,6 +35,8 @@ public class DeviceStatusPlugin extends Plugin {
             int batteryLevel = readBatteryLevel(ctx);
             boolean isCharging = readIsCharging(ctx);
             
+            Log.d(TAG, "Battery Level: " + batteryLevel + ", Charging: " + isCharging);
+
             ret.put("batteryLevel", batteryLevel);
             ret.put("isCharging", isCharging);
 
@@ -60,6 +62,7 @@ public class DeviceStatusPlugin extends Plugin {
                         }
                     }
                 } else {
+                    @SuppressWarnings("deprecation")
                     NetworkInfo info = cm.getActiveNetworkInfo();
                     if (info != null && info.isConnected()) {
                         wifiConnected = info.getType() == ConnectivityManager.TYPE_WIFI;
@@ -74,6 +77,7 @@ public class DeviceStatusPlugin extends Plugin {
                     WifiInfo info = wm.getConnectionInfo();
                     if (info != null) {
                         rssi = info.getRssi();
+                        Log.d(TAG, "WiFi RSSI: " + rssi);
                     }
                 }
             }
@@ -91,22 +95,31 @@ public class DeviceStatusPlugin extends Plugin {
     }
 
     private static int readBatteryLevel(Context ctx) {
-        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent batteryStatus = ctx.registerReceiver(null, filter);
-        if (batteryStatus == null) {
-            // Fallback for some devices if receiver fails
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
-                if (bm != null) {
-                    return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        // Method 1: BatteryManager (Preferred for API 21+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
+            if (bm != null) {
+                int cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                if (cap >= 0 && cap <= 100) return cap;
+            }
+        }
+
+        // Method 2: Sticky Broadcast (Fallback/Legacy)
+        try {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+            Intent batteryStatus = ctx.registerReceiver(null, filter);
+            if (batteryStatus != null) {
+                int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                if (level >= 0 && scale > 0) {
+                    return Math.round((level * 100f) / scale);
                 }
             }
-            return -1;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read battery via broadcast", e);
         }
-        int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-        int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-        if (level < 0 || scale <= 0) return -1;
-        return Math.round((level * 100f) / scale);
+        
+        return -1;
     }
 
     private static boolean readIsCharging(Context ctx) {

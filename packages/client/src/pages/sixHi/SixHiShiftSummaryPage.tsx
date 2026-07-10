@@ -12,7 +12,7 @@ import { ZInput } from '../../components/primitives/ZInput';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
 import { CrewSubForm } from '../../components/forms/CrewSubForm';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 
 export function SixHiShiftSummaryPage() {
   const navigate = useNavigate();
@@ -99,7 +99,7 @@ export function SixHiShiftSummaryPage() {
             {queueItems.map((order) => (
               <li key={order.batchNumber} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
                 <div className="min-w-0">
-                  <p className="font-mono text-sm font-bold truncate">{primaryOrderId(order)}</p>
+                  <p className="font-mono text-sm font-bold truncate">{displayMotherCoilId(order)}</p>
                   <p className="text-[10px] text-muted-foreground">
                     Slit ID {selectIdOf(order)} · Pos {order.queuePosition}
                   </p>

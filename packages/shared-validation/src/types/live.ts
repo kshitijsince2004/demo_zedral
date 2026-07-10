@@ -87,6 +87,7 @@ export interface MachineCommandCenterData {
     categoryCode: string;
     startAt: string;            // ISO timestamp
     operatorName?: string;
+    remarks?: string;
   };
   idleHistory: MachineStateEvent[];
   stoppageHistory: MachineStateEvent[];
@@ -97,7 +98,37 @@ export interface MachineCommandCenterData {
     customer: string;
     queuePosition: number;
     weightMt: number;
+    subProcess?: string;
   };
+  orderQueue?: Array<{
+    batchNumber: string;
+    customer: string;
+    status: string;
+    weightMt: number;
+    subProcess?: string;
+  }>;
+  completedOrders?: Array<{
+    batchNumber: string;
+    customer: string;
+    completedAt: string;
+    weightMt: number;
+    subProcess?: string;
+  }>;
+  /** Multiple in-progress orders on one machine (combined run). */
+  activeOrderCount?: number;
+  activeOrders?: Array<{
+    batchNumber: string;
+    coilNo?: string;
+    customer: string;
+    grade: string;
+    subProcess: string;
+    status: string;
+    weightMt: number;
+    targetThkMm: number;
+    inputThkMm?: number;
+    runtimeMin?: number;
+    actualWeightMt?: number;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +198,8 @@ export interface MachineStatusCard {
   stateSinceAt?: string;
   /** For STOPPAGE state: the reason/category label */
   activeStoppageReason?: string;
+  /** Operator-entered remarks (stoppage, machine state, or latest order remark) */
+  operatorRemarks?: string;
   /** Last completed order (for IDLE card) */
   lastOrderBatchNumber?: string;
   /** Last operator who ran an order (for IDLE card) */
@@ -179,6 +212,15 @@ export interface MachineStatusCard {
   lastUpdateAt?: string;
   processCode?: string;
   shiftCode?: string;
+  /** When multiple orders run together on one machine (combined run). */
+  activeOrderCount?: number;
+  activeOrders?: Array<{
+    batchNumber: string;
+    coilNo?: string;
+    status: string;
+    customer?: string;
+    weightMt?: number;
+  }>;
 }
 
 export interface MachineHeadStoppageRow {
@@ -187,6 +229,8 @@ export interface MachineHeadStoppageRow {
   category: string;
   durationMin?: number;
   startAt: string;
+  subProcess?: string;
+  remarks?: string;
 }
 
 export interface MachineHeadOperatorRow {
@@ -194,6 +238,7 @@ export interface MachineHeadOperatorRow {
   batchNumber: string;
   machineCode: string;
   status: string;
+  subProcess?: string;
 }
 
 export interface MachineHeadProductionRow {
@@ -201,6 +246,7 @@ export interface MachineHeadProductionRow {
   machineCode: string;
   completedAt: string;
   weightMt: number;
+  subProcess?: string;
 }
 
 export interface HandoverOverviewRow {
@@ -222,6 +268,7 @@ export interface HandoverOverviewRow {
   outgoingUsername?: string;
   incomingUsername?: string;
   createdByBoundary?: boolean;
+  subProcess?: string;
 }
 
 export interface MachineHeadDashboardData {

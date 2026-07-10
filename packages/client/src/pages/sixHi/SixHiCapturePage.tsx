@@ -17,7 +17,7 @@ import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
-import { primaryOrderId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
 import { jsonEqual } from '../../lib/silentRefresh';
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
@@ -311,7 +311,7 @@ export function SixHiCapturePage() {
                     {(isCombinedRun
                       ? [
                         ['Run type', `Combined · ${combinedRun!.batchNumbers.length} orders`],
-                        ['Linked orders', combinedRun!.orders.map((o) => primaryOrderId(o)).join(', ')],
+                        ['Linked orders', combinedRun!.orders.map((o) => displayMotherCoilId(o)).join(', ')],
                         ['Product', orderProductLabel(order)],
                         ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
                         ['Combined Target', `${targetMt.toFixed(3)} MT`],
@@ -320,9 +320,9 @@ export function SixHiCapturePage() {
                         ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
                       ]
                       : [
-                        ['Order', primaryOrderId(order)],
+                        ['Order', displayMotherCoilId(order)],
                         ['Slit ID', selectIdOf(order)],
-                        ['Mother Coil', order.motherCoil],
+                        ['Mother Coil', displayMotherCoilId(order)],
                         ['Product', orderProductLabel(order)],
                         ['Customer', order.customer],
                         ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
@@ -380,7 +380,7 @@ export function SixHiCapturePage() {
                 <div className="p-5 space-y-4">
                   <dl className="grid grid-cols-2 gap-3 text-sm">
                     {[
-                      ['Order', primaryOrderId(nextOrder)],
+                      ['Order', displayMotherCoilId(nextOrder)],
                       ['Slit ID', selectIdOf(nextOrder)],
                       ['Product', `${nextOrder.grade} · ${nextOrder.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}`],
                       ['Customer', nextOrder.customer],
@@ -400,7 +400,7 @@ export function SixHiCapturePage() {
                         .slice(0, 8)
                         .map((q) => (
                           <li key={q.batchNumber} className="flex justify-between gap-2 text-muted-foreground">
-                            <span className="font-mono truncate">{primaryOrderId(q)}</span>
+                            <span className="font-mono truncate">{displayMotherCoilId(q)}</span>
                             <span>Pos {q.queuePosition}</span>
                           </li>
                         ))}

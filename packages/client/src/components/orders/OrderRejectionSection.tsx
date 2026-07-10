@@ -1,4 +1,5 @@
 import type { OrderRejectionInfo } from '@m1/shared-validation';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 
 interface OrderRejectionSectionProps {
@@ -8,18 +9,18 @@ interface OrderRejectionSectionProps {
 export function OrderRejectionSection({ rejection }: OrderRejectionSectionProps) {
   return (
     <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-4 space-y-2 text-sm">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">Rejected Order</p>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">{ORDER_HOLD_STATUS_LABEL}</p>
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Reason</dt>
           <dd className="font-semibold text-foreground">{rejection.reason}</dd>
         </div>
         <div>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Rejected By</dt>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Held By</dt>
           <dd className="font-semibold">{rejection.rejectedBy ?? '—'}</dd>
         </div>
         <div className="sm:col-span-2">
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Rejected At</dt>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Held At</dt>
           <dd className="font-mono text-xs">{formatPlantDateTime(rejection.rejectedAt)}</dd>
         </div>
         {rejection.remarks && (

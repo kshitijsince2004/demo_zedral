@@ -51,7 +51,7 @@ function applyGridCells(
 const CANONICAL_HEADERS: Record<string, string> = {
   throughput: 'Throughput (MT)',
   yield: 'Yield (%)',
-  rejection: 'Rejection rate (%)',
+  rejection: 'Order hold rate (%)',
   oee: 'OEE (%)',
   actual_production: 'Actual production (MT)',
   planned_production: 'Planned production (MT)',

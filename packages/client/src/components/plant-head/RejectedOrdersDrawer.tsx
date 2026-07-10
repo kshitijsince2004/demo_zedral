@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { RejectedOrderRow } from '@m1/shared-validation';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { liveService } from '../../lib/liveService';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
@@ -36,7 +37,7 @@ export function RejectedOrdersDrawer({
       });
       setOrders(res.orders);
     } catch (err: unknown) {
-      setError((err as Error)?.message ?? 'Failed to load rejected orders');
+      setError((err as Error)?.message ?? `Failed to load ${ORDER_HOLD_STATUS_LABEL.toLowerCase()} orders`);
       setOrders([]);
     } finally {
       setLoading(false);
@@ -55,7 +56,7 @@ export function RejectedOrdersDrawer({
       <aside className="relative w-full max-w-lg bg-background border-l border-border shadow-2xl flex flex-col h-full">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <h2 className="font-bold text-lg">Rejected Orders</h2>
+            <h2 className="font-bold text-lg">{ORDER_HOLD_STATUS_LABEL}</h2>
             <p className="text-xs text-muted-foreground">Click an order to view full details</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-muted" aria-label="Close">
@@ -67,7 +68,7 @@ export function RejectedOrdersDrawer({
           {loading && <p className="p-5 text-sm text-muted-foreground">Loading…</p>}
           {error && <p className="p-5 text-sm text-destructive">{error}</p>}
           {!loading && !error && orders.length === 0 && (
-            <p className="p-5 text-sm text-muted-foreground">No rejected orders for this scope.</p>
+            <p className="p-5 text-sm text-muted-foreground">No orders on hold for this scope.</p>
           )}
           <ul className="divide-y divide-border">
             {orders.map((order) => (
@@ -83,7 +84,7 @@ export function RejectedOrdersDrawer({
                   />
                   <p className="text-xs text-muted-foreground mt-2 truncate">{order.reason}</p>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    {order.machineCode} · {order.rejectedBy} · {formatPlantDateTime(order.rejectionTime)}
+                    {order.machineCode} · Held by {order.rejectedBy} · {formatPlantDateTime(order.rejectionTime)}
                   </p>
                 </button>
               </li>

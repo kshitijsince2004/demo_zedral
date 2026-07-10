@@ -75,7 +75,7 @@ export function MachineHeadOrderDetailModal({
               {order && <SixHiStatusPill status={order.status} />}
             </div>
             {order && (
-              <p className="text-xs text-muted-foreground mt-1">Batch {order.batchNumber} · Slit ID {order.slitId ?? '—'}</p>
+              <p className="text-xs text-muted-foreground mt-1">Batch {order.batchNumber}</p>
             )}
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-1">
               Read-only · Machine Head view

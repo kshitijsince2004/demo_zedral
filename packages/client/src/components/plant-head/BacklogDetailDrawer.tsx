@@ -115,10 +115,9 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
                     >
                       <td className="px-4 py-3 font-mono font-medium">{order.batchNumber}</td>
                       <td className="px-4 py-3">
-                        <div className="font-mono">{order.coilNo}</div>
-                        {order.slitId && (
-                          <div className="text-xs text-muted-foreground">Slit {order.slitId}</div>
-                        )}
+                        <div className="font-mono">
+                          {order.slitId ? `${order.coilNo} ${order.slitId}` : order.coilNo}
+                        </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div>{order.planDate}</div>

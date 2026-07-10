@@ -29,10 +29,11 @@ import {
   findCompatibleOrdersForCombine,
 } from '../../lib/combinedProductionRun';
 import {
+  displayMotherCoilId,
   finishOf,
-  primaryOrderId,
   selectIdOf,
 } from '../../lib/sixHiOrderIdentity';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 
 type StatusFilter = 'ALL' | SixHiOrderStatus;
@@ -43,7 +44,7 @@ const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'PREPARING', label: 'Preparing' },
   { id: 'IN_PROGRESS', label: 'In Progress' },
   { id: 'COMPLETED', label: 'Completed' },
-  { id: 'REJECTED', label: 'Rejected' },
+  { id: 'REJECTED', label: ORDER_HOLD_STATUS_LABEL },
 ];
 
 function matchesFilter(card: SixHiQueueCard, filter: StatusFilter): boolean {
@@ -547,7 +548,7 @@ export function SixHiHub() {
       >
         <div className="flex items-center justify-between gap-3 mb-2">
           <div className="min-w-0">
-            <span className="font-mono text-lg font-bold text-foreground block truncate">{primaryOrderId(card)}</span>
+            <span className="font-mono text-lg font-bold text-foreground block truncate">{displayMotherCoilId(card)}</span>
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               Slit ID {selectIdOf(card)} · Batch {card.batchNumber}
             </span>
@@ -657,7 +658,7 @@ export function SixHiHub() {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-warning">Machine status</p>
             <p className="text-sm font-semibold text-foreground mt-0.5">
-              Active order <span className="font-mono text-primary">{machineActiveCard ? primaryOrderId(machineActiveCard) : machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+              Active order <span className="font-mono text-primary">{machineActiveCard ? displayMotherCoilId(machineActiveCard) : machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
             </p>
           </div>
           <SixHiStatusPill status={machineActive.status as SixHiOrderStatus} />
@@ -750,7 +751,7 @@ export function SixHiHub() {
               <>
                 <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
-                    Rejected · {filteredRejected.length}
+                    {ORDER_HOLD_STATUS_LABEL} · {filteredRejected.length}
                   </p>
                 </div>
                 {sortQueueSection(filteredRejected).map((card) => renderQueueRow(card))}

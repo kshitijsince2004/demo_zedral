@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { flattenHandoverQueue } from '../../lib/handoverQueue';
-import { primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -328,7 +328,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
                       <span className="w-6 h-6 bg-primary/10 text-primary text-xs font-black rounded-full flex items-center justify-center shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="font-mono font-bold text-sm text-primary">
-                          {item.motherCoil ?? primaryOrderId({ motherCoil: '', batchNumber: item.batchNumber })}
+                          {displayMotherCoilId({ motherCoil: item.motherCoil, batchNumber: item.batchNumber, slitId: item.slitId })}
                         </p>
                         <p className="text-[10px] text-muted-foreground">Batch {item.batchNumber}</p>
                         <p className="text-xs text-muted-foreground truncate">{item.customer ?? '—'} · {item.subProcess?.replace(/_/g, ' ')}</p>

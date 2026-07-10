@@ -73,9 +73,21 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
       </div>
 
       <div className="bg-success/10 rounded-lg px-3 py-2.5 border border-success/20">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-1">Current Order</div>
-        <div className="font-bold text-sm text-foreground leading-tight">{m.currentOrder || '—'}</div>
-        {m.currentCoil && (
+        <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-1">
+          {(m.activeOrderCount ?? 0) > 1 ? `${m.activeOrderCount} Orders Running` : 'Current Order'}
+        </div>
+        {(m.activeOrderCount ?? 0) > 1 && m.activeOrders ? (
+          <ul className="space-y-1 mt-1">
+            {m.activeOrders.map((o) => (
+              <li key={o.batchNumber} className="font-mono text-xs font-bold text-foreground truncate">
+                {o.coilNo ? `${o.coilNo}` : o.batchNumber}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="font-bold text-sm text-foreground leading-tight">{m.currentOrder || '—'}</div>
+        )}
+        {m.currentCoil && (m.activeOrderCount ?? 0) <= 1 && (
           <div className="text-[11px] text-muted-foreground font-mono mt-1">Coil {m.currentCoil}</div>
         )}
       </div>
@@ -103,6 +115,18 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
           <div className="text-sm font-bold text-success">{m.productionWeightMt} MT</div>
         </div>
       )}
+      {m.operatorRemarks && (
+        <div className="bg-muted rounded-lg px-3 py-2 border border-border/50">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Operator Remarks</div>
+          <div className="text-xs text-foreground leading-snug">{m.operatorRemarks}</div>
+        </div>
+      )}
+      {(m.rejectedCount ?? 0) > 0 && (
+        <div className="bg-destructive/10 rounded-lg px-3 py-2 border border-destructive/20">
+          <div className="text-[9px] font-bold uppercase tracking-wide text-destructive mb-0.5">Order Hold</div>
+          <div className="text-xs font-semibold text-foreground">{m.rejectedCount} order{m.rejectedCount === 1 ? '' : 's'} today</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -128,6 +152,18 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
           <div className="text-xs font-medium text-foreground">{m.lastOperatorName || '—'}</div>
         </div>
       </div>
+      {m.operatorRemarks && (
+        <div className="bg-muted rounded-lg px-3 py-2 border border-border/50">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Operator Remarks</div>
+          <div className="text-xs text-foreground leading-snug">{m.operatorRemarks}</div>
+        </div>
+      )}
+      {(m.rejectedCount ?? 0) > 0 && (
+        <div className="bg-destructive/10 rounded-lg px-3 py-2 border border-destructive/20">
+          <div className="text-[9px] font-bold uppercase tracking-wide text-destructive mb-0.5">Order Hold</div>
+          <div className="text-xs font-semibold text-foreground">{m.rejectedCount} order{m.rejectedCount === 1 ? '' : 's'} · {m.rejectedWeightMt ?? 0} MT</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -157,6 +193,14 @@ function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDe
           <span className={`text-[9px] font-bold uppercase tracking-wide ${colorClass}`}>Reason</span>
         </div>
         <div className="text-sm font-semibold text-foreground">{m.activeStoppageReason || '—'}</div>
+        {m.operatorRemarks && (
+          <div className="mt-2 pt-2 border-t border-warning/20">
+            <div className={`flex items-center gap-1.5 mb-1 ${colorClass}`}>
+              <span className="text-[9px] font-bold uppercase tracking-wide">Operator Remarks</span>
+            </div>
+            <div className="text-sm text-foreground leading-snug">{m.operatorRemarks}</div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">

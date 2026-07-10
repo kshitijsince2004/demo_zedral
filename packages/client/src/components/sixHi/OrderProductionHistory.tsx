@@ -1,5 +1,6 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
@@ -68,7 +69,7 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           {order.skinPass.outputThkMm != null && <p>Output: {order.skinPass.outputThkMm} mm</p>}
           {order.skinPass.annHard != null && <p>Ann Hard: {order.skinPass.annHard}</p>}
           {(order.skinPass.rwTension1 != null || order.skinPass.rwTension2 != null) && (
-            <p>R/W Tension: {order.skinPass.rwTension1 ?? '—'}/{order.skinPass.rwTension2 ?? '—'}</p>
+            <p>SP Tension: {order.skinPass.rwTension1 ?? '—'}/{order.skinPass.rwTension2 ?? '—'}</p>
           )}
         </div>
       )}
@@ -79,7 +80,7 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
 
       {order.status === 'REJECTED' && !order.rejection && (
         <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive font-semibold">
-          Order rejected
+          {ORDER_HOLD_STATUS_LABEL}
         </div>
       )}
 

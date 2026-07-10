@@ -1,5 +1,4 @@
 import {
-  Activity,
   Battery,
   BatteryCharging,
   BatteryFull,
@@ -23,7 +22,6 @@ function batteryIcon(level: number, charging: boolean) {
 
 function batteryTone(level: number, charging: boolean): string {
   if (charging) return 'text-success';
-  if (level < 0) return 'text-muted-foreground/60';
   if (level < 20) return 'text-destructive';
   if (level < 40) return 'text-warning';
   return 'text-muted-foreground';
@@ -48,40 +46,53 @@ function wifiLabel(bars: number, connected: boolean, rssi: number): string {
   return `Wi‑Fi signal ${bars}/4 (${rssi} dBm)`;
 }
 
-/** Battery + Wi‑Fi indicators for the operator Android APK status rail only. */
+function pingLabel(connected: boolean, pingMs: number | null): string {
+  if (!connected) return 'Offline';
+  if (pingMs == null) return '— ms';
+  return `${pingMs} ms`;
+}
+
 export function DeviceStatusIndicators() {
   const status = useAndroidDeviceStatus();
 
   if (!isAndroidApk()) return null;
 
-  const BatteryIcon = batteryIcon(status.batteryLevel, status.isCharging);
-  const WifiIcon = wifiIcon(status.wifiBars, status.wifiConnected);
-  const batteryPct = status.batteryLevel >= 0 ? `${status.batteryLevel}%` : '—';
+  const batteryLevel = status.batteryLevel;
+  const isCharging = status.isCharging;
+  const wifiBars = status.wifiBars;
+  const wifiConnected = status.wifiConnected;
+  const wifiRssi = status.wifiRssi;
+  const networkOnline = wifiConnected || status.connectionType === 'cellular' || status.connectionType === 'ethernet';
+  const pingMs = status.pingMs;
+
+  const BatteryIcon = batteryIcon(batteryLevel, isCharging);
+  const WifiIcon = wifiIcon(wifiBars, wifiConnected);
+  const batteryPct = batteryLevel >= 0 ? `${batteryLevel}%` : '…';
+  const pingText = pingLabel(networkOnline, pingMs);
 
   return (
-    <div className="flex items-center gap-3 shrink-0">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        <Activity className="h-3.5 w-3.5 text-info animate-pulse" aria-hidden />
-        <span className="text-[10px] uppercase tracking-[0.12em] font-medium">Live</span>
+    <div className="flex items-center gap-3 pr-3 border-r border-border mr-1 shrink-0">
+      <div
+        className={`flex items-center gap-1.5 shrink-0 ${batteryTone(batteryLevel, isCharging)}`}
+        title={isCharging ? `Battery ${batteryPct} — charging` : `Battery ${batteryPct}`}
+      >
+        <BatteryIcon className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="font-mono text-[11px] font-black tabular-nums leading-none">
+          {batteryPct}
+        </span>
       </div>
 
       <div
-        className={`flex items-center gap-1 ${batteryTone(status.batteryLevel, status.isCharging)}`}
-        title={status.isCharging ? `Battery ${batteryPct} — charging` : `Battery ${batteryPct}`}
-        aria-label={status.isCharging ? `Battery ${batteryPct}, charging` : `Battery ${batteryPct}`}
+        className={`flex items-center gap-1.5 shrink-0 ${wifiTone(wifiBars, wifiConnected)}`}
+        title={
+          networkOnline && pingMs != null
+            ? `${wifiLabel(wifiBars, wifiConnected, wifiRssi)} · ${pingMs} ms latency`
+            : wifiLabel(wifiBars, wifiConnected, wifiRssi)
+        }
       >
-        <BatteryIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span className="font-mono text-[10px] font-bold tabular-nums min-w-[2ch]">{batteryPct}</span>
-      </div>
-
-      <div
-        className={`flex items-center gap-1 ${wifiTone(status.wifiBars, status.wifiConnected)}`}
-        title={wifiLabel(status.wifiBars, status.wifiConnected, status.wifiRssi)}
-        aria-label={wifiLabel(status.wifiBars, status.wifiConnected, status.wifiRssi)}
-      >
-        <WifiIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span className="font-mono text-[10px] font-bold tabular-nums min-w-[2ch]">
-          {status.wifiConnected ? `${Math.max(status.wifiBars, 1)}/4` : '—'}
+        <WifiIcon className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="font-mono text-[11px] font-black tabular-nums leading-none min-w-[3.25rem] text-right">
+          {pingText}
         </span>
       </div>
     </div>

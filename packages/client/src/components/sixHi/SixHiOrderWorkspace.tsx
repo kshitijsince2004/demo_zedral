@@ -14,6 +14,8 @@ interface SixHiOrderWorkspaceProps {
   combinedTargetMt?: number;
   combinedActualMt?: number;
   readOnly?: boolean;
+  /** Hide PPC metadata when combined — details live in the slide panel */
+  hidePpcDetail?: boolean;
   onSaveRolling: (data: SixHiRollingData) => Promise<void>;
   onSaveSkinPass: (data: SixHiSkinPassData) => Promise<void>;
 }
@@ -26,6 +28,7 @@ export function SixHiOrderWorkspace({
   combinedTargetMt,
   combinedActualMt,
   readOnly,
+  hidePpcDetail,
   onSaveRolling,
   onSaveSkinPass,
 }: SixHiOrderWorkspaceProps) {
@@ -68,12 +71,14 @@ export function SixHiOrderWorkspace({
         </div>
       )}
 
-      <PPCInfoCards
-        data={order}
-        compact={compact}
-        combinedOrderCount={combinedOrderCount}
-        combinedTargetMt={combinedTargetMt}
-      />
+      {!hidePpcDetail && (
+        <PPCInfoCards
+          data={order}
+          compact={compact}
+          combinedOrderCount={combinedOrderCount}
+          combinedTargetMt={combinedTargetMt}
+        />
+      )}
 
       <div className={`bg-card border border-border rounded-xl shadow-sm ${compact ? '' : 'flex-1 min-h-0 flex flex-col overflow-hidden'}`}>
         {isRolling ? (

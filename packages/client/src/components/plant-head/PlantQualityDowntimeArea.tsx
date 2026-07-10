@@ -103,10 +103,10 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
             )}
           </div>
 
-          {/* Rejection rate area chart */}
+          {/* Order hold rate area chart */}
           <div className="border-t border-border/40 pt-4">
             <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
-              Rejection Rate Trend (%)
+              Order Hold Rate Trend (%)
             </h3>
             {qualityTrendData.length > 0 ? (
               <div className="h-32 min-h-[8rem] w-full" data-testid="rejection-rate-chart">
@@ -126,7 +126,7 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
                     <XAxis dataKey="date" tick={{ fontSize: 9, fill: C.text }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 9, fill: C.text }} axisLine={false} tickLine={false} domain={[0, 100]} />
                     <Tooltip content={<ChartTooltip />} />
-                    <Area type="monotone" dataKey="rejectionRatePct" stroke={C.red} strokeWidth={2} fill="url(#rejGrad)" dot={false} name="Rejection %" />
+                    <Area type="monotone" dataKey="rejectionRatePct" stroke={C.red} strokeWidth={2} fill="url(#rejGrad)" dot={false} name="Order Hold %" />
                     <Area type="monotone" dataKey="yieldPct" stroke={C.emerald} strokeWidth={2} fill="url(#yieldGrad)" dot={false} name="Yield %" />
                   </AreaChart>
                 </ResponsiveContainer>

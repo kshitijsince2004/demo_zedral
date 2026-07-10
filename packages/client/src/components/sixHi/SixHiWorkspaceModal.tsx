@@ -7,7 +7,8 @@ import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
 import { CombinedProductionHistory } from './CombinedProductionHistory';
-import { orderIdentitySubtitle, primaryOrderId } from '../../lib/sixHiOrderIdentity';
+import { OrderDetailSlidePanel } from './OrderDetailSlidePanel';
+import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import {
   allocateCombinedWeight,
   combinedTargetMt,
@@ -34,6 +35,9 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [combinedRefreshToken, setCombinedRefreshToken] = useState(0);
   const [combinedOrders, setCombinedOrders] = useState<SixHiOrderDetail[]>([]);
+  const [detailBatch, setDetailBatch] = useState<string | null>(null);
+  const [detailOrder, setDetailOrder] = useState<SixHiOrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const formBatchNumber = combinedRun?.primaryBatchNumber ?? workspaceBatch;
 
@@ -60,6 +64,40 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
       cancelled = true;
     };
   }, [workspaceOpen, combinedRun?.batchNumbers.join(','), combinedRefreshToken]);
+
+  useEffect(() => {
+    if (!workspaceOpen || !detailBatch) {
+      setDetailOrder(null);
+      return;
+    }
+    const cached = combinedOrders.find((o) => o.batchNumber === detailBatch)
+      ?? (panelOrder?.batchNumber === detailBatch ? panelOrder : null);
+    if (cached) {
+      setDetailOrder(cached);
+      setDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    void apiClient
+      .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(detailBatch)}`)
+      .then((loaded) => {
+        if (!cancelled) setDetailOrder(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setDetailOrder(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceOpen, detailBatch, combinedOrders, panelOrder]);
+
+  useEffect(() => {
+    if (!workspaceOpen) setDetailBatch(null);
+  }, [workspaceOpen]);
 
   const combinedOrderCount = combinedRun?.batchNumbers.length ?? 0;
   const isCombined = combinedOrderCount > 1;
@@ -155,7 +193,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
                       Combined run · {combinedRun!.batchNumbers.length} orders
                     </span>
                   ) : (
-                    <span className="font-mono text-lg font-bold truncate">{primaryOrderId(order)}</span>
+                    <span className="font-mono text-lg font-bold truncate">{displayMotherCoilId(order)}</span>
                   )}
                   <SixHiStatusPill status={order.status} preparing={preparing} large />
                   <span className="text-sm opacity-80 hidden sm:inline">
@@ -163,6 +201,15 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
                       ? combinedRun!.batchNumbers.join(', ')
                       : orderIdentitySubtitle(order)}
                   </span>
+                  {!isCombined && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailBatch(workspaceBatch)}
+                      className="hidden sm:inline-flex text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25"
+                    >
+                      Order details
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -190,36 +237,49 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            {combinedRun && combinedOrderCount > 1 && !isTerminalCombined && (
-              <CombinedProductionOrdersPanel
-                combinedRun={combinedRun}
-                refreshToken={combinedRefreshToken}
-              />
-            )}
-
-            <div className="p-2 flex flex-col min-h-0">
-              {!order && <p className="text-center text-muted-foreground py-16">Loading order…</p>}
-              {order && isTerminalCombined && combinedOrders.length > 1 && (
-                <div className="bg-white border border-border rounded-xl p-4">
-                  <CombinedProductionHistory orders={combinedOrders} />
-                </div>
-              )}
-              {order && !isTerminalCombined && (
-                <SixHiOrderWorkspace
-                  order={order}
-                  workspaceOpen={workspaceOpen}
-                  workspaceBatch={workspaceBatch}
-                  busy={busy}
-                  compact
-                  combinedOrderCount={isCombined ? combinedOrderCount : undefined}
-                  combinedTargetMt={combinedTarget}
-                  combinedActualMt={combinedActualMt}
-                  onSaveRolling={handleSaveRolling}
-                  onSaveSkinPass={handleSaveSkinPass}
+          <div className="flex-1 min-h-0 flex overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              {combinedRun && combinedOrderCount > 1 && !isTerminalCombined && (
+                <CombinedProductionOrdersPanel
+                  combinedRun={combinedRun}
+                  refreshToken={combinedRefreshToken}
+                  selectedBatch={detailBatch}
+                  onSelectBatch={setDetailBatch}
                 />
               )}
+
+              <div className="p-2 flex flex-col min-h-0">
+                {!order && <p className="text-center text-muted-foreground py-16">Loading order…</p>}
+                {order && isTerminalCombined && combinedOrders.length > 1 && (
+                  <div className="bg-white border border-border rounded-xl p-4">
+                    <CombinedProductionHistory orders={combinedOrders} />
+                  </div>
+                )}
+                {order && !isTerminalCombined && (
+                  <SixHiOrderWorkspace
+                    order={order}
+                    workspaceOpen={workspaceOpen}
+                    workspaceBatch={workspaceBatch}
+                    busy={busy}
+                    compact
+                    combinedOrderCount={isCombined ? combinedOrderCount : undefined}
+                    combinedTargetMt={combinedTarget}
+                    combinedActualMt={combinedActualMt}
+                    hidePpcDetail={isCombined || !!detailBatch}
+                    onSaveRolling={handleSaveRolling}
+                    onSaveSkinPass={handleSaveSkinPass}
+                  />
+                )}
+              </div>
             </div>
+
+            {detailBatch && (
+              <OrderDetailSlidePanel
+                order={detailOrder ?? (detailBatch === order?.batchNumber ? order : null)}
+                loading={detailLoading}
+                onClose={() => setDetailBatch(null)}
+              />
+            )}
           </div>
         </div>
 

@@ -304,9 +304,10 @@ export function parseRollingPlanXlsx(
       rollingPassNo = 1;
     }
     const activePlan = rollingPassPlans.find((p) => p.passNo === rollingPassNo);
-    const inputThkMm = num(raw.inputThkMm)
-      ?? (subProcess === 'SKIN_PASS' && spThkMm != null ? spThkMm + 0.15 : undefined)
-      ?? (finishThkMm != null ? finishThkMm + (subProcess === 'SKIN_PASS' ? 0.15 : 0.9) : undefined);
+    const inputThkMm = num(raw.inputThkMm);
+    if (subProcess === 'SKIN_PASS' && inputThkMm == null) errors.push('pre-stage thickness required');
+    const resolvedInputThkMm = inputThkMm
+      ?? (subProcess === 'SKIN_PASS' ? undefined : (finishThkMm != null ? finishThkMm + 0.9 : undefined));
 
     const coilNo = String(raw.coilNo ?? '').trim();
     const customerName = String(raw.customerName ?? '').trim();
@@ -338,7 +339,7 @@ export function parseRollingPlanXlsx(
       gradeCode,
       widthMm: num(raw.widthMm) ?? 0,
       finishThkMm: finishThkMm ?? 0,
-      inputThkMm: inputThkMm ?? 0,
+      inputThkMm: resolvedInputThkMm ?? 0,
       passTargetThkMm: subProcess === 'SKIN_PASS' ? (spThkMm ?? activePlan?.targetThkMm) : activePlan?.targetThkMm,
       rollingPassNo,
       ppcWeightMt: num(raw.ppcWeightMt) ?? 0,

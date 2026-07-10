@@ -3,7 +3,7 @@ import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { AlertTriangle, X } from 'lucide-react';
-import { DefectTagSelector } from './DefectTagSelector';
+import { HOLD_ACTION_LABEL, ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
 
 const REJECTION_REASONS = [
@@ -52,7 +52,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
 
   const handleSubmit = async () => {
     if (!remarks.trim()) {
-      setError('Rejection remarks are required');
+      setError('Hold remarks are required');
       return;
     }
     if (selectedTags.includes(DEFECT_OTHER_CODE) && !otherDefectRemarks.trim()) {
@@ -69,7 +69,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
       setOtherDefectRemarks('');
       setRemarks('');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Order rejection failed';
+      const message = err instanceof Error ? err.message : 'Order hold failed';
       setError(message);
     } finally {
       setBusy(false);
@@ -84,7 +84,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
         <div className="shrink-0 flex items-center gap-3 px-5 py-4 bg-destructive/10 border-b border-destructive/20 text-destructive rounded-t-[14px]">
           <AlertTriangle className="h-6 w-6" />
           <div className="flex-1">
-            <h3 className="text-lg font-bold">Reject Order</h3>
+            <h3 className="text-lg font-bold">Hold Order</h3>
             <p className="text-sm font-medium opacity-90">{orderLabel ?? `Batch ${batchNumber}`}</p>
             {orderSubtitle && <p className="text-xs opacity-75">{orderSubtitle}</p>}
           </div>
@@ -100,10 +100,10 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
             </div>
           )}
           <div className="bg-red-50 text-red-800 text-sm p-4 rounded-xl font-medium border border-red-200">
-            Rejecting this order will end production immediately and return the machine to IDLE state. This action cannot be undone.
+            Placing this order on hold will end production immediately and return the machine to IDLE state. This action cannot be undone.
           </div>
 
-          <FieldWrapper label="Rejection Reason" required>
+          <FieldWrapper label="Hold Reason" required>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {REJECTION_REASONS.map((reason) => (
                 <button
@@ -139,7 +139,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
             <ZInput
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Enter details about the rejection…"
+              placeholder="Enter details about the hold…"
               className="min-h-14 text-base"
               inputMode="text"
             />
@@ -154,7 +154,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
             disabled={busy || !remarks.trim()}
             className="min-h-14 flex-1"
           >
-            Confirm Rejection
+            Confirm {HOLD_ACTION_LABEL}
           </ZButton>
         </div>
 
