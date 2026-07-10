@@ -478,6 +478,9 @@ export class SixHiService {
     const effectiveShiftLogId =
       shiftLogId ?? (await this.resolveShiftLogIdForPlan(prodDate, shiftCode));
     if (!effectiveShiftLogId) {
+      console.warn(
+        `[SixHi] fetchTerminalBatches: no shift_log for ${prodDate}/${shiftCode} — completed list empty`,
+      );
       return [];
     }
 

@@ -67,7 +67,7 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { shiftCode, shiftDate, shiftLogId } = useShiftStore();
+  const { shiftCode, shiftLogId } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
@@ -84,10 +84,6 @@ export function SixHiHub() {
   const [completedQueue, setCompletedQueue] = useState<SixHiQueueCard[]>([]);
   const [rejectedQueue, setRejectedQueue] = useState<SixHiQueueCard[]>([]);
   const [viewDate, setViewDate] = useState(currentPlantDate());
-
-  useEffect(() => {
-    if (shiftDate) setViewDate(shiftDate);
-  }, [shiftDate]);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
   const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
