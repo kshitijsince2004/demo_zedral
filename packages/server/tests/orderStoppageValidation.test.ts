@@ -130,14 +130,12 @@ describe('assertStoppageStartWithinShift', () => {
 });
 
 describe('validateOrderStoppageStart', () => {
-  it('accepts stoppage when clock shift matches even if PPC plan differs', async () => {
+  it('accepts stoppage when order attribution matches clock shift', async () => {
     const orderRow = {
       sl_prod_date: new Date('2026-07-08'),
       sl_shift_code: 'A',
       o_prod_date: new Date('2026-07-09'),
       o_shift_code: 'B',
-      pb_plan_date: new Date('2026-07-08'),
-      pb_shift_code: 'A',
     };
 
     const orderChain = {

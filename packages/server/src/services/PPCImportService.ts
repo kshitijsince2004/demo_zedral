@@ -907,23 +907,6 @@ export class PPCImportService {
     );
     const syncedBatchNumbers = syncedRows.map((r) => r.batchNumber);
 
-    if (loaded > 0) {
-      const { SixHiShiftService } = await import('./sixHi');
-      const contexts = new Set<string>();
-      for (const row of rowsToCommit) {
-        if (row.errors.length > 0 || errors.some((e) => e.row === row.rowNum)) continue;
-        contexts.add(`${row.planDate}|${row.shiftCode}`);
-      }
-      for (const ctx of contexts) {
-        const [planDate, shift] = ctx.split('|');
-        await SixHiShiftService.ensureActiveShiftLog(
-          userId,
-          SixHiShiftService.toPlanDate(planDate),
-          shift,
-        );
-      }
-    }
-
     const firstSynced = syncedRows[0];
 
     // Index into Elasticsearch

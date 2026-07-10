@@ -31,10 +31,10 @@ router.get('/orders', async (req, res) => {
     const planDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
     const shiftCode = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const ctx = planDate && shiftCode
-      ? { planDate, shiftCode }
+      ? { prodDate: planDate, shiftCode }
       : await LiveDashboardService.getShiftQueueContext(req.user!.id);
-    const orders = await LiveOrderService.getActiveOrders(filter, ctx.planDate, ctx.shiftCode);
-    res.json({ orders, planDate: ctx.planDate, shiftCode: ctx.shiftCode, refreshedAt: new Date().toISOString() });
+    const orders = await LiveOrderService.getActiveOrders(filter, ctx.prodDate, ctx.shiftCode);
+    res.json({ orders, prodDate: ctx.prodDate, shiftCode: ctx.shiftCode, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load orders';
     res.status(500).json({ error: msg });

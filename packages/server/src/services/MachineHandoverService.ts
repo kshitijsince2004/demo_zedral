@@ -952,6 +952,20 @@ export class MachineHandoverService {
 
     if (existing) return { session: existing, pendingHandover: null };
 
+    const otherActive = await db
+      .selectFrom('txn.machine_shift_session')
+      .select('session_id')
+      .where('machine_code', '=', machineCode)
+      .where('status', '=', 'ACTIVE')
+      .where('operator_user_id', '!=', operatorUserId)
+      .executeTakeFirst();
+
+    if (otherActive) {
+      throw new Error(
+        'ACTIVE_SESSION_CONFLICT: Another operator holds an active session on this machine.',
+      );
+    }
+
     const shift = await ShiftDetectionService.getCurrentShift({
       userId: operatorUserId,
       machineCode,

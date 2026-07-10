@@ -21,7 +21,6 @@ import {
   SixHiShiftService,
   SixHiStoppageService,
 } from '../services/sixHi';
-import { currentPlantDate } from '../utils/dateOnly';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
@@ -301,9 +300,14 @@ router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
 router.get('/queue', requireSixHi('READ'), async (req, res) => {
   try {
     const subProcess = String(req.query.subProcess ?? 'ROLLING').toUpperCase().replace(' ', '_');
-    const detectedShift = shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id);
-    const planDate = String(req.query.date ?? currentPlantDate());
-    const shiftCode = await detectedShift;
+    const shiftCode = await shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id);
+    const detected = await ShiftDetectionService.getCurrentShift({
+      userId: req.user!.id,
+      machineCode: String(req.query.machine ?? '6HI').toUpperCase(),
+    });
+    const prodDate = typeof req.query.date === 'string'
+      ? req.query.date.slice(0, 10)
+      : detected.prodDate;
     const machine = String(req.query.machine ?? '6HI').toUpperCase();
     if (!['ROLLING', 'SKIN_PASS'].includes(subProcess)) {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
@@ -315,7 +319,7 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
     const shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
     const result = await SixHiQueueService.getQueue(
       subProcess as 'ROLLING' | 'SKIN_PASS',
-      planDate,
+      prodDate,
       shiftCode,
       parsedMachine,
       shiftLogId,

@@ -668,22 +668,22 @@ export class LiveService {
       subProcess: row.sub_process ?? undefined,
     };
   }
-  static async getShiftQueueContext(userId: number): Promise<{ planDate: string; shiftCode: string }> {
+  static async getShiftQueueContext(userId: number): Promise<{ prodDate: string; shiftCode: string }> {
     const { ShiftDetectionService } = await import('./ShiftDetectionService');
     const current = await ShiftDetectionService.getCurrentShift({ userId });
-    return { planDate: current.prodDate, shiftCode: current.shiftCode };
+    return { prodDate: current.prodDate, shiftCode: current.shiftCode };
   }
 
   static async getSnapshot(userId: number, roles: string[]): Promise<LiveSnapshot> {
     const machineFilter = await this.getMachineScope(userId, roles);
-    const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const { prodDate, shiftCode } = await this.getShiftQueueContext(userId);
     const machines = await this.getMachineCards(machineFilter);
-    const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
+    const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode);
 
     const { ProductionMetricsService } = await import('./ProductionMetricsService');
     const [shiftMetrics, productionTodayMt] = await Promise.all([
-      ProductionMetricsService.getShiftMetrics(planDate, shiftCode, machineFilter),
-      ProductionMetricsService.getPlantProductionForDate(planDate),
+      ProductionMetricsService.getShiftMetrics(prodDate, shiftCode, machineFilter),
+      ProductionMetricsService.getPlantProductionForDate(prodDate),
     ]);
 
     const running = machines.filter((m) => m.status === 'RUNNING').length;
@@ -702,7 +702,7 @@ export class LiveService {
       currentStoppages: stoppages,
       machinesRunningPct: machines.length > 0 ? Math.round((running / total) * 100) : 0,
       shiftPerformancePct: shiftMetrics.shiftPerformancePct,
-      planDate: shiftMetrics.planDate,
+      prodDate: shiftMetrics.prodDate,
       shiftCode: shiftMetrics.shiftCode,
       shiftLogId: shiftMetrics.shiftLogId,
       shiftTargetMt: shiftMetrics.targetMt,
@@ -947,17 +947,15 @@ export class LiveService {
     roles: string[],
   ): Promise<MachineHeadDashboardData> {
     const machineFilter = await this.getMachineScope(userId, roles);
-    const { planDate, shiftCode } = await this.getShiftQueueContext(userId);
-    const { SixHiExecutionService, SixHiQueueService, SixHiShiftService } = await import('./sixHi');
-    const orders = await this.getActiveOrders(machineFilter, planDate, shiftCode);
-    const primaryMachine = machineFilter?.[0] ?? orders[0]?.machineCode ?? '6HI';
-    const queueCtx = await SixHiQueueService.resolveMachinePlanContext(planDate, shiftCode, primaryMachine);
+    const { prodDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
+    const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode);
     const machines = await this.getMachineCards(machineFilter);
 
     const shiftLog = await db.selectFrom('txn.shift_log')
       .select(['target_mt'])
-      .where('prod_date', '=', SixHiShiftService.toPlanDate(queueCtx.planDate))
-      .where('shift_code', '=', queueCtx.shiftCode)
+      .where('prod_date', '=', SixHiShiftService.toPlanDate(prodDate))
+      .where('shift_code', '=', shiftCode)
       .where('process_id', '=', 31)
       .executeTakeFirst();
 
@@ -1045,8 +1043,8 @@ export class LiveService {
         return {
           orderQueue: [],
           shiftSummary: {
-            shiftCode: queueCtx.shiftCode,
-            planDate: queueCtx.planDate,
+            shiftCode: shiftCode,
+            prodDate: prodDate,
             targetMt: 0,
             actualMt: 0,
             completedProdMt: 0,
@@ -1078,8 +1076,8 @@ export class LiveService {
       totalProdMt,
     } = await this.getShiftCompletedProductionMt(
       machineFilter,
-      queueCtx.planDate,
-      queueCtx.shiftCode,
+      prodDate,
+      shiftCode,
     );
 
     const { MachineHandoverService } = await import('./MachineHandoverService');
@@ -1088,8 +1086,8 @@ export class LiveService {
     return {
       orderQueue: orders,
       shiftSummary: {
-        shiftCode: queueCtx.shiftCode,
-        planDate: queueCtx.planDate,
+        shiftCode: shiftCode,
+        prodDate: prodDate,
         targetMt: Number(shiftLog?.target_mt ?? 0),
         actualMt,
         completedProdMt,

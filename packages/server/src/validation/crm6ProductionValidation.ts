@@ -67,15 +67,19 @@ export async function assertOrderRuntimeAccounting(
 ): Promise<void> {
   const ctx = await db
     .selectFrom('txn.crm6_order as o')
-    .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-    .leftJoin('master.shift as s', 's.shift_code', 'pb.shift_code')
-    .select(['pb.plan_date', 's.start_time', 's.end_time'])
+    .leftJoin('txn.shift_log as sl', 'sl.shift_log_id', 'o.shift_log_id')
+    .innerJoin('master.shift as s', (join) =>
+      join.onRef('s.shift_code', '=', 'o.shift_code'),
+    )
+    .select(['sl.prod_date as sl_prod_date', 'o.prod_date', 's.start_time', 's.end_time'])
     .where('o.order_id', '=', String(orderId))
     .executeTakeFirst();
 
   if (!ctx?.start_time || !ctx?.end_time) return;
 
-  const prodDate = ctx.plan_date instanceof Date ? ctx.plan_date : new Date(ctx.plan_date);
+  const prodDateRaw = ctx.sl_prod_date ?? ctx.prod_date;
+  if (!prodDateRaw) return;
+  const prodDate = prodDateRaw instanceof Date ? prodDateRaw : new Date(prodDateRaw);
   const bounds = resolveShiftWindowBounds(
     prodDate,
     String(ctx.start_time).slice(0, 5),

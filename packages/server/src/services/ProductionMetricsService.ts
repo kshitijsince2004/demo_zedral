@@ -5,7 +5,7 @@ import { formatPlantDate } from '@m1/shared-validation';
 /** Single source of truth for shift production totals (6HI capture → dashboards). */
 export interface ShiftProductionMetrics {
   shiftLogId: string | null;
-  planDate: string;
+  prodDate: string;
   shiftCode: string;
   targetMt: number;
   totalProdMt: number;
@@ -17,8 +17,8 @@ export interface ShiftProductionMetrics {
   shiftPerformancePct: number;
 }
 
-function toPlanDateString(planDate: string | Date): string {
-  return formatPlantDate(planDate);
+function toProdDateString(prodDate: string | Date): string {
+  return formatPlantDate(prodDate);
 }
 
 export class ProductionMetricsService {
@@ -27,17 +27,17 @@ export class ProductionMetricsService {
    * Same aggregation used by operator shift summary and machine dashboard.
    */
   static async getShiftMetrics(
-    planDate: string,
+    prodDate: string,
     shiftCode: string,
     machineFilter?: string[] | null,
   ): Promise<ShiftProductionMetrics> {
     const { SixHiShiftService } = await import('./sixHi');
-    const dateStr = toPlanDateString(planDate);
+    const dateStr = toProdDateString(prodDate);
     const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(dateStr, shiftCode);
 
     const zeros: ShiftProductionMetrics = {
       shiftLogId: null,
-      planDate: dateStr,
+      prodDate: dateStr,
       shiftCode,
       targetMt: 0,
       totalProdMt: 0,
@@ -62,7 +62,7 @@ export class ProductionMetricsService {
 
     return {
       shiftLogId,
-      planDate: dateStr,
+      prodDate: dateStr,
       shiftCode,
       targetMt,
       totalProdMt: summary.totalProdMt,
@@ -76,15 +76,15 @@ export class ProductionMetricsService {
   }
 
   /** Sum live 6HI production for all shifts on a calendar date (plant “production today”). */
-  static async getPlantProductionForDate(planDate: string): Promise<number> {
+  static async getPlantProductionForDate(prodDate: string): Promise<number> {
     const { SixHiShiftService } = await import('./sixHi');
     const processId = await SixHiShiftService.getProcessId();
-    const prodDate = SixHiShiftService.toPlanDate(planDate);
+    const date = SixHiShiftService.toPlanDate(prodDate);
 
     const rows = await db.selectFrom('txn.shift_log')
       .select('shift_log_id')
       .where('process_id', '=', processId)
-      .where('prod_date', '=', prodDate)
+      .where('prod_date', '=', date)
       .execute();
 
     let total = 0;

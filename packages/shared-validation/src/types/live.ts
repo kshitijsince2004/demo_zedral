@@ -147,7 +147,7 @@ export interface LiveKpis {
   /** Actual production vs shift target from ProductionMetricsService. */
   shiftPerformancePct: number;
   /** Current shift context (operator capture source of truth). */
-  planDate: string;
+  prodDate: string;
   shiftCode: string;
   shiftLogId?: string | null;
   shiftTargetMt: number;
@@ -156,7 +156,7 @@ export interface LiveKpis {
   shiftInProgressProdMt: number;
   shiftRollingMt: number;
   shiftSkinpassMt: number;
-  /** Live plant-wide production for planDate (all CRM shifts that day). */
+  /** Live plant-wide production for prodDate (all CRM shifts that day). */
   productionTodayMt: number;
 }
 
@@ -275,7 +275,8 @@ export interface MachineHeadDashboardData {
   orderQueue: LiveOrderRow[];
   shiftSummary: {
     shiftCode: string;
-    planDate: string;
+    /** Operational production date from shift detection (not PPC plan_date). */
+    prodDate: string;
     targetMt: number;
     /** Total saved production MT (completed + in-progress). */
     actualMt: number;

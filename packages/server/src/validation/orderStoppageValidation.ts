@@ -28,25 +28,22 @@ async function loadMasterShiftWindows() {
   }));
 }
 
-/** Production shift for an order: shift_log → crm6_order → PPC plan fallback. */
+/** Production shift for an order: shift_log → crm6_order (never PPC plan_date). */
 async function loadOrderShiftContext(orderId: string | number) {
   const row = await db
     .selectFrom('txn.crm6_order as o')
     .leftJoin('txn.shift_log as sl', 'sl.shift_log_id', 'o.shift_log_id')
-    .leftJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
     .select([
       'sl.prod_date as sl_prod_date',
       'sl.shift_code as sl_shift_code',
       'o.prod_date as o_prod_date',
       'o.shift_code as o_shift_code',
-      'pb.plan_date as pb_plan_date',
-      'pb.shift_code as pb_shift_code',
     ])
     .where('o.order_id', '=', String(orderId))
     .executeTakeFirst();
 
-  const shiftCode = row?.sl_shift_code ?? row?.o_shift_code ?? row?.pb_shift_code;
-  const prodDateRaw = row?.sl_prod_date ?? row?.o_prod_date ?? row?.pb_plan_date;
+  const shiftCode = row?.sl_shift_code ?? row?.o_shift_code;
+  const prodDateRaw = row?.sl_prod_date ?? row?.o_prod_date;
   if (!shiftCode || !prodDateRaw) return null;
 
   const shiftRow = await db
@@ -155,4 +152,4 @@ export async function validateOrderStoppageInterval(
   ];
   assertNoOverlappingIntervals(intervals);
 }
-
+

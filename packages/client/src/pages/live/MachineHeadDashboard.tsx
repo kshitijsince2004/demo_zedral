@@ -146,10 +146,10 @@ export function MachineHeadDashboard() {
     if (dashboard?.shiftSummary.shiftCode) {
       setExportShift(dashboard.shiftSummary.shiftCode);
     }
-    if (dashboard?.shiftSummary.planDate) {
-      setExportDate(dashboard.shiftSummary.planDate);
+    if (dashboard?.shiftSummary.prodDate) {
+      setExportDate(dashboard.shiftSummary.prodDate);
     }
-  }, [dashboard?.shiftSummary.shiftCode, dashboard?.shiftSummary.planDate]);
+  }, [dashboard?.shiftSummary.shiftCode, dashboard?.shiftSummary.prodDate]);
 
   useEffect(() => {
     if (activeTab !== 'rejected') return;
@@ -322,7 +322,7 @@ export function MachineHeadDashboard() {
                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shift Summary</h3>
                   </div>
                   <dl className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-border">
-                    <StatCell label="Plan Date" value={dashboard.shiftSummary.planDate} mono />
+                    <StatCell label="Prod Date" value={dashboard.shiftSummary.prodDate} mono />
                     <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
                     <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
                     <StatCell label="Queued MT" value={dashboard.shiftSummary.queuedMt} mono />
@@ -611,7 +611,7 @@ export function MachineHeadDashboard() {
       title="Machine Dashboard"
       subtitle={
         machineAccess.length > 0
-          ? `Assigned: ${machineAccess.join(', ')}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.planDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
+          ? `Assigned: ${machineAccess.join(', ')}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
           : 'No machines assigned — contact Plant Head'
       }
       onRefresh={() => { void refresh(); void loadDashboard(); }}

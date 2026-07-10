@@ -30,7 +30,7 @@ router.get('/windows', async (_req, res) => {
   }
 });
 
-router.post('/override', async (req, res) => {
+router.post('/override', requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const {
       selectedShiftCode,
