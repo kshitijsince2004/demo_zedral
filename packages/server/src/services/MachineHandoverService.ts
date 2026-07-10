@@ -942,6 +942,18 @@ export class MachineHandoverService {
       return { session: null, pendingHandover: pending };
     }
 
+    const shift = await ShiftDetectionService.getCurrentShift({
+      userId: operatorUserId,
+      machineCode,
+    });
+
+    await ShiftDetectionService.closeStaleOperatorSessions(
+      machineCode,
+      operatorUserId,
+      shift.prodDate,
+      shift.shiftCode,
+    );
+
     const existing = await db
       .selectFrom('txn.machine_shift_session')
       .selectAll()
@@ -950,7 +962,12 @@ export class MachineHandoverService {
       .where('status', '=', 'ACTIVE')
       .executeTakeFirst();
 
-    if (existing) return { session: existing, pendingHandover: null };
+    if (
+      existing &&
+      ShiftDetectionService.sessionMatchesOperational(existing, shift.prodDate, shift.shiftCode)
+    ) {
+      return { session: existing, pendingHandover: null };
+    }
 
     const otherActive = await db
       .selectFrom('txn.machine_shift_session')
@@ -966,10 +983,11 @@ export class MachineHandoverService {
       );
     }
 
-    const shift = await ShiftDetectionService.getCurrentShift({
-      userId: operatorUserId,
-      machineCode,
-    });
+    await SixHiShiftService.ensureActiveShiftLog(
+      operatorUserId,
+      parsePlantDateOnly(shift.prodDate),
+      shift.shiftCode,
+    );
 
     const session = await db
       .insertInto('txn.machine_shift_session')

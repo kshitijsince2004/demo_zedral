@@ -117,95 +117,171 @@ async function latestOverride(
   };
 }
 
+type SessionRow = {
+  shift_code: string;
+  shift_name: string;
+  prod_date: Date | string;
+  start_time: string;
+  end_time: string;
+  session_id?: string;
+};
+
+function sessionMatchesOperational(
+  session: { prod_date: Date | string; shift_code: string },
+  prodDate: string,
+  shiftCode: string,
+): boolean {
+  return (
+    formatDbDate(session.prod_date as Date) === formatPlantDate(prodDate) &&
+    String(session.shift_code).toUpperCase() === shiftCode.toUpperCase()
+  );
+}
+
+async function findMatchingActiveSession(
+  machineCode: string,
+  prodDate: string,
+  shiftCode: string,
+  userId?: number,
+): Promise<SessionRow | null> {
+  const sessionSelect = () =>
+    db
+      .selectFrom('txn.machine_shift_session as s')
+      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+      .select([
+        's.session_id',
+        's.shift_code',
+        'w.name as shift_name',
+        's.prod_date',
+        'w.start_time',
+        'w.end_time',
+      ]);
+
+  if (userId) {
+    const userSession = await sessionSelect()
+      .where('s.machine_code', '=', machineCode)
+      .where('s.operator_user_id', '=', userId)
+      .where('s.status', '=', 'ACTIVE')
+      .orderBy('s.started_at', 'desc')
+      .executeTakeFirst();
+
+    if (userSession && sessionMatchesOperational(userSession, prodDate, shiftCode)) {
+      return userSession as SessionRow;
+    }
+  }
+
+  const activeSession = await sessionSelect()
+    .where('s.machine_code', '=', machineCode)
+    .where('s.status', '=', 'ACTIVE')
+    .orderBy('s.started_at', 'desc')
+    .executeTakeFirst();
+
+  if (activeSession && sessionMatchesOperational(activeSession, prodDate, shiftCode)) {
+    return activeSession as SessionRow;
+  }
+
+  return null;
+}
+
 export class ShiftDetectionService {
+  static sessionMatchesOperational = sessionMatchesOperational;
+
+  /** Close this operator's ACTIVE sessions on a machine that no longer match the operational shift. */
+  static async closeStaleOperatorSessions(
+    machineCode: string,
+    operatorUserId: number,
+    prodDate: string,
+    shiftCode: string,
+  ): Promise<number> {
+    const stale = await db
+      .selectFrom('txn.machine_shift_session')
+      .select(['session_id', 'prod_date', 'shift_code'])
+      .where('machine_code', '=', machineCode)
+      .where('operator_user_id', '=', operatorUserId)
+      .where('status', '=', 'ACTIVE')
+      .execute();
+
+    const toClose = stale.filter((s) => !sessionMatchesOperational(s, prodDate, shiftCode));
+    if (toClose.length === 0) return 0;
+
+    const closedAt = new Date();
+    await db
+      .updateTable('txn.machine_shift_session')
+      .set({ status: 'CLOSED', closed_at: closedAt })
+      .where(
+        'session_id',
+        'in',
+        toClose.map((s) => String(s.session_id)),
+      )
+      .execute();
+
+    return toClose.length;
+  }
+
   static async getCurrentShift(opts?: {
     userId?: number;
     machineCode?: string;
   }): Promise<DetectedShift> {
     const windows = await loadShiftWindows();
     const at = new Date();
+    const clock = resolveShiftFromClock(windows, at);
 
-    if (opts?.machineCode) {
-      const sessionSelect = () =>
-        db
-          .selectFrom('txn.machine_shift_session as s')
-          .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
-          .select([
-            's.shift_code',
-            'w.name as shift_name',
-            's.prod_date',
-            'w.start_time',
-            'w.end_time',
-          ]);
-
-      if (opts.userId) {
-        const userSession = await sessionSelect()
-          .where('s.machine_code', '=', opts.machineCode)
-          .where('s.operator_user_id', '=', opts.userId)
-          .where('s.status', '=', 'ACTIVE')
-          .orderBy('s.started_at', 'desc')
-          .executeTakeFirst();
-
-        if (userSession) {
-          return {
-            shiftCode: userSession.shift_code,
-            shiftName: userSession.shift_name,
-            prodDate: formatDbDate(userSession.prod_date as Date),
-            windowStart: String(userSession.start_time).slice(0, 5),
-            windowEnd: String(userSession.end_time).slice(0, 5),
-            detectedAt: at.toISOString(),
-            source: 'SESSION',
-          };
-        }
-      }
-
-      const activeSession = await sessionSelect()
-        .where('s.machine_code', '=', opts.machineCode)
-        .where('s.status', '=', 'ACTIVE')
-        .orderBy('s.started_at', 'desc')
-        .executeTakeFirst();
-
-      if (activeSession) {
-        return {
-          shiftCode: activeSession.shift_code,
-          shiftName: activeSession.shift_name,
-          prodDate: formatDbDate(activeSession.prod_date as Date),
-          windowStart: String(activeSession.start_time).slice(0, 5),
-          windowEnd: String(activeSession.end_time).slice(0, 5),
-          detectedAt: at.toISOString(),
-          source: 'SESSION',
-        };
-      }
-    }
-
-    const detected = resolveShiftFromClock(windows, at);
+    let shiftCode = clock.shiftCode;
+    let shiftName = clock.shiftName;
+    let prodDate = clock.prodDate;
+    let windowStart = clock.window.start_time;
+    let windowEnd = clock.window.end_time;
+    let source: DetectedShift['source'] = 'FALLBACK';
+    let overrideId: number | undefined;
+    let overrideReason: string | undefined;
 
     if (opts?.userId) {
       const override = await latestOverride(opts.userId, opts.machineCode);
       if (override) {
-        const w = windows.find((x) => x.shift_code === override.selected_shift_code) ?? detected.window;
+        const w = windows.find((x) => x.shift_code === override.selected_shift_code) ?? clock.window;
+        shiftCode = override.selected_shift_code;
+        shiftName = w.name;
+        prodDate = formatDbDate(override.prod_date);
+        windowStart = w.start_time;
+        windowEnd = w.end_time;
+        source = 'OVERRIDE';
+        overrideId = Number(override.override_id);
+        overrideReason = override.reason_code;
+      }
+    }
+
+    if (opts?.machineCode) {
+      const matchingSession = await findMatchingActiveSession(
+        opts.machineCode,
+        prodDate,
+        shiftCode,
+        opts.userId,
+      );
+
+      if (matchingSession) {
         return {
-          shiftCode: override.selected_shift_code,
-          shiftName: w.name,
-          prodDate: formatDbDate(override.prod_date),
-          windowStart: w.start_time,
-          windowEnd: w.end_time,
+          shiftCode: matchingSession.shift_code,
+          shiftName: matchingSession.shift_name,
+          prodDate: formatDbDate(matchingSession.prod_date as Date),
+          windowStart: String(matchingSession.start_time).slice(0, 5),
+          windowEnd: String(matchingSession.end_time).slice(0, 5),
           detectedAt: at.toISOString(),
-          source: 'OVERRIDE',
-          overrideId: Number(override.override_id),
-          overrideReason: override.reason_code,
+          source: 'SESSION',
+          overrideId,
+          overrideReason,
         };
       }
     }
 
     return {
-      shiftCode: detected.shiftCode,
-      shiftName: detected.shiftName,
-      prodDate: detected.prodDate,
-      windowStart: detected.window.start_time,
-      windowEnd: detected.window.end_time,
+      shiftCode,
+      shiftName,
+      prodDate,
+      windowStart,
+      windowEnd,
       detectedAt: at.toISOString(),
-      source: 'FALLBACK',
+      source,
+      overrideId,
+      overrideReason,
     };
   }
 
