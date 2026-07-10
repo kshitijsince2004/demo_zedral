@@ -155,7 +155,7 @@ export function parsePpcCsv(csvText: string, defaultShiftCode = 'B'): PPCParseRe
     colMap.forEach((key, idx) => {
       if (!key) return;
       const cell = cells[idx] ?? '';
-      if (['width_mm', 'ppc_thk_mm', 'ppc_weight_mt', 'queue_seq'].includes(key)) {
+      if (['width_mm', 'input_thk_mm', 'ppc_thk_mm', 'ppc_weight_mt', 'queue_seq'].includes(key)) {
         (raw as Record<string, unknown>)[key] = parseNum(cell);
       } else if (key === 'ppc_reroll_flag') {
         (raw as Record<string, unknown>)[key] = parseBool(cell);

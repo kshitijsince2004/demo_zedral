@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+function requireSkinPassPreStageThickness(
+  row: { sub_process: string; input_thk_mm?: number },
+  ctx: z.RefinementCtx,
+) {
+  if (row.sub_process === 'SKIN_PASS' && row.input_thk_mm == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['input_thk_mm'],
+      message: 'Pre-stage thickness (input_thk_mm) is required for SKIN_PASS rows',
+    });
+  }
+}
+
 
 
 export const SixHiSubProcessSchema = z.enum(['ROLLING', 'SKIN_PASS']);
@@ -184,7 +197,7 @@ export const SixHiManualOrderSchema = z.object({
 
   process_route: z.string().optional(),
 
-});
+}).superRefine(requireSkinPassPreStageThickness);
 
 /** Fields required before an operator can end production. */
 export interface EndProductionFieldCheck {
@@ -253,5 +266,4 @@ export const PPCImportRowSchema = z.object({
 
   process_route: z.string().optional(),
 
-});
-
+}).superRefine(requireSkinPassPreStageThickness);

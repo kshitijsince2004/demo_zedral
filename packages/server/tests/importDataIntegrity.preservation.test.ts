@@ -156,8 +156,8 @@ ${batchNo},${planDate},B,6HI,ROLLING,C-QFIRST,ACME,D,1250,1.2,10`;
     it('valid 6HI PPC CSV import writes ppc_batch', async () => {
       const { PPCImportService } = await import('../src/services/PPCImportService');
       const batchNo = `PRES-PPC-${Date.now()}`;
-      const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
-${batchNo},2026-06-01,B,6HI,SKIN_PASS,C-PPC,ACME,D,1250,1.0,8`;
+      const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,input_thk_mm,ppc_thk_mm,ppc_weight_mt
+${batchNo},2026-06-01,B,6HI,SKIN_PASS,C-PPC,ACME,D,1250,1.15,1.0,8`;
 
       const result = await PPCImportService.importFromCsvText('pres-ppc.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
