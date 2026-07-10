@@ -9,7 +9,6 @@ import {
   resolveShiftSinceTime,
   formatDurationMinutes,
 } from '../validation/manufacturingValidation';
-import type { BoundaryShiftContext } from './ShiftBoundaryService';
 import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import type { SixHiQueueCard } from '@m1/shared-validation';
@@ -612,102 +611,6 @@ export class MachineHandoverService {
     }
 
     return handover;
-  }
-
-  /** Auto handover at shift boundary when production is still active. */
-  static async createBoundaryHandover(
-    machineCode: string,
-    boundary: BoundaryShiftContext,
-    systemUserId: number,
-  ) {
-    const existing = await this.getPendingForMachine(machineCode);
-    if (existing) return existing;
-
-    const session = await db
-      .selectFrom('txn.machine_shift_session')
-      .select('operator_user_id')
-      .where('machine_code', '=', machineCode)
-      .where('status', '=', 'ACTIVE')
-      .orderBy('started_at', 'desc')
-      .executeTakeFirst();
-
-    const outgoingOperatorId = session?.operator_user_id ?? systemUserId;
-    const preview = await this.buildOutgoingPreview(machineCode, outgoingOperatorId);
-    const active = preview.activeOrder;
-
-    let orderId: number | null = null;
-    if (active) {
-      const row = await db
-        .selectFrom('txn.crm6_order')
-        .select('order_id')
-        .where('batch_number', '=', active.batchNumber)
-        .executeTakeFirst();
-      orderId = row ? Number(row.order_id) : null;
-    }
-
-    const machineStatus: MachineHandoverStatus = active
-      ? active.status === 'STOPPAGE'
-        ? 'STOPPAGE'
-        : 'RUNNING'
-      : 'IDLE';
-
-    const remarks =
-      'Auto-generated at shift boundary. Production continues; incoming operator must accept.';
-
-    return db.transaction().execute(async (trx) => {
-      const row = await trx
-        .insertInto('txn.machine_handover')
-        .values({
-          machine_code: machineCode,
-          process_code: machineCode,
-          order_id: orderId,
-          batch_number: active?.batchNumber ?? null,
-          outgoing_shift_code: boundary.outgoingShiftCode,
-          incoming_shift_code: boundary.incomingShiftCode,
-          outgoing_prod_date: boundary.outgoingProdDate,
-          incoming_prod_date: boundary.incomingProdDate,
-          outgoing_operator_id: outgoingOperatorId,
-          machine_status: machineStatus,
-          remarks,
-          handover_priority: 'MEDIUM',
-          queue_snapshot: preview.queueSnapshot,
-          production_snapshot: {
-            ...preview.productionSnapshot,
-            shiftProductionSummary: preview.shiftProductionSummary as any,
-            activeOrderDetail: preview.activeOrderDetail,
-          },
-          open_stoppages: preview.openStoppages as any,
-          status: 'PENDING',
-          created_by_boundary: true,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-
-      await trx
-        .updateTable('txn.machine_shift_session')
-        .set({ status: 'CLOSED', closed_at: new Date() })
-        .where('machine_code', '=', machineCode)
-        .where('status', '=', 'ACTIVE')
-        .execute();
-
-      await trx
-        .insertInto('txn.shift_event_audit')
-        .values({
-          event_type: 'BOUNDARY_HANDOVER_CREATED',
-          entity_type: 'machine_handover',
-          entity_id: String(row.handover_id),
-          machine_code: machineCode,
-          user_id: systemUserId,
-          payload: {
-            batchNumber: active?.batchNumber ?? null,
-            outgoingShift: boundary.outgoingShiftCode,
-            incomingShift: boundary.incomingShiftCode,
-          },
-        })
-        .execute();
-
-      return row;
-    });
   }
 
   static async getHandoverOverview(machineFilter: string[] | null) {

@@ -5,6 +5,8 @@ import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { MachineHandoverService } from './MachineHandoverService';
 import { addPlantDays } from '@m1/shared-validation';
 
+// ponytail: handovers are operator-submitted only; this service never creates them.
+
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
 
 export interface BoundaryShiftContext {
@@ -49,15 +51,13 @@ export class ShiftBoundaryService {
     return rows.map((r) => r.machine_code);
   }
 
-  static async processAllMachines(at = new Date()): Promise<{ processed: number; handovers: number }> {
+  static async processAllMachines(at = new Date()): Promise<{ processed: number }> {
     const windows = await ShiftDetectionService.listShiftWindows();
     const boundary = resolveBoundaryShifts(windows, at);
     const machines = await this.listCrmMachineCodes();
 
-    let handovers = 0;
     for (const machineCode of machines) {
-      const result = await this.processMachine(machineCode, boundary);
-      if (result === 'HANDOVER') handovers += 1;
+      await this.processMachine(machineCode, boundary);
     }
 
     await db
@@ -69,19 +69,18 @@ export class ShiftBoundaryService {
         payload: {
           ...boundary,
           machineCount: machines.length,
-          handoverCount: handovers,
         },
         user_id: SYSTEM_USER_ID,
       })
       .execute();
 
-    return { processed: machines.length, handovers };
+    return { processed: machines.length };
   }
 
   static async processMachine(
     machineCode: string,
     boundary: BoundaryShiftContext,
-  ): Promise<'IDLE' | 'HANDOVER' | 'SKIPPED'> {
+  ): Promise<'IDLE' | 'SKIPPED'> {
     const existing = await MachineHandoverService.getPendingForMachine(machineCode);
     if (existing) return 'SKIPPED';
 
@@ -93,14 +92,8 @@ export class ShiftBoundaryService {
       boundary.outgoingProdDate,
     );
 
-    if (active) {
-      await MachineHandoverService.createBoundaryHandover(
-        machineCode,
-        boundary,
-        SYSTEM_USER_ID,
-      );
-      return 'HANDOVER';
-    }
+    // Active production: leave session open — outgoing operator must submit handover manually.
+    if (active) return 'SKIPPED';
 
     await db
       .updateTable('txn.machine_shift_session')
