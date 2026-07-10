@@ -9,8 +9,8 @@ android {
         applicationId "com.zedral.m1operator"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.2.2"
+        versionCode 6
+        versionName "1.2.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -23,17 +23,27 @@ android {
         compose true
     }
 
-    signingConfigs {
-        release {
-            storeFile file(System.getenv("ZEDRAL_KEYSTORE_PATH") ?: "release.keystore")
-            storePassword System.getenv("ZEDRAL_KEYSTORE_PASS")
-            keyAlias System.getenv("ZEDRAL_KEY_ALIAS")
-            keyPassword System.getenv("ZEDRAL_KEY_PASS")
+    // Release signing only when all env vars are set; otherwise debug (local/dev APKs).
+    def releaseStorePass = System.getenv("ZEDRAL_KEYSTORE_PASS")
+    def releaseKeyAlias = System.getenv("ZEDRAL_KEY_ALIAS")
+    def releaseKeyPass = System.getenv("ZEDRAL_KEY_PASS")
+    def releaseStoreFile = System.getenv("ZEDRAL_KEYSTORE_PATH")
+    def hasReleaseSigning = releaseStoreFile && releaseStorePass && releaseKeyAlias && releaseKeyPass
+
+    if (hasReleaseSigning) {
+        signingConfigs {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePass
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPass
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            // ponytail: debug-signed release when keystore env missing — fleet builds must set ZEDRAL_KEYSTORE_*
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -46,6 +56,12 @@ android {
 
     kotlinOptions {
         jvmTarget = '21'
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 

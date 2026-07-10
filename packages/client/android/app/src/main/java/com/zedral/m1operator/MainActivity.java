@@ -16,17 +16,18 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
     SplashScreen.installSplashScreen(this);
-    super.onCreate(savedInstanceState);
+
+    // Custom in-app plugins only — Capacitor auto-registers npm plugins from capacitor.plugins.json.
     registerPlugin(KioskPlugin.class);
     registerPlugin(DeviceStatusPlugin.class);
 
-    // Ensure hardware acceleration is enabled at the window level to mitigate some MTK driver issues
+    super.onCreate(savedInstanceState);
+
     getWindow().setFlags(
       WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
       WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
     );
 
-    // Compatibility for API < 27 for attributes in manifest
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
       getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
@@ -42,7 +43,7 @@ public class MainActivity extends BridgeActivity {
     try {
       startLockTask();
     } catch (Exception e) {
-      // Log or handle case where lock task is not allowed
+      // Screen pinning when device-owner is not configured.
     }
   }
 

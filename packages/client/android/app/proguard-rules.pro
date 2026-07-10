@@ -12,6 +12,13 @@
 #   public *;
 #}
 
+# Capacitor + community SQLite (release-safe even when minify is off)
+-keep class com.getcapacitor.** { *; }
+-keep class com.getcapacitor.community.database.sqlite.** { *; }
+-keep class com.getcapacitor.community.keepawake.** { *; }
+-keep class com.capacitorjs.plugins.** { *; }
+-keep class com.zedral.m1operator.** { *; }
+
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable

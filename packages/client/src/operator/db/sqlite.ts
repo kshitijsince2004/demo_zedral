@@ -46,11 +46,20 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 
 export async function initDb(): Promise<void> {
   if (!Capacitor.isNativePlatform() || db) return;
+  if (!Capacitor.isPluginAvailable('CapacitorSQLite')) {
+    console.warn('[SQLite] CapacitorSQLite plugin not registered on this build');
+    return;
+  }
 
-  const sqlite = new SQLiteConnection(CapacitorSQLite);
-  db = await sqlite.createConnection('m1operator', false, 'no-encryption', 1, false);
-  await db.open();
-  await db.execute(SCHEMA);
+  try {
+    const sqlite = new SQLiteConnection(CapacitorSQLite);
+    db = await sqlite.createConnection('m1operator', false, 'no-encryption', 1, false);
+    await db.open();
+    await db.execute(SCHEMA);
+  } catch (err) {
+    db = null;
+    throw err;
+  }
 }
 
 export function getDb(): SQLiteDBConnection {

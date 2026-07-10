@@ -5,12 +5,16 @@ import { AnalyticErrorBoundary } from '../components/shared/AnalyticErrorBoundar
 import OperatorApp from './OperatorApp';
 import { initNative } from './native/init';
 
-initNative().then(() => {
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <AnalyticErrorBoundary analyticName="OperatorApp">
-        <OperatorApp />
-      </AnalyticErrorBoundary>
-    </StrictMode>,
-  );
-});
+const root = createRoot(document.getElementById('root')!);
+
+initNative()
+  .catch((err) => console.error('[Operator] Native init failed — continuing without offline DB', err))
+  .finally(() => {
+    root.render(
+      <StrictMode>
+        <AnalyticErrorBoundary analyticName="OperatorApp">
+          <OperatorApp />
+        </AnalyticErrorBoundary>
+      </StrictMode>,
+    );
+  });
