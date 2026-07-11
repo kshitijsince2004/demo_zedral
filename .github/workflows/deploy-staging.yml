@@ -107,20 +107,42 @@ jobs:
         id: url
         run: echo "base=${{ secrets.AWS_PUBLIC_URL }}" >> "$GITHUB_OUTPUT"
 
+      # Prefer AWS_* names; fall back to legacy AWS_EC2_* from older deploy-aws.yml.
+      - name: Preflight staging secrets
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
+          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${AWS_HOST:-}" ] || missing+=("AWS_HOST (or AWS_EC2_HOST)")
+          [ -n "${AWS_USER:-}" ] || missing+=("AWS_USER (or AWS_EC2_USER)")
+          [ -n "${AWS_SSH_KEY:-}" ] || missing+=("AWS_SSH_KEY (or AWS_EC2_SSH_KEY)")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing GitHub secrets for environment 'staging': ${missing[*]}"
+            echo "::error::Add them under Settings → Environments → staging (or repo Secrets)."
+            echo "::error::AWS_SSH_KEY must be the full PEM private key (including BEGIN/END lines)."
+            exit 1
+          fi
+          echo "Staging SSH target ${AWS_USER}@${AWS_HOST} (key present)"
+
       - name: Configure SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.AWS_SSH_KEY }}
+          ssh-private-key: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
 
       - name: Add AWS host key
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.AWS_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
 
       - name: Sync deploy scripts + compose (preserve remote .env)
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
           set -euo pipefail
@@ -134,8 +156,8 @@ jobs:
       - name: Pull images & deploy on AWS
         id: deploy
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
           BACKEND_IMAGE: ${{ needs.build-and-push.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.build-and-push.outputs.nginx_image }}
@@ -154,8 +176,8 @@ jobs:
       - name: Collect remote logs on failure
         if: failure()
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
           mkdir -p artifacts
@@ -176,8 +198,8 @@ jobs:
       - name: Auto rollback images on deploy failure
         if: failure()
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
@@ -204,7 +226,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
@@ -241,13 +263,13 @@ jobs:
         if: failure()
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.AWS_SSH_KEY }}
+          ssh-private-key: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
 
       - name: Rollback staging on smoke failure
         if: failure()
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}

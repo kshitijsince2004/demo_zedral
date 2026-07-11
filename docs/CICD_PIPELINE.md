@@ -72,6 +72,10 @@ Settings → Branches → Protect `main`:
 | `SMOKE_PIN` | PIN for Playwright login |
 | `DEPLOY_WEBHOOK_URL` | Slack or Discord webhook |
 
+Legacy aliases still accepted: `AWS_EC2_HOST`, `AWS_EC2_USER`, `AWS_EC2_SSH_KEY`.
+
+**Required for deploy:** put `AWS_HOST` / `AWS_USER` / `AWS_SSH_KEY` on the GitHub **Environment** named `staging` (Settings → Environments → staging), not only as repo secrets if the environment overrides them. Empty `AWS_SSH_KEY` fails at `webfactory/ssh-agent` with “ssh-private-key argument is empty”.
+
 ### Environment `production`
 
 | Secret | Purpose |
