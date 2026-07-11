@@ -1,0 +1,207 @@
+name: Deploy Production (Factory)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: GHCR image tag to deploy (git SHA or SemVer e.g. v1.2.0). Must already exist from staging.
+        required: true
+        type: string
+      skip_migrate:
+        description: Skip DB migrations
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  resolve-images:
+    name: Resolve release images (no rebuild)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_image: ${{ steps.tags.outputs.backend }}
+      nginx_image: ${{ steps.tags.outputs.nginx }}
+      image_tag: ${{ steps.tags.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute image tag
+        id: tags
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            SHA="$(git rev-list -n 1 "${TAG}")"
+            echo "Release ${TAG} → commit ${SHA}"
+            # Retag existing SHA images as SemVer (exact same digests — no rebuild)
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
+            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+            echo "SOURCE_SHA=${SHA}" >> "$GITHUB_ENV"
+            echo "SEMVER_TAG=${TAG}" >> "$GITHUB_ENV"
+          else
+            TAG="${{ github.event.inputs.image_tag }}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
+            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to GHCR
+        if: github.event_name == 'release'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Retag SHA → SemVer (same digest)
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE_PREFIX}/backend:${SEMVER_TAG}" \
+            "${IMAGE_PREFIX}/backend:${SOURCE_SHA}"
+          docker buildx imagetools create \
+            --tag "${IMAGE_PREFIX}/nginx:${SEMVER_TAG}" \
+            "${IMAGE_PREFIX}/nginx:${SOURCE_SHA}"
+          echo "Retagged ${SOURCE_SHA:0:7} → ${SEMVER_TAG}"
+
+      - name: Notify started
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          bash deploy/scripts/notify-deploy.sh started \
+            "Production deploy tag=${{ steps.tags.outputs.tag }} on Factory"
+
+  deploy-factory:
+    name: Deploy to Factory
+    needs: resolve-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.FACTORY_SSH_KEY }}
+
+      - name: Add Factory host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.FACTORY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync deploy scripts (preserve .env)
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          rsync -az --delete \
+            --exclude 'deploy/.env' \
+            --exclude 'deploy/.last-good-*' \
+            --exclude 'deploy/.previous-good-*' \
+            ./ "${USER}@${HOST}:${APP_DIR}/"
+
+      - name: Backup PostgreSQL + pull SAME images + deploy
+        id: deploy
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
+          BACKEND_IMAGE: ${{ needs.resolve-images.outputs.backend_image }}
+          NGINX_IMAGE: ${{ needs.resolve-images.outputs.nginx_image }}
+          SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${USER}@${HOST}" \
+            "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
+             SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \
+             APP_BASE='${APP_DIR}' RUN_BACKUP=true; \
+             bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
+
+      - name: Verify containers
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+        run: |
+          ssh "${USER}@${HOST}" 'docker ps --filter name=zedral- --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
+
+      - name: Collect logs on failure
+        if: failure()
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
+        run: |
+          mkdir -p artifacts
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${USER}@${HOST}" \
+            "docker compose -f ${APP_DIR}/deploy/docker-compose.prod.yml --env-file ${APP_DIR}/deploy/.env logs --tail 200" \
+            > artifacts/factory-docker-logs.txt || true
+          ssh "${USER}@${HOST}" "curl -fsS http://127.0.0.1/health || true" > artifacts/factory-health.txt || true
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-deploy-logs
+          path: artifacts/
+          if-no-files-found: ignore
+
+      - name: Automatic image rollback
+        if: failure()
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${USER}@${HOST}" \
+            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'"
+          bash deploy/scripts/notify-deploy.sh rollback \
+            "Factory auto-rollback after failed deploy (${{ needs.resolve-images.outputs.image_tag }})"
+
+      - name: Notify success
+        if: success()
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          bash deploy/scripts/notify-deploy.sh success \
+            "Factory production OK tag=${{ needs.resolve-images.outputs.image_tag }}"
+
+      - name: Notify failure
+        if: failure()
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          bash deploy/scripts/notify-deploy.sh failed \
+            "Factory production FAILED tag=${{ needs.resolve-images.outputs.image_tag }}"

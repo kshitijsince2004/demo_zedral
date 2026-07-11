@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  # Blackbox-style HTTP probe via Prometheus itself is limited;
+  # prefer Uptime Kuma for /health. This job scrapes Prometheus self-metrics.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Optional: if you expose a metrics endpoint later, add:
+  # - job_name: zedral-backend
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:3005']

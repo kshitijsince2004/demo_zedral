@@ -1,120 +1,25 @@
-name: Deploy to AWS EC2
+name: Deploy to AWS EC2 (deprecated)
+
+# DEPRECATED — use deploy-staging.yml (GHCR pull-based staging).
+# Kept temporarily so existing bookmarks/docs do not 404; remove after cutover.
 
 on:
   workflow_dispatch:
     inputs:
-      skip_migrate:
-        description: Skip DB migrations on deploy
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
-
-concurrency:
-  group: deploy-aws
-  cancel-in-progress: false
+      acknowledge:
+        description: Type "use-deploy-staging" to confirm you know this is deprecated
+        required: true
+        type: string
 
 jobs:
-  deploy:
-    # Runs on EC2 self-hosted runner — no inbound SSH from GitHub cloud required.
-    # One-time setup: deploy/setup-github-runner.sh (see deploy/README.md)
-    runs-on: [self-hosted, linux, zedral]
-    env:
-      APP_BASE: ${{ secrets.AWS_APP_DIR != '' && secrets.AWS_APP_DIR || '/opt/zedralv2' }}
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
-    timeout-minutes: 30
-    environment: production
-    permissions:
-      contents: read
-
+  redirect:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout deploy ref
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
-          fetch-depth: 0
-
-      - name: Deploy application
-        env:
-          GIT_DEPLOY_TOKEN: ${{ secrets.AWS_GIT_DEPLOY_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
-          DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
-          SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
+      - name: Deprecated
         run: |
-          set -euo pipefail
-          export APP_BASE DEPLOY_REF SKIP_MIGRATE GITHUB_REPO GIT_DEPLOY_TOKEN SKIP_GIT_SYNC=true
-
-          mkdir -p "${APP_BASE}/deploy"
-          if [ -f "${APP_BASE}/deploy/.env" ]; then
-            cp -a "${APP_BASE}/deploy/.env" /tmp/zedral-deploy.env.bak
+          echo "::error::deploy-aws.yml is deprecated. Use workflow 'Deploy Staging (AWS)' (.github/workflows/deploy-staging.yml)."
+          if [ "${{ github.event.inputs.acknowledge }}" != "use-deploy-staging" ]; then
+            exit 1
           fi
-
-          echo "Syncing ${GITHUB_WORKSPACE} → ${APP_BASE} (preserving deploy/.env)…"
-          rsync -a --delete \
-            --exclude 'deploy/.env' \
-            "${GITHUB_WORKSPACE}/" "${APP_BASE}/"
-
-          if [ -f /tmp/zedral-deploy.env.bak ]; then
-            cp -a /tmp/zedral-deploy.env.bak "${APP_BASE}/deploy/.env"
-          fi
-
-          bash "${APP_BASE}/deploy/vm-deploy.sh"
-
-      - name: Local health check
-        run: |
-          echo "Smoke testing http://127.0.0.1/health …"
-          for attempt in 1 2 3 4 5 6 8 10 12; do
-            if curl -fsS "http://127.0.0.1/health" | head -c 200; then
-              echo ""
-              echo "Local health check passed"
-              exit 0
-            fi
-            echo "Attempt ${attempt}/12 failed — retrying in 10s …"
-            sleep 10
-          done
-          echo "Local health check failed"
-          docker ps --filter name=zedral- || true
-          docker compose -f "${APP_BASE}/deploy/docker-compose.prod.yml" --env-file "${APP_BASE}/deploy/.env" logs --tail 80 backend nginx || true
-          exit 1
-
-      - name: Verify backend build
-        run: |
-          test -f "${APP_BASE}/packages/server/src/services/ProductionMetricsService.ts" \
-            || (echo "::error::ProductionMetricsService.ts missing from deployed source" && exit 1)
-          docker exec zedral-backend test -f /app/packages/server/dist/services/ProductionMetricsService.js \
-            || (echo "::error::ProductionMetricsService.js missing from running backend image" && exit 1)
-          echo "Deployed commit: $(cat "${APP_BASE}/deploy/.last-good-sha" 2>/dev/null || git -C "${APP_BASE}" rev-parse HEAD)"
-          docker inspect zedral-backend --format 'backend image={{.Image}} created={{.Created}}'
-          docker inspect zedral-nginx --format 'nginx image={{.Image}} created={{.Created}}'
-
-      - name: External smoke test
-        env:
-          PUBLIC_URL: ${{ secrets.AWS_PUBLIC_URL }}
-        run: |
-          if [ -z "${PUBLIC_URL}" ]; then
-            echo "AWS_PUBLIC_URL not set — skipping external smoke test"
-            exit 0
-          fi
-          BASE="${PUBLIC_URL%/}"
-          echo "Smoke testing ${BASE}/health …"
-          for attempt in 1 2 3 4 5; do
-            if curl -fsS "${BASE}/health" | head -c 200; then
-              echo ""
-              echo "External smoke test passed"
-              exit 0
-            fi
-            echo "Attempt ${attempt} failed — retrying in 10s …"
-            sleep 10
-          done
-          echo "External smoke test failed after 5 attempts"
+          echo "Acknowledged — please migrate secrets to staging environment and run deploy-staging.yml."
           exit 1

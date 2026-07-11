@@ -1,19 +1,20 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
+  push:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  quality:
+    name: Lint · Typecheck · Test · Security
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -55,16 +56,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build all workspaces
+      - name: ESLint
+        run: npm run lint
+
+      - name: Typecheck / build all workspaces
         run: npm run build
 
-      - name: Client tests
+      - name: Client unit tests
         run: npm run test -w @m1/client
 
-      - name: Operator APK bundle (manual stoppage + CRM surface)
+      - name: Operator APK bundle check
         run: npm run check:operator-bundle -w @m1/client
 
-      - name: Run database migrations
+      - name: Database migrations
         working-directory: packages/server
         run: npm run migrate
 
@@ -74,10 +78,14 @@ jobs:
       - name: Server integration tests
         run: npm run test:integration -w @m1/server
 
-  docker-build:
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  docker-validate:
+    name: Docker build validation
     runs-on: ubuntu-latest
-    needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: quality
     timeout-minutes: 30
 
     steps:
@@ -87,22 +95,33 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build backend image
+      - name: Build backend (no push)
         uses: docker/build-push-action@v6
         with:
           context: .
           target: backend
           push: false
-          tags: zedralv2-backend:ci
+          load: true
+          tags: zedral-backend:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build nginx image
+      - name: Build nginx (no push)
         uses: docker/build-push-action@v6
         with:
           context: .
           target: nginx
           push: false
-          tags: zedralv2-nginx:ci
+          load: true
+          tags: zedral-nginx:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trivy scan backend image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: zedral-backend:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true

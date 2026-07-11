@@ -211,16 +211,77 @@ git_sync_to_ref() {
 run_stack_deploy() {
   cd "${REPO_ROOT}"
 
+  if [ -z "${BACKEND_IMAGE:-}" ] || [ -z "${NGINX_IMAGE:-}" ]; then
+    die "BACKEND_IMAGE and NGINX_IMAGE must be set (GHCR tags). Servers never build images."
+  fi
+
   if [ "${SKIP_MIGRATE:-false}" = "true" ]; then
     export RUN_MIGRATIONS=false
     log "SKIP_MIGRATE=true — migrations disabled for this deploy"
   fi
 
-  log "Pulling pre-built images (if any)…"
-  compose pull --ignore-pull-failures 2>/dev/null || compose pull || true
+  # Persist image refs into env file so compose and future rollbacks share them
+  upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
+  upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
 
-  log "Building and starting production stack…"
-  compose up -d --build --remove-orphans
+  log "Logging into container registry (if GHCR_TOKEN set)…"
+  if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
+    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+  fi
+
+  log "Pulling pre-built images (no local build)…"
+  log "  backend: ${BACKEND_IMAGE}"
+  log "  nginx:   ${NGINX_IMAGE}"
+  compose pull backend nginx
+
+  log "Starting stack from pulled images…"
+  compose up -d --remove-orphans --no-build
+}
+
+upsert_env_var() {
+  local key="$1"
+  local value="$2"
+  local tmp
+  tmp="$(mktemp)"
+  if [ -f "${ENV_FILE}" ] && grep -q "^${key}=" "${ENV_FILE}"; then
+    # Use | delimiter — image refs contain /
+    sed "s|^${key}=.*|${key}=${value}|" "${ENV_FILE}" > "${tmp}"
+    mv "${tmp}" "${ENV_FILE}"
+  else
+    printf '\n%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+  fi
+}
+
+save_image_checkpoint() {
+  local file="${REPO_ROOT}/deploy/.last-good-images"
+  local prev="${REPO_ROOT}/deploy/.previous-good-images"
+  if [ -f "${file}" ]; then
+    cp "${file}" "${prev}"
+  fi
+  {
+    echo "BACKEND_IMAGE=${BACKEND_IMAGE}"
+    echo "NGINX_IMAGE=${NGINX_IMAGE}"
+    echo "RECORDED_AT=$(date -Is)"
+  } > "${file}"
+  log "Saved image checkpoint → ${file}"
+}
+
+rollback_to_previous_images() {
+  local prev="${REPO_ROOT}/deploy/.previous-good-images"
+  [ -f "${prev}" ] || die "No previous image checkpoint at ${prev}"
+  # shellcheck disable=SC1090
+  set -a
+  source "${prev}"
+  set +a
+  [ -n "${BACKEND_IMAGE:-}" ] && [ -n "${NGINX_IMAGE:-}" ] || die "Previous checkpoint missing image refs"
+  log "Rolling back to previous images…"
+  log "  backend: ${BACKEND_IMAGE}"
+  log "  nginx:   ${NGINX_IMAGE}"
+  export BACKEND_IMAGE NGINX_IMAGE
+  SKIP_MIGRATE=true run_stack_deploy
+  verify_deployment_health
+  save_image_checkpoint
+  log "Image rollback complete."
 }
 
 wait_for_container_running() {
@@ -285,6 +346,7 @@ verify_deployment_health() {
 }
 
 record_successful_deploy() {
-  git -C "${REPO_ROOT}" rev-parse HEAD > "${REPO_ROOT}/deploy/.last-good-sha"
-  log "Recorded successful deploy SHA in deploy/.last-good-sha"
+  git -C "${REPO_ROOT}" rev-parse HEAD > "${REPO_ROOT}/deploy/.last-good-sha" 2>/dev/null || true
+  save_image_checkpoint
+  log "Recorded successful deploy SHA + image checkpoint"
 }

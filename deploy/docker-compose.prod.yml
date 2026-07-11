@@ -1,5 +1,8 @@
-# Production stack for a single AWS EC2 VM (or any Docker host).
-# Usage: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+# Production / staging stack — pulls pre-built images from GHCR (never builds on the host).
+# Usage:
+#   export BACKEND_IMAGE=ghcr.io/<org>/<repo>/backend:<tag>
+#   export NGINX_IMAGE=ghcr.io/<org>/<repo>/nginx:<tag>
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
 
 services:
   db:
@@ -21,10 +24,7 @@ services:
       - zedral
 
   backend:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: backend
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required — set to ghcr.io/<org>/<repo>/backend:<tag>}
     container_name: zedral-backend
     environment:
       NODE_ENV: production
@@ -59,10 +59,7 @@ services:
       - zedral
 
   nginx:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: nginx
+    image: ${NGINX_IMAGE:?NGINX_IMAGE is required — set to ghcr.io/<org>/<repo>/nginx:<tag>}
     container_name: zedral-nginx
     ports:
       - "${DOCKER_HTTP_BIND:-0.0.0.0:80}:80"

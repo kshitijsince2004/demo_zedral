@@ -1,5 +1,9 @@
 # AWS Deployment Guide — Zedral V2.2
 
+> **Updated pipeline:** Prefer [docs/CICD_PIPELINE.md](docs/CICD_PIPELINE.md).
+> Staging deploys pull pre-built images from GHCR (hosts never `docker build`).
+> Factory production uses the same image via SemVer release / `deploy-production.yml`.
+
 Production deployment on **AWS EC2** using Docker Compose and GitHub Actions CI/CD.
 
 ## Pre-Deployment

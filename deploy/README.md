@@ -1,8 +1,9 @@
-# ZedralV2 — AWS EC2 Deployment
+# ZedralV2 — AWS EC2 / Factory Deployment
 
-Production deployment for a **single AWS EC2 instance** using Docker Compose.
-
-**Host SSL (Let's Encrypt / HTTPS) is configured outside this stack** — deploy scripts only restart the Docker services and never modify `/etc/letsencrypt`, host nginx TLS vhosts, or certificate paths.
+> **CI/CD:** See [docs/CICD_PIPELINE.md](../docs/CICD_PIPELINE.md) for the enterprise pipeline
+> (GHCR images, staging on AWS, production on Factory, Playwright smoke, SemVer releases).
+>
+> Hosts **never build** Docker images. They pull `BACKEND_IMAGE` / `NGINX_IMAGE` from GHCR.
 
 ## Architecture
 
@@ -16,153 +17,55 @@ Internet → :443 host TLS (optional) → :80 docker nginx → backend:3005 → 
 | `backend` | `zedral-backend` | Express API, migrations on start |
 | `db` | `zedral-db` | PostgreSQL 15 |
 
-## Deployment flow
+Images come from GHCR, for example:
 
-```mermaid
-flowchart TD
-  A[CI succeeds on main] --> B[deploy-aws workflow]
-  B --> C[Self-hosted runner on EC2]
-  C --> D[rsync checkout to APP_BASE]
-  D --> E[vm-deploy.sh]
-  E --> F{Repo exists?}
-  F -->|No| G[bootstrap_repo_if_missing]
-  F -->|Yes| H[validate Docker + .env]
-  G --> H
-  H --> I[docker compose up --build]
-  I --> J[health: containers + /health]
-  J --> K[record .last-good-sha]
-  K --> L[External smoke AWS_PUBLIC_URL]
+```bash
+export BACKEND_IMAGE=ghcr.io/<org>/<repo>/backend:<sha-or-tag>
+export NGINX_IMAGE=ghcr.io/<org>/<repo>/nginx:<sha-or-tag>
+bash deploy/scripts/remote-ghcr-deploy.sh
 ```
-
-## Repository layout on VM
-
-| Case | Path | When |
-|------|------|------|
-| **A** | `/opt/zedralv2/.git` | `git clone <repo> /opt/zedralv2` |
-| **B** | `/opt/zedralv2/<repo>/.git` | `git clone` into a non-empty `/opt/zedralv2` |
-
-Set `AWS_APP_DIR=/opt/zedralv2` (default).
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `deploy/vm-deploy.sh` | **CI entrypoint** — bootstrap, sync, compose, health |
-| `deploy/deploy.sh` | Manual deploy from the VM (`origin/main` or `DEPLOY_REF`) |
-| `deploy/rollback.sh` | Roll back to `.previous-good-sha` or explicit SHA |
-| `deploy/bootstrap-aws-vm.sh` | One-time Docker + git install on EC2 |
-| `deploy/setup-github-runner.sh` | One-time GitHub Actions runner on EC2 |
-| `deploy/lib/common.sh` | Shared helpers (sourced, not run directly) |
+| `deploy/scripts/remote-ghcr-deploy.sh` | **CI entrypoint** — pull GHCR images, compose up, health |
+| `deploy/scripts/rollback-images.sh` | Roll back to previous GHCR image pair |
+| `deploy/scripts/backup-db.sh` | `pg_dump` (also run automatically before Factory deploy) |
+| `deploy/scripts/notify-deploy.sh` | Slack/Discord webhook helper |
+| `deploy/vm-deploy.sh` | Legacy helper (bootstrap / env validation) |
+| `deploy/rollback.sh` | Prefers image rollback |
+| `deploy/bootstrap-aws-vm.sh` | One-time Docker + git install |
+| `deploy/lib/common.sh` | Shared helpers |
 
-## One-time VM setup
-
-```bash
-export REPO_URL=https://github.com/kshitijsince2004/hsl_zedral.git
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/kshitijsince2004/hsl_zedral/main/deploy/bootstrap-aws-vm.sh)"
-```
-
-Configure secrets (required before first successful deploy):
+## Manual deploy (ops)
 
 ```bash
 cd /opt/zedralv2
-cp deploy/.env.production.example deploy/.env
-nano deploy/.env   # JWT_SECRET, DB_PASSWORD, DATABASE_URL
-```
-
-## Manual deploy
-
-```bash
-cd /opt/zedralv2
-bash deploy/deploy.sh
-```
-
-Deploy a specific ref:
-
-```bash
-DEPLOY_REF=abc123def bash deploy/deploy.sh
+export BACKEND_IMAGE=ghcr.io/<org>/<repo>/backend:v1.2.0
+export NGINX_IMAGE=ghcr.io/<org>/<repo>/nginx:v1.2.0
+export GHCR_USER=<github-user>
+export GHCR_TOKEN=<read:packages token>
+bash deploy/scripts/remote-ghcr-deploy.sh
 ```
 
 ## Rollback
 
 ```bash
-bash deploy/rollback.sh
-bash deploy/rollback.sh abc123def
+bash deploy/scripts/rollback-images.sh
 ```
 
-Checkpoints are stored in `deploy/.last-good-sha` and `deploy/.previous-good-sha` (gitignored).
+## Environment
 
-## GitHub Actions — `deploy-aws.yml`
+Copy `deploy/.env.production.example` → `deploy/.env` and set secrets.
+`BACKEND_IMAGE` / `NGINX_IMAGE` are written by the deploy script during CI.
 
-Deploy runs on a **self-hosted runner installed on the EC2 instance**. GitHub cloud runners never SSH in, so your Security Group can keep port 22 restricted to your IP only.
+## Monitoring
 
-### One-time: register self-hosted runner
-
-1. **GitHub → `hsl_zedral` → Settings → Actions → Runners → New self-hosted runner**
-2. Choose **Linux x64**, copy the registration token (expires in ~1 hour)
-3. **SSH to EC2** and run:
-
-```bash
-export RUNNER_TOKEN='paste-token-here'
-bash /opt/zedralv2/deploy/setup-github-runner.sh
-```
-
-4. Confirm runner shows **Idle** under Settings → Actions → Runners
-
-After this, CI success on `main` triggers deploy automatically on EC2.
-
-**Triggers**
-
-1. CI succeeds on `main` → deploys exact CI SHA
-2. Manual `workflow_dispatch` → deploys `origin/main` (optional `skip_migrate`)
-
-### Required secrets (production environment)
-
-| Secret | Description |
-|--------|-------------|
-| `AWS_GIT_DEPLOY_TOKEN` | PAT for private repo clone + raw script fetch |
-| `AWS_APP_DIR` | App directory (default `/opt/zedralv2`) |
-| `AWS_PUBLIC_URL` | Optional public URL for external smoke test |
-
-SSH secrets (`AWS_EC2_HOST`, `AWS_EC2_SSH_KEY`, etc.) are **no longer required** for deploy.
-
-### Private repo authentication
-
-**Option A — `AWS_GIT_DEPLOY_TOKEN` (recommended for Actions)**
-
-Fine-grained PAT with read access to repository contents. Used for:
-
-- `raw.githubusercontent.com` script download
-- `git clone` on first deploy
-
-**Option B — Deploy key on VM**
-
-```bash
-ssh-keygen -t ed25519 -C "zedralv2-deploy" -f ~/.ssh/zedralv2_deploy -N ""
-# Add public key in GitHub → Deploy keys
-```
-
-## Environment validation
-
-Deploy fails fast if `deploy/.env` is missing or contains placeholders:
-
-- `JWT_SECRET` (not `CHANGE_ME_*`)
-- `DB_PASSWORD` (not `CHANGE_ME_*`)
-- `DB_USER`, `DB_NAME`
-- `DATABASE_URL` or `DB_HOST`
-
-SSL/TLS variables on the host are **not** read or modified.
+Optional stack: `deploy/monitoring/` (Prometheus, Grafana, Loki, Uptime Kuma).
+Probe `GET /health`.
 
 ## Troubleshooting
-
-### `fatal: not a git repository`
-
-Repo is nested under `/opt/zedralv2/<repo>` but workflow used `/opt/zedralv2` directly. Fixed in `deploy/lib/common.sh` — re-run deploy workflow.
-
-### `cd: /opt/zedralv2: No such file or directory`
-
-Run bootstrap or set `AWS_GIT_DEPLOY_TOKEN` so first deploy can clone automatically.
-
-### Health check fails
 
 ```bash
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env ps
@@ -170,34 +73,4 @@ docker compose -f deploy/docker-compose.prod.yml logs backend nginx --tail 100
 curl -v http://127.0.0.1/health
 ```
 
-### GitHub Actions SSH timeout (legacy SSH deploy)
-
-If you use SSH-based deploy from GitHub cloud runners, the Security Group must allow inbound TCP 22 from GitHub's IP ranges. **Current workflow uses a self-hosted runner instead** — see `deploy/setup-github-runner.sh`.
-
-### Deploy job stuck on "Waiting for a runner"
-
-Register the self-hosted runner on EC2:
-
-```bash
-export RUNNER_TOKEN='from GitHub → Settings → Actions → Runners → New runner'
-bash /opt/zedralv2/deploy/setup-github-runner.sh
-```
-
-## Operations
-
-```bash
-docker compose -f deploy/docker-compose.prod.yml logs -f backend
-docker compose -f deploy/docker-compose.prod.yml exec db \
-  pg_dump -U m1_user m1_db > backup-$(date +%F).sql
-```
-
-See also: [AWS_DEPLOYMENT_GUIDE.md](../AWS_DEPLOYMENT_GUIDE.md), [BACKUP_STRATEGY.md](../BACKUP_STRATEGY.md), [TLS_DEPLOYMENT_GUIDE.md](../TLS_DEPLOYMENT_GUIDE.md).
-
-## Security checklist
-
-- [ ] Strong `JWT_SECRET` and `DB_PASSWORD` in `deploy/.env`
-- [ ] `deploy/.env` never committed
-- [ ] `AUTH_STRICT=true`
-- [ ] EC2 Security Group: TCP 22 restricted, 80/443 open as needed
-- [ ] Host TLS / Certbot config preserved separately from Docker deploy
-- [ ] Change default pilot PINs after `seed:admin`
+See also: [docs/CICD_PIPELINE.md](../docs/CICD_PIPELINE.md), [AWS_DEPLOYMENT_GUIDE.md](../AWS_DEPLOYMENT_GUIDE.md), [BACKUP_STRATEGY.md](../BACKUP_STRATEGY.md).

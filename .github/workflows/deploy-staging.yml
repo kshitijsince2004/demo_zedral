@@ -1,0 +1,302 @@
+name: Deploy Staging (AWS)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_migrate:
+        description: Skip DB migrations
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      skip_smoke:
+        description: Skip Playwright smoke tests
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build & push GHCR images
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_image: ${{ steps.meta.outputs.backend }}
+      nginx_image: ${{ steps.meta.outputs.nginx }}
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Image tags
+        id: meta
+        run: |
+          TAG="${GITHUB_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify started
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: bash deploy/scripts/notify-deploy.sh started "Staging build ${GITHUB_SHA:0:7} on ${{ github.repository }}"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: backend
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.backend }}
+            ${{ env.IMAGE_PREFIX }}/backend:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: nginx
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.nginx }}
+            ${{ env.IMAGE_PREFIX }}/nginx:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-aws:
+    name: Deploy to AWS staging
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    outputs:
+      public_url: ${{ steps.url.outputs.base }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve public URL
+        id: url
+        run: echo "base=${{ secrets.AWS_PUBLIC_URL }}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AWS_SSH_KEY }}
+
+      - name: Add AWS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.AWS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync deploy scripts + compose (preserve remote .env)
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          rsync -az --delete \
+            --exclude 'deploy/.env' \
+            --exclude 'deploy/.last-good-*' \
+            --exclude 'deploy/.previous-good-*' \
+            ./ "${AWS_USER}@${AWS_HOST}:${APP_DIR}/"
+
+      - name: Pull images & deploy on AWS
+        id: deploy
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          BACKEND_IMAGE: ${{ needs.build-and-push.outputs.backend_image }}
+          NGINX_IMAGE: ${{ needs.build-and-push.outputs.nginx_image }}
+          SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${AWS_USER}@${AWS_HOST}" \
+            "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
+             SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \
+             APP_BASE='${APP_DIR}' RUN_BACKUP=false; \
+             bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
+
+      - name: Collect remote logs on failure
+        if: failure()
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+        run: |
+          mkdir -p artifacts
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${AWS_USER}@${AWS_HOST}" \
+            "docker compose -f ${APP_DIR}/deploy/docker-compose.prod.yml --env-file ${APP_DIR}/deploy/.env logs --tail 200 backend nginx db" \
+            > artifacts/docker-logs.txt || true
+          ssh "${AWS_USER}@${AWS_HOST}" "curl -fsS http://127.0.0.1/health || true" > artifacts/health.txt || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-deploy-logs
+          path: artifacts/
+          if-no-files-found: ignore
+
+      - name: Auto rollback images on deploy failure
+        if: failure()
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${AWS_USER}@${AWS_HOST}" \
+            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
+          bash deploy/scripts/notify-deploy.sh rollback "Staging auto-rollback after deploy failure (${GITHUB_SHA:0:7})"
+
+  smoke:
+    name: Playwright smoke tests
+    needs: [build-and-push, deploy-aws]
+    if: ${{ github.event.inputs.skip_smoke != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suite
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
+          SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
+          SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
+        run: |
+          if [ -z "${BASE_URL}" ]; then
+            echo "::error::AWS_PUBLIC_URL secret required for Playwright smoke"
+            exit 1
+          fi
+          npx playwright test --reporter=list,html,json
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+
+      - name: Configure SSH (for rollback)
+        if: failure()
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AWS_SSH_KEY }}
+
+      - name: Rollback staging on smoke failure
+        if: failure()
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${AWS_USER}@${AWS_HOST}" \
+            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
+          bash deploy/scripts/notify-deploy.sh rollback "Staging rolled back after smoke failure (${GITHUB_SHA:0:7})"
+
+  report:
+    name: Deployment report
+    needs: [build-and-push, deploy-aws, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write report
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          mkdir -p artifacts
+          {
+            echo "# Staging deployment report"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Backend: \`${{ needs.build-and-push.outputs.backend_image }}\`"
+            echo "- Nginx: \`${{ needs.build-and-push.outputs.nginx_image }}\`"
+            echo "- Deploy: \`${{ needs.deploy-aws.result }}\`"
+            echo "- Smoke: \`${{ needs.smoke.result }}\`"
+            echo "- Time: $(date -u -Is)"
+          } > artifacts/staging-report.md
+          cat artifacts/staging-report.md
+
+          if [ "${{ needs.deploy-aws.result }}" = "success" ] && { [ "${{ needs.smoke.result }}" = "success" ] || [ "${{ needs.smoke.result }}" = "skipped" ]; }; then
+            bash deploy/scripts/notify-deploy.sh success "Staging OK ${GITHUB_SHA:0:7}"
+          else
+            bash deploy/scripts/notify-deploy.sh failed "Staging FAILED ${GITHUB_SHA:0:7} deploy=${{ needs.deploy-aws.result }} smoke=${{ needs.smoke.result }}"
+            exit 1
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-deployment-report
+          path: artifacts/staging-report.md
