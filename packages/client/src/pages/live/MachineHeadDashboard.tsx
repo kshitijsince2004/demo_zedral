@@ -13,7 +13,7 @@ import { useAuthStore } from '../../lib/authStore';
 import { ZButton } from '../../components/primitives/ZButton';
 import { Download, AlertTriangle } from 'lucide-react';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
-import { coilNumberOf } from '../../components/orders/OrderIdentityDisplay';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
@@ -260,7 +260,7 @@ export function MachineHeadDashboard() {
   const handleDelete = useCallback(async () => {
     if (!selectedOrder) return;
     const confirmed = window.confirm(
-      `Delete order ${coilNumberOf(selectedOrder)}?\n\nThis removes the production record. The PPC plan entry remains. This cannot be undone.`,
+      `Delete order ${displayMotherCoilId(selectedOrder)}?\n\nThis removes the production record. The PPC plan entry remains. This cannot be undone.`,
     );
     if (!confirmed) return;
     setDeleteBusy(true);

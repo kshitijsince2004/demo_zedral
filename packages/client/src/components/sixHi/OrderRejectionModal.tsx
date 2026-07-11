@@ -3,7 +3,7 @@ import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { AlertTriangle, X } from 'lucide-react';
-import { HOLD_ACTION_LABEL, ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
+import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
 
 const REJECTION_REASONS = [

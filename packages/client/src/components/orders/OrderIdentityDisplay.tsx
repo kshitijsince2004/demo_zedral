@@ -20,17 +20,13 @@ const sizeClass = {
   lg: 'text-xl',
 } as const;
 
-export function coilNumberOf(order: OrderIdentitySource): string {
-  return displayMotherCoilId(order);
-}
-
 export function OrderIdentityDisplay({
   order,
   size = 'md',
   showSubtitle = true,
   className = '',
 }: OrderIdentityDisplayProps) {
-  const coil = coilNumberOf(order);
+  const coil = displayMotherCoilId(order);
 
   return (
     <div className={className}>

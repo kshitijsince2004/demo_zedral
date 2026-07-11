@@ -26,12 +26,14 @@ export function CombinedProductionOrdersPanel({
   onSelectBatch,
 }: CombinedProductionOrdersPanelProps) {
   const [orders, setOrders] = useState<SixHiOrderDetail[]>([]);
+  const batchNumbersKey = combinedRun.batchNumbers.join(',');
 
   useEffect(() => {
+    const batchNumbers = batchNumbersKey ? batchNumbersKey.split(',') : [];
     let cancelled = false;
     void (async () => {
       const loaded = await Promise.all(
-        combinedRun.batchNumbers.map((batchNumber) =>
+        batchNumbers.map((batchNumber) =>
           apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
         ),
       );
@@ -40,7 +42,7 @@ export function CombinedProductionOrdersPanel({
     return () => {
       cancelled = true;
     };
-  }, [combinedRun.batchNumbers.join(','), refreshToken]);
+  }, [batchNumbersKey, refreshToken]);
 
   const targets = combinedRun.orders.map((o) => ({
     batchNumber: o.batchNumber,

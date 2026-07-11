@@ -310,7 +310,7 @@ export function MasterDataAdmin() {
 
   const handleFormSave = async () => {
     if (!formState) return;
-    const { entity, record, mode } = formState;
+    const { entity, record } = formState;
 
     if (!record.code?.trim() || !record.name?.trim()) {
       setFormError('Code and Name are required.');

@@ -317,18 +317,6 @@ export function SixHiHub() {
     setAutoCombinedBatchNumbers(new Set([anchorBatch]));
   };
 
-  const sortedFilteredQueue = useMemo(() => {
-    if (!anchorBatch) return filteredQueue;
-    const anchor = allOrders.find((c) => c.batchNumber === anchorBatch);
-    if (!anchor) return filteredQueue;
-    return [...filteredQueue].sort((a, b) => {
-      const aSameMother = a.motherCoil === anchor.motherCoil ? 0 : 1;
-      const bSameMother = b.motherCoil === anchor.motherCoil ? 0 : 1;
-      if (aSameMother !== bSameMother) return aSameMother - bSameMother;
-      return a.queuePosition - b.queuePosition;
-    });
-  }, [filteredQueue, anchorBatch, allOrders]);
-
   const sortQueueSection = useCallback(
     (items: SixHiQueueCard[]) => {
       if (!anchorBatch) return items;

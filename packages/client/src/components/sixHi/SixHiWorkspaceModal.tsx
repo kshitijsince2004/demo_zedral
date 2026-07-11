@@ -47,14 +47,17 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     }
   }, [workspaceOpen, formBatchNumber, loadPanelOrder]);
 
+  const combinedBatchNumbersKey = combinedRun?.batchNumbers.join(',') ?? '';
+
   useEffect(() => {
-    if (!workspaceOpen || !combinedRun || combinedRun.batchNumbers.length <= 1) {
+    const batchNumbers = combinedBatchNumbersKey ? combinedBatchNumbersKey.split(',') : [];
+    if (!workspaceOpen || batchNumbers.length <= 1) {
       setCombinedOrders([]);
       return;
     }
     let cancelled = false;
     void Promise.all(
-      combinedRun.batchNumbers.map((batchNumber) =>
+      batchNumbers.map((batchNumber) =>
         apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
       ),
     ).then((orders) => {
@@ -63,7 +66,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [workspaceOpen, combinedRun?.batchNumbers.join(','), combinedRefreshToken]);
+  }, [workspaceOpen, combinedBatchNumbersKey, combinedRefreshToken]);
 
   useEffect(() => {
     if (!workspaceOpen || !detailBatch) {

@@ -82,7 +82,7 @@ async function networkFallback(): Promise<DeviceStatusSnapshot> {
 export async function readDeviceStatus(): Promise<DeviceStatusSnapshot> {
   if (!isAndroidApk()) return EMPTY_DEVICE_STATUS;
 
-  let snapshot: DeviceStatusSnapshot = EMPTY_DEVICE_STATUS;
+  let snapshot: DeviceStatusSnapshot;
   try {
     snapshot = { ...await DeviceStatusNative.getStatus(), pingMs: null };
   } catch (err) {

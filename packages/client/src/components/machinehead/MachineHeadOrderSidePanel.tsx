@@ -29,16 +29,17 @@ export function MachineHeadOrderSidePanel({
 }: MachineHeadOrderSidePanelProps) {
   const [detail, setDetail] = useState<SixHiOrderDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const batchNumber = order?.batchNumber;
 
   useEffect(() => {
-    if (!order) {
+    if (!batchNumber) {
       setDetail(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
     void apiClient
-      .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(order.batchNumber)}`)
+      .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)
       .then((loaded) => {
         if (!cancelled) setDetail(loaded);
       })
@@ -51,7 +52,7 @@ export function MachineHeadOrderSidePanel({
     return () => {
       cancelled = true;
     };
-  }, [order?.batchNumber]);
+  }, [batchNumber]);
 
   if (!order) {
     return (

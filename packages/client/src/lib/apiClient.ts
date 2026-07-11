@@ -200,8 +200,7 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
 async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, raw = false, _retried = false } = options;
 
-  let res: Response;
-  res = await apiFetch(path, {
+  const res = await apiFetch(path, {
     method,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     _retried,

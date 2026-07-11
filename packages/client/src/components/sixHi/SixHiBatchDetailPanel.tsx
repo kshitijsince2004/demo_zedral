@@ -39,14 +39,16 @@ export function SixHiBatchDetailPanel({
   const detailLoadKeyRef = useRef('');
   const detailFingerprintRef = useRef('');
 
+  const batchNumber = batch?.batchNumber;
   const isCompleted = batch?.status === 'COMPLETED';
   const isRejected = batch?.status === 'REJECTED';
   const isTerminal = isCompleted || isRejected;
+  const combinedBatchNumbersKey = combinedBatchNumbers.join(',');
   const isCombinedTerminal = isTerminal && combinedCount > 1 && combinedBatchNumbers.length > 1;
-  const isActiveOnMachine = batch?.batchNumber === machineActiveBatch;
+  const isActiveOnMachine = batchNumber === machineActiveBatch;
 
   useEffect(() => {
-    if (!batch || !isTerminal) {
+    if (!batchNumber || !isTerminal) {
       setOrderDetail(null);
       setCombinedDetails([]);
       detailLoadKeyRef.current = '';
@@ -55,7 +57,7 @@ export function SixHiBatchDetailPanel({
     }
 
     let cancelled = false;
-    const loadKey = `${batch.batchNumber}:${combinedBatchNumbers.join(',')}`;
+    const loadKey = `${batchNumber}:${combinedBatchNumbersKey}`;
     const isNewSelection = loadKey !== detailLoadKeyRef.current;
     if (isNewSelection) {
       detailLoadKeyRef.current = loadKey;
@@ -63,10 +65,12 @@ export function SixHiBatchDetailPanel({
       setLoadingDetail(true);
     }
 
-    const batchesToLoad = isCombinedTerminal ? combinedBatchNumbers : [batch.batchNumber];
+    const batchesToLoad = isCombinedTerminal
+      ? (combinedBatchNumbersKey ? combinedBatchNumbersKey.split(',') : [])
+      : [batchNumber];
     void Promise.all(
-      batchesToLoad.map((batchNumber) =>
-        apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
+      batchesToLoad.map((bn) =>
+        apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(bn)}`),
       ),
     )
       .then((orders) => {
@@ -75,7 +79,7 @@ export function SixHiBatchDetailPanel({
         if (fingerprint === detailFingerprintRef.current) return;
         detailFingerprintRef.current = fingerprint;
         setCombinedDetails(orders);
-        setOrderDetail(orders.find((o) => o.batchNumber === batch.batchNumber) ?? orders[0] ?? null);
+        setOrderDetail(orders.find((o) => o.batchNumber === batchNumber) ?? orders[0] ?? null);
       })
       .catch(() => {
         if (!cancelled) {
@@ -91,7 +95,7 @@ export function SixHiBatchDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [batch?.batchNumber, isTerminal, isCombinedTerminal, combinedBatchNumbers.join(',')]);
+  }, [batchNumber, isTerminal, isCombinedTerminal, combinedBatchNumbersKey]);
 
   if (!batch) {
     return (

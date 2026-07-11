@@ -123,15 +123,18 @@ export function SixHiCapturePage() {
     void loadShiftSummary(shiftLogId);
   }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
 
+  const combinedBatchNumbersKey = combinedRun?.batchNumbers.join(',') ?? '';
+
   useEffect(() => {
-    if (!isCombinedRun || !combinedRun) {
+    if (!isCombinedRun || !combinedBatchNumbersKey) {
       combinedOrdersFpRef.current = '';
       setCombinedOrders([]);
       return;
     }
+    const batchNumbers = combinedBatchNumbersKey.split(',');
     let cancelled = false;
     void Promise.all(
-      combinedRun.batchNumbers.map((batchNumber) =>
+      batchNumbers.map((batchNumber) =>
         apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
       ),
     ).then((orders) => {
@@ -144,7 +147,7 @@ export function SixHiCapturePage() {
     return () => {
       cancelled = true;
     };
-  }, [isCombinedRun, combinedRun?.batchNumbers.join(','), order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt]);
+  }, [isCombinedRun, combinedBatchNumbersKey, order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt]);
 
   const nextOrder =
     allQueueItems.find((q) => q.batchNumber !== order?.batchNumber && (q.status === 'PREPARING' || q.status === 'PENDING')) ??

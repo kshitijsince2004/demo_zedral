@@ -148,7 +148,7 @@ export function PlantHeadDashboard() {
   }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
-  const liveMachines = snapshot?.machines ?? [];
+  const liveMachines = useMemo(() => snapshot?.machines ?? [], [snapshot?.machines]);
 
   const displayData = useMemo(
     () => (data ? mergePlantHeadWithLive(data, liveKpis, liveMachines, liveOrders) : null),
