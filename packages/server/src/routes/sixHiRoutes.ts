@@ -324,6 +324,7 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
     }
     let shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
     if (!shiftLogId) {
+      // Prefer operational detection date so completed/hold stay on the active shift.
       shiftLogId = (await SixHiService.resolveShiftLogIdForPlan(detected.prodDate, shiftCode)) ?? undefined;
     }
     const result = await SixHiQueueService.getQueue(

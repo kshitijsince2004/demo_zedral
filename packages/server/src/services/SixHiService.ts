@@ -1774,6 +1774,13 @@ export class SixHiService {
     }
 
     const orderId = await this.ensureOrder(batchNumber, userId);
+    const ppc = await db.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    // Attribute hold to the operator's active shift (same rule as production start).
+    await this.reattributeOrderToActiveShift(orderId, userId, ppc?.machine_code);
+
     const reasonLabel = rejectionReason.trim().slice(0, 100);
 
     await db.insertInto('txn.order_rejection')
@@ -1819,7 +1826,6 @@ export class SixHiService {
       .execute();
 
     // Persist machine state event: RUNNING_ENDED -> IDLE + ORDER_REJECTED
-    const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
     if (ppc) {
       MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_ENDED', {
         orderId,

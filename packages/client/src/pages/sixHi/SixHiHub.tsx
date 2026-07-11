@@ -67,7 +67,7 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { shiftCode, shiftLogId } = useShiftStore();
+  const { shiftCode, shiftLogId, detectedShift } = useShiftStore();
   const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
@@ -103,7 +103,8 @@ export function SixHiHub() {
   const combinedSelectionManual = useRef(false);
 
   const date = viewDate;
-  const shift = shiftCode || 'A';
+  // Only send shift once session/bootstrap confirmed — default 'A' was poisoning completed/hold.
+  const shift = detectedShift?.shiftCode || (shiftLogId ? shiftCode : undefined);
   const queueMachine = pathMachine;
   const userRoles = useAuthStore((s) => s.user?.roles || []);
   const canTransfer = userRoles.includes('ADMIN') || userRoles.includes('MACHINE_HEAD');
@@ -134,16 +135,23 @@ export function SixHiHub() {
       const params = new URLSearchParams({
         subProcess: apiSubProcess,
         date,
-        shift,
         machine: queueMachine,
       });
+      if (shift) params.set('shift', shift);
+      // Completed + Order Hold are scoped exclusively by active shift_log_id (date+shift).
       if (shiftLogId) params.set('shiftLogId', shiftLogId);
       const res = await apiClient.get(`/6hi/queue?${params.toString()}`);
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
       const backlog: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.backlog ?? []);
-      const completed: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.completed ?? []);
-      const rejected: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.rejected ?? []);
+      // Until shift context is ready, keep terminal lists empty (avoid other-shift bleed).
+      const shiftReady = Boolean(shiftLogId || shift);
+      const completed: SixHiQueueCard[] = shiftReady
+        ? (Array.isArray(res) ? [] : (res.completed ?? []))
+        : [];
+      const rejected: SixHiQueueCard[] = shiftReady
+        ? (Array.isArray(res) ? [] : (res.rejected ?? []))
+        : [];
 
       const fingerprint = jsonFingerprint({ items, pending, backlog, completed, rejected });
       if (!silent || fingerprint !== prevDataRef.current) {
