@@ -89,8 +89,9 @@ export class SixHiService {
    * active shift — it is never duplicated — and refreshes the cached production totals
    * of both the previous and the new shift so no double counting can occur.
    *
-   * The current active shift is resolved via the existing ShiftDetectionService
-   * (machine session → override → clock), i.e. the single source of truth for "now".
+   * The current active shift is resolved via ShiftDetectionService
+   * (ACTIVE machine session → override → clock). An open session past the
+   * clock boundary stays pinned so overtime production is not reattributed.
    *
    * @returns the authoritative shift_log_id the order is attributed to, or null.
    */

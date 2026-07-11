@@ -2,9 +2,10 @@ import { apiClient } from './apiClient';
 import { useShiftStore } from '../store/shiftStore';
 
 /**
- * Mirrors the server ShiftDetectionService.DetectedShift union. When a machine has
- * an ACTIVE session the shift is pinned (`source: 'SESSION'`) and windowStart/windowEnd
- * come from that session's shift, not the wall clock.
+ * Mirrors the server ShiftDetectionService.DetectedShift union.
+ * With a machine code, an ACTIVE session pins the shift (`source: 'SESSION'`)
+ * even after the wall clock rolls to the next shift — until handover closes it.
+ * Without a machine code, the response is clock/override only (shift-change watcher).
  */
 export type DetectedShiftSource = 'CLOCK' | 'OVERRIDE' | 'SESSION' | 'FALLBACK';
 

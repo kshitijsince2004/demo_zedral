@@ -55,6 +55,13 @@ describe('shift handover helpers', () => {
       windowEnd: '22:00',
     };
 
+    const shiftC = {
+      shiftCode: 'C',
+      prodDate: '2026-07-09',
+      windowStart: '22:00',
+      windowEnd: '06:00',
+    };
+
     it('blocks before scheduled shift end while clock is still on the same shift', () => {
       const at = plantClockDate('2026-07-09', '18:00');
       expect(canCompleteOutgoingHandover(shiftB, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(false);
@@ -68,6 +75,22 @@ describe('shift handover helpers', () => {
     it('allows when wall clock has moved to the next shift', () => {
       const at = plantClockDate('2026-07-09', '22:30');
       expect(canCompleteOutgoingHandover(shiftB, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(true);
+    });
+
+    it('allows closing C after 06:00 when clock is A (session-pinned outgoing)', () => {
+      const at = plantClockDate('2026-07-10', '06:30');
+      expect(canCompleteOutgoingHandover(shiftC, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(true);
+    });
+
+    it('blocks submitting clock-A handover mid-morning (wrong A→B path)', () => {
+      const shiftA = {
+        shiftCode: 'A',
+        prodDate: '2026-07-10',
+        windowStart: '06:00',
+        windowEnd: '14:00',
+      };
+      const at = plantClockDate('2026-07-10', '06:30');
+      expect(canCompleteOutgoingHandover(shiftA, DEFAULT_PLANT_SHIFT_WINDOWS, at)).toBe(false);
     });
   });
 });

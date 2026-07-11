@@ -87,10 +87,11 @@ export function SixHiLayout() {
   useEffect(() => {
     async function init() {
       try {
+        // Ensure session first so /shifts/current?machine= pins to ACTIVE (not clock).
+        await machineHandoverService.ensureSession(pathMill).catch(() => undefined);
         await bootstrapShiftContext(pathMill);
         const { shiftDate, shiftCode } = useShiftStore.getState();
         const qs = `?date=${encodeURIComponent(shiftDate)}&shift=${encodeURIComponent(shiftCode)}`;
-        await machineHandoverService.ensureSession(pathMill).catch(() => undefined);
         const data = await apiClient.get(`/shift-logs/active/${CRM_SHIFT_PROCESS_CODE}${qs}`);
         useShiftStore.setState({
           shiftLogId: data.shiftLogId,

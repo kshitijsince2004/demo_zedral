@@ -137,10 +137,9 @@ function sessionMatchesOperational(
   );
 }
 
-async function findMatchingActiveSession(
+/** ACTIVE session for machine (prefer this operator). Not filtered by clock — pin until handover closes it. */
+async function findActiveSession(
   machineCode: string,
-  prodDate: string,
-  shiftCode: string,
   userId?: number,
 ): Promise<SessionRow | null> {
   const sessionSelect = () =>
@@ -154,38 +153,30 @@ async function findMatchingActiveSession(
         's.prod_date',
         'w.start_time',
         'w.end_time',
-      ]);
+      ])
+      .where('s.machine_code', '=', machineCode)
+      .where('s.status', '=', 'ACTIVE')
+      .orderBy('s.started_at', 'desc');
 
   if (userId) {
     const userSession = await sessionSelect()
-      .where('s.machine_code', '=', machineCode)
       .where('s.operator_user_id', '=', userId)
-      .where('s.status', '=', 'ACTIVE')
-      .orderBy('s.started_at', 'desc')
       .executeTakeFirst();
-
-    if (userSession && sessionMatchesOperational(userSession, prodDate, shiftCode)) {
-      return userSession as SessionRow;
-    }
+    if (userSession) return userSession as SessionRow;
   }
 
-  const activeSession = await sessionSelect()
-    .where('s.machine_code', '=', machineCode)
-    .where('s.status', '=', 'ACTIVE')
-    .orderBy('s.started_at', 'desc')
-    .executeTakeFirst();
-
-  if (activeSession && sessionMatchesOperational(activeSession, prodDate, shiftCode)) {
-    return activeSession as SessionRow;
-  }
-
-  return null;
+  const activeSession = await sessionSelect().executeTakeFirst();
+  return (activeSession as SessionRow) ?? null;
 }
 
 export class ShiftDetectionService {
   static sessionMatchesOperational = sessionMatchesOperational;
 
-  /** Close this operator's ACTIVE sessions on a machine that no longer match the operational shift. */
+  /**
+   * Close this operator's ACTIVE sessions that do not match prodDate+shiftCode.
+   * Do not call from ensureActiveSession — an open session past the clock boundary
+   * is overtime/continuation and must stay pinned until handover closes it.
+   */
   static async closeStaleOperatorSessions(
     machineCode: string,
     operatorUserId: number,
@@ -217,6 +208,11 @@ export class ShiftDetectionService {
     return toClose.length;
   }
 
+  /**
+   * Resolve the operator's shift for a machine.
+   * Priority: ACTIVE session (any shift — pin until handover) → recent override → wall clock.
+   * Without machineCode, returns clock/override only (used by shift-change watcher).
+   */
   static async getCurrentShift(opts?: {
     userId?: number;
     machineCode?: string;
@@ -224,6 +220,22 @@ export class ShiftDetectionService {
     const windows = await loadShiftWindows();
     const at = new Date();
     const clock = resolveShiftFromClock(windows, at);
+
+    // Machine-scoped: ACTIVE session wins even when clock has rolled (C still open after 06:00).
+    if (opts?.machineCode) {
+      const activeSession = await findActiveSession(opts.machineCode, opts.userId);
+      if (activeSession) {
+        return {
+          shiftCode: String(activeSession.shift_code).toUpperCase(),
+          shiftName: activeSession.shift_name,
+          prodDate: formatDbDate(activeSession.prod_date as Date),
+          windowStart: String(activeSession.start_time).slice(0, 5),
+          windowEnd: String(activeSession.end_time).slice(0, 5),
+          detectedAt: at.toISOString(),
+          source: 'SESSION',
+        };
+      }
+    }
 
     let shiftCode = clock.shiftCode;
     let shiftName = clock.shiftName;
@@ -246,29 +258,6 @@ export class ShiftDetectionService {
         source = 'OVERRIDE';
         overrideId = Number(override.override_id);
         overrideReason = override.reason_code;
-      }
-    }
-
-    if (opts?.machineCode) {
-      const matchingSession = await findMatchingActiveSession(
-        opts.machineCode,
-        prodDate,
-        shiftCode,
-        opts.userId,
-      );
-
-      if (matchingSession) {
-        return {
-          shiftCode: matchingSession.shift_code,
-          shiftName: matchingSession.shift_name,
-          prodDate: formatDbDate(matchingSession.prod_date as Date),
-          windowStart: String(matchingSession.start_time).slice(0, 5),
-          windowEnd: String(matchingSession.end_time).slice(0, 5),
-          detectedAt: at.toISOString(),
-          source: 'SESSION',
-          overrideId,
-          overrideReason,
-        };
       }
     }
 

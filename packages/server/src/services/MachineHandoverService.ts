@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { SixHiExecutionService, SixHiQueueService, SixHiShiftService } from './sixHi';
-import { ShiftDetectionService } from './ShiftDetectionService';
+import { ShiftDetectionService, type DetectedShift } from './ShiftDetectionService';
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -12,6 +12,35 @@ import {
 import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import type { SixHiQueueCard } from '@m1/shared-validation';
+
+/**
+ * Outgoing handover closes the pinned ACTIVE session (via getCurrentShift with machine).
+ * Also loads session start for utilization windowing.
+ */
+async function resolveOutgoingShift(
+  machineCode: string,
+  operatorUserId: number,
+): Promise<{ shift: DetectedShift; actualSessionStartAt: string | null }> {
+  const shift = await ShiftDetectionService.getCurrentShift({
+    userId: operatorUserId,
+    machineCode,
+  });
+
+  const activeSession = await db
+    .selectFrom('txn.machine_shift_session')
+    .select('started_at')
+    .where('machine_code', '=', machineCode)
+    .where('status', '=', 'ACTIVE')
+    .orderBy('started_at', 'desc')
+    .executeTakeFirst();
+
+  return {
+    shift,
+    actualSessionStartAt: activeSession?.started_at
+      ? new Date(activeSession.started_at).toISOString()
+      : null,
+  };
+}
 
 export type MachineHandoverStatus =
   | 'RUNNING'
@@ -150,24 +179,14 @@ export class MachineHandoverService {
       }
     }
 
-    const shift = await ShiftDetectionService.getCurrentShift({
-      userId: operatorUserId,
+    // Prefer ACTIVE session over clock — closing C after 06:00 must stay C→A, not A→B.
+    const { shift, actualSessionStartAt } = await resolveOutgoingShift(
       machineCode,
-    });
-
-    const activeSession = await db
-      .selectFrom('txn.machine_shift_session')
-      .select(['started_at', 'closed_at'])
-      .where('machine_code', '=', machineCode)
-      .where('status', '=', 'ACTIVE')
-      .orderBy('started_at', 'desc')
-      .executeTakeFirst();
+      operatorUserId,
+    );
 
     const scheduledWindowStart = shift.windowStart;
     const scheduledWindowEnd = shift.windowEnd;
-    const actualSessionStartAt = activeSession?.started_at
-      ? new Date(activeSession.started_at).toISOString()
-      : null;
 
     const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
     const rollingQueue = await SixHiQueueService.getQueue('ROLLING', shift.prodDate, shift.shiftCode, machineCode);
@@ -416,6 +435,10 @@ export class MachineHandoverService {
       return db
         .updateTable('txn.machine_handover')
         .set({
+          outgoing_shift_code: preview.shift.shiftCode,
+          incoming_shift_code: nextShiftCode,
+          outgoing_prod_date: preview.shift.prodDate,
+          incoming_prod_date: formatProdDate(nextProdDate),
           machine_status: input.machineStatus ?? preview.machineStatus,
           remarks: input.remarks?.trim() ?? existingDraft.remarks,
           handover_priority: normalizeHandoverPriority(input.handoverPriority),
@@ -838,24 +861,12 @@ export class MachineHandoverService {
     return updated;
   }
 
-  /** Start or resume operator session on machine login. */
+  /** Start or resume operator session on machine login. Never replaces an open session with the clock. */
   static async ensureActiveSession(machineCode: string, operatorUserId: number) {
     const pending = await this.getPendingForMachine(machineCode);
     if (pending) {
       return { session: null, pendingHandover: pending };
     }
-
-    const shift = await ShiftDetectionService.getCurrentShift({
-      userId: operatorUserId,
-      machineCode,
-    });
-
-    await ShiftDetectionService.closeStaleOperatorSessions(
-      machineCode,
-      operatorUserId,
-      shift.prodDate,
-      shift.shiftCode,
-    );
 
     const existing = await db
       .selectFrom('txn.machine_shift_session')
@@ -863,12 +874,10 @@ export class MachineHandoverService {
       .where('machine_code', '=', machineCode)
       .where('operator_user_id', '=', operatorUserId)
       .where('status', '=', 'ACTIVE')
+      .orderBy('started_at', 'desc')
       .executeTakeFirst();
 
-    if (
-      existing &&
-      ShiftDetectionService.sessionMatchesOperational(existing, shift.prodDate, shift.shiftCode)
-    ) {
+    if (existing) {
       return { session: existing, pendingHandover: null };
     }
 
@@ -885,6 +894,12 @@ export class MachineHandoverService {
         'ACTIVE_SESSION_CONFLICT: Another operator holds an active session on this machine.',
       );
     }
+
+    // No open session — start one for the current clock/override shift.
+    const shift = await ShiftDetectionService.getCurrentShift({
+      userId: operatorUserId,
+      machineCode,
+    });
 
     await SixHiShiftService.ensureActiveShiftLog(
       operatorUserId,

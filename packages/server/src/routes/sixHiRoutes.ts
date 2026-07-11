@@ -37,10 +37,14 @@ function respondSixHiServerError(res: import('express').Response, context: strin
   res.status(500).json({ error: message });
 }
 
-async function shiftCodeFromQueryOrCurrent(rawShift: unknown, userId: number): Promise<string> {
+async function shiftCodeFromQueryOrCurrent(
+  rawShift: unknown,
+  userId: number,
+  machineCode?: string,
+): Promise<string> {
   const explicit = String(rawShift ?? '').trim().toUpperCase();
   if (explicit) return explicit;
-  const detected = await ShiftDetectionService.getCurrentShift({ userId });
+  const detected = await ShiftDetectionService.getCurrentShift({ userId, machineCode });
   return detected.shiftCode.toUpperCase();
 }
 
@@ -302,15 +306,15 @@ router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
 router.get('/queue', requireSixHi('READ'), async (req, res) => {
   try {
     const subProcess = String(req.query.subProcess ?? 'ROLLING').toUpperCase().replace(' ', '_');
-    const shiftCode = await shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id);
+    const machine = String(req.query.machine ?? '6HI').toUpperCase();
+    const shiftCode = await shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id, machine);
     const detected = await ShiftDetectionService.getCurrentShift({
       userId: req.user!.id,
-      machineCode: String(req.query.machine ?? '6HI').toUpperCase(),
+      machineCode: machine,
     });
     const viewDate = typeof req.query.date === 'string'
       ? req.query.date.slice(0, 10)
       : currentPlantDate();
-    const machine = String(req.query.machine ?? '6HI').toUpperCase();
     if (!['ROLLING', 'SKIN_PASS'].includes(subProcess)) {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
     }
