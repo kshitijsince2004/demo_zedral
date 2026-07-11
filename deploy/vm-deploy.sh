@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Building and starting production stack on the VM is disabled.
-# Use deploy/scripts/remote-ghcr-deploy.sh with BACKEND_IMAGE + NGINX_IMAGE from GHCR.
-# This script remains for bootstrap / env validation compatibility.
+# GitHub Actions / CI entrypoint — idempotent VM deploy (bootstrap + sync + compose + health).
+# Does NOT modify host SSL certificates or Let's Encrypt configuration.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Roll back to the previous successful deploy.
-# Prefers GHCR image checkpoint; falls back to git SHA rebuild path (legacy).
+# Roll back to the previous successful deploy SHA and restart the stack.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,7 +21,7 @@ ROLLBACK_SHA="${1:-}"
 require_docker
 resolve_repo_root || die "Could not resolve repository root"
 
-# Preferred path: previous GHCR images (no rebuild on server)
+# Image checkpoint path (GHCR) if present and no SHA arg
 if [ -z "${ROLLBACK_SHA}" ] && [ -f "${REPO_ROOT}/deploy/.previous-good-images" ]; then
   log "Using image-based rollback (.previous-good-images)"
   validate_env_file
@@ -36,8 +35,14 @@ if [ -z "${ROLLBACK_SHA}" ]; then
   elif [ -f "${REPO_ROOT}/deploy/.last-good-sha" ]; then
     die "Only one deploy recorded. Pass an explicit SHA: bash deploy/rollback.sh <sha>"
   else
-    die "No rollback checkpoint found. Pass an explicit SHA or ensure .previous-good-images exists."
+    die "No rollback checkpoint found. Pass an explicit SHA: bash deploy/rollback.sh <sha>"
   fi
 fi
 
-die "Git-SHA rollback requires rebuilding on the host, which is disabled. Set BACKEND_IMAGE/NGINX_IMAGE for that SHA from GHCR, or use deploy/scripts/rollback-images.sh"
+log "Rolling back to ${ROLLBACK_SHA}"
+validate_env_file
+git_sync_to_ref "${ROLLBACK_SHA}"
+run_stack_deploy
+verify_deployment_health
+record_successful_deploy
+log "Rollback complete."

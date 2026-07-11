@@ -212,31 +212,31 @@ git_sync_to_ref() {
 run_stack_deploy() {
   cd "${REPO_ROOT}"
 
-  if [ -z "${BACKEND_IMAGE:-}" ] || [ -z "${NGINX_IMAGE:-}" ]; then
-    die "BACKEND_IMAGE and NGINX_IMAGE must be set (GHCR tags). Servers never build images."
-  fi
-
   if [ "${SKIP_MIGRATE:-false}" = "true" ]; then
     export RUN_MIGRATIONS=false
     log "SKIP_MIGRATE=true — migrations disabled for this deploy"
   fi
 
-  # Persist image refs into env file so compose and future rollbacks share them
-  upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
-  upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
-
-  log "Logging into container registry (if GHCR_TOKEN set)…"
-  if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
-    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+  # ponytail: GHCR pull path when images are set; otherwise build on the host (legacy AWS)
+  if [ -n "${BACKEND_IMAGE:-}" ] && [ -n "${NGINX_IMAGE:-}" ]; then
+    upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
+    upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
+    if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
+      echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+    fi
+    log "Pulling pre-built images…"
+    log "  backend: ${BACKEND_IMAGE}"
+    log "  nginx:   ${NGINX_IMAGE}"
+    compose pull backend nginx
+    compose up -d --remove-orphans --no-build
+    return
   fi
 
-  log "Pulling pre-built images (no local build)…"
-  log "  backend: ${BACKEND_IMAGE}"
-  log "  nginx:   ${NGINX_IMAGE}"
-  compose pull backend nginx
+  log "Pulling pre-built images (if any)…"
+  compose pull --ignore-pull-failures 2>/dev/null || compose pull || true
 
-  log "Starting stack from pulled images…"
-  compose up -d --remove-orphans --no-build
+  log "Building and starting production stack…"
+  compose up -d --build --remove-orphans
 }
 
 upsert_env_var() {
@@ -348,6 +348,8 @@ verify_deployment_health() {
 
 record_successful_deploy() {
   git -C "${REPO_ROOT}" rev-parse HEAD > "${REPO_ROOT}/deploy/.last-good-sha" 2>/dev/null || true
-  save_image_checkpoint
-  log "Recorded successful deploy SHA + image checkpoint"
+  if [ -n "${BACKEND_IMAGE:-}" ] && [ -n "${NGINX_IMAGE:-}" ]; then
+    save_image_checkpoint
+  fi
+  log "Recorded successful deploy SHA"
 }

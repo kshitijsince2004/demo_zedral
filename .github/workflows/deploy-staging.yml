@@ -1,8 +1,9 @@
 name: Deploy Staging (AWS)
 
+# Paused: using legacy deploy-aws.yml (build-on-VM) for now.
+# Re-enable `push: branches: [main]` when cutting over to GHCR.
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       skip_migrate:
