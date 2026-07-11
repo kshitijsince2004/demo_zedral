@@ -146,7 +146,10 @@ jobs:
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          # Blank secret must not become empty APP_BASE on the remote.
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
+            APP_DIR="/opt/zedralv2"
+          fi
           rsync -az --delete \
             --exclude 'deploy/.env' \
             --exclude 'deploy/.last-good-*' \
@@ -166,7 +169,9 @@ jobs:
           GHCR_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
+            APP_DIR="/opt/zedralv2"
+          fi
           ssh "${AWS_USER}@${AWS_HOST}" \
             "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
              SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \

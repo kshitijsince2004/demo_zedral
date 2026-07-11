@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Roll back to the previous successful deploy.
 # Prefers GHCR image checkpoint; falls back to git SHA rebuild path (legacy).
 set -euo pipefail

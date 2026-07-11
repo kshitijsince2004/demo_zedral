@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Post JSON status to Slack or Discord webhook (DEPLOY_WEBHOOK_URL).
 # Usage: notify-deploy.sh <started|success|failed|rollback> "message"
 set -euo pipefail
@@ -8,7 +8,7 @@ MESSAGE="${2:-}"
 WEBHOOK="${DEPLOY_WEBHOOK_URL:-}"
 
 if [ -z "${WEBHOOK}" ]; then
-  echo "DEPLOY_WEBHOOK_URL not set â€” skip notify (${STATUS})"
+  echo "DEPLOY_WEBHOOK_URL not set — skip notify (${STATUS})"
   exit 0
 fi
 
@@ -24,7 +24,7 @@ TITLE="Zedral deploy: ${STATUS}"
 BODY="${MESSAGE}"
 
 # Discord-compatible + Slack-compatible payload (Discord ignores unused fields)
-PAYLOAD=$(printf '{"content":"%s â€” %s","text":"%s â€” %s","embeds":[{"title":"%s","description":"%s","color":%s}]}' \
+PAYLOAD=$(printf '{"content":"%s — %s","text":"%s — %s","embeds":[{"title":"%s","description":"%s","color":%s}]}' \
   "${TITLE}" "${BODY}" "${TITLE}" "${BODY}" "${TITLE}" "${BODY}" "${COLOR}")
 
 curl -fsS -H 'Content-Type: application/json' -d "${PAYLOAD}" "${WEBHOOK}" >/dev/null || true

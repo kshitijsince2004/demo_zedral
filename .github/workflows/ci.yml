@@ -126,3 +126,6 @@ jobs:
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
+          # Runtime image is Node; skip unused Go toolchains (esbuild) if still present
+          skip-files: '**/node_modules/esbuild/bin/esbuild,**/node_modules/@esbuild/**/esbuild'

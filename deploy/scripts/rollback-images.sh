@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Roll back to previous GHCR image pair recorded in deploy/.previous-good-images
 set -euo pipefail
 

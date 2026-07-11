@@ -1,0 +1,5 @@
+# esbuild ships a Go binary unused at runtime (dev/build tool only).
+# CVEs are in that gobinary's stdlib; the Node API never executes it.
+# Removed from the production image in Dockerfile; keep ignores as belt-and-suspenders.
+CVE-2024-24790
+CVE-2025-68121

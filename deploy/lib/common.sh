@@ -138,7 +138,8 @@ compose() {
 }
 
 validate_env_file() {
-  [ -f "${ENV_FILE}" ] || die "Missing ${ENV_FILE}. Copy deploy/.env.production.example to deploy/.env and configure secrets."
+  [ -n "${ENV_FILE:-}" ] || die "ENV_FILE is unset (internal deploy bug — REPO_ROOT was empty)."
+  [ -f "${ENV_FILE}" ] || die "Missing ${ENV_FILE}. On the server: cp deploy/.env.production.example deploy/.env && edit secrets (never commit .env)."
 
   set -a
   # shellcheck disable=SC1090

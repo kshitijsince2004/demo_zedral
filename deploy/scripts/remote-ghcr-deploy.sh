@@ -1,38 +1,42 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Remote GHCR deploy entrypoint (invoked over SSH from GitHub Actions).
-# Required env: BACKEND_IMAGE, NGINX_IMAGE, APP_BASE
-# Optional: SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true
+# Required env: BACKEND_IMAGE, NGINX_IMAGE
+# Optional: APP_BASE, SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true
 set -euo pipefail
 
-: "${APP_BASE:=/opt/zedralv2}"
+# Empty string must not win over the default (secret may be set but blank).
+if [ -z "${APP_BASE:-}" ]; then
+  APP_BASE="/opt/zedralv2"
+fi
 : "${BACKEND_IMAGE:?BACKEND_IMAGE required}"
 : "${NGINX_IMAGE:?NGINX_IMAGE required}"
 : "${SKIP_MIGRATE:=false}"
 : "${RUN_BACKUP:=false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CANDIDATE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Prefer APP_BASE checkout if present (ops layout)
 if [ -f "${APP_BASE}/deploy/lib/common.sh" ]; then
-  REPO_ROOT="${APP_BASE}"
-elif [ -f "${APP_BASE}/$(basename "${REPO_ROOT}")/deploy/lib/common.sh" ]; then
-  REPO_ROOT="${APP_BASE}/$(basename "${REPO_ROOT}")"
+  CANDIDATE_ROOT="${APP_BASE}"
+elif [ -f "${APP_BASE}/$(basename "${CANDIDATE_ROOT}")/deploy/lib/common.sh" ]; then
+  CANDIDATE_ROOT="${APP_BASE}/$(basename "${CANDIDATE_ROOT}")"
 fi
 
 # shellcheck source=../lib/common.sh
-source "${REPO_ROOT}/deploy/lib/common.sh"
+# common.sh resets REPO_ROOT/ENV_FILE — re-apply after source.
+source "${CANDIDATE_ROOT}/deploy/lib/common.sh"
 
-export APP_BASE REPO_ROOT
+REPO_ROOT="${CANDIDATE_ROOT}"
 COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.prod.yml"
 ENV_FILE="${REPO_ROOT}/deploy/.env"
-export COMPOSE_FILE ENV_FILE
+export APP_BASE REPO_ROOT COMPOSE_FILE ENV_FILE
 
 require_docker
 validate_env_file
 
 if [ "${RUN_BACKUP}" = "true" ]; then
-  log "Pre-deploy PostgreSQL backupâ€¦"
+  log "Pre-deploy PostgreSQL backup..."
   bash "${REPO_ROOT}/deploy/scripts/backup-db.sh"
 fi
 
