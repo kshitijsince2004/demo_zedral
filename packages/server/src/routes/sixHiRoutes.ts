@@ -353,6 +353,68 @@ router.post('/orders/manual', requireSixHi('WRITE'), async (req, res) => {
   }
 });
 
+// Must be registered before /orders/:batchNo or "completed" is treated as a batch number.
+router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
+  try {
+    const machine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
+    const date = req.query.date ? String(req.query.date).slice(0, 10) : undefined;
+    const shiftCode = req.query.shiftCode ? String(req.query.shiftCode).toUpperCase() : undefined;
+
+    let q = db.selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
+      .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
+      .select([
+        'pb.batch_number',
+        'pb.customer_name',
+        'pb.grade_code',
+        'pb.machine_code',
+        'm.name as machine_name',
+        'pb.sub_process',
+        'pb.ppc_weight_mt',
+        'pb.coil_no',
+        'pb.shift_code',
+        'pb.plan_date',
+        'o.status',
+        'o.prod_start_at',
+        'o.prod_end_at',
+        'u.full_name as operator_name',
+      ])
+      .where('o.status', '=', 'COMPLETED');
+
+    if (machine && machine !== 'ALL') {
+      q = q.where('pb.machine_code', '=', machine);
+    }
+    if (date) {
+      q = q.where('o.prod_end_at', '>=', new Date(`${date}T00:00:00Z`))
+        .where('o.prod_end_at', '<=', new Date(`${date}T23:59:59Z`));
+    }
+    if (shiftCode && shiftCode !== 'ALL') {
+      q = q.where('pb.shift_code', '=', shiftCode);
+    }
+
+    const rows = await q.orderBy('o.prod_end_at', 'desc').limit(200).execute();
+    res.json(rows.map((r) => ({
+      batchNumber: r.batch_number,
+      customer: r.customer_name,
+      grade: r.grade_code,
+      machineCode: r.machine_code,
+      machineName: r.machine_name,
+      subProcess: r.sub_process,
+      weightMt: Number(r.ppc_weight_mt),
+      coilNo: r.coil_no,
+      shiftCode: r.shift_code,
+      planDate: r.plan_date,
+      status: r.status,
+      prodStartAt: r.prod_start_at,
+      prodEndAt: r.prod_end_at,
+      operatorName: r.operator_name,
+    })));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load completed orders' });
+  }
+});
+
 router.get('/orders/:batchNo', requireSixHi('READ'), async (req, res) => {
   try {
     const order = await SixHiExecutionService.getOrder(req.params.batchNo, req.user!.id);

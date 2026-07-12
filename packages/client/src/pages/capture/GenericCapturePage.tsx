@@ -13,7 +13,6 @@ import {
   HrsCaptureForm,
   PklCaptureForm,
   RwdCaptureForm,
-  SkpCaptureForm,
 } from './ProcessForms';
 
 interface ActiveShiftResponse {
@@ -36,7 +35,7 @@ function formFor(machineCode: SupportedMachine, shiftLogId: string) {
   if (machineCode === 'HRS') return <HrsCaptureForm {...props} />;
   if (machineCode === 'PKL') return <PklCaptureForm {...props} />;
   if (machineCode === 'ANN') return <AnnCaptureForm {...props} />;
-  if (machineCode === 'SKP') return <SkpCaptureForm {...props} />;
+
   if (machineCode === 'RWD') return <RwdCaptureForm {...props} />;
   if (machineCode === 'CRS') return <CrsCaptureForm {...props} />;
   return <CtlCaptureForm {...props} />;

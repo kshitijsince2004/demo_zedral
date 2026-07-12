@@ -11,7 +11,10 @@ import {
 } from '../validation/manufacturingValidation';
 import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
+import { getOrderSourceStrategy } from './handover/OrderSource';
 import type { SixHiQueueCard } from '@m1/shared-validation';
+import { ShiftLogValidationService } from './shiftLogValidationService';
+import { publishShiftClosed } from '../platform/m1Events';
 
 /**
  * Outgoing handover closes the pinned ACTIVE session (via getCurrentShift with machine).
@@ -188,9 +191,9 @@ export class MachineHandoverService {
     const scheduledWindowStart = shift.windowStart;
     const scheduledWindowEnd = shift.windowEnd;
 
-    const active = await SixHiExecutionService.findActiveMachineOrder(machineCode);
-    const rollingQueue = await SixHiQueueService.getQueue('ROLLING', shift.prodDate, shift.shiftCode, machineCode);
-    const skinQueue = await SixHiQueueService.getQueue('SKIN_PASS', shift.prodDate, shift.shiftCode, machineCode);
+    const strategy = getOrderSourceStrategy(machineCode);
+    const active = await strategy.findActiveOrder(machineCode);
+    const queueSnapshot = await strategy.getQueueSnapshot(shift.prodDate, shift.shiftCode, machineCode);
 
     let productionSnapshot: Record<string, unknown> = {};
     let openStoppages: unknown[] = [];
@@ -199,42 +202,12 @@ export class MachineHandoverService {
     let activeOrderDetail: Record<string, unknown> | null = null;
 
     if (active) {
-      const order = await SixHiExecutionService.getOrder(active.batchNumber, operatorUserId);
-      const prodStartAt = order.prodStartAt;
-      const actualWt = order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt ?? 0;
-      const targetWt = order.ppcWeightMt ?? 0;
-      const progressPct = targetWt > 0
-        ? Math.min(100, Math.round((actualWt / targetWt) * 100))
-        : 0;
-      const remainingMt = Math.max(0, targetWt - actualWt);
-
-      activeOrderDetail = {
-        batchNumber: active.batchNumber,
-        customer: order.customer,
-        grade: order.grade,
-        subProcess: active.subProcess,
-        status: active.status,
-        startTime: prodStartAt ?? null,
-        runtimeMinutes: order.prodDurationMin ?? null,
-        progressPct,
-        producedWeightMt: actualWt,
-        remainingWeightMt: remainingMt,
-        targetWeightMt: targetWt,
-        destinationProcess: order.ppcDestination ?? null,
-        currentPassNo: order.rolling?.totalPasses ?? null,
-        targetThkMm: order.targetThkMm ?? null,
-      };
-
-      productionSnapshot = {
-        batchNumber: active.batchNumber,
-        status: active.status,
-        subProcess: active.subProcess,
-        rolling: order.rolling,
-        skinPass: order.skinPass,
-      };
-      openStoppages = (order.stoppages ?? []).filter((s) => !s.endAt);
-      runtimeMinutes = order.prodDurationMin ?? null;
-      processLabel = active.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling';
+      const orderDetail = await strategy.getOrderDetail(machineCode, operatorUserId);
+      activeOrderDetail = orderDetail.activeOrderDetail as unknown as Record<string, unknown>;
+      productionSnapshot = orderDetail.productionSnapshot;
+      openStoppages = orderDetail.openStoppages;
+      runtimeMinutes = orderDetail.runtimeMinutes;
+      processLabel = orderDetail.processLabel;
     }
 
     const machineStatus: MachineHandoverStatus = active
@@ -248,61 +221,49 @@ export class MachineHandoverService {
       parsePlantDateOnly(shift.prodDate),
     );
 
-    // CRM mills share one 6HI shift_log per prod_date+shift — resolve via SixHiService,
-    // not master.machine.process_id (mills may still point at CRM/CRM6).
     let shiftLogIdResolved: string | null = null;
     try {
-      const crmMill = parseCrmMillCode(machineCode);
-      if (crmMill) {
-        shiftLogIdResolved = await SixHiShiftService.resolveShiftLogIdForPlan(
+      shiftLogIdResolved = await strategy.resolveShiftLogIdForPlan(
+        shift.prodDate,
+        shift.shiftCode,
+        machineCode,
+        processIdResolved
+      );
+      if (!shiftLogIdResolved) {
+        shiftLogIdResolved = await strategy.ensureActiveShiftLog(
+          operatorUserId,
           shift.prodDate,
           shift.shiftCode,
+          machineCode,
+          processIdResolved
         );
-        if (!shiftLogIdResolved) {
-          shiftLogIdResolved = await SixHiShiftService.ensureActiveShiftLog(
-            operatorUserId,
-            SixHiShiftService.toPlanDate(shift.prodDate),
-            shift.shiftCode,
-          );
-        }
-      } else if (processIdResolved !== null) {
-        const planDate = parsePlantDateOnly(shift.prodDate);
-        const slRow = await db
-          .selectFrom('txn.shift_log')
-          .select('shift_log_id')
-          .where('process_id', '=', processIdResolved)
-          .where('shift_code', '=', shift.shiftCode)
-          .where('prod_date', '=', planDate)
-          .orderBy('shift_log_id', 'desc')
-          .executeTakeFirst();
-        if (slRow) shiftLogIdResolved = String(slRow.shift_log_id);
       }
     } catch (err) {
       console.error('[buildOutgoingPreview] Shift log lookup failed:', err);
     }
 
-    // Shift production summary — use SixHiService if shiftLogId available
+    // Shift production summary
     let shiftProductionSummary: Record<string, unknown> | null = null;
     let crewSnapshot: unknown[] = [];
 
     if (shiftLogIdResolved) {
       try {
-        const summary = await SixHiShiftService.getShiftSummary(shiftLogIdResolved, machineCode);
-        shiftProductionSummary = {
-          totalProdMt: summary.totalProdMt,
-          totalRollingMt: summary.totalRollingMt,
-          totalSkinpassMt: summary.totalSkinpassMt,
-          totalRerollMt: summary.totalRerollMt,
-          completedOrderCount: summary.completedOrders?.length ?? 0,
-          inProgressOrderCount: summary.ordersInProgress?.length ?? 0,
-          totalStoppageMinutes: summary.totalStoppageMinutes ?? 0,
-          totalBreakdownMinutes: summary.totalBreakdownMinutes ?? 0,
-          machineUtilizationPct: summary.machineUtilizationPct ?? 0,
-          coolantTempDegC: summary.coolantTempDegC,
-          coolantPressKgCm2: summary.coolantPressKgCm2,
-          scrapKg: summary.scrapKg,
-        };
-        crewSnapshot = await CrewService.listByShiftLog(shiftLogIdResolved);
+        const summary = await strategy.getShiftSummary(shiftLogIdResolved, machineCode);
+        if (summary) {
+          shiftProductionSummary = summary as Record<string, unknown>;
+        }
+        
+        // Crew resolution (Model B read path)
+        const session = await db
+          .selectFrom('txn.machine_shift_session')
+          .select('session_id')
+          .where('shift_log_id', '=', shiftLogIdResolved)
+          .where('machine_code', '=', machineCode)
+          .executeTakeFirst();
+          
+        if (session) {
+          crewSnapshot = await CrewService.listBySession(String(session.session_id));
+        }
       } catch (err) {
         console.error('[buildOutgoingPreview] Shift production summary failed:', err);
       }
@@ -345,6 +306,7 @@ export class MachineHandoverService {
       machineCode,
       machineName: machineRow?.name ?? machineCode,
       processCode: machineRow?.process_code ?? machineCode,
+      processId: processIdResolved,
       shift: {
         ...shift,
         windowStart: scheduledWindowStart,
@@ -363,16 +325,7 @@ export class MachineHandoverService {
       crewSnapshot,
       machineCrewRoster,
       utilizationMetrics,
-      queueSnapshot: {
-        rolling: rollingQueue.queue,
-        skinpass: skinQueue.queue,
-        pendingAllocation: mergeQueueCards(
-          rollingQueue.pendingAllocation,
-          skinQueue.pendingAllocation,
-        ),
-        backlogRolling: rollingQueue.backlog,
-        backlogSkinpass: skinQueue.backlog,
-      },
+      queueSnapshot,
       nextShift: {
         shiftCode: nextShiftCode,
         prodDate: formatProdDate(nextProdDate),
@@ -509,6 +462,10 @@ export class MachineHandoverService {
       );
     }
 
+    if (preview.shiftLogId && preview.processId != null && preview.processId >= 1 && preview.processId <= 9) {
+      await ShiftLogValidationService.assertValid(preview.shiftLogId);
+    }
+
     const active = preview.activeOrder;
 
     const { nextShiftCode, nextProdDate } = ShiftLogService.getNextShift(
@@ -614,22 +571,30 @@ export class MachineHandoverService {
       return row;
     });
 
-    // Finalize the shift summary from live production data so the summary is
-    // persisted at handover without requiring a separate manual save. Reuses the
-    // existing SixHiService.saveShiftSummary (which recomputes totals from actual
-    // production and syncs the shift_log cache). Non-fatal: a failure here must
-    // not roll back the completed handover.
     if (preview.shiftLogId) {
       try {
-        await SixHiShiftService.saveShiftSummary(
+        const strategy = getOrderSourceStrategy(machineCode);
+        await strategy.saveShiftSummary(
           preview.shiftLogId,
-          input.scrapKg,
-          input.coolantTempDegC,
-          input.coolantPressKgCm2,
+          {
+            scrapKg: input.scrapKg,
+            coolantTempDegC: input.coolantTempDegC,
+            coolantPressKgCm2: input.coolantPressKgCm2,
+          },
           operatorUserId,
         );
       } catch (err) {
         console.error('[createOutgoingHandover] Shift summary finalization failed:', err);
+      }
+
+      try {
+        await publishShiftClosed({
+          shiftLogId: String(preview.shiftLogId),
+          processId: preview.processId as number,
+          totalProdMt: (preview.shiftProductionSummary?.totalProdMt ?? 0) as number,
+        });
+      } catch (err) {
+        console.error('[createOutgoingHandover] Domain event publish failed:', err);
       }
     }
 
@@ -790,7 +755,7 @@ export class MachineHandoverService {
         .where('status', '=', 'ACTIVE')
         .execute();
 
-      await trx
+      const newSession = await trx
         .insertInto('txn.machine_shift_session')
         .values({
           machine_code: handover.machine_code,
@@ -799,7 +764,22 @@ export class MachineHandoverService {
           operator_user_id: incomingUserId,
           status: 'ACTIVE',
         })
-        .execute();
+        .returning('session_id')
+        .executeTakeFirstOrThrow();
+
+      const snapshotData = handover.production_snapshot as any;
+      const selectedCrewMembers = snapshotData?.selectedCrewMembers as any[] | undefined;
+      
+      if (selectedCrewMembers && selectedCrewMembers.length > 0) {
+        const crewRows = selectedCrewMembers.map((c) => ({
+          session_id: newSession.session_id,
+          crew_id: Number(c.id)
+        }));
+        await trx
+          .insertInto('txn.session_crew')
+          .values(crewRows)
+          .execute();
+      }
 
       await trx
         .insertInto('txn.shift_event_audit')
@@ -812,6 +792,103 @@ export class MachineHandoverService {
           payload: { batchNumber: handover.batch_number },
         })
         .execute();
+
+      // Generic open-work carry-forward (Phase 1.4)
+      if (handover.outgoing_shift_code && handover.outgoing_prod_date && handover.incoming_shift_code && handover.incoming_prod_date) {
+        let outgoingShiftLogId: string | null = null;
+        const machineRow = await trx.selectFrom('master.machine').select(['process_code', 'process_id']).where('machine_code', '=', handover.machine_code).executeTakeFirst();
+        
+        let processIdResolved: number | null = null;
+        if (machineRow) {
+          if (machineRow.process_id) processIdResolved = Number(machineRow.process_id);
+          else if (machineRow.process_code) {
+            const pRow = await trx.selectFrom('master.process').select('process_id').where('code', '=', machineRow.process_code).executeTakeFirst();
+            if (pRow) processIdResolved = pRow.process_id;
+          }
+        }
+        
+        try {
+          const strategy = getOrderSourceStrategy(handover.machine_code);
+          outgoingShiftLogId = await strategy.resolveShiftLogIdForPlan(
+            formatProdDate(handover.outgoing_prod_date as any),
+            handover.outgoing_shift_code,
+            handover.machine_code,
+            processIdResolved
+          );
+        } catch (err) {
+          console.error('[acceptHandover] Failed to resolve outgoing shiftLogId:', err);
+        }
+
+        if (outgoingShiftLogId) {
+          let incomingShiftLogId: string | null = null;
+          try {
+            const strategy = getOrderSourceStrategy(handover.machine_code);
+            incomingShiftLogId = await strategy.ensureActiveShiftLog(
+              incomingUserId,
+              formatProdDate(handover.incoming_prod_date as any),
+              handover.incoming_shift_code,
+              handover.machine_code,
+              processIdResolved
+            );
+          } catch (err) {
+            console.error('[acceptHandover] Failed to resolve incoming shiftLogId:', err);
+          }
+
+          if (incomingShiftLogId) {
+            // Carry forward open stoppages
+            await trx.updateTable('txn.stoppage')
+              .set({ shift_log_id: incomingShiftLogId as any })
+              .where('shift_log_id', '=', outgoingShiftLogId as any)
+              .where('end_at', 'is', null)
+              .execute();
+
+            // Re-parent open processes based on processId
+            if (processIdResolved === 4) {
+              // ANN
+              await trx.updateTable('txn.prod_ann_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            } else if (processIdResolved === 2) {
+              // PKL
+              await trx.updateTable('txn.prod_pkl_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            } else if (processIdResolved === 5) {
+              // SKP
+              await trx.updateTable('txn.prod_skp_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            } else if (processIdResolved === 6) {
+              // RWD
+              await trx.updateTable('txn.prod_rwd_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            } else if (processIdResolved === 7) {
+              // CRS
+              await trx.updateTable('txn.prod_crs_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            } else if (processIdResolved === 8) {
+              // CTL
+              await trx.updateTable('txn.prod_ctl_entry' as any)
+                .set({ shift_log_id: incomingShiftLogId as any })
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', '=', 'IN_PROGRESS')
+                .execute();
+            }
+          }
+        }
+      }
 
       return updated;
     });
@@ -901,10 +978,33 @@ export class MachineHandoverService {
       machineCode,
     });
 
-    await SixHiShiftService.ensureActiveShiftLog(
+    const machineRow = await db
+      .selectFrom('master.machine')
+      .select(['process_code', 'process_id'])
+      .where('machine_code', '=', machineCode)
+      .executeTakeFirst();
+    
+    let processIdResolved: number | null = null;
+    if (machineRow) {
+      if (machineRow.process_id) {
+        processIdResolved = Number(machineRow.process_id);
+      } else if (machineRow.process_code) {
+        const pRow = await db
+          .selectFrom('master.process')
+          .select('process_id')
+          .where('code', '=', machineRow.process_code)
+          .executeTakeFirst();
+        if (pRow) processIdResolved = pRow.process_id;
+      }
+    }
+
+    const strategy = getOrderSourceStrategy(machineCode);
+    await strategy.ensureActiveShiftLog(
       operatorUserId,
-      parsePlantDateOnly(shift.prodDate),
+      shift.prodDate,
       shift.shiftCode,
+      machineCode,
+      processIdResolved
     );
 
     const session = await db

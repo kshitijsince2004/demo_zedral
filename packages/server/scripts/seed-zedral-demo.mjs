@@ -136,7 +136,7 @@ export async function seedDemo(c, data) {
       (5,'MACHINE_HEAD','Machine Head') ON CONFLICT (role_id) DO NOTHING;`);
   const PIN_HASH = await makePinHash('1234');
   const loginUsers = [
-    ['admin', '1000', 'Plant Admin', 4], ['supervisor', '2000', 'Line Supervisor', 2],
+    ['admin', '1000', 'Plant Admin', 4], ['supervisor', '2000', 'Machine Head', 5],
     ['operator', '3000', 'Shift Operator', 1], ['machinehead', '4000', 'Machine Head', 5],
     ['planthead', '5000', 'Plant Head', 3],
   ];

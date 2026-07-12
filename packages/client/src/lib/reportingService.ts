@@ -10,7 +10,7 @@
 import { apiClient } from './apiClient';
 import type { ProcessCode } from './processCodes';
 
-// ─── Supervisor Dashboard ─────────────────────────────────────────────────────
+// ─── Machine Head Dashboard ─────────────────────────────────────────────────────
 
 export interface LineShiftStatus {
   lineId: ProcessCode;
@@ -33,10 +33,10 @@ export interface DowntimeEntry {
   minutes: number;
 }
 
-export interface SupervisorDashboardData {
+export interface MachineHeadDashboardData {
   /** Multi-line shift status for all lines in scope. */
   lineStatuses: LineShiftStatus[];
-  /** Number of shift logs pending supervisor review. */
+  /** Number of shift logs pending machine head review. */
   pendingReviewCount: number;
   /** OEE breakdown per line. */
   lineOee: LineOee[];
@@ -351,12 +351,11 @@ export function formatTrendPct(pct: number | null | undefined): string | null {
 
 export const reportingService = {
   /**
-   * Fetches the Supervisor dashboard data for the given line IDs.
+   * Fetches the Machine Head dashboard data for the given machines.
    * Requirements: 9.1, 9.2
    */
-  async getSupervisorDashboard(lineIds: ProcessCode[]): Promise<SupervisorDashboardData> {
-    const query = lineIds.length > 0 ? `?lines=${lineIds.join(',')}` : '';
-    return apiClient.get<SupervisorDashboardData>(`/reports/supervisor${query}`);
+  async getMachineHeadDashboard(): Promise<MachineHeadDashboardData> {
+    return apiClient.get<MachineHeadDashboardData>(`/reports/machine-head`);
   },
 
   /**
@@ -449,7 +448,11 @@ export const reportingService = {
       breakdownMachines: 0,
       utilizationPct: strip.availabilityPct,
       availabilityPct: strip.availabilityPct,
-      mttrHours: 0,
+      mttrHours: (() => {
+        const totalMin = base.downtimeDrivers.reduce((sum, d) => sum + d.totalMinutes, 0);
+        const totalOcc = base.downtimeDrivers.reduce((sum, d) => sum + d.occurrences, 0);
+        return totalOcc > 0 ? Math.round((totalMin / totalOcc / 60) * 10) / 10 : 0;
+      })(),
       mtbfHours: 0,
       runningOrders: runningLines,
       delayedOrders: delayedLines,

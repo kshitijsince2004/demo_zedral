@@ -16,7 +16,7 @@ import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { currentPlantDate, startOfDateFilter } from '../utils/dateOnly';
-const QUEUE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED'] as const;
+/** Live shopfloor queue — no COMPLETED (those belong in production history). */
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 const ORDER_STATUS_PRIORITY: Record<string, number> = {
   STOPPAGE: 4,
@@ -186,17 +186,23 @@ export class LiveService {
     if (roles.includes('MACHINE_HEAD')) {
       const rows = await db.selectFrom('security.machine_access')
         .select('machine_code')
-        .where('user_id', '=', userId)
+        .where('user_id', '=', userId as any)
         .execute();
       return rows.map((r) => r.machine_code);
     }
     return [];
   }
 
+  /**
+   * Live shopfloor queue for allocated machines.
+   * planDate/shiftCode are intentionally unused: backlog + in-progress work spans
+   * planned shifts. Pass opts.planScoped to filter PENDING/PREPARING by plan.
+   */
   static async getActiveOrders(
     machineFilter: string[] | null,
-    _planDate?: string,
-    _shiftCode?: string,
+    planDate?: string,
+    shiftCode?: string,
+    opts: { search?: string; planScoped?: boolean; subProcess?: string } = {},
   ): Promise<LiveOrderRow[]> {
     let machines: string[];
     if (machineFilter === null) {
@@ -237,17 +243,49 @@ export class LiveService {
       .where('pb.machine_code', 'in', machines)
       .where((eb) =>
         eb.or([
-          eb('o.status', 'in', [...QUEUE_STATUSES]),
+          eb('o.status', 'in', [...ACTIVE_STATUSES]),
           eb('o.status', 'is', null),
         ]),
       );
+
+    if (opts.subProcess === 'ROLLING' || opts.subProcess === 'SKIN_PASS') {
+      q = q.where('pb.sub_process', '=', opts.subProcess);
+    }
+    if (opts.search?.trim()) {
+      const term = `%${opts.search.trim()}%`;
+      q = q.where((eb) =>
+        eb.or([
+          eb('pb.batch_number', 'ilike', term),
+          eb('pb.coil_no', 'ilike', term),
+          eb('pb.customer_name', 'ilike', term),
+          eb('pb.grade_code', 'ilike', term),
+        ]),
+      );
+    }
+    // ponytail: planScoped only for explicit plan views; live boards keep backlog
+    if (opts.planScoped && planDate && shiftCode) {
+      const { SixHiShiftService } = await import('./sixHi');
+      q = q.where((eb) =>
+        eb.or([
+          eb('o.status', 'in', [...PRODUCTION_ORDER_STATUSES]),
+          eb.and([
+            eb.or([
+              eb('o.status', 'in', ['PENDING', 'PREPARING']),
+              eb('o.status', 'is', null),
+            ]),
+            eb('pb.plan_date', '=', SixHiShiftService.toPlanDate(planDate)),
+            eb('pb.shift_code', '=', shiftCode),
+          ]),
+        ]),
+      );
+    }
 
     const rows = await q.orderBy('pb.queue_seq', 'asc').orderBy('pb.batch_number', 'asc').execute();
 
     const filtered = rows
       .filter((r) => {
         const st = r.status ?? 'PENDING';
-        return QUEUE_STATUSES.includes(st as typeof QUEUE_STATUSES[number]) || st === 'PENDING';
+        return ACTIVE_STATUSES.includes(st as typeof ACTIVE_STATUSES[number]);
       });
 
     const coilNos = filtered.map((r) => r.coil_no);
@@ -331,36 +369,36 @@ export class LiveService {
     const machineCodes = machines.map((m) => m.machine_code);
     const activeOrderRows = machineCodes.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
-          .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
-          .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
-          .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-          .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
-          .leftJoin('txn.order_stoppage as os', (join) =>
-            join.onRef('os.order_id', '=', 'o.order_id').on('os.end_at', 'is', null))
-          .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
-          .select([
-            'pb.machine_code',
-            'o.batch_number',
-            'o.status',
-            'o.prod_start_at',
-            'o.updated_at',
-            'pb.coil_no',
-            'pb.customer_name',
-            'pb.queue_seq',
-            'u.full_name as operator_name',
-            'os.category_code as stoppage_category',
-            'os.start_at as stoppage_start_at',
-            'os.remarks as stoppage_remarks',
-            'sc.label as stoppage_label',
-            'r.actual_weight_mt as rolling_weight',
-            's.actual_weight_mt as skinpass_weight',
-            'pb.ppc_weight_mt',
-          ])
-          .where('pb.machine_allocated', '=', true)
-          .where('pb.machine_code', 'in', machineCodes)
-          .where('o.status', 'in', [...PRODUCTION_ORDER_STATUSES])
-          .orderBy('o.updated_at', 'desc')
-          .execute()
+        .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+        .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
+        .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
+        .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+        .leftJoin('txn.stoppage as os', (join) =>
+          join.onRef('os.order_id', '=', 'o.order_id').on('os.end_at', 'is', null))
+        .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
+        .select([
+          'pb.machine_code',
+          'o.batch_number',
+          'o.status',
+          'o.prod_start_at',
+          'o.updated_at',
+          'pb.coil_no',
+          'pb.customer_name',
+          'pb.queue_seq',
+          'u.full_name as operator_name',
+          'os.category_code as stoppage_category',
+          'os.start_at as stoppage_start_at',
+          'os.remarks as stoppage_remarks',
+          'sc.label as stoppage_label',
+          'r.actual_weight_mt as rolling_weight',
+          's.actual_weight_mt as skinpass_weight',
+          'pb.ppc_weight_mt',
+        ])
+        .where('pb.machine_allocated', '=', true)
+        .where('pb.machine_code', 'in', machineCodes)
+        .where('o.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+        .orderBy('o.updated_at', 'desc')
+        .execute()
       : [];
 
     const activeOrdersByMachine = new Map<string, typeof activeOrderRows>();
@@ -467,12 +505,12 @@ export class LiveService {
         activeOrderCount: machineActiveOrders.length > 1 ? machineActiveOrders.length : undefined,
         activeOrders: machineActiveOrders.length > 1
           ? machineActiveOrders.map((o) => ({
-              batchNumber: o.batch_number,
-              coilNo: o.coil_no ?? undefined,
-              status: o.status,
-              customer: o.customer_name ?? undefined,
-              weightMt: o.ppc_weight_mt != null ? Number(o.ppc_weight_mt) : undefined,
-            }))
+            batchNumber: o.batch_number,
+            coilNo: o.coil_no ?? undefined,
+            status: o.status,
+            customer: o.customer_name ?? undefined,
+            weightMt: o.ppc_weight_mt != null ? Number(o.ppc_weight_mt) : undefined,
+          }))
           : undefined,
       };
     });
@@ -550,7 +588,7 @@ export class LiveService {
     // Active stoppage
     let activeStoppage: MachineCommandCenterData['activeStoppage'] | undefined;
     if ((card.status === 'STOPPAGE' || card.status === 'BREAKDOWN') && activeOrder) {
-      const stop = await db.selectFrom('txn.order_stoppage as os')
+      const stop = await db.selectFrom('txn.stoppage as os')
         .leftJoin('security.app_user as u', 'u.user_id', 'os.operator_id')
         .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
         .select(['os.stoppage_id', 'os.category_code', 'sc.label', 'os.remarks', 'os.start_at', 'u.full_name'])
@@ -766,20 +804,20 @@ export class LiveService {
     }
 
     const stoppages = batch.order_id
-      ? await db.selectFrom('txn.order_stoppage')
-          .selectAll()
-          .where('order_id', '=', batch.order_id)
-          .orderBy('start_at', 'desc')
-          .execute()
+      ? await db.selectFrom('txn.stoppage')
+        .selectAll()
+        .where('order_id', '=', batch.order_id)
+        .orderBy('start_at', 'desc')
+        .execute()
       : [];
 
     const remarks = batch.order_id
       ? await db.selectFrom('txn.order_remark as r')
-          .leftJoin('security.app_user as u', 'u.user_id', 'r.operator_id')
-          .select(['r.remark_id', 'r.text', 'r.created_at', 'u.full_name'])
-          .where('r.order_id', '=', batch.order_id)
-          .orderBy('r.created_at', 'desc')
-          .execute()
+        .leftJoin('security.app_user as u', 'u.user_id', 'r.operator_id')
+        .select(['r.remark_id', 'r.text', 'r.created_at', 'u.full_name'])
+        .where('r.order_id', '=', batch.order_id)
+        .orderBy('r.created_at', 'desc')
+        .execute()
       : [];
 
     const productionHistory = journey?.steps.map((s) => ({
@@ -828,7 +866,7 @@ export class LiveService {
       currentShiftWindow,
       nextProcess: progress.nextProcess,
       completionPct: progress.completionPct,
-      journey: journey ?? undefined,      stoppages: stoppages.map((s) => ({
+      journey: journey ?? undefined, stoppages: stoppages.map((s) => ({
         id: String(s.stoppage_id),
         category: s.category_code,
         breakdownCode: s.breakdown_code ?? undefined,
@@ -910,6 +948,8 @@ export class LiveService {
   ): Promise<{
     actualMt: number;
     completedOrderCount: number;
+    inProgressOrderCount: number;
+    orderCount: number;
     completedProdMt: number;
     inProgressMt: number;
     totalProdMt: number;
@@ -917,6 +957,8 @@ export class LiveService {
     const zeros = {
       actualMt: 0,
       completedOrderCount: 0,
+      inProgressOrderCount: 0,
+      orderCount: 0,
       completedProdMt: 0,
       inProgressMt: 0,
       totalProdMt: 0,
@@ -932,25 +974,67 @@ export class LiveService {
     const machineScope = machineFilter && machineFilter.length > 0 ? machineFilter : undefined;
     const summary = await SixHiShiftService.getShiftSummary(shiftLogId, machineScope);
     const round = (n: number) => Math.round(n * 10) / 10;
+    const completedOrderCount = summary.completedOrders?.length ?? 0;
+    const inProgressOrderCount = summary.ordersInProgress?.length ?? 0;
 
     return {
       actualMt: round(summary.totalProdMt),
       totalProdMt: round(summary.totalProdMt),
       completedProdMt: round(summary.completedProdMt ?? 0),
       inProgressMt: round(summary.inProgressProdMt ?? 0),
-      completedOrderCount: summary.completedOrders?.length ?? 0,
+      completedOrderCount,
+      inProgressOrderCount,
+      orderCount: completedOrderCount + inProgressOrderCount,
     };
   }
 
   static async getMachineHeadDashboard(
     userId: number,
     roles: string[],
+    opts: { machine?: string; search?: string; subProcess?: string } = {},
   ): Promise<MachineHeadDashboardData> {
-    const machineFilter = await this.getMachineScope(userId, roles);
+    let machineFilter = await this.getMachineScope(userId, roles);
+    if (opts.machine && opts.machine !== 'ALL') {
+      const code = opts.machine.toUpperCase();
+      if (machineFilter === null) machineFilter = [code];
+      else machineFilter = machineFilter.filter((m) => m === code);
+    }
     const { prodDate, shiftCode } = await this.getShiftQueueContext(userId);
     const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
-    const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode);
+    const search = opts.search?.trim() || undefined;
+    const subProcess = opts.subProcess === 'ROLLING' || opts.subProcess === 'SKIN_PASS'
+      ? opts.subProcess
+      : undefined;
+
+    // Empty scope must short-circuit before any `IN ()` SQL (truthy [] would 500).
+    if (machineFilter !== null && machineFilter.length === 0) {
+      return {
+        orderQueue: [],
+        shiftSummary: {
+          shiftCode,
+          prodDate,
+          targetMt: 0,
+          actualMt: 0,
+          completedProdMt: 0,
+          inProgressMt: 0,
+          totalProdMt: 0,
+          queuedMt: 0,
+          orderCount: 0,
+          completedOrderCount: 0,
+        },
+        runtimeUtilization: [],
+        stoppages: [],
+        operatorActivity: [],
+        productionHistory: [],
+        handoverOverview: { pending: [], recent: [], awaitingAcceptance: 0 },
+        rejectedOrders: [],
+        rejectedOrderCount: 0,
+      };
+    }
+
+    const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode, { search, subProcess });
     const machines = await this.getMachineCards(machineFilter);
+    const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(prodDate, shiftCode);
 
     const shiftLog = await db.selectFrom('txn.shift_log')
       .select(['target_mt'])
@@ -959,40 +1043,45 @@ export class LiveService {
       .where('process_id', '=', 31)
       .executeTakeFirst();
 
-    const completed = machineFilter
-      ? await db
-          .selectFrom('txn.crm6_order as o')
-          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-          .select([
-            'o.order_id',
-            'o.sub_process',
-            'pb.batch_number',
-            'pb.machine_code',
-            'o.prod_end_at',
-            'pb.ppc_weight_mt',
-          ])
-          .where('o.status', '=', 'COMPLETED')
-          .where('pb.machine_code', 'in', machineFilter)
-          .orderBy('o.prod_end_at', 'desc')
-          .limit(10)
-          .execute()
-      : await db
-          .selectFrom('txn.crm6_order as o')
-          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-          .select([
-            'o.order_id',
-            'o.sub_process',
-            'pb.batch_number',
-            'pb.machine_code',
-            'o.prod_end_at',
-            'pb.ppc_weight_mt',
-          ])
-          .where('o.status', '=', 'COMPLETED')
-          .orderBy('o.prod_end_at', 'desc')
-          .limit(10)
-          .execute();
+    let completedQ = db
+      .selectFrom('txn.crm6_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'o.order_id',
+        'o.sub_process',
+        'pb.batch_number',
+        'pb.machine_code',
+        'o.prod_end_at',
+        'pb.ppc_weight_mt',
+      ])
+      .where('o.status', '=', 'COMPLETED')
+      .orderBy('o.prod_end_at', 'desc')
+      .limit(10);
+    if (shiftLogId) {
+      completedQ = completedQ.where('o.shift_log_id', '=', shiftLogId);
+    } else {
+      completedQ = completedQ
+        .where('pb.plan_date', '=', SixHiShiftService.toPlanDate(prodDate))
+        .where('pb.shift_code', '=', shiftCode);
+    }
+    if (machineFilter !== null) {
+      completedQ = completedQ.where('pb.machine_code', 'in', machineFilter);
+    }
+    if (subProcess) {
+      completedQ = completedQ.where('o.sub_process', '=', subProcess);
+    }
+    if (search) {
+      const term = `%${search}%`;
+      completedQ = completedQ.where((eb) =>
+        eb.or([
+          eb('pb.batch_number', 'ilike', term),
+          eb('pb.coil_no', 'ilike', term),
+        ]),
+      );
+    }
+    const completed = await completedQ.execute();
 
-    const rejectedQ = db.selectFrom('txn.crm6_order as o')
+    let rejectedQ = db.selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
       .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
@@ -1011,20 +1100,41 @@ export class LiveService {
       .orderBy('o.prod_end_at', 'desc')
       .limit(10);
 
-    const rejectedCountQ = db.selectFrom('txn.crm6_order as o')
+    let rejectedCountQ = db.selectFrom('txn.crm6_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(sql<number>`count(*)::int`.as('n'))
       .where('o.status', '=', 'REJECTED');
-      
-    const rejectedScopedQ = machineFilter ? rejectedQ.where('pb.machine_code', 'in', machineFilter) : rejectedQ;
-    const rejected = await rejectedScopedQ.execute();
-    const rejectedCountScopedQ = machineFilter
-      ? rejectedCountQ.where('pb.machine_code', 'in', machineFilter)
-      : rejectedCountQ;
-    const rejectedCountRow = await rejectedCountScopedQ.executeTakeFirst();
+
+    if (shiftLogId) {
+      rejectedQ = rejectedQ.where('o.shift_log_id', '=', shiftLogId);
+      rejectedCountQ = rejectedCountQ.where('o.shift_log_id', '=', shiftLogId);
+    } else {
+      const plan = SixHiShiftService.toPlanDate(prodDate);
+      rejectedQ = rejectedQ.where('pb.plan_date', '=', plan).where('pb.shift_code', '=', shiftCode);
+      rejectedCountQ = rejectedCountQ.where('pb.plan_date', '=', plan).where('pb.shift_code', '=', shiftCode);
+    }
+    if (machineFilter !== null) {
+      rejectedQ = rejectedQ.where('pb.machine_code', 'in', machineFilter);
+      rejectedCountQ = rejectedCountQ.where('pb.machine_code', 'in', machineFilter);
+    }
+    if (subProcess) {
+      rejectedQ = rejectedQ.where('o.sub_process', '=', subProcess);
+      rejectedCountQ = rejectedCountQ.where('o.sub_process', '=', subProcess);
+    }
+    if (search) {
+      const term = `%${search}%`;
+      rejectedQ = rejectedQ.where((eb) =>
+        eb.or([
+          eb('pb.batch_number', 'ilike', term),
+          eb('pb.coil_no', 'ilike', term),
+        ]),
+      );
+    }
+    const rejected = await rejectedQ.execute();
+    const rejectedCountRow = await rejectedCountQ.executeTakeFirst();
     const rejectedOrderCount = rejectedCountRow?.n ?? 0;
 
-    let stoppageQ = db.selectFrom('txn.order_stoppage as os')
+    let stoppageQ = db.selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
@@ -1039,31 +1149,19 @@ export class LiveService {
       ])
       .where('os.end_at', 'is', null);
     if (machineFilter !== null) {
-      if (machineFilter.length === 0) {
-        return {
-          orderQueue: [],
-          shiftSummary: {
-            shiftCode: shiftCode,
-            prodDate: prodDate,
-            targetMt: 0,
-            actualMt: 0,
-            completedProdMt: 0,
-            inProgressMt: 0,
-            totalProdMt: 0,
-            queuedMt: 0,
-            orderCount: 0,
-            completedOrderCount: 0,
-          },
-          runtimeUtilization: [],
-          stoppages: [],
-          operatorActivity: [],
-          productionHistory: [],
-          handoverOverview: { pending: [], recent: [], awaitingAcceptance: 0 },
-          rejectedOrders: [],
-          rejectedOrderCount: 0,
-        };
-      }
       stoppageQ = stoppageQ.where('pb.machine_code', 'in', machineFilter);
+    }
+    if (subProcess) {
+      stoppageQ = stoppageQ.where('pb.sub_process', '=', subProcess);
+    }
+    if (search) {
+      const term = `%${search}%`;
+      stoppageQ = stoppageQ.where((eb) =>
+        eb.or([
+          eb('pb.batch_number', 'ilike', term),
+          eb('pb.coil_no', 'ilike', term),
+        ]),
+      );
     }
     const stoppageRows = await stoppageQ.orderBy('os.start_at', 'desc').limit(15).execute();
 
@@ -1071,6 +1169,7 @@ export class LiveService {
     const {
       actualMt,
       completedOrderCount,
+      orderCount,
       completedProdMt,
       inProgressMt,
       totalProdMt,
@@ -1081,7 +1180,23 @@ export class LiveService {
     );
 
     const { MachineHandoverService } = await import('./MachineHandoverService');
-    const handoverOverview = await MachineHandoverService.getHandoverOverview(machineFilter);
+    let handoverOverview = await MachineHandoverService.getHandoverOverview(machineFilter);
+    if (subProcess || search) {
+      const matchHandover = (h: { subProcess?: string; batchNumber?: string | null; machineCode: string }) => {
+        if (subProcess && h.subProcess && h.subProcess !== subProcess) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          const hay = `${h.batchNumber ?? ''} ${h.machineCode}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      };
+      handoverOverview = {
+        ...handoverOverview,
+        pending: handoverOverview.pending.filter(matchHandover),
+        recent: handoverOverview.recent.filter(matchHandover),
+      };
+    }
 
     return {
       orderQueue: orders,
@@ -1094,7 +1209,7 @@ export class LiveService {
         inProgressMt,
         totalProdMt,
         queuedMt,
-        orderCount: orders.length,
+        orderCount,
         completedOrderCount,
       },
       runtimeUtilization: await Promise.all(machines.map(async (m) => {

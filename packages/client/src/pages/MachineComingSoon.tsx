@@ -32,7 +32,7 @@ export function MachineComingSoon({ machineCode: machineCodeProp }: { machineCod
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Coming soon</p>
         <h1 className="text-2xl font-bold font-mono text-foreground">{machineCode}</h1>
         <p className="text-sm text-muted-foreground">
-          No CRM mill (6HI) is assigned to this account. Contact your supervisor to get machine access.
+          No CRM mill (6HI) is assigned to this account. Contact your machine head or admin to get machine access.
         </p>
         <ZButton variant="accent" onClick={handleAction}>
           {isAlreadyHome ? 'Logout' : 'Back to home'}

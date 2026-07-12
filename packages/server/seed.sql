@@ -83,9 +83,9 @@ ON CONFLICT (rp_oil_grade) DO NOTHING;
 
 -- Roles & Users (Security Schema)
 INSERT INTO security.role (role_code, name, description) VALUES
-('OPERATOR', 'Line Operator', 'Can submit shift logs for authorized lines'),
-('SUPERVISOR', 'Shift Supervisor', 'Can approve logs and manage shift workflow'),
-('PLANT_HEAD', 'Plant Head', 'View all reports and KPI dashboards'),
+('OPERATOR', 'Line Operator', 'Can submit shift logs'),
+('PLANT_HEAD', 'Plant Head', 'Can view all reports and KPI dashboards'),
+('MACHINE_HEAD', 'Machine Head', 'Manages assigned machines'),
 ('ADMIN', 'System Administrator', 'Manage master data, users, and settings')
 ON CONFLICT (role_code) DO NOTHING;
 

@@ -15,7 +15,7 @@ vi.mock('../src/middleware/authMiddleware', () => ({
   requireRole: () => (_req: any, _res: any, next: any) => next(),
 }));
 
-const mockSupervisor = vi.fn();
+const mockMachineHead = vi.fn();
 const mockPlantHead = vi.fn();
 const mockManagement = vi.fn();
 const mockDaily = vi.fn();
@@ -25,7 +25,7 @@ const mockCoilSearch = vi.fn();
 
 vi.mock('../src/services/ReportingService', () => ({
   ReportingService: {
-    getSupervisorDashboard: (...args: unknown[]) => mockSupervisor(...args),
+    getMachineHeadDashboard: (...args: unknown[]) => mockMachineHead(...args),
     getPlantHeadDashboard: (...args: unknown[]) => mockPlantHead(...args),
     getManagementDashboard: (...args: unknown[]) => mockManagement(...args),
     getDailyReport: (...args: unknown[]) => mockDaily(...args),

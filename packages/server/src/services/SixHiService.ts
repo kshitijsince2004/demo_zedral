@@ -160,7 +160,7 @@ export class SixHiService {
 
   private static async totalStoppageMinutes(orderId: number | string, asOf: Date = new Date()): Promise<number> {
     const id = String(orderId);
-    const stops = await db.selectFrom('txn.order_stoppage')
+    const stops = await db.selectFrom('txn.stoppage')
       .select(['start_at', 'end_at', 'duration_min'])
       .where('order_id', '=', id)
       .execute();
@@ -179,7 +179,7 @@ export class SixHiService {
 
   private static async assertNoOpenStoppage(orderId: number | string): Promise<void> {
     const id = String(orderId);
-    const open = await db.selectFrom('txn.order_stoppage')
+    const open = await db.selectFrom('txn.stoppage')
       .select(db.fn.count('stoppage_id').as('c'))
       .where('order_id', '=', id)
       .where('end_at', 'is', null)
@@ -254,7 +254,7 @@ export class SixHiService {
     let activeStoppageCategory: string | undefined;
     let prepReady = false;
     if (order) {
-      const openStop = await db.selectFrom('txn.order_stoppage as os')
+      const openStop = await db.selectFrom('txn.stoppage as os')
         .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
         .select(['sc.label'])
         .where('os.order_id', '=', order.order_id)
@@ -828,7 +828,7 @@ export class SixHiService {
       .orderBy('r.created_at', 'asc')
       .execute();
 
-    const stoppages = await db.selectFrom('txn.order_stoppage as os')
+    const stoppages = await db.selectFrom('txn.stoppage as os')
       .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
       .select([
         'os.stoppage_id', 'os.category_code', 'sc.label', 'os.breakdown_code',
@@ -1422,7 +1422,7 @@ export class SixHiService {
     const startAt = new Date();
     await validateOrderStoppageStart(orderId, startAt);
 
-    await db.insertInto('txn.order_stoppage')
+    await db.insertInto('txn.stoppage')
       .values({
         order_id: orderId,
         category_code: categoryCode,
@@ -1452,7 +1452,7 @@ export class SixHiService {
 
   static async updateStoppage(batchNumber: string, stoppageId: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
-    await db.updateTable('txn.order_stoppage')
+    await db.updateTable('txn.stoppage')
       .set({
         category_code: categoryCode,
         breakdown_code: breakdownCode ?? null,
@@ -1470,7 +1470,7 @@ export class SixHiService {
       .select(['order_id', 'logged_in_user_id', 'prod_start_at'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirstOrThrow();
-    const stop = await db.selectFrom('txn.order_stoppage')
+    const stop = await db.selectFrom('txn.stoppage')
       .selectAll()
       .where('stoppage_id', '=', stoppageId)
       .executeTakeFirstOrThrow();
@@ -1485,11 +1485,11 @@ export class SixHiService {
     const endAt = new Date();
     await validateOrderStoppageInterval(order.order_id, stop.start_at, endAt, stoppageId);
     const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
-    await db.updateTable('txn.order_stoppage')
+    await db.updateTable('txn.stoppage')
       .set({ end_at: endAt, duration_min: durationMin })
       .where('stoppage_id', '=', stoppageId)
       .execute();
-    const openCount = await db.selectFrom('txn.order_stoppage')
+    const openCount = await db.selectFrom('txn.stoppage')
       .select(db.fn.count('stoppage_id').as('c'))
       .where('order_id', '=', order.order_id)
       .where('end_at', 'is', null)
@@ -1551,7 +1551,7 @@ export class SixHiService {
   static async getShiftStoppages(shiftLogId: string, machineCode?: string) {
     // Single source of truth: stoppages belong to the shift the order is attributed to
     // (crm6_order.shift_log_id), consistent with production attribution.
-    let query = db.selectFrom('txn.order_stoppage as os')
+    let query = db.selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
@@ -1724,14 +1724,14 @@ export class SixHiService {
       throw new Error(`Orders with status ${order.status} cannot be deleted`);
     }
 
-    const openStoppage = await db.selectFrom('txn.order_stoppage')
+    const openStoppage = await db.selectFrom('txn.stoppage')
       .select('stoppage_id')
       .where('order_id', '=', order.order_id)
       .where('end_at', 'is', null)
       .executeTakeFirst();
 
     if (openStoppage) {
-      await db.updateTable('txn.order_stoppage')
+      await db.updateTable('txn.stoppage')
         .set({ end_at: new Date(), duration_min: 0 })
         .where('stoppage_id', '=', openStoppage.stoppage_id)
         .execute();
@@ -1795,21 +1795,21 @@ export class SixHiService {
       .execute();
 
     // End active stoppage if any
-    const activeStoppage = await db.selectFrom('txn.order_stoppage')
+    const activeStoppage = await db.selectFrom('txn.stoppage')
       .select('stoppage_id')
       .where('order_id', '=', orderId)
       .where('end_at', 'is', null)
       .executeTakeFirst();
     
     if (activeStoppage) {
-      const stop = await db.selectFrom('txn.order_stoppage')
+      const stop = await db.selectFrom('txn.stoppage')
         .selectAll()
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .executeTakeFirstOrThrow();
       const endAt = new Date();
       await validateOrderStoppageInterval(orderId, stop.start_at, endAt, String(activeStoppage.stoppage_id));
       const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
-      await db.updateTable('txn.order_stoppage')
+      await db.updateTable('txn.stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .execute();
@@ -2101,7 +2101,8 @@ export class SixHiService {
         'o.ppc_weight_mt',
         'pb.ppc_weight_mt as batch_ppc_weight_mt',
       ])
-      .where('o.shift_log_id', '=', shiftLogId);
+      .where('o.shift_log_id', '=', shiftLogId)
+      .where('o.status', '!=', 'CANCELLED');
 
     if (machineCodes && machineCodes.length > 0) {
       query = machineCodes.length === 1

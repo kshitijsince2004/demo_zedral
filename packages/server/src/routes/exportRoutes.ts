@@ -9,7 +9,7 @@ import type { ExportType } from '../export/types';
 const router = Router();
 router.use(require('express').json());
 router.use(requireAuth);
-router.use(requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]));
+router.use(requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]));
 
 function httpStatusForJob(status: string): number {
   if (status === 'FAILED') return 500;

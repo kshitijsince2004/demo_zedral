@@ -70,7 +70,7 @@ export function resolvePrimaryMachinePath(
   if (firstMachine) {
     return pathForMachine(firstMachine);
   }
-  if (role === 'OPERATOR' || role === 'SUPERVISOR' || role === 'MACHINE_HEAD') {
+  if (role === 'OPERATOR' || role === 'MACHINE_HEAD') {
     return null;
   }
   return null;

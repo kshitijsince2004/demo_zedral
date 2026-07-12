@@ -4,16 +4,11 @@ import {
   assertEndAfterStart,
   assertNoOverlappingIntervals,
   assertRuntimeAccounting,
-  clockRangeMinutes,
   ManufacturingValidationError,
   resolveShiftWindowBounds,
 } from '../validation/manufacturingValidation';
 import { publishDowntimeLogged } from '../platform/m1Events';
 import { plantClockDate } from '@m1/shared-validation';
-
-function parseTimeToDate(time: string): Date {
-  return new Date(`1970-01-01T${time}`);
-}
 
 function clockTimeToDate(prodDate: Date, time: string): Date {
   return plantClockDate(prodDate, time);
@@ -29,7 +24,7 @@ export class StoppageService {
     endTime?: string;
     durationMins?: number;
     remarks?: string;
-  }, _userId: string) {
+  }, userId: string) {
     const fromTime = payload.fromTime ?? payload.startTime;
     const toTime = payload.toTime ?? payload.endTime;
 
@@ -38,79 +33,85 @@ export class StoppageService {
     if (!fromTime) throw new ManufacturingValidationError('fromTime is required');
     if (!toTime) throw new ManufacturingValidationError('toTime is required');
 
-    assertEndAfterStart(parseTimeToDate(fromTime), parseTimeToDate(toTime), 'Stoppage');
-
-    const durationMin =
-      payload.durationMins ??
-      calculateStoppageDuration(parseTimeToDate(fromTime), parseTimeToDate(toTime));
-
-    if (durationMin <= 0) {
-      throw new ManufacturingValidationError('Stoppage duration must be greater than zero');
-    }
-
     const shiftLog = await db
       .selectFrom('txn.shift_log as sl')
       .leftJoin('master.shift as s', 's.shift_code', 'sl.shift_code')
-      .select(['sl.prod_date', 'sl.shift_code', 's.start_time', 's.end_time'])
+      .select(['sl.prod_date', 'sl.shift_code', 's.start_time', 's.end_time', 'sl.tenant_id'])
       .where('sl.shift_log_id', '=', payload.shiftLogId)
       .executeTakeFirst();
 
     if (!shiftLog) throw new ManufacturingValidationError('Shift log not found');
 
     const prodDate = shiftLog.prod_date instanceof Date ? shiftLog.prod_date : new Date(shiftLog.prod_date);
+    
+    // Resolve full Timestamps for the stoppage
+    const startAt = clockTimeToDate(prodDate, fromTime);
+    let endAt = clockTimeToDate(prodDate, toTime);
+    if (endAt.getTime() <= startAt.getTime()) {
+      endAt = new Date(endAt.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    assertEndAfterStart(startAt, endAt, 'Stoppage');
+
+    const durationMin =
+      payload.durationMins ?? Math.round((endAt.getTime() - startAt.getTime()) / 60000);
+
+    if (durationMin <= 0) {
+      throw new ManufacturingValidationError('Stoppage duration must be greater than zero');
+    }
+
     const shiftBounds = shiftLog.start_time && shiftLog.end_time
       ? resolveShiftWindowBounds(prodDate, String(shiftLog.start_time).slice(0, 5), String(shiftLog.end_time).slice(0, 5))
       : null;
 
-    if (shiftBounds) {
-      const entryStart = clockTimeToDate(prodDate, fromTime);
-      let entryEnd = clockTimeToDate(prodDate, toTime);
-      if (entryEnd.getTime() <= entryStart.getTime()) {
-        entryEnd = new Date(entryEnd.getTime() + 24 * 60 * 60 * 1000);
-      }
+    // Fetch stoppage category for Model B alignment
+    const category = await db
+      .selectFrom('master.stoppage_code')
+      .select('category')
+      .where('stoppage_code', '=', payload.stoppageCode)
+      .executeTakeFirstOrThrow();
 
+    if (shiftBounds) {
       const existing = await db
-        .selectFrom('txn.stoppage_entry')
-        .select(['time_from', 'time_to'])
+        .selectFrom('txn.stoppage')
+        .select(['start_at', 'end_at', 'duration_min'])
         .where('shift_log_id', '=', payload.shiftLogId)
         .execute();
 
-      const open = existing.filter((e) => !e.time_to);
+      const open = existing.filter((e) => !e.end_at);
       if (open.length > 0) {
         throw new ManufacturingValidationError('An active stoppage entry already exists for this shift log');
       }
 
       const intervals = [
         ...existing
-          .filter((e) => e.time_to)
-          .map((e) => {
-            const start = clockTimeToDate(prodDate, e.time_from);
-            let end = clockTimeToDate(prodDate, e.time_to!);
-            if (end.getTime() <= start.getTime()) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
-            return { start, end };
-          }),
-        { start: entryStart, end: entryEnd },
+          .filter((e) => e.end_at)
+          .map((e) => ({ start: e.start_at, end: e.end_at! })),
+        { start: startAt, end: endAt },
       ];
       assertNoOverlappingIntervals(intervals);
 
       const existingMinutes = existing.reduce((sum, e) => {
-        if (!e.time_to) return sum;
-        return sum + clockRangeMinutes(e.time_from, e.time_to);
+        if (!e.end_at) return sum;
+        return sum + (e.duration_min ?? Math.round((e.end_at.getTime() - e.start_at.getTime()) / 60000));
       }, 0);
       assertRuntimeAccounting(0, existingMinutes + durationMin, shiftBounds.durationMinutes);
     }
 
     const row = await db
-      .insertInto('txn.stoppage_entry')
+      .insertInto('txn.stoppage')
       .values({
+        tenant_id: shiftLog.tenant_id,
         shift_log_id: payload.shiftLogId,
-        stoppage_code: payload.stoppageCode,
-        time_from: fromTime,
-        time_to: toTime,
+        category_code: category.category,
+        breakdown_code: payload.stoppageCode,
+        start_at: startAt,
+        end_at: endAt,
         duration_min: durationMin,
         remarks: payload.remarks ?? null,
         shift_code: shiftLog.shift_code,
         prod_date: prodDate,
+        operator_id: Number(userId),
       })
       .returning(['stoppage_id'])
       .executeTakeFirstOrThrow();

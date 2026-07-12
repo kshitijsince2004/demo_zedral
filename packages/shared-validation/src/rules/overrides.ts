@@ -29,7 +29,7 @@ export const canOverride = (
   }
 
   // Check role authorization
-  const isAuthorized = userRoles.includes(UserRole.SUPERVISOR) || userRoles.includes(UserRole.ADMIN);
+  const isAuthorized = userRoles.includes(UserRole.MACHINE_HEAD) || userRoles.includes(UserRole.ADMIN);
   if (!isAuthorized && (result.errors.length > 0 || result.warnings.length > 0)) {
     return false;
   }

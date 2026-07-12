@@ -164,7 +164,7 @@ export function Login() {
 
           {import.meta.env.DEV && (
             <p className="text-center text-[10px] text-muted-foreground mt-3 font-mono">
-              Dev: badge 3000 / PIN 1234 (operator) · 2000 supervisor · 1000 admin
+              Dev: badge 3000 / PIN 1234 (operator) · 2000 machine head · 1000 admin
             </p>
           )}
 

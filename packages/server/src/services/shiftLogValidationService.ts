@@ -16,7 +16,6 @@ import {
   mapCrmEntry,
   mapCrsEntry,
   mapCtlEntry,
-  mapGlvEntry,
   mapHrsEntry,
   mapPklEntry,
   mapRwdEntry,
@@ -101,7 +100,7 @@ export class ShiftLogValidationService {
         const passes =
           entryIds.length > 0
             ? await db
-                .selectFrom('txn.prod_skp_pass')
+                .selectFrom('archive.prod_skp_pass' as any)
                 .selectAll()
                 .where('entry_id', 'in', entryIds)
                 .execute()
@@ -136,8 +135,6 @@ export class ShiftLogValidationService {
       }
       case 'CTL':
         return rows.map((row: any) => mapCtlEntry(row, shiftLogId));
-      case 'GLV':
-        return rows.map((row: any) => mapGlvEntry(row, shiftLogId));
       default:
         return [];
     }

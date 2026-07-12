@@ -16,7 +16,6 @@ import {
   mapHrsRow,
   mapPklRow,
   mapRwdRow,
-  mapSkpRow,
 } from './processMappers';
 import { resolveCrm6AreaCode, resolveProcessArea, toDateString, toNumber } from './lineArea';
 
@@ -183,12 +182,7 @@ export class ExportReadRepository {
       }
     }
 
-    const skpIds = shiftIdsByProcess.get('SKP') ?? [];
-    if (skpIds.length > 0) {
-      let q = db.selectFrom('txn.prod_skp').selectAll().where('shift_log_id', 'in', skpIds);
-      if (scope.coilNo) q = q.where('coil_no', '=', scope.coilNo);
-      pushMappedRuns(runs, scope, await q.execute() as Record<string, unknown>[], ctxByShiftId, mapSkpRow);
-    }
+
 
     const rwdIds = shiftIdsByProcess.get('RWD') ?? [];
     if (rwdIds.length > 0) {
@@ -290,14 +284,14 @@ export class ExportReadRepository {
 
     if (shiftIds.length > 0) {
       const entries = await db
-        .selectFrom('txn.stoppage_entry as se')
-        .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+        .selectFrom('txn.stoppage as se')
+        .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
         .select([
           'se.stoppage_id',
           'se.shift_log_id',
           'se.duration_min',
           'se.remarks',
-          'se.stoppage_code',
+          'se.breakdown_code as stoppage_code',
           'sc.description',
           'sc.dpr_category',
           'sc.agency_code',
@@ -317,7 +311,7 @@ export class ExportReadRepository {
           shiftCode: shift.shift_code,
           minutes: e.duration_min ?? 0,
           agencyCode: (e.agency_code ?? mapLegacyAgency(e.category)) as StoppageAgency,
-          reasonCode: e.stoppage_code,
+          reasonCode: e.stoppage_code ?? '',
           reasonLabel: e.description,
           dprCategory: (e.dpr_category ?? mapLegacyDprCategory(e.category)) as DprStoppageCategory,
           remark: e.remarks,
@@ -331,7 +325,7 @@ export class ExportReadRepository {
     // hardcoded shift. For a monthly DPR (scope.shiftCode undefined) this keeps each
     // stoppage in its actual shift column instead of collapsing them all into shift A.
     let orderQ = db
-      .selectFrom('txn.order_stoppage as os')
+      .selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm6_order as o', 'os.order_id', 'o.order_id')
       .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
       .leftJoin('txn.shift_log as osl', 'o.shift_log_id', 'osl.shift_log_id')

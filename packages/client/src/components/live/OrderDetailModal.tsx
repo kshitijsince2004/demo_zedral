@@ -8,6 +8,7 @@ import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
 import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
 import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
+import { apiClient } from '../../lib/apiClient';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
 
 interface OrderDetailModalProps {

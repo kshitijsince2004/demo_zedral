@@ -10,6 +10,7 @@ interface PlantOperationsAreaProps {
   data: ExtendedPlantHeadDashboardData;
   liveMachines?: MachineStatusCard[];
   liveOrders?: LiveOrderRow[];
+  liveOrdersError?: string | null;
   onOrderClick?: (batchNumber: string) => void;
 }
 
@@ -31,7 +32,7 @@ function orderStatusTone(status: LiveOrderRow['status']) {
   return 'info' as const;
 }
 
-export function PlantOperationsArea({ data, liveMachines, liveOrders, onOrderClick }: PlantOperationsAreaProps) {
+export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrdersError, onOrderClick }: PlantOperationsAreaProps) {
   const hasLiveMachines = liveMachines != null && liveMachines.length > 0;
   const hasLiveOrders = liveOrders != null && liveOrders.length > 0;
 
@@ -112,9 +113,13 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, onOrderCli
 
       <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
         <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
-          <h2 className="font-semibold leading-none tracking-tight text-foreground">Order Status</h2>
+          <h2 className="font-semibold leading-none tracking-tight text-foreground">In Progress Orders</h2>
           <p className="text-sm text-muted-foreground">
-            {hasLiveOrders ? 'Active orders from /live/orders' : 'Live order feed unavailable'}
+            {hasLiveOrders
+              ? 'Live queue from /live/orders (active work only)'
+              : liveOrdersError
+                ? 'Live order feed failed — retrying'
+                : 'No active orders on the shopfloor right now'}
           </p>
         </div>
         <div className="p-0 flex-1 overflow-x-auto">
@@ -148,8 +153,10 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, onOrderCli
                 ))}
               </tbody>
             </table>
+          ) : liveOrdersError ? (
+            <DataUnavailable message={`Could not load live orders: ${liveOrdersError}`} />
           ) : (
-            <DataUnavailable message="Live order tracking is not available. Connect CRM production orders to populate this panel." />
+            <DataUnavailable message="No in-progress or queued orders on allocated machines." />
           )}
         </div>
       </div>

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS txn.shift_override_audit (
   prod_date           DATE        NOT NULL,
   reason_code         VARCHAR(32) NOT NULL
                       CHECK (reason_code IN (
-                        'OVERTIME','PREV_SHIFT_CONTINUATION','SUPERVISOR_INSTRUCTION',
+                        'OVERTIME','PREV_SHIFT_CONTINUATION','MACHINE_HEAD_INSTRUCTION',
                         'SHIFT_CORRECTION','OTHER'
                       )),
   reason_detail       TEXT,

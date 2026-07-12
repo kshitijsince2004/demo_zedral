@@ -40,16 +40,16 @@ async function main() {
   check('POST /auth/badge-pin rejects bad creds', badLogin.status === 401);
 
   const supLogin = await req('POST', '/auth/badge-pin', { badgeId: '2000', pin: '1234' });
-  check('POST /auth/badge-pin supervisor', supLogin.status === 200 && !!supLogin.data.accessToken);
+  check('POST /auth/badge-pin machine head', supLogin.status === 200 && !!supLogin.data.accessToken);
   const supToken = supLogin.data.accessToken;
 
   const adminLogin = await req('POST', '/auth/badge-pin', { badgeId: '1000', pin: '1234' });
   check('POST /auth/badge-pin admin', adminLogin.status === 200 && !!adminLogin.data.accessToken);
   const adminToken = adminLogin.data.accessToken;
 
-  const reports = await req('GET', '/reports/supervisor', null, supToken);
+  const reports = await req('GET', '/reports/machine-head', null, supToken);
   check(
-    'GET /reports/supervisor',
+    'GET /reports/machine-head',
     reports.status === 200 && Array.isArray(reports.data.lineStatuses),
     `pending=${reports.data.pendingReviewCount}`,
   );

@@ -1,10 +1,10 @@
 import { ReportingService } from '../ReportingService';
 
 export class DashboardReportingService {
-  static getSupervisorDashboard(
-    ...args: Parameters<typeof ReportingService.getSupervisorDashboard>
-  ): ReturnType<typeof ReportingService.getSupervisorDashboard> {
-    return ReportingService.getSupervisorDashboard(...args);
+  static getMachineHeadDashboard(
+    ...args: Parameters<typeof ReportingService.getMachineHeadDashboard>
+  ): ReturnType<typeof ReportingService.getMachineHeadDashboard> {
+    return ReportingService.getMachineHeadDashboard(...args);
   }
 
   static getPlantHeadDashboard(

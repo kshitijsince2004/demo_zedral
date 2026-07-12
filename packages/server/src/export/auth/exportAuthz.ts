@@ -6,7 +6,6 @@ import { DPR_LINE_AREAS } from '../aggregation/lineAreas';
 import { dprAreasForMachines } from '../dpr/areaGeometry';
 
 const EXPORT_ROLES = [
-  UserRole.SUPERVISOR,
   UserRole.PLANT_HEAD,
   UserRole.MACHINE_HEAD,
   UserRole.ADMIN,

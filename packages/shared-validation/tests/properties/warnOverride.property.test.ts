@@ -9,7 +9,7 @@ describe('Property 7: WARN override acceptance', () => {
     fc.assert(
       fc.property(
         fc.array(fc.string({ minLength: 1 }), { minLength: 1 }),
-        fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN),
+        fc.constantFrom(UserRole.MACHINE_HEAD, UserRole.ADMIN),
         (fields, role) => {
           const result: ValidationResult = {
             isValid: false,
@@ -29,7 +29,7 @@ describe('Property 7: WARN override acceptance', () => {
     fc.assert(
       fc.property(
         fc.array(fc.string({ minLength: 1 }), { minLength: 1 }),
-        fc.constantFrom(UserRole.OPERATOR, UserRole.MACHINE_HEAD),
+        fc.constantFrom(UserRole.OPERATOR),
         (fields, role) => {
           const result: ValidationResult = {
             isValid: false,
@@ -49,7 +49,7 @@ describe('Property 7: WARN override acceptance', () => {
     fc.assert(
       fc.property(
         fc.array(fc.string({ minLength: 1 }), { minLength: 1 }),
-        fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.PLANT_HEAD),
+        fc.constantFrom(UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD),
         (fields, role) => {
           // Note: PLANT_HEAD doesn't implicitly authorize in current code unless we add it, but requirement says "authorized role". 
           // Current logic only checks SUPERVISOR and ADMIN.
@@ -73,7 +73,7 @@ describe('Property 7: WARN override acceptance', () => {
     fc.assert(
       fc.property(
         fc.array(fc.string({ minLength: 1 }), { minLength: 2 }),
-        fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN),
+        fc.constantFrom(UserRole.MACHINE_HEAD, UserRole.ADMIN),
         (fields, role) => {
           const result: ValidationResult = {
             isValid: true,

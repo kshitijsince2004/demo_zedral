@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
+    "dev:all": "node scripts/check-dev-ports.mjs && docker compose up -d db-primary && npx --yes concurrently -k -n server,client -c blue,green \"npm run dev -w @m1/server\" \"npm run dev -w @m1/client\"",
     "build": "npm run build -w @m1/shared-validation && npm run build -w @zedral/platform && npm run build -w @zedral/connectors && npm run build -w @zedral/m1-collection && npm run build -w @m1/client && npm run build -w @m1/server",
     "build:operator": "npm run check:operator-bundle -w @m1/client",
     "android:sync": "npm run android:sync -w @m1/client",

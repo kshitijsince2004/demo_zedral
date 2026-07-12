@@ -5,6 +5,7 @@ import {
   DashboardReportingService,
   TraceabilityReportingService,
 } from '../services/reporting';
+import { ReportingService } from '../services/ReportingService';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { getScopedLineCodes } from '../auth/lineAccessPolicy';
 import { UserRole } from '@m1/shared-validation';
@@ -19,15 +20,14 @@ const router = Router();
 router.use(require('express').json());
 router.use(requireAuth);
 
-router.get('/supervisor', requireRole([UserRole.SUPERVISOR, UserRole.ADMIN]), async (req, res) => {
+router.get('/machine-head', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
-    const linesParam = req.query.lines as string;
-    let lines = linesParam ? linesParam.split(',').map((l) => l.toUpperCase()) : [];
-    const scoped = getScopedLineCodes(req.user!, 'READ');
-    if (scoped !== null) {
-      lines = lines.length > 0 ? lines.filter((l) => scoped.includes(l)) : scoped;
+    const machines = req.user!.machineAccess ?? [];
+    if (machines.length === 0 && !req.user!.roles.includes(UserRole.ADMIN as string)) {
+       return res.json({ lineStatuses: [], pendingReviewCount: 0, lineOee: [], downtimePareto: [], yieldPct: 0, rejectionRatePct: 0 });
     }
-    const data = await DashboardReportingService.getSupervisorDashboard(lines);
+    // Admin gets everything if machines is empty
+    const data = await DashboardReportingService.getMachineHeadDashboard(machines);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -74,7 +74,7 @@ router.get(
   },
 );
 
-router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (_req, res) => {
+router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (_req, res) => {
   try {
     const data = await DashboardReportingService.getPlantHeadBacklog();
     res.json(data);
@@ -83,7 +83,7 @@ router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.SUP
   }
 });
 
-router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/plant-head', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const windowDays = parsePlantHeadWindow(req.query.window);
     if (windowDays === null) {
@@ -120,7 +120,7 @@ router.get('/management', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), as
   }
 });
 
-router.get('/drilldown', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/drilldown', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const metric = req.query.metric as string;
     const scope = {
@@ -137,7 +137,7 @@ router.get('/drilldown', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, 
   }
 });
 
-router.get('/daily', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/daily', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const date = (req.query.date as string) || currentPlantDate();
     const data = await DailyReportService.getDailyReport(date);
@@ -147,7 +147,7 @@ router.get('/daily', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, User
   }
 });
 
-router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.ADMIN]), async (req, res) => {
+router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const rawCoilNo = req.query.coilNo as string;
     if (!rawCoilNo) {
@@ -164,9 +164,9 @@ router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.SUPE
   }
 });
 
-router.get('/handover', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/handover', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
-    const summary = await ShiftLogService.getHandoverSummary(req.query.shiftLogId as string);
+    const summary = await ReportingService.getMachineHandoverSummary(req.query.shiftLogId as string);
     res.json(summary);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

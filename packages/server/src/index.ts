@@ -46,6 +46,17 @@ server = app.listen(port, host, async () => {
   }).catch(() => { /* already logged in checkElasticHealth */ });
 });
 
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `[startup] Port ${port} is already in use. Stop the other process (often another Zedral checkout) and retry.`,
+    );
+    process.exit(1);
+  }
+  console.error('[startup] HTTP server error', err);
+  process.exit(1);
+});
+
 function shutdown(signal: string) {
   console.log(`[shutdown] ${signal} received — stopping background workers`);
   ExportWorker.stop();

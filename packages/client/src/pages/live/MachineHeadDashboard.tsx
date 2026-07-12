@@ -22,10 +22,10 @@ import { jsonFingerprint } from '../../lib/silentRefresh';
 import { formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
 import type { MachineStatusCard } from '@m1/shared-validation';
 
-type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'handover';
+type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'completed' | 'handover';
 type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
 
-const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected'];
+const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected', 'completed'];
 const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
 
 function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
@@ -43,7 +43,7 @@ function formatDuration(minutes?: number): string {
 
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`bg-white border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 ${className}`}>
+    <div className={`bg-card border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 ${className}`}>
       {children}
     </div>
   );
@@ -59,8 +59,8 @@ function PanelBody({ children, empty, emptyLabel = 'No data' }: { children: Reac
 function StatCell({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) {
   return (
     <div className="px-3 py-2.5">
-      <dt className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{label}</dt>
-      <dd className={`mt-0.5 text-sm font-bold text-foreground ${mono ? 'font-mono' : ''}`}>{value}</dd>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className={`mt-0.5 text-sm font-bold text-foreground tabular-nums ${mono ? 'font-mono' : ''}`}>{value}</dd>
     </div>
   );
 }
@@ -117,10 +117,21 @@ export function MachineHeadDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
+  const [completedOrders, setCompletedOrders] = useState<any[]>([]);
+  const [completedLoading, setCompletedLoading] = useState(false);
   const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
+  const [machineFilter, setMachineFilter] = useState<string>('ALL');
+  const [shiftFilter, setShiftFilter] = useState<string>('ALL');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [machineModalCode, setMachineModalCode] = useState<string | null>(null);
   const [machineModalData, setMachineModalData] = useState<MachineStatusCard | undefined>();
   const prevDashboardFpRef = useRef('');
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(orderSearch.trim()), 300);
+    return () => clearTimeout(id);
+  }, [orderSearch]);
 
   const handleExportRejected = async (mode: 'day' | 'shift') => {
     try {
@@ -151,6 +162,13 @@ export function MachineHeadDashboard() {
     }
   }, [dashboard?.shiftSummary.shiftCode, dashboard?.shiftSummary.prodDate]);
 
+  const dashFilters = useMemo(() => ({
+    machine: machineFilter !== 'ALL' ? machineFilter : undefined,
+    shift: shiftFilter !== 'ALL' ? shiftFilter : undefined,
+    search: debouncedSearch || undefined,
+    subProcess: processFilter !== 'ALL' ? processFilter : undefined,
+  }), [machineFilter, shiftFilter, debouncedSearch, processFilter]);
+
   useEffect(() => {
     if (activeTab !== 'rejected') return;
     setRejectedLoading(true);
@@ -158,16 +176,49 @@ export function MachineHeadDashboard() {
       .getRejectedOrders({
         date: exportDate,
         shiftCode: exportShift || dashboard?.shiftSummary.shiftCode,
+        machine: dashFilters.machine,
         limit: 100,
       })
-      .then((res) => setRejectedOrders(res.orders))
+      .then((res) => {
+        const q = debouncedSearch.toLowerCase();
+        const rows = q
+          ? res.orders.filter((r) =>
+            `${r.batchNumber} ${r.coilNo ?? ''} ${r.reason}`.toLowerCase().includes(q)
+            && matchesProcessFilter(r.subProcess, processFilter))
+          : res.orders.filter((r) => matchesProcessFilter(r.subProcess, processFilter));
+        setRejectedOrders(rows);
+      })
       .catch(() => setRejectedOrders(dashboard?.rejectedOrders ?? []))
       .finally(() => setRejectedLoading(false));
-  }, [activeTab, exportDate, exportShift, dashboard?.shiftSummary.shiftCode, dashboard?.rejectedOrders]);
+  }, [activeTab, exportDate, exportShift, dashFilters.machine, debouncedSearch, processFilter, dashboard?.shiftSummary.shiftCode, dashboard?.rejectedOrders]);
+
+  useEffect(() => {
+    if (activeTab !== 'completed') return;
+    setCompletedLoading(true);
+    const qs = new URLSearchParams();
+    if (exportDate) qs.set('date', exportDate);
+    if (exportShift) qs.set('shiftCode', exportShift);
+    if (dashFilters.machine) qs.set('machine', dashFilters.machine);
+    
+    apiClient.get<any[]>(`/6hi/orders/completed?${qs.toString()}`)
+      .then((res) => {
+        const q = debouncedSearch.toLowerCase();
+        let rows = res;
+        if (q) {
+          rows = rows.filter((r) => 
+            `${r.batchNumber} ${r.coilNo ?? ''} ${r.customer ?? ''}`.toLowerCase().includes(q)
+          );
+        }
+        rows = rows.filter((r) => matchesProcessFilter(r.subProcess, processFilter));
+        setCompletedOrders(rows);
+      })
+      .catch((err) => console.error('Failed to load completed orders', err))
+      .finally(() => setCompletedLoading(false));
+  }, [activeTab, exportDate, exportShift, dashFilters.machine, debouncedSearch, processFilter]);
 
   const loadDashboard = useCallback(async () => {
     try {
-      const dash = await liveService.getMachineHeadDashboard();
+      const dash = await liveService.getMachineHeadDashboard(dashFilters);
       const fingerprint = jsonFingerprint(dash);
       if (fingerprint !== prevDashboardFpRef.current) {
         prevDashboardFpRef.current = fingerprint;
@@ -177,7 +228,7 @@ export function MachineHeadDashboard() {
     } catch (err: unknown) {
       setDashError((err as Error)?.message ?? 'Unable to load machine dashboard');
     }
-  }, []);
+  }, [dashFilters]);
 
   useEffect(() => {
     void loadDashboard();
@@ -192,50 +243,33 @@ export function MachineHeadDashboard() {
     return all.filter((m) => allowed.has(m.machineCode));
   }, [snapshot?.machines, machineAccess]);
 
-  const tabCount = useCallback((total: number, filtered: number) => (
-    processFilter === 'ALL' ? total : filtered
-  ), [processFilter]);
-
-  const filteredQueue = useMemo(
-    () => dashboard?.orderQueue.filter((o) => matchesProcessFilter(o.subProcess, processFilter)) ?? [],
-    [dashboard?.orderQueue, processFilter],
-  );
-  const filteredProduction = useMemo(
-    () => dashboard?.productionHistory.filter((h) => matchesProcessFilter(h.subProcess, processFilter)) ?? [],
-    [dashboard?.productionHistory, processFilter],
-  );
-  const filteredStoppages = useMemo(
-    () => dashboard?.stoppages.filter((s) => matchesProcessFilter(s.subProcess, processFilter)) ?? [],
-    [dashboard?.stoppages, processFilter],
-  );
-  const filteredRejected = useMemo(
-    () => rejectedOrders.filter((r) => matchesProcessFilter(r.subProcess, processFilter)),
-    [rejectedOrders, processFilter],
-  );
-  const filteredOperatorActivity = useMemo(
-    () => dashboard?.operatorActivity.filter((a) => {
-      const match = dashboard.orderQueue.find((q) => q.batchNumber === a.batchNumber);
-      return matchesProcessFilter(match?.subProcess ?? a.subProcess, processFilter);
-    }) ?? [],
-    [dashboard?.operatorActivity, dashboard?.orderQueue, processFilter],
-  );
+  // Server already applies machine/search/subProcess — lists are API results.
+  const filteredQueue = useMemo(() => {
+    return (dashboard?.orderQueue ?? []).filter(o => 
+      o.status === 'PREPARING' || o.status === 'IN_PROGRESS' || o.status === 'RUNNING'
+    );
+  }, [dashboard?.orderQueue]);
+  const filteredProduction = dashboard?.productionHistory ?? [];
+  const filteredStoppages = dashboard?.stoppages ?? [];
+  const filteredRejected = rejectedOrders;
+  const filteredOperatorActivity = dashboard?.operatorActivity ?? [];
   const filteredHandover = useMemo(() => {
     const rows = [
       ...(dashboard?.handoverOverview?.pending ?? []),
       ...(dashboard?.handoverOverview?.recent ?? []),
     ];
-    const unique = new Map(rows.map((h) => [h.handoverId, h]));
-    return [...unique.values()].filter((h) => matchesProcessFilter(h.subProcess, processFilter, true));
-  }, [dashboard?.handoverOverview, processFilter]);
+    return [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+  }, [dashboard?.handoverOverview]);
 
   const tabs = useMemo(() => [
     { id: 'overview', label: 'Overview' },
-    { id: 'orders', label: tabLabel('Orders', tabCount(dashboard?.orderQueue.length ?? 0, filteredQueue.length)) },
-    { id: 'production', label: tabLabel('Production', tabCount(dashboard?.productionHistory.length ?? 0, filteredProduction.length)) },
-    { id: 'stoppages', label: tabLabel('Stoppages', tabCount(dashboard?.stoppages.length ?? 0, filteredStoppages.length)) },
-    { id: 'rejected', label: tabLabel('Order Hold', tabCount(dashboard?.rejectedOrderCount ?? dashboard?.rejectedOrders?.length ?? 0, filteredRejected.length)) },
-    { id: 'handover', label: tabLabel('Handover', tabCount((dashboard?.handoverOverview?.recent.length ?? 0) + (dashboard?.handoverOverview?.pending.length ?? 0), filteredHandover.length)) },
-  ], [dashboard, filteredQueue.length, filteredProduction.length, filteredStoppages.length, filteredRejected.length, filteredHandover.length, tabCount]);
+    { id: 'orders', label: tabLabel('Orders', filteredQueue.length) },
+    { id: 'stoppages', label: tabLabel('Stoppages', filteredStoppages.length) },
+    { id: 'completed', label: tabLabel('Completed', completedOrders.length) },
+    { id: 'production', label: tabLabel('Production', filteredProduction.length) },
+    { id: 'rejected', label: tabLabel('Order Hold', dashboard?.rejectedOrderCount ?? filteredRejected.length) },
+    { id: 'handover', label: tabLabel('Handover', filteredHandover.length) },
+  ], [dashboard?.rejectedOrderCount, filteredQueue.length, filteredProduction.length, filteredStoppages.length, filteredRejected.length, filteredHandover.length, completedOrders.length]);
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
@@ -325,7 +359,7 @@ export function MachineHeadDashboard() {
                     <StatCell label="Prod Date" value={dashboard.shiftSummary.prodDate} mono />
                     <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
                     <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
-                    <StatCell label="Queued MT" value={dashboard.shiftSummary.queuedMt} mono />
+                    <StatCell label="Live Queue MT" value={dashboard.shiftSummary.queuedMt} mono />
                     <StatCell
                       label="Total MT"
                       value={dashboard.shiftSummary.totalProdMt ?? dashboard.shiftSummary.actualMt}
@@ -338,8 +372,8 @@ export function MachineHeadDashboard() {
                     />
                     <StatCell label="In Progress MT" value={dashboard.shiftSummary.inProgressMt ?? 0} mono />
                     <StatCell
-                      label="Orders"
-                      value={`${dashboard.shiftSummary.orderCount} q · ${dashboard.shiftSummary.completedOrderCount} done`}
+                      label="Shift Orders"
+                      value={`${dashboard.shiftSummary.orderCount} · ${dashboard.shiftSummary.completedOrderCount} done`}
                     />
                   </dl>
                 </Panel>
@@ -366,32 +400,54 @@ export function MachineHeadDashboard() {
 
       case 'orders':
         return (
-          <Panel className="h-full">
-            <div className="px-4 py-2 border-b border-border/60 bg-muted/20 shrink-0">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Order Queue · Rolling + Skin Pass</h3>
+          <Panel className="h-full flex flex-col">
+            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
+              <h3 className="text-sm font-medium text-foreground">Running & Preparing Orders</h3>
             </div>
-            <PanelBody empty={filteredQueue.length === 0}>
-              <ul className="divide-y divide-border">
-                {filteredQueue.map((o) => (
-                  <li
-                    key={o.batchNumber}
-                    className={orderRowClass(o.batchNumber)}
-                    onClick={() => selectOrder(liveRowFromQueue(o))}
-                    onKeyDown={(e) => e.key === 'Enter' && selectOrder(liveRowFromQueue(o))}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <OrderIdentityDisplay order={o} size="sm" />
-                    </span>
-                    <span className="text-muted-foreground truncate">{o.customer}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : o.subProcess === 'ROLLING' ? 'Rolling' : o.currentProcess}
-                    </span>
-                    <span className="text-[10px] font-bold uppercase shrink-0">{formatOrderStatusLabel(o.status)}</span>
-                  </li>
-                ))}
-              </ul>
+            <PanelBody empty={filteredQueue.length === 0} emptyLabel="No active orders found">
+              <div className="min-w-full inline-block align-middle">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Process</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-transparent divide-y divide-border">
+                    {filteredQueue.map((o) => (
+                      <tr
+                        key={o.batchNumber}
+                        className="hover:bg-secondary/50 cursor-pointer transition-colors"
+                        onClick={() => selectOrder(liveRowFromQueue(o))}
+                        onKeyDown={(e) => e.key === 'Enter' && selectOrder(liveRowFromQueue(o))}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <td className="px-4 py-3 text-sm">
+                          <OrderIdentityDisplay order={o} size="sm" />
+                        </td>
+                        <td className="px-4 py-3 text-sm truncate max-w-[12rem] text-muted-foreground">{o.customer || '—'}</td>
+                        <td className="px-4 py-3 text-sm font-medium">
+                          {o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : o.subProcess === 'ROLLING' ? 'Rolling' : o.currentProcess}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-mono tabular-nums">{o.weightMt} MT</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            o.status === 'RUNNING' || o.status === 'IN_PROGRESS' 
+                              ? 'bg-success/10 text-success' 
+                              : 'bg-primary/10 text-primary'
+                          }`}>
+                            {formatOrderStatusLabel(o.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </PanelBody>
           </Panel>
         );
@@ -401,7 +457,7 @@ export function MachineHeadDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
             <Panel>
               <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Production History</h3>
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Production History · This Shift</h3>
               </div>
               <PanelBody empty={filteredProduction.length === 0}>
                 <ul className="divide-y divide-border text-xs">
@@ -465,41 +521,69 @@ export function MachineHeadDashboard() {
 
       case 'stoppages':
         return (
-          <Panel className="h-full">
-            <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Breakdowns & Stoppages</h3>
+          <Panel className="h-full flex flex-col">
+            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
+              <h3 className="text-sm font-medium text-foreground">Active Machine Stoppages</h3>
             </div>
-            <PanelBody empty={filteredStoppages.length === 0}>
-              <ul className="divide-y divide-border text-xs">
-                {filteredStoppages.map((s) => (
-                  <li
-                    key={`${s.batchNumber}-${s.startAt}`}
-                    className={orderRowClass(s.batchNumber)}
-                    onClick={() => {
-                      if (!dashboard) return;
-                      const match = dashboard.orderQueue.find((q) => q.batchNumber === s.batchNumber);
-                      selectOrder(match ?? {
-                        batchNumber: s.batchNumber,
-                        customer: '—',
-                        grade: '—',
-                        machineCode: s.machineCode,
-                        machineName: s.machineCode,
-                        currentProcess: '—',
-                        status: 'STOPPAGE',
-                        weightMt: 0,
-                        coilNo: s.batchNumber,
-                      });
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <span className="font-mono font-bold">{s.batchNumber}</span>
-                    <span>{s.category}</span>
-                    {s.remarks && <span className="text-muted-foreground truncate max-w-[12rem]">{s.remarks}</span>}
-                    <span className="text-muted-foreground">{s.machineCode}</span>
-                  </li>
-                ))}
-              </ul>
+            <PanelBody empty={filteredStoppages.length === 0} emptyLabel="No active stoppages">
+              <div className="min-w-full inline-block align-middle">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Machine</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Reason</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Start Time</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-transparent divide-y divide-border">
+                    {filteredStoppages.map((s) => {
+                      const durationMin = s.startAt ? Math.round((Date.now() - new Date(s.startAt).getTime()) / 60000) : 0;
+                      return (
+                        <tr
+                          key={`${s.batchNumber}-${s.startAt}`}
+                          className="hover:bg-secondary/50 cursor-pointer transition-colors"
+                          onClick={() => {
+                            if (!dashboard) return;
+                            const match = dashboard.orderQueue.find((q) => q.batchNumber === s.batchNumber);
+                            selectOrder(match ?? {
+                              batchNumber: s.batchNumber,
+                              customer: '—',
+                              grade: '—',
+                              machineCode: s.machineCode,
+                              machineName: s.machineCode,
+                              currentProcess: '—',
+                              status: 'STOPPAGE',
+                              weightMt: 0,
+                              coilNo: s.batchNumber,
+                            });
+                          }}
+                        >
+                          <td className="px-4 py-3 text-sm font-mono font-bold">{s.machineCode}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{s.batchNumber}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="font-medium text-destructive">{s.category}</div>
+                            {s.remarks && <div className="text-xs text-muted-foreground">{s.remarks}</div>}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">
+                            {s.startAt ? formatPlantDateTime(s.startAt) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-mono tabular-nums text-warning">
+                            {formatDuration(durationMin)}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
+                              Active
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </PanelBody>
           </Panel>
         );
@@ -568,6 +652,89 @@ export function MachineHeadDashboard() {
                 ))}
               </ul>
             </PanelBody>
+          </Panel>
+        );
+
+      case 'completed':
+        return (
+          <Panel className="h-full flex flex-col">
+            <div className="px-4 py-3 border-b border-border bg-secondary/30 space-y-2 shrink-0">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Filter date
+                  <input
+                    type="date"
+                    value={exportDate}
+                    onChange={(e) => setExportDate(e.target.value)}
+                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm font-mono tabular-nums"
+                  />
+                </label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Shift
+                  <select
+                    value={exportShift}
+                    onChange={(e) => setExportShift(e.target.value)}
+                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm"
+                  >
+                    <option value="">All shifts</option>
+                    {['A', 'B', 'C'].map((s) => (
+                      <option key={s} value={s}>Shift {s}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading completed orders…' : 'No completed orders'}>
+              <div className="min-w-full inline-block align-middle">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Completed At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-transparent divide-y divide-border">
+                    {completedOrders.map((o) => (
+                      <tr
+                        key={o.batchNumber}
+                        className="hover:bg-secondary/50 cursor-pointer transition-colors"
+                        onClick={() => {
+                          selectOrder({
+                            batchNumber: o.batchNumber,
+                            customer: o.customer ?? '—',
+                            grade: o.grade ?? '—',
+                            machineCode: o.machineCode ?? '—',
+                            machineName: o.machineName ?? '—',
+                            currentProcess: o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
+                            operatorName: o.operatorName,
+                            status: 'COMPLETED',
+                            weightMt: o.weightMt,
+                            coilNo: o.coilNo,
+                          });
+                        }}
+                      >
+                        <td className="px-4 py-3 text-sm">
+                          <OrderIdentityDisplay order={{ batchNumber: o.batchNumber, coilNo: o.coilNo }} size="sm" />
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer}</td>
+                        <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">{o.weightMt} MT</td>
+                        <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">{o.prodEndAt ? formatPlantDateTime(o.prodEndAt) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </PanelBody>
+            {completedOrders.length > 0 && (
+              <div className="px-4 py-3 border-t border-border bg-muted/20 shrink-0">
+                <dl className="flex justify-around divide-x divide-border">
+                  <StatCell label="Total Orders" value={completedOrders.length} mono />
+                  <StatCell label="Total Produced" value={`${completedOrders.reduce((sum, o) => sum + (o.weightMt || 0), 0).toFixed(1)} MT`} mono />
+                </dl>
+              </div>
+            )}
           </Panel>
         );
 
@@ -649,13 +816,49 @@ export function MachineHeadDashboard() {
         </div>
 
         {PROCESS_FILTER_TABS.includes(activeTab) && (
-          <div className="shrink-0 overflow-x-auto pb-1">
+          <div className="shrink-0 overflow-x-auto pb-1 flex flex-wrap gap-2 items-center">
             <ZPillTabs
               tabs={processFilterTabs}
               activeId={processFilter}
               onChange={(id) => setProcessFilter(id as ProcessFilter)}
               className="min-w-max"
             />
+            <input
+              type="search"
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+              placeholder="Search batch, coil, customer…"
+              className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm min-w-[12rem] flex-1 max-w-xs"
+              aria-label="Search orders"
+            />
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              Shift
+              <select
+                value={shiftFilter}
+                onChange={(e) => setShiftFilter(e.target.value)}
+                className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-medium text-foreground"
+              >
+                <option value="ALL">All Shifts</option>
+                {['A', 'B', 'C'].map((s) => (
+                  <option key={s} value={s}>Shift {s}</option>
+                ))}
+              </select>
+            </label>
+            {machines.length > 0 && (
+              <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                Machine
+                <select
+                  value={machineFilter}
+                  onChange={(e) => setMachineFilter(e.target.value)}
+                  className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-mono font-bold text-foreground"
+                >
+                  <option value="ALL">All Machines</option>
+                  {machines.map((m) => (
+                    <option key={m.machineCode} value={m.machineCode}>{m.machineCode}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         )}
 

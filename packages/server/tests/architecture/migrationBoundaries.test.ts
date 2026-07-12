@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const repoRoot = path.resolve(__dirname, '../../../..');
 const migrationsDir = path.join(repoRoot, 'packages/server/migrations');
-const allowedSchemas = new Set(['public', 'audit', 'canon', 'security', 'txn', 'planning', 'coil', 'master', 'config', 'dpr']);
+const allowedSchemas = new Set(['public', 'audit', 'canon', 'security', 'txn', 'planning', 'coil', 'master', 'config', 'dpr', 'archive']);
 const ignoredTemplateOwners = new Set(['table', 'app', 'information_schema', 'pg_catalog']);
 const schemaReferencePatterns = [
   /\b(?:CREATE|ALTER|DROP)\s+(?:TABLE|INDEX|VIEW|SEQUENCE|FUNCTION|TRIGGER|POLICY)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([a-z][a-z0-9_]*)\./gi,

@@ -111,10 +111,11 @@ export async function fetchLineLogRdm(
       : await fetchShiftStoppages(sid);
 
     const crew = await db
-      .selectFrom('txn.crew_entry as ce')
-      .innerJoin('master.operator as op', 'ce.operator_id', 'op.operator_id')
-      .select(['op.full_name as operator_name', 'ce.role_code'])
-      .where('ce.shift_log_id', '=', sid)
+      .selectFrom('txn.session_crew as sc')
+      .innerJoin('txn.machine_shift_session as mss', 'mss.session_id', 'sc.session_id')
+      .innerJoin('master.machine_crew_roster as mcr', 'mcr.crew_id', 'sc.crew_id')
+      .select(['mcr.member_name as operator_name', 'mcr.role_label as role_code'])
+      .where('mss.shift_log_id', '=', sid)
       .execute();
 
     const coilNos = bodyRows.map((r) => r.coil_no).filter(Boolean) as string[];
@@ -162,12 +163,12 @@ export async function fetchLineLogRdm(
 
 async function fetchShiftStoppages(shiftLogId: string) {
   return db
-    .selectFrom('txn.stoppage_entry as se')
-    .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+    .selectFrom('txn.stoppage as se')
+    .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
     .select([
-      'se.stoppage_code',
-      'se.time_from',
-      'se.time_to',
+      'se.breakdown_code as stoppage_code',
+      'se.start_at as time_from',
+      'se.end_at as time_to',
       'se.duration_min',
       'se.remarks',
       'sc.description',
@@ -178,7 +179,7 @@ async function fetchShiftStoppages(shiftLogId: string) {
 
 async function fetchCrm6Stoppages(shiftLogId: string) {
   return db
-    .selectFrom('txn.order_stoppage as os')
+    .selectFrom('txn.stoppage as os')
     .innerJoin('txn.crm6_order as o', 'os.order_id', 'o.order_id')
     .leftJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
     .select([

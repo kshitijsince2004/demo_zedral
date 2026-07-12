@@ -1,8 +1,9 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { ShiftLogService } from '../services/shiftLogService';
 import { requireAuth, requireLineAccess, requireRole } from '../middleware/authMiddleware';
 import { validateBadgePin } from '../services/authService';
 import { assertShiftLogAccess } from '../services/shiftLogAccessService';
+import { assertShiftLogApproval } from '../auth/machineAccessPolicy';
 import { getScopedLineCodes } from '../auth/lineAccessPolicy';
 import { UserRole } from '@m1/shared-validation';
 import { db } from '../db';
@@ -13,6 +14,7 @@ import {
 import { OverrideRequest } from '../services/overrideService';
 import { SixHiExecutionService, SixHiShiftService } from '../services/sixHi';
 import { formatPlantDate } from '@m1/shared-validation';
+import { ReportingService } from '../services/ReportingService';
 
 function validationErrorResponse(error: unknown) {
   if (error instanceof ShiftLogValidationGateError) {
@@ -78,7 +80,9 @@ router.get('/', async (req, res) => {
         'u.full_name as submittedBy',
         'sl.submitted_at as submittedAt',
         'sl.state as state',
-        'sl.process_id as processId'
+        'sl.state as state',
+        'sl.process_id as processId',
+        'sl.mill_type as millType'
       ]);
 
     if (state) {
@@ -99,13 +103,27 @@ router.get('/', async (req, res) => {
 
       const processTable = ShiftLogService.getProcessTable(log.processId);
       let entryCount = 0;
-      if (processTable) {
+      if (processTable === 'txn.crm6_order') {
+        const countRes = await db.selectFrom('txn.crm6_order')
+          .select(db.fn.count('order_id').as('count'))
+          .where('shift_log_id', '=', log.id)
+          .where('status', '!=', 'CANCELLED')
+          .executeTakeFirst();
+        entryCount = Number(countRes?.count || 0);
+      } else if (processTable) {
         const countRes = await db.selectFrom(processTable as any)
           .select(db.fn.count('entry_id').as('count'))
           .where('shift_log_id', '=', log.id)
           .executeTakeFirst();
         entryCount = Number(countRes?.count || 0);
       }
+
+      const { resolveShiftLogMachines } = await import('../auth/machineAccessPolicy');
+      const machines = await resolveShiftLogMachines({
+         shift_log_id: log.id,
+         process_id: log.processId,
+         mill_type: log.millType,
+      } as any);
 
       return {
         id: String(log.id),
@@ -116,7 +134,8 @@ router.get('/', async (req, res) => {
         submittedAt: log.submittedAt,
         state: log.state,
         entryCount,
-        overrideCount: Number(overrides?.count || 0)
+        overrideCount: Number(overrides?.count || 0),
+        machines
       };
     }));
 
@@ -183,14 +202,14 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     if (!activeLog) return res.status(404).json({ error: 'No active shift found' });
 
-    const stoppages = await db.selectFrom('txn.stoppage_entry as se')
-      .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+    const stoppagesRaw = await db.selectFrom('txn.stoppage as se')
+      .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
       .select([
         'se.stoppage_id as id',
         'sc.stoppage_code as code',
         'sc.description as reason',
-        'se.time_from as fromTime',
-        'se.time_to as toTime',
+        'se.start_at',
+        'se.end_at',
         'se.duration_min as durationMins',
         'se.remarks'
       ])
@@ -223,12 +242,12 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
       shiftCode: activeLog.shift_code,
       targetMt: Number(activeLog.target_mt || 0),
       producedMt: totalProducedMt,
-      stoppages: stoppages.map(s => ({
+      stoppages: stoppagesRaw.map(s => ({
         id: String(s.id),
         code: s.code,
         reason: s.reason,
-        fromTime: s.fromTime,
-        toTime: s.toTime,
+        fromTime: s.start_at ? new Date(s.start_at).toISOString().substring(11, 16) : '',
+        toTime: s.end_at ? new Date(s.end_at).toISOString().substring(11, 16) : null,
         durationMins: s.durationMins,
         remarks: s.remarks || ''
       }))
@@ -241,7 +260,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 router.get('/:id/handover/summary', async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'READ');
-    const summary = await ShiftLogService.getHandoverSummary(req.params.id);
+    const summary = await ReportingService.getMachineHandoverSummary(req.params.id);
     res.json(summary);
   } catch (error: any) {
     const status = error.message?.includes('Forbidden') ? 403 : 404;
@@ -306,9 +325,10 @@ router.put('/:id/submit', async (req, res) => {
   }
 });
 
-router.put('/:id/approve', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
+router.put('/:id/approve', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await assertShiftLogApproval(req.user!, req.params.id);
     await ShiftLogService.approve(req.params.id, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
@@ -317,9 +337,10 @@ router.put('/:id/approve', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD
   }
 });
 
-router.put('/:id/reject', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
+router.put('/:id/reject', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await assertShiftLogApproval(req.user!, req.params.id);
     await ShiftLogService.reject(req.params.id, req.user!.id, req.body.note);
     res.json({ success: true });
   } catch (error: any) {
@@ -328,37 +349,15 @@ router.put('/:id/reject', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]
   }
 });
 
-router.put('/:id/reopen', requireRole([UserRole.SUPERVISOR, UserRole.PLANT_HEAD]), async (req, res) => {
+router.put('/:id/reopen', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');
+    await assertShiftLogApproval(req.user!, req.params.id);
     await ShiftLogService.reopen(req.params.id);
     res.json({ success: true });
   } catch (error: any) {
     const status = error.message?.includes('Forbidden') ? 403 : 400;
     res.status(status).json({ error: error.message });
-  }
-});
-
-router.post('/:id/handover', async (req, res) => {
-  try {
-    const { incomingBadge, incomingPin, notes } = req.body;
-    if (!incomingBadge || !incomingPin) {
-      return res.status(400).json({ error: 'Missing incoming badge ID or PIN' });
-    }
-
-    await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
-
-    const incomingUser = await validateBadgePin(incomingBadge, incomingPin);
-    const newShiftLogId = await ShiftLogService.handover(req.params.id, {
-      incomingUserId: incomingUser.id,
-      outgoingUserId: req.user!.id,
-      notes,
-    });
-
-    res.json({ success: true, newShiftLogId });
-  } catch (error: any) {
-    const { status, body } = validationErrorResponse(error);
-    res.status(status).json({ ...body, error: body.error || 'Handover failed' });
   }
 });
 

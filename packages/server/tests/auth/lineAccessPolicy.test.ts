@@ -11,10 +11,10 @@ const plantHead = {
   machineAccess: [],
 } as const;
 
-const supervisor = {
+const MACHINE_HEAD = {
   id: 11,
   username: 'sup',
-  roles: ['SUPERVISOR'],
+  roles: ['MACHINE_HEAD'],
   lineAccess: ['HRS'],
   lineScopes: [{ code: 'HRS', accessLevel: 'APPROVE' as const }],
   machineAccess: [],
@@ -46,7 +46,7 @@ describe('lineAccessPolicy — Plant Head read-only', () => {
     },
   );
 
-  it('allows supervisor APPROVE on scoped line', () => {
-    expect(() => assertLineOperation(supervisor as any, 'HRS', 'APPROVE')).not.toThrow();
+  it('allows MACHINE_HEAD APPROVE on scoped line', () => {
+    expect(() => assertLineOperation(MACHINE_HEAD as any, 'HRS', 'APPROVE')).not.toThrow();
   });
 });

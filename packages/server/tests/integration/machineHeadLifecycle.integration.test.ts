@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-describe('15.3 Integration Test: Supervisor lifecycle, import pipeline, and reporting', () => {
-  it('should handle supervisor open→approve/reopen→state reflected', () => {
-    // 1. Supervisor approves a SUBMITTED shift log
+describe('15.3 Integration Test: MachineHead lifecycle, import pipeline, and reporting', () => {
+  it('should handle MachineHead open→approve/reopen→state reflected', () => {
+    // 1. MachineHead approves a SUBMITTED shift log
     // 2. State updates to APPROVED
     expect(true).toBe(true);
   });

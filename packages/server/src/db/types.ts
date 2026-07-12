@@ -27,6 +27,74 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface ArchiveProdCrm {
+  ann_hardness: Numeric | null;
+  coil_no: string;
+  elongation_pct: Numeric | null;
+  entry_id: Generated<Int8>;
+  hardness_hrb: Numeric | null;
+  hardness_vpn: Numeric | null;
+  input_thk_mm: Numeric | null;
+  loss_pct: Numeric | null;
+  oil_consumption: Numeric | null;
+  oil_level_final: Numeric | null;
+  oil_level_initial: Numeric | null;
+  output_thk_mm: Numeric | null;
+  prod_date: Timestamp | null;
+  remarks: string | null;
+  roll_in: string | null;
+  roll_out: string | null;
+  rw_tension_kg: Numeric | null;
+  scrap_mt: Numeric | null;
+  shift_code: string | null;
+  shift_log_id: Int8;
+  sl_no: number | null;
+  stretch_pct: Numeric | null;
+  tenant_id: Generated<string>;
+  time_from: string | null;
+  time_to: string | null;
+  tkg_weight_mt: Numeric | null;
+  weight_mt: Numeric | null;
+  width_mm: Numeric | null;
+}
+
+export interface ArchiveProdSkp {
+  coil_no: string;
+  coolant_press_kgcm2: Numeric | null;
+  coolant_temp_degc: Numeric | null;
+  entry_id: Generated<Int8>;
+  final_thk_mm: Numeric | null;
+  hold_mt: Numeric | null;
+  prod_date: Timestamp | null;
+  re_rolling: Generated<boolean | null>;
+  rejection_mt: Numeric | null;
+  remarks: string | null;
+  rolls_in: string | null;
+  rolls_out: string | null;
+  rw_tension_kg: Numeric | null;
+  shift_code: string | null;
+  shift_log_id: Int8;
+  sl_no: number | null;
+  surface_finish: string | null;
+  tenant_id: Generated<string>;
+  thk_mm: Numeric | null;
+  total_passes: number | null;
+  weight_mt: Numeric | null;
+  width_mm: Numeric | null;
+  wt_reroll_mt: Numeric | null;
+  wt_rolling_mt: Numeric | null;
+  wt_scrap_mt: Numeric | null;
+  wt_skinpass_mt: Numeric | null;
+}
+
+export interface ArchiveProdSkpPass {
+  entry_id: Int8;
+  pass_id: Generated<Int8>;
+  pass_no: number;
+  tenant_id: Generated<string>;
+  thickness_mm: Numeric | null;
+}
+
 export interface AuditAuditLog {
   action: string;
   audit_id: Generated<Int8>;
@@ -41,19 +109,11 @@ export interface AuditAuditLog {
   user_id: number | null;
 }
 
-export interface AuditChangeRequest {
-  approved_by: number | null;
-  cr_id: Generated<Int8>;
-  decided_at: Timestamp | null;
-  proposed_changes: Json | null;
-  reason: string;
-  record_pk: string;
-  rejection_note: string | null;
-  requested_at: Generated<Timestamp>;
-  requested_by: number;
-  state: Generated<string>;
-  table_name: string;
-  tenant_id: Generated<string>;
+export interface AuditDprMonthLock {
+  export_job_id: Int8 | null;
+  finalized_at: Generated<Timestamp>;
+  finalized_by: number | null;
+  month: string;
 }
 
 export interface AuditExportJob {
@@ -66,6 +126,7 @@ export interface AuditExportJob {
   export_type: Generated<string>;
   file_path: string | null;
   format: string;
+  generated_at: Timestamp | null;
   job_status: Generated<string>;
   params_json: Json | null;
   progress: Generated<number>;
@@ -73,8 +134,18 @@ export interface AuditExportJob {
   row_count: number | null;
   scope: string;
   sha256: string | null;
+  source_record_count: Int8 | null;
   storage_uri: string | null;
   tenant_id: Generated<string>;
+}
+
+export interface AuditLineageRef {
+  batch_id: string | null;
+  created_at: Generated<Timestamp>;
+  mapping_version: string | null;
+  record_id: string;
+  source_row_ref: string | null;
+  tenant_id: string;
 }
 
 export interface CanonEquipmentNode {
@@ -95,34 +166,15 @@ export interface CanonEvent {
   event_id: Generated<string>;
   event_type: string;
   lineage_ref: string;
-  payload: Json;
+  payload: Generated<Json>;
   started_at: Timestamp;
-  tenant_id: string;
-}
-
-export interface CanonCostRate {
-  amount: Numeric;
-  asset_id: string | null;
-  cost_rate_id: Generated<string>;
-  currency: Generated<string>;
-  effective_from: Generated<Timestamp>;
-  rate_type: string;
-  tenant_id: string;
-}
-
-export interface CanonPersonnel {
-  created_at: Generated<Timestamp>;
-  emp_code: string | null;
-  full_name: string;
-  person_id: Generated<string>;
-  source_user_id: number | null;
   tenant_id: string;
 }
 
 export interface CanonProductionCount {
   asset_id: string | null;
-  counted_at: Timestamp;
   count_id: Generated<string>;
+  counted_at: Timestamp;
   created_at: Generated<Timestamp>;
   is_scrap: Generated<boolean>;
   lineage_ref: string;
@@ -130,15 +182,6 @@ export interface CanonProductionCount {
   shift_log_id: Int8 | null;
   tenant_id: string;
   uom: Generated<string>;
-}
-
-export interface AuditLineageRef {
-  batch_id: string | null;
-  created_at: Generated<Timestamp>;
-  mapping_version: string | null;
-  record_id: string;
-  source_row_ref: string | null;
-  tenant_id: string;
 }
 
 export interface CoilCoil {
@@ -159,17 +202,6 @@ export interface CoilCoil {
   weight_mt: Numeric | null;
 }
 
-export interface CoilCoilProcessHistory {
-  coil_no: string;
-  completed_at: Timestamp | null;
-  entered_at: Generated<Timestamp>;
-  in_thk_mm: Numeric | null;
-  out_thk_mm: Numeric | null;
-  out_weight_mt: Numeric | null;
-  process_id: number;
-  tenant_id: Generated<string>;
-}
-
 export interface ConfigRulesetVersion {
   id: Generated<number>;
   published_at: Generated<Timestamp | null>;
@@ -185,6 +217,57 @@ export interface ConfigValidationRule {
   severity: string;
   updated_at: Generated<Timestamp | null>;
   updated_by: string | null;
+}
+
+export interface DprDailyEntry {
+  created_at: Generated<Timestamp>;
+  day_number: number;
+  delay_data: Generated<Json>;
+  field_provenance: Generated<Json>;
+  id: Generated<string>;
+  month_id: string;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  values: Generated<Json>;
+}
+
+export interface DprFieldMapping {
+  adapter: string;
+  config: Generated<Json>;
+  created_at: Generated<Timestamp>;
+  field_id: string;
+  id: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface DprMonth {
+  config_overrides: Generated<Json>;
+  created_at: Generated<Timestamp>;
+  days_in_month: number;
+  id: Generated<string>;
+  month: number;
+  sheet_code: string;
+  status: Generated<string>;
+  template_id: string;
+  year: number;
+}
+
+export interface DprSourceMap {
+  created_at: Generated<Timestamp>;
+  field_id: string;
+  id: Generated<string>;
+  resolution_data: Generated<Json>;
+  status: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface DprTemplate {
+  blank_master_blob: Buffer;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  geometry_model: Json;
+  id: Generated<string>;
+  original_file_blob: Buffer | null;
 }
 
 export interface MasterCrmSubProcess {
@@ -254,11 +337,24 @@ export interface MasterLineArea {
 }
 
 export interface MasterMachine {
+  capacity_mt: Numeric | null;
+  department: string | null;
   machine_code: string;
   machine_status: Generated<string>;
+  machine_type: Generated<string | null>;
   name: string;
   process_code: string | null;
   process_id: number | null;
+}
+
+export interface MasterMachineCrewRoster {
+  created_at: Generated<Timestamp>;
+  crew_id: Generated<Int8>;
+  is_active: Generated<boolean>;
+  machine_code: string;
+  member_name: string;
+  role_label: string;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface MasterOperator {
@@ -327,6 +423,12 @@ export interface MasterSurfaceFinish {
 }
 
 export interface Pgmigrations {
+  id: Generated<number>;
+  name: string;
+  run_on: Timestamp;
+}
+
+export interface PgmigrationsM1 {
   id: Generated<number>;
   name: string;
   run_on: Timestamp;
@@ -414,7 +516,6 @@ export interface PlanningPpcBatch {
   machine_code: string;
   max_thk_tol_mm: Numeric | null;
   min_thk_tol_mm: Numeric | null;
-  pass_target_thk_mm: Numeric | null;
   plan_date: Timestamp;
   ppc_remarks: string | null;
   ppc_reroll_flag: Generated<boolean | null>;
@@ -425,27 +526,12 @@ export interface PlanningPpcBatch {
   queue_seq: number | null;
   raw_row_json: Json | null;
   roll_finish: string | null;
-  rolling_pass_no: Generated<number | null>;
   sap_order_no: string | null;
   shift_code: string;
   slit_id: string | null;
   sub_process: string;
   to_work_center: string | null;
-  transferred_at: Timestamp | null;
-  transferred_by: Int8 | null;
   width_mm: Numeric;
-}
-
-export interface PlanningPpcImportSession {
-  created_at: Generated<Timestamp>;
-  default_machine: Generated<string>;
-  file_name: string;
-  imported_by: Int8 | null;
-  plan_date: Timestamp | null;
-  rows_json: Json;
-  session_id: Generated<string>;
-  shift_code: Generated<string | null>;
-  status: Generated<string>;
 }
 
 export interface PlanningPpcRollingPassPlan {
@@ -542,7 +628,7 @@ export interface SecurityTenantConfig {
   cost_rate_ownership: string | null;
   deployment_mode: Generated<string>;
   enabled_modules: Json | null;
-  flags: Json | null;
+  flags: Generated<Json>;
   isolation_level: Generated<string>;
   latency_target_seconds: number | null;
   retention_policy: Json | null;
@@ -570,6 +656,8 @@ export interface TxnAnnCharge {
   loading_mt: Numeric | null;
   no_of_coils: number | null;
   oxygen_pct: Numeric | null;
+  prod_date: Timestamp | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   status: string | null;
   temperature_degc: Numeric | null;
@@ -585,14 +673,6 @@ export interface TxnAnnChargeCoil {
   tenant_id: Generated<string>;
 }
 
-export interface TxnCrewEntry {
-  crew_id: Generated<Int8>;
-  operator_id: number;
-  role_code: string;
-  shift_log_id: Int8;
-  tenant_id: Generated<string>;
-}
-
 export interface TxnCrm6Order {
   batch_id: Int8;
   batch_number: string;
@@ -605,10 +685,12 @@ export interface TxnCrm6Order {
   order_id: Generated<Int8>;
   ppc_thk_mm: Numeric;
   ppc_weight_mt: Numeric;
+  prod_date: Timestamp | null;
   prod_duration_min: number | null;
   prod_end_at: Timestamp | null;
   prod_start_at: Timestamp | null;
   production_day: Timestamp | null;
+  shift_code: string | null;
   shift_log_id: Int8 | null;
   slit_id: string | null;
   status: Generated<string>;
@@ -626,12 +708,14 @@ export interface TxnCrm6Rolling {
   etr: Numeric | null;
   final_thk_mm: Numeric | null;
   order_id: Int8;
+  prod_date: Timestamp | null;
   rerolling: Generated<boolean | null>;
   roll_finish: string | null;
   roll_in_code: string | null;
   roll_in_no: string | null;
   roll_out_code: string | null;
   roll_out_no: string | null;
+  shift_code: string | null;
   total_passes: number | null;
 }
 
@@ -689,8 +773,17 @@ export interface TxnDefectEntry {
   entry_id: Int8;
   location: string | null;
   process_id: number;
+  prod_date: Timestamp | null;
   qty_mt: Numeric | null;
+  shift_code: string | null;
   tenant_id: Generated<string>;
+}
+
+export interface TxnIdempotencyKey {
+  created_at: Generated<Timestamp>;
+  key: string;
+  response_body: Json | null;
+  response_status: number;
 }
 
 export interface TxnMachineHandover {
@@ -735,8 +828,59 @@ export interface TxnMachineShiftSession {
   status: Generated<string>;
 }
 
+export interface TxnMachineStateEvent {
+  batch_number: string | null;
+  category_code: string | null;
+  /**
+   * Computed when ended_at is set: (ended_at - occurred_at) in minutes.
+   */
+  duration_min: Numeric | null;
+  /**
+   * Set when the paired *_ENDED event is recorded. NULL = event is still active.
+   */
+  ended_at: Timestamp | null;
+  event_id: Generated<Int8>;
+  /**
+   * One of: RUNNING_STARTED, RUNNING_ENDED, STOPPAGE_STARTED, STOPPAGE_ENDED, IDLE_STARTED, IDLE_ENDED, MAINTENANCE_STARTED, MAINTENANCE_ENDED
+   */
+  event_type: string;
+  machine_code: string;
+  meta: Json | null;
+  occurred_at: Generated<Timestamp>;
+  operator_id: number | null;
+  order_id: Int8 | null;
+  reason: string | null;
+  shift_code: string | null;
+  tenant_id: Generated<string>;
+}
+
+export interface TxnOrderMachineTransfer {
+  assigned_by: number | null;
+  batch_number: string;
+  destination_machine_code: string;
+  order_id: Int8 | null;
+  reason: string | null;
+  source_machine_code: string;
+  sub_process: string;
+  transfer_id: Generated<Int8>;
+  transfer_type: Generated<string>;
+  transferred_at: Generated<Timestamp>;
+}
+
+export interface TxnOrderRejection {
+  created_at: Generated<Timestamp>;
+  defect_codes: Json | null;
+  operator_id: number;
+  order_id: Int8;
+  rejection_id: Generated<Int8>;
+  rejection_reason: string;
+  remarks: string;
+  tenant_id: Generated<string>;
+}
+
 export interface TxnOrderRemark {
   created_at: Generated<Timestamp>;
+  defect_codes: Json | null;
   operator_id: number | null;
   order_id: Int8;
   remark_id: Generated<Int8>;
@@ -754,64 +898,6 @@ export interface TxnOrderShiftAttribution {
   shift_code: string;
   shift_log_id: Int8;
   stoppage_minutes: Generated<number>;
-}
-
-export interface TxnOrderStoppage {
-  breakdown_code: string | null;
-  category_code: string;
-  duration_min: number | null;
-  end_at: Timestamp | null;
-  operator_id: number | null;
-  order_id: Int8;
-  remarks: string | null;
-  start_at: Generated<Timestamp>;
-  stoppage_id: Generated<Int8>;
-}
-
-export interface TxnMachineStateEvent {
-  event_id: Generated<Int8>;
-  machine_code: string;
-  event_type: string;
-  occurred_at: Generated<Timestamp>;
-  ended_at: Timestamp | null;
-  duration_min: Numeric | null;
-  order_id: Int8 | null;
-  batch_number: string | null;
-  operator_id: number | null;
-  shift_code: string | null;
-  reason: string | null;
-  category_code: string | null;
-  meta: unknown | null;
-  tenant_id: Generated<string>;
-}
-
-export interface TxnProdCrm {
-  ann_hardness: Numeric | null;
-  coil_no: string;
-  elongation_pct: Numeric | null;
-  entry_id: Generated<Int8>;
-  hardness_hrb: Numeric | null;
-  hardness_vpn: Numeric | null;
-  input_thk_mm: Numeric | null;
-  loss_pct: Numeric | null;
-  oil_consumption: Numeric | null;
-  oil_level_final: Numeric | null;
-  oil_level_initial: Numeric | null;
-  output_thk_mm: Numeric | null;
-  remarks: string | null;
-  roll_in: string | null;
-  roll_out: string | null;
-  rw_tension_kg: Numeric | null;
-  scrap_mt: Numeric | null;
-  shift_log_id: Int8;
-  sl_no: number | null;
-  stretch_pct: Numeric | null;
-  tenant_id: Generated<string>;
-  time_from: string | null;
-  time_to: string | null;
-  tkg_weight_mt: Numeric | null;
-  weight_mt: Numeric | null;
-  width_mm: Numeric | null;
 }
 
 export interface TxnProdCrs {
@@ -832,12 +918,14 @@ export interface TxnProdCrs {
   ib_tiecv: string | null;
   nominal_thk_mm: Numeric | null;
   output_wt_mt: Numeric | null;
+  prod_date: Timestamp | null;
   ra_um: Numeric | null;
   rejection_id_mt: Numeric | null;
   rejection_od_mt: Numeric | null;
   remarks: string | null;
   rp_oil_grade: string | null;
   rz_um: Numeric | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
   slit_no: string | null;
@@ -865,8 +953,10 @@ export interface TxnProdCtl {
   no_bundles: number | null;
   no_pieces: number | null;
   nominal_set_length_mm: Numeric | null;
+  prod_date: Timestamp | null;
   rejection_mt: Numeric | null;
   remarks: string | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
   tenant_id: Generated<string>;
@@ -878,20 +968,6 @@ export interface TxnProdCtl {
   width_mm: Numeric | null;
 }
 
-export interface TxnProdGlv {
-  coil_no: string;
-  created_at: Generated<Timestamp>;
-  entry_id: Generated<Int8>;
-  remarks: string | null;
-  shift_log_id: Int8;
-  sl_no: number;
-  spangle_type: string | null;
-  time_from: Timestamp | null;
-  time_to: Timestamp | null;
-  weight_mt: Numeric;
-  zinc_coating_gsm: Numeric | null;
-}
-
 export interface TxnProdHrs {
   actual_slit_width_from_mm: Numeric | null;
   actual_slit_width_to_mm: Numeric | null;
@@ -900,9 +976,11 @@ export interface TxnProdHrs {
   entry_id: Generated<Int8>;
   nominal_thk_mm: Numeric | null;
   nominal_width_mm: Numeric | null;
+  prod_date: Timestamp | null;
   remarks: string | null;
   scrap_mt: Numeric | null;
   scrap_pct: Numeric | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
   tenant_id: Generated<string>;
@@ -928,7 +1006,9 @@ export interface TxnProdPkl {
   heat_no: string | null;
   leader_end: string | null;
   line_speed_mpm: Numeric | null;
+  prod_date: Timestamp | null;
   remarks: string | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
   source: string | null;
@@ -970,10 +1050,12 @@ export interface TxnProdRwd {
   coil_no: string;
   entry_id: Generated<Int8>;
   output_thk_mm: Numeric | null;
+  prod_date: Timestamp | null;
   remarks: string | null;
   rw_tension_1_kg: Numeric | null;
   rw_tension_2_kg: Numeric | null;
   rw_tension_3_kg: Numeric | null;
+  shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
   surface_finish: string | null;
@@ -985,39 +1067,12 @@ export interface TxnProdRwd {
   width_mm: Numeric | null;
 }
 
-export interface TxnProdSkp {
-  coil_no: string;
-  coolant_press_kgcm2: Numeric | null;
-  coolant_temp_degc: Numeric | null;
-  entry_id: Generated<Int8>;
-  final_thk_mm: Numeric | null;
-  hold_mt: Numeric | null;
-  re_rolling: Generated<boolean | null>;
-  rejection_mt: Numeric | null;
-  remarks: string | null;
-  rolls_in: string | null;
-  rolls_out: string | null;
-  rw_tension_kg: Numeric | null;
-  shift_log_id: Int8;
-  sl_no: number | null;
-  surface_finish: string | null;
+export interface TxnSessionCrew {
+  created_at: Generated<Timestamp>;
+  crew_id: Int8;
+  session_crew_id: Generated<Int8>;
+  session_id: Int8;
   tenant_id: Generated<string>;
-  thk_mm: Numeric | null;
-  total_passes: number | null;
-  weight_mt: Numeric | null;
-  width_mm: Numeric | null;
-  wt_reroll_mt: Numeric | null;
-  wt_rolling_mt: Numeric | null;
-  wt_scrap_mt: Numeric | null;
-  wt_skinpass_mt: Numeric | null;
-}
-
-export interface TxnProdSkpPass {
-  entry_id: Int8;
-  pass_id: Generated<Int8>;
-  pass_no: number;
-  tenant_id: Generated<string>;
-  thickness_mm: Numeric | null;
 }
 
 export interface TxnShiftEventAudit {
@@ -1034,15 +1089,14 @@ export interface TxnShiftEventAudit {
 export interface TxnShiftLog {
   approved_at: Timestamp | null;
   approver_id: number | null;
-  handover_at: Timestamp | null;
-  handover_incoming_user_id: number | null;
-  handover_notes: string | null;
-  handover_outgoing_user_id: number | null;
   line_incharge_id: number | null;
   mill_type: string | null;
-  prev_shift_log_id: Int8 | null;
   process_id: number;
   prod_date: Timestamp;
+  /**
+   * The active ruleset version at the time of submission
+   */
+  ruleset_version: number | null;
   shift_code: string;
   shift_log_id: Generated<Int8>;
   shift_manager_id: number | null;
@@ -1064,15 +1118,21 @@ export interface TxnShiftOverrideAudit {
   user_id: number;
 }
 
-export interface TxnStoppageEntry {
+export interface TxnStoppage {
+  breakdown_code: string | null;
+  category_code: string;
   duration_min: number | null;
+  end_at: Timestamp | null;
+  machine_code: string | null;
+  operator_id: number | null;
+  order_id: Int8 | null;
+  prod_date: Timestamp | null;
   remarks: string | null;
-  shift_log_id: Int8;
-  stoppage_code: string;
+  shift_code: string | null;
+  shift_log_id: Int8 | null;
+  start_at: Generated<Timestamp>;
   stoppage_id: Generated<Int8>;
   tenant_id: Generated<string>;
-  time_from: string;
-  time_to: string | null;
 }
 
 export interface TxnValidationOverrides {
@@ -1085,19 +1145,24 @@ export interface TxnValidationOverrides {
 }
 
 export interface DB {
+  "archive.prod_crm": ArchiveProdCrm;
+  "archive.prod_skp": ArchiveProdSkp;
+  "archive.prod_skp_pass": ArchiveProdSkpPass;
   "audit.audit_log": AuditAuditLog;
-  "audit.change_request": AuditChangeRequest;
+  "audit.dpr_month_lock": AuditDprMonthLock;
   "audit.export_job": AuditExportJob;
   "audit.lineage_ref": AuditLineageRef;
-  "canon.cost_rate": CanonCostRate;
   "canon.equipment_node": CanonEquipmentNode;
   "canon.event": CanonEvent;
-  "canon.personnel": CanonPersonnel;
   "canon.production_count": CanonProductionCount;
   "coil.coil": CoilCoil;
-  "coil.coil_process_history": CoilCoilProcessHistory;
   "config.ruleset_version": ConfigRulesetVersion;
   "config.validation_rule": ConfigValidationRule;
+  "dpr.daily_entry": DprDailyEntry;
+  "dpr.field_mapping": DprFieldMapping;
+  "dpr.month": DprMonth;
+  "dpr.source_map": DprSourceMap;
+  "dpr.template": DprTemplate;
   "master.crm_sub_process": MasterCrmSubProcess;
   "master.customer": MasterCustomer;
   "master.defect_code": MasterDefectCode;
@@ -1106,6 +1171,7 @@ export interface DB {
   "master.grade_spec": MasterGradeSpec;
   "master.line_area": MasterLineArea;
   "master.machine": MasterMachine;
+  "master.machine_crew_roster": MasterMachineCrewRoster;
   "master.operator": MasterOperator;
   "master.process": MasterProcess;
   "master.route_code": MasterRouteCode;
@@ -1115,13 +1181,13 @@ export interface DB {
   "master.stoppage_code": MasterStoppageCode;
   "master.surface_finish": MasterSurfaceFinish;
   pgmigrations: Pgmigrations;
+  pgmigrations_m1: PgmigrationsM1;
   "planning.coil_plan": PlanningCoilPlan;
   "planning.import_batch": PlanningImportBatch;
   "planning.order_journey": PlanningOrderJourney;
   "planning.order_journey_step": PlanningOrderJourneyStep;
   "planning.plan_order": PlanningPlanOrder;
   "planning.ppc_batch": PlanningPpcBatch;
-  "planning.ppc_import_session": PlanningPpcImportSession;
   "planning.ppc_rolling_pass_plan": PlanningPpcRollingPassPlan;
   "planning.production_target": PlanningProductionTarget;
   "planning.queue_handoff": PlanningQueueHandoff;
@@ -1136,7 +1202,6 @@ export interface DB {
   "security.user_role": SecurityUserRole;
   "txn.ann_charge": TxnAnnCharge;
   "txn.ann_charge_coil": TxnAnnChargeCoil;
-  "txn.crew_entry": TxnCrewEntry;
   "txn.crm_roll_change": TxnCrmRollChange;
   "txn.crm6_order": TxnCrm6Order;
   "txn.crm6_rolling": TxnCrm6Rolling;
@@ -1144,27 +1209,26 @@ export interface DB {
   "txn.crm6_shift_summary": TxnCrm6ShiftSummary;
   "txn.crm6_skinpass": TxnCrm6Skinpass;
   "txn.defect_entry": TxnDefectEntry;
+  "txn.idempotency_key": TxnIdempotencyKey;
   "txn.machine_handover": TxnMachineHandover;
   "txn.machine_shift_session": TxnMachineShiftSession;
   "txn.machine_state_event": TxnMachineStateEvent;
+  "txn.order_machine_transfer": TxnOrderMachineTransfer;
+  "txn.order_rejection": TxnOrderRejection;
   "txn.order_remark": TxnOrderRemark;
   "txn.order_shift_attribution": TxnOrderShiftAttribution;
-  "txn.order_stoppage": TxnOrderStoppage;
-  "txn.prod_crm": TxnProdCrm;
   "txn.prod_crs": TxnProdCrs;
   "txn.prod_crs_slit": TxnProdCrsSlit;
   "txn.prod_ctl": TxnProdCtl;
-  "txn.prod_glv": TxnProdGlv;
   "txn.prod_hrs": TxnProdHrs;
   "txn.prod_hrs_slit": TxnProdHrsSlit;
   "txn.prod_pkl": TxnProdPkl;
   "txn.prod_pkl_chart": TxnProdPklChart;
   "txn.prod_rwd": TxnProdRwd;
-  "txn.prod_skp": TxnProdSkp;
-  "txn.prod_skp_pass": TxnProdSkpPass;
+  "txn.session_crew": TxnSessionCrew;
   "txn.shift_event_audit": TxnShiftEventAudit;
   "txn.shift_log": TxnShiftLog;
   "txn.shift_override_audit": TxnShiftOverrideAudit;
-  "txn.stoppage_entry": TxnStoppageEntry;
+  "txn.stoppage": TxnStoppage;
   "txn.validation_overrides": TxnValidationOverrides;
 }

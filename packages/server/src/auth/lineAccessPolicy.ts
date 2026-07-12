@@ -90,7 +90,6 @@ export function assertLineOperation(
   if (operation === 'WRITE' || operation === 'SUBMIT' || operation === 'CORRECT') {
     const canWriteRole =
       user.roles.includes(UserRole.OPERATOR as string) ||
-      user.roles.includes(UserRole.SUPERVISOR as string) ||
       user.roles.includes(UserRole.MACHINE_HEAD as string);
     if (!canWriteRole) {
       throw new AuthError(`Forbidden: Cannot write on line ${code}`);
@@ -106,8 +105,8 @@ export function assertLineOperation(
     if (user.roles.includes(UserRole.PLANT_HEAD as string)) {
       return;
     }
-    if (!user.roles.includes(UserRole.SUPERVISOR as string)) {
-      throw new AuthError('Forbidden: Only supervisors may approve on a line');
+    if (!user.roles.includes(UserRole.MACHINE_HEAD as string)) {
+      throw new AuthError('Forbidden: Only machine heads may approve on a line');
     }
     const scope = findLineScope(user, code);
     if (!scope || !meetsAccessLevel(scope.accessLevel, 'APPROVE')) {
@@ -132,11 +131,10 @@ export function ensureLineScopes(user: AuthUser): AuthUser {
   }
 
   let defaultLevel: LineAccessLevel = 'READ';
-  if (user.roles.includes(UserRole.SUPERVISOR as string)) {
+  if (user.roles.includes(UserRole.MACHINE_HEAD as string)) {
     defaultLevel = 'APPROVE';
   } else if (
-    (user.roles.includes(UserRole.OPERATOR as string) ||
-      user.roles.includes(UserRole.MACHINE_HEAD as string)) &&
+    (user.roles.includes(UserRole.OPERATOR as string)) &&
     !user.roles.includes(UserRole.PLANT_HEAD as string)
   ) {
     defaultLevel = 'WRITE';

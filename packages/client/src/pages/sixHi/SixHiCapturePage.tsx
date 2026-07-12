@@ -78,14 +78,17 @@ export function SixHiCapturePage() {
   }, [shiftLogId, refreshMachineState, loadShiftSummary]);
 
   const queueDate = formatShiftDate(shiftDate);
-  const queueShift = shiftCode || 'B';
+  const queueShift = shiftCode || undefined;
   const { data: queueData, mutate: mutateQueue } = useSWR(
-    machineCode ? ['capture-queue', machineCode, queueDate, queueShift] : null,
+    machineCode ? ['capture-queue', machineCode, queueDate, queueShift, shiftLogId] : null,
     async () => {
-      const params = `machine=${machineCode}&date=${queueDate}&shift=${queueShift}`;
+      const params = new URLSearchParams({ machine: machineCode, date: queueDate });
+      if (queueShift) params.set('shift', queueShift);
+      if (shiftLogId) params.set('shiftLogId', shiftLogId);
+      const qs = params.toString();
       const [rolling, skinPass] = await Promise.all([
-        apiClient.get(`/6hi/queue?${params}&subProcess=ROLLING`),
-        apiClient.get(`/6hi/queue?${params}&subProcess=SKIN_PASS`),
+        apiClient.get(`/6hi/queue?${qs}&subProcess=ROLLING`),
+        apiClient.get(`/6hi/queue?${qs}&subProcess=SKIN_PASS`),
       ]);
       const merged: SixHiQueueCard[] = [
         ...(rolling.queue ?? []),

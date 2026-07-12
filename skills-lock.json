@@ -7,6 +7,12 @@
       "skillPath": "skills/brandkit/SKILL.md",
       "computedHash": "735007879f5110aeae1e981a53fe74a12afde70347f9773dacd50e4697a091bf"
     },
+    "defuddle": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/defuddle/SKILL.md",
+      "computedHash": "ad2cf050eced5f0d9057d534bf6e084bd8d6e521529b5b783940b20fd835c4df"
+    },
     "design-taste-frontend": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
@@ -67,11 +73,35 @@
       "skillPath": "skills/brutalist-skill/SKILL.md",
       "computedHash": "e66e5a2a8b73cef79ab6546459c665e8b983645689c5f3772f7eed8b9f1e8e0e"
     },
+    "json-canvas": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/json-canvas/SKILL.md",
+      "computedHash": "bb7aa4f03414d50d91736f824bc5f79122b38a895deb03c0260700842a338580"
+    },
     "minimalist-ui": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
       "skillPath": "skills/minimalist-skill/SKILL.md",
       "computedHash": "7e88897e0371184e97a82b8d9ef080323c13f21eb067b58ef71eb05173a08ac2"
+    },
+    "obsidian-bases": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-bases/SKILL.md",
+      "computedHash": "0d9958e07672384650f404bda4fc9268e1720e9234d42eeca29fc356b1e2a277"
+    },
+    "obsidian-cli": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-cli/SKILL.md",
+      "computedHash": "89ded0eb1499286d5c95217df0ff7015aa46b7efe4646fafaba38cbac3289392"
+    },
+    "obsidian-markdown": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-markdown/SKILL.md",
+      "computedHash": "d65bfcd6012560c61da9c88c79679a9a8218ac6b4928df9b55ae451949a1618a"
     },
     "redesign-existing-projects": {
       "source": "Leonxlnx/taste-skill",

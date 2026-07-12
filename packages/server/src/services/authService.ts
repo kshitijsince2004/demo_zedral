@@ -150,7 +150,7 @@ export async function verifyAuthenticatedUserPin(userId: number, pin: string): P
   await recordPinSuccess(user.user_id);
 }
 
-const OVERRIDE_ROLES = ['SUPERVISOR', 'ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'];
+const OVERRIDE_ROLES = ['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'];
 
 /** Verify PIN belongs to an active user with supervisor override privileges. */
 export async function verifySupervisorOverridePin(
@@ -256,7 +256,7 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
   } else {
     const machineRows = await db.selectFrom('security.machine_access')
       .select('machine_code')
-      .where('user_id', '=', userId)
+      .where('user_id', '=', userId as any)
       .execute();
     machineAccess = machineRows.map((m) => m.machine_code);
   }

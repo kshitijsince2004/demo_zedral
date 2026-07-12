@@ -85,7 +85,7 @@ describe('userRoutes', () => {
     const res = await request(app).put('/users/1').send({
       username: 'op1',
       display_name: 'Operator One',
-      role: 'SUPERVISOR',
+      role: 'MACHINE_HEAD',
       status: 'DISABLED',
       line_access: [],
     });
@@ -93,7 +93,7 @@ describe('userRoutes', () => {
     expect(res.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith(
       '1',
-      expect.objectContaining({ role: 'SUPERVISOR' }),
+      expect.objectContaining({ role: 'MACHINE_HEAD' }),
       1,
     );
   });

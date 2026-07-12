@@ -98,22 +98,7 @@ export function mapAnnCoilRow(
   });
 }
 
-export function mapSkpRow(
-  ctx: ShiftContext,
-  row: Record<string, unknown>,
-): ProcessRunRow {
-  const areaCode = resolveProcessArea('SKP', ctx.millType);
-  return baseRun(ctx, String(row.coil_no), areaCode, 'txn.prod_skp', row.entry_id as string, {
-    outputWeightMt: toNumber(row.weight_mt),
-    outputThkMm: toNumber(row.final_thk_mm) ?? toNumber(row.thk_mm),
-    status: deriveStatus(toNumber(row.hold_mt), toNumber(row.rejection_mt), null),
-    attrs: {
-      wt_scrap_mt: toNumber(row.wt_scrap_mt),
-      wt_skinpass_mt: toNumber(row.wt_skinpass_mt),
-      surface_finish: row.surface_finish,
-    },
-  });
-}
+
 
 export function mapRwdRow(
   ctx: ShiftContext,

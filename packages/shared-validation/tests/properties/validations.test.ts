@@ -84,7 +84,7 @@ describe('Property Tests: Validations and Overrides', () => {
     it('should reject overrides on BLOCK severity', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.constant(UserRole.SUPERVISOR), { minLength: 1 }),
+          fc.array(fc.constant(UserRole.MACHINE_HEAD), { minLength: 1 }),
           (roles) => {
             const result = {
               isValid: false,
@@ -99,10 +99,10 @@ describe('Property Tests: Validations and Overrides', () => {
       );
     });
 
-    it('should allow overrides on WARN severity by SUPERVISOR/ADMIN with reason', () => {
+    it('should allow overrides on WARN severity by MACHINE_HEAD/ADMIN with reason', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.constantFrom(UserRole.SUPERVISOR, UserRole.ADMIN), { minLength: 1 }),
+          fc.array(fc.constantFrom(UserRole.MACHINE_HEAD, UserRole.ADMIN), { minLength: 1 }),
           fc.string({ minLength: 1 }).filter((reason) => reason.trim().length > 0),
           (roles, reason) => {
             const result = {

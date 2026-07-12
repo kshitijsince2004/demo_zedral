@@ -132,18 +132,14 @@ export class TraceabilityService {
       const pkl = await db.selectFrom('txn.prod_pkl').selectAll().where('coil_no', '=', coilNo).execute();
       for (const record of pkl) {
         // Find stoppages for this shift
-        const stoppages = await db.selectFrom('txn.stoppage_entry as se')
-          .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
-          .select(['se.time_from', 'se.time_to', 'se.duration_min', 'se.remarks', 'sc.description'])
+        const stoppages = await db.selectFrom('txn.stoppage as se')
+          .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
+          .select(['se.start_at', 'se.end_at', 'se.duration_min', 'se.remarks', 'sc.description'])
           .where('se.shift_log_id', '=', record.shift_log_id)
           .execute();
         
         history.push({ process: 'PKL', coilNo, record, stoppages });
       }
-
-      // Cold Rolling Mill (CRM 4HI/2HI)
-      const crm = await db.selectFrom('txn.prod_crm').selectAll().where('coil_no', '=', coilNo).execute();
-      crm.forEach(record => history.push({ process: 'CRM', coilNo, record }));
 
       // Cold Rolling Mill 6HI (CRM6)
       const crm6 = await db.selectFrom('txn.crm6_order as o')
@@ -188,10 +184,6 @@ export class TraceabilityService {
           .execute();
         history.push({ process: 'ANN', coilNo, record, siblings: siblings.map(s => s.coil_no) });
       }
-
-      // Skin Pass (SKP)
-      const skp = await db.selectFrom('txn.prod_skp').selectAll().where('coil_no', '=', coilNo).execute();
-      skp.forEach(record => history.push({ process: 'SKP', coilNo, record }));
 
       // Rewinding (RWD)
       const rwd = await db.selectFrom('txn.prod_rwd').selectAll().where('coil_no', '=', coilNo).execute();

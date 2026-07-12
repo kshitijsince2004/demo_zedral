@@ -11,7 +11,7 @@ router.use(require('express').json());
 router.post(
   '/register',
   requireAuth,
-  requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]),
+  requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]),
   rateLimitMiddleware(10, 60_000),
   async (req, res) => {
     try {

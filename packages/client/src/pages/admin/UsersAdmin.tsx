@@ -70,8 +70,7 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
     switch (role) {
       case 'ADMIN': return 'purple';
       case 'PLANT_HEAD': return 'info';
-      case 'MACHINE_HEAD': return 'success';
-      case 'SUPERVISOR': return 'warning';
+      case 'MACHINE_HEAD': return 'warning';
       default: return 'muted';
     }
   };
@@ -226,7 +225,6 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                 >
                   <option value="OPERATOR">OPERATOR</option>
                   <option value="MACHINE_HEAD">MACHINE_HEAD</option>
-                  <option value="SUPERVISOR">SUPERVISOR</option>
                   <option value="PLANT_HEAD">PLANT_HEAD</option>
                   <option value="ADMIN">ADMIN</option>
                 </select>

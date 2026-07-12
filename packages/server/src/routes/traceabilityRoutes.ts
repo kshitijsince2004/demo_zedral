@@ -16,7 +16,7 @@ router.use(requireAuth);
  * to find the best-matching batch, then resolves the full trace via PostgreSQL.
  * Falls back to pure PostgreSQL ILIKE when ES is unavailable.
  */
-router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.ADMIN]), async (req, res) => {
+router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const query = req.query.q as string;
     if (!query) {
@@ -57,7 +57,7 @@ router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.
  * Returns autocomplete suggestions from Elasticsearch.
  * Only available when ES is connected.
  */
-router.get('/suggest', requireRole([UserRole.PLANT_HEAD, UserRole.SUPERVISOR, UserRole.ADMIN]), async (req, res) => {
+router.get('/suggest', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const query = req.query.q as string;
     if (!query || query.trim().length < 2) {

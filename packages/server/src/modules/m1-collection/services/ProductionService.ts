@@ -182,7 +182,7 @@ export class ProductionService {
   static async saveSkp(entry: M1SKPForm): Promise<string> {
     const row = await db.transaction().execute(async (trx) => {
       const created = await trx
-        .insertInto('txn.prod_skp')
+        .insertInto('archive.prod_skp' as any)
         .values({
           shift_log_id: entry.shiftLogId,
           sl_no: entry.slNo ?? null,
@@ -211,7 +211,7 @@ export class ProductionService {
         .executeTakeFirstOrThrow();
 
       if (entry.passes?.length) {
-        await trx.insertInto('txn.prod_skp_pass').values(
+        await trx.insertInto('archive.prod_skp_pass' as any).values(
           entry.passes.map((pass) => ({
             entry_id: created.entry_id,
             pass_no: pass.passNo,
@@ -220,6 +220,35 @@ export class ProductionService {
         ).execute();
       }
 
+      // Dual write to Model B (crm6_order, crm6_skinpass) to support queue draining gracefully
+      let batch = await trx.selectFrom('planning.ppc_batch').select('batch_id').where('batch_number', '=', 'ARCHIVE-LEGACY').executeTakeFirst();
+      if (!batch) {
+        batch = await trx.insertInto('planning.ppc_batch').values({
+          batch_number: 'ARCHIVE-LEGACY', plan_date: new Date(), shift_code: 'A', machine_code: '6HI', sub_process: 'ROLLING', queue_seq: 9999, width_mm: 0, ppc_thk_mm: 0, ppc_weight_mt: 0, grade_code: 'ARCHIVE', customer_name: 'ARCHIVE', coil_no: 'ARCHIVE-COIL', input_thk_mm: 0
+        }).returning('batch_id').executeTakeFirstOrThrow();
+      }
+      const order = await trx.insertInto('txn.crm6_order').values({
+        shift_log_id: entry.shiftLogId,
+        batch_id: batch.batch_id,
+        batch_number: 'ARCHIVE-LEGACY',
+        coil_no: entry.coilNo,
+        customer_name: 'ARCHIVE',
+        grade_code: 'ARCHIVE',
+        width_mm: entry.widthMm ?? 0,
+        ppc_thk_mm: entry.thkMm ?? 0,
+        ppc_weight_mt: entry.weightMt ?? 0,
+        sub_process: 'SKINPASS',
+        status: 'COMPLETED',
+        prod_duration_min: 0,
+        production_day: new Date()
+      }).returning('order_id').executeTakeFirstOrThrow();
+      await trx.insertInto('txn.crm6_skinpass').values({
+        order_id: order.order_id,
+        actual_weight_mt: entry.wtSkinpassMt ?? null,
+        output_thk_mm: entry.finalThkMm ?? null,
+        rw_tension_1: entry.rwTensionKg ?? null
+      }).execute();
+      
       return created;
     });
 

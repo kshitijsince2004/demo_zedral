@@ -8,7 +8,6 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole([
   UserRole.MACHINE_HEAD,
-  UserRole.SUPERVISOR,
   UserRole.PLANT_HEAD,
   UserRole.ADMIN,
 ]));
@@ -27,13 +26,24 @@ router.get('/snapshot', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    let filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    const machine = typeof req.query.machine === 'string' ? req.query.machine.toUpperCase() : undefined;
+    if (machine) {
+      if (filter === null) filter = [machine];
+      else filter = filter.filter((m) => m === machine);
+    }
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const subProcess = typeof req.query.subProcess === 'string' ? req.query.subProcess : undefined;
+    // Live queue ignores plan date/shift (backlog + in-progress). date/shift kept for response metadata.
     const planDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
     const shiftCode = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const ctx = planDate && shiftCode
       ? { prodDate: planDate, shiftCode }
       : await LiveDashboardService.getShiftQueueContext(req.user!.id);
-    const orders = await LiveOrderService.getActiveOrders(filter, ctx.prodDate, ctx.shiftCode);
+    const orders = await LiveOrderService.getActiveOrders(filter, ctx.prodDate, ctx.shiftCode, {
+      search,
+      subProcess,
+    });
     res.json({ orders, prodDate: ctx.prodDate, shiftCode: ctx.shiftCode, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load orders';
@@ -44,7 +54,12 @@ router.get('/orders', async (req, res) => {
 router.get('/rejected-orders', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    let filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
+    const machine = typeof req.query.machine === 'string' ? req.query.machine.toUpperCase() : undefined;
+    if (machine) {
+      if (filter === null) filter = [machine];
+      else filter = filter.filter((m) => m === machine);
+    }
     const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom.slice(0, 10) : undefined;
     const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo.slice(0, 10) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
@@ -79,7 +94,14 @@ router.get('/orders/:batchNo', async (req, res) => {
 router.get('/machine-head-dashboard', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const data = await LiveDashboardService.getMachineHeadDashboard(req.user!.id, roles);
+    const machine = typeof req.query.machine === 'string' ? req.query.machine : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const subProcess = typeof req.query.subProcess === 'string' ? req.query.subProcess : undefined;
+    const data = await LiveDashboardService.getMachineHeadDashboard(req.user!.id, roles, {
+      machine,
+      search,
+      subProcess,
+    });
     res.json(data);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load machine head dashboard';

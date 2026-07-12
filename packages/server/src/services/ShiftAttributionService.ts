@@ -104,7 +104,7 @@ export class ShiftAttributionService {
     );
 
     const stoppageRows = await db
-      .selectFrom('txn.order_stoppage')
+      .selectFrom('txn.stoppage')
       .select(['duration_min', 'category_code'])
       .where('order_id', '=', String(order.order_id))
       .execute();

@@ -191,7 +191,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
                 <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
                 <div>
                   <p className="font-bold text-amber-800 text-sm">Machine currently in stoppage mode</p>
-                  <p className="text-xs text-amber-700">Contact outgoing operator or supervisor before accepting if unresolved.</p>
+                  <p className="text-xs text-amber-700">Contact outgoing operator or machine head before accepting if unresolved.</p>
                 </div>
               </div>
             )}

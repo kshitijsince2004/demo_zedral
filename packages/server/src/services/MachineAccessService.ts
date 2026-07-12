@@ -75,7 +75,7 @@ export class MachineAccessService {
     }
 
     for (const a of access) {
-      const entry = byUser.get(a.user_id);
+      const entry = byUser.get(Number(a.user_id));
       if (!entry) continue;
       entry.machines.push({
         machineCode: a.machine_code,
@@ -99,13 +99,13 @@ export class MachineAccessService {
   static async getForUser(userId: number): Promise<string[]> {
     const rows = await db.selectFrom('security.machine_access')
       .select('machine_code')
-      .where('user_id', '=', userId)
+      .where('user_id', '=', userId as any)
       .execute();
     return rows.map((r) => r.machine_code);
   }
 
   static async setForUser(userId: number, machineCodes: string[], assignedBy: number) {
-    await db.deleteFrom('security.machine_access').where('user_id', '=', userId).execute();
+    await db.deleteFrom('security.machine_access').where('user_id', '=', userId as any).execute();
 
     const valid = machineCodes.length === 0
       ? []
@@ -118,10 +118,10 @@ export class MachineAccessService {
     if (validCodes.length > 0) {
       await db.insertInto('security.machine_access')
         .values(validCodes.map((machine_code) => ({
-          user_id: userId,
+          user_id: userId as any,
           machine_code,
           access_level: 'MANAGE',
-          assigned_by: assignedBy,
+          assigned_by: assignedBy as any,
         })))
         .execute();
     }

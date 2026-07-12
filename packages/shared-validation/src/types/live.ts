@@ -283,8 +283,9 @@ export interface MachineHeadDashboardData {
     completedProdMt?: number;
     inProgressMt?: number;
     totalProdMt?: number;
-    /** PPC weight MT still in the shift queue (not completed output). */
+    /** PPC weight MT still in the live machine queue (not completed output). */
     queuedMt: number;
+    /** Current-shift production orders (completed + in-progress on this shift_log). */
     orderCount: number;
     completedOrderCount: number;
   };

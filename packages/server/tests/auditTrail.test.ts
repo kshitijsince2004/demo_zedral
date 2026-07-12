@@ -5,7 +5,7 @@ import { AUDITED_TABLES } from '../src/audit/auditedTables';
 describe('AuditTrailService', () => {
   it('builds per-column UPDATE entries using baseline column names', () => {
     const entries = AuditTrailService.buildEntries(
-      'txn.prod_crm',
+      'archive.prod_crm',
       '42',
       'UPDATE',
       { output_thk_mm: '0.50', coil_no: 'C-1' },
@@ -15,7 +15,7 @@ describe('AuditTrailService', () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      table_name: 'txn.prod_crm',
+      table_name: 'archive.prod_crm',
       record_pk: '42',
       action: 'UPDATE',
       column_name: 'output_thk_mm',
@@ -43,7 +43,7 @@ describe('AuditTrailService', () => {
 
 describe('auditedTables', () => {
   it('covers transactional capture tables and master data', () => {
-    expect(AUDITED_TABLES).toContain('txn.prod_crm');
+    expect(AUDITED_TABLES).toContain('archive.prod_crm');
     expect(AUDITED_TABLES).toContain('txn.shift_log');
     expect(AUDITED_TABLES).toContain('master.grade_spec');
     expect(AUDITED_TABLES).toContain('coil.coil');

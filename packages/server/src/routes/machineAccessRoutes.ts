@@ -16,7 +16,7 @@ router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (_req,
   }
 });
 
-router.get('/me', requireRole([UserRole.MACHINE_HEAD, UserRole.SUPERVISOR, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+router.get('/me', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const machines = await MachineAccessService.getForUser(req.user!.id);
     res.json({ machines });

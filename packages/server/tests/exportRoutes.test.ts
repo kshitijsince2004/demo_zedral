@@ -6,7 +6,7 @@ vi.mock('../src/middleware/authMiddleware', () => ({
   requireAuth: (req: any, _res: any, next: any) => {
     req.user = {
       id: 2,
-      roles: ['SUPERVISOR'],
+      roles: ['MACHINE_HEAD'],
       lineAccess: ['HRS', 'PKL'],
       lineScopes: [
         { code: 'HRS', accessLevel: 'READ' },

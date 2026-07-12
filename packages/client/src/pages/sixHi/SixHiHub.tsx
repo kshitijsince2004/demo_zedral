@@ -95,7 +95,7 @@ export function SixHiHub() {
   // Refs for silent background refresh
   const isFirstLoad = useRef(true);
   const prevDataRef = useRef<string>('');
-  
+
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
   const [anchorBatch, setAnchorBatch] = useState<string | null>(null);
@@ -205,6 +205,15 @@ export function SixHiHub() {
     }
     void loadQueue(true);
   }, [queueRefreshToken, loadQueue]);
+
+  // Keep In Progress / status lists in sync when machine active order changes.
+  const machineActiveKey = machineActive
+    ? `${machineActive.batchNumber}:${machineActive.status}`
+    : '';
+  useEffect(() => {
+    if (!machineActiveKey) return;
+    void loadQueue(true);
+  }, [machineActiveKey, loadQueue]);
 
   const allOrders = useMemo(
     () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue, ...completedQueue, ...rejectedQueue]),
@@ -637,7 +646,7 @@ export function SixHiHub() {
             >
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
             </button>
-            
+
             <div className="hidden sm:block h-6 w-px bg-border mx-1" />
 
             <SixHiPillTabs tabs={tabs} activeId={activeTab} onChange={setTab} />

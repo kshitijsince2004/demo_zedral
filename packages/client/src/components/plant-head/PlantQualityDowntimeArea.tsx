@@ -2,6 +2,7 @@ import React from 'react';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { DataUnavailable } from './DataUnavailable';
 import { ChartTooltip } from '../analytics/ChartTooltip';
+import { MeasuredChart } from '../analytics/MeasuredChart';
 import { AlertTriangle, Clock, TrendingDown } from 'lucide-react';
 import {
   Area,
@@ -71,8 +72,9 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Top Defects
             </h3>
             {data.defectsByCategory.length > 0 ? (
-              <div className="h-44 min-h-[11rem] w-full" data-testid="top-defects-chart">
-                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
+              <MeasuredChart className="h-44 min-h-[11rem] w-full min-w-0" minHeight={176} data-testid="top-defects-chart">
+                {({ width, height }) => (
+                <ResponsiveContainer width={width} height={height}>
                   <ComposedChart data={data.defectsByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />
                     <XAxis
@@ -97,7 +99,8 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
                     </Bar>
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             ) : (
               <DataUnavailable message="No defect records in the selected window." className="min-h-[176px]" />
             )}
@@ -109,8 +112,9 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Order Hold Rate Trend (%)
             </h3>
             {qualityTrendData.length > 0 ? (
-              <div className="h-32 min-h-[8rem] w-full" data-testid="rejection-rate-chart">
-                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
+              <MeasuredChart className="h-40 min-h-[10rem] w-full min-w-0" minHeight={160} data-testid="rejection-rate-chart">
+                {({ width, height }) => (
+                <ResponsiveContainer width={width} height={height}>
                   <AreaChart data={qualityTrendData}>
                     <defs>
                       <linearGradient id="rejGrad" x1="0" y1="0" x2="0" y2="1">
@@ -130,9 +134,10 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
                     <Area type="monotone" dataKey="yieldPct" stroke={C.emerald} strokeWidth={2} fill="url(#yieldGrad)" dot={false} name="Yield %" />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             ) : (
-              <DataUnavailable message="No quality trend data for the selected window." className="min-h-[128px]" />
+              <DataUnavailable message="No quality trend data for the selected window." className="min-h-[160px]" />
             )}
           </div>
         </div>
@@ -159,8 +164,9 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
               Downtime by Reason
             </h3>
             {data.downtimeByCategory.length > 0 ? (
-              <div className="h-44 min-h-[11rem] w-full" data-testid="downtime-by-reason-chart">
-                <ResponsiveContainer width="100%" height="100%" minHeight={160}>
+              <MeasuredChart className="h-44 min-h-[11rem] w-full min-w-0" minHeight={176} data-testid="downtime-by-reason-chart">
+                {({ width, height }) => (
+                <ResponsiveContainer width={width} height={height}>
                   <ComposedChart data={data.downtimeByCategory.slice(0, 6)} layout="vertical" margin={{ left: 0, right: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.grid} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: C.text }} axisLine={false} tickLine={false} />
@@ -180,7 +186,8 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
                     </Bar>
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             ) : (
               <DataUnavailable message="No stoppage records in the selected window." className="min-h-[176px]" />
             )}

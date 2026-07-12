@@ -3,6 +3,7 @@ import { Check, X, RotateCcw } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { ZButton } from '../../components/primitives/ZButton';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { useAuthStore } from '../../lib/authStore';
 
 interface ShiftLogRow {
   id: string;
@@ -14,6 +15,7 @@ interface ShiftLogRow {
   state: string;
   entryCount: number;
   overrideCount: number;
+  machines?: string[];
 }
 
 export function PlantShiftReviewPage() {
@@ -23,11 +25,23 @@ export function PlantShiftReviewPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  
+  const machineAccess = useAuthStore((s) => s.machineAccess);
+  const role = useAuthStore((s) => s.role);
 
   const load = useCallback(async () => {
     try {
       const rows = await apiClient.get<ShiftLogRow[]>('/shift-logs?state=SUBMITTED');
-      setLogs(rows);
+      
+      let filtered = rows;
+      if (role === 'MACHINE_HEAD') {
+        filtered = rows.filter((log) => {
+          if (!log.machines || log.machines.length === 0) return false;
+          return log.machines.every((m) => machineAccess.includes(m));
+        });
+      }
+      
+      setLogs(filtered);
       setError(null);
     } catch (err: unknown) {
       setError((err as Error)?.message ?? 'Failed to load shift logs');

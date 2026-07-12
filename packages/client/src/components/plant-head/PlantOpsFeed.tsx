@@ -51,9 +51,11 @@ export function PlantOpsFeed({ data }: PlantOpsFeedProps) {
         <div>
           <h2 className="font-semibold text-foreground flex items-center gap-2">
             <Bell className="w-4 h-4 text-slate-500" />
-            Operations Event Feed
+            Live Problems & Stoppages
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Verified operational events only</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Machine stoppages and order issues from live feed · held orders via Order Problems
+          </p>
         </div>
         {hasFeed && (
           <div className="flex items-center gap-2">
@@ -102,7 +104,7 @@ export function PlantOpsFeed({ data }: PlantOpsFeedProps) {
             })}
           </div>
         ) : (
-          <DataUnavailable message="Operations event feed is not configured. No events are available." />
+          <DataUnavailable message="No live stoppages or order problems right now. Held orders are under Order Problems." />
         )}
       </div>
     </div>

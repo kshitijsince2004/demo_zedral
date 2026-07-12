@@ -53,7 +53,7 @@ async function migrate() {
                     SELECT 1 FROM security.user_role ur
                     JOIN security.role r ON ur.role_id = r.role_id
                     WHERE ur.user_id = NULLIF(current_setting('app.user_id', true), '')::integer
-                    AND r.role_name IN ('OPERATOR', 'SUPERVISOR')
+                    AND r.role_name IN ('OPERATOR', 'MACHINE_HEAD')
                 )
             )
         )
@@ -65,7 +65,7 @@ async function migrate() {
                     SELECT 1 FROM security.user_role ur
                     JOIN security.role r ON ur.role_id = r.role_id
                     WHERE ur.user_id = NULLIF(current_setting('app.user_id', true), '')::integer
-                    AND r.role_name IN ('OPERATOR', 'SUPERVISOR')
+                    AND r.role_name IN ('OPERATOR', 'MACHINE_HEAD')
                 )
             )
         );
@@ -104,7 +104,7 @@ async function migrate() {
                           SELECT 1 FROM security.user_role ur
                           JOIN security.role r ON ur.role_id = r.role_id
                           WHERE ur.user_id = NULLIF(current_setting('app.user_id', true), '')::integer
-                          AND r.role_name IN ('OPERATOR', 'SUPERVISOR')
+                          AND r.role_name IN ('OPERATOR', 'MACHINE_HEAD')
                     )
               )
           )
@@ -117,7 +117,7 @@ async function migrate() {
                           SELECT 1 FROM security.user_role ur
                           JOIN security.role r ON ur.role_id = r.role_id
                           WHERE ur.user_id = NULLIF(current_setting('app.user_id', true), '')::integer
-                          AND r.role_name IN ('OPERATOR', 'SUPERVISOR')
+                          AND r.role_name IN ('OPERATOR', 'MACHINE_HEAD')
                     )
               )
           );

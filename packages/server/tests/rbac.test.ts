@@ -14,10 +14,10 @@ const operatorHrs: AuthUser = {
   lineScopes: [{ code: 'HRS', accessLevel: 'WRITE' }],
 };
 
-const supervisorCrm: AuthUser = {
+const MACHINE_HEADCrm: AuthUser = {
   id: 2,
   username: 'sup',
-  roles: ['SUPERVISOR'],
+  roles: ['MACHINE_HEAD'],
   lineAccess: ['CRM'],
   lineScopes: [{ code: 'CRM', accessLevel: 'APPROVE' }],
 };
@@ -65,8 +65,8 @@ describe('lineAccessPolicy', () => {
     expect(() => assertLineOperation(readOnlyHrs, 'HRS', 'WRITE')).toThrow(/write access/);
   });
 
-  it('allows supervisor APPROVE with APPROVE scope', () => {
-    expect(() => assertLineOperation(supervisorCrm, 'CRM', 'APPROVE')).not.toThrow();
+  it('allows MACHINE_HEAD APPROVE with APPROVE scope', () => {
+    expect(() => assertLineOperation(MACHINE_HEADCrm, 'CRM', 'APPROVE')).not.toThrow();
   });
 
   it('denies plant head from transactional writes', () => {

@@ -48,7 +48,8 @@ export function SixHiShiftSummaryPage() {
 
   useEffect(() => {
     if (!currentShiftLogId) return;
-    apiClient.get(`/6hi/shift-summary/${currentShiftLogId}`)
+    const qs = machineCode ? `?machine=${encodeURIComponent(machineCode)}` : '';
+    apiClient.get(`/6hi/shift-summary/${currentShiftLogId}${qs}`)
       .then((s: SixHiShiftSummary) => {
         setSummary(s);
         if (s.scrapKg) setScrapKg(String(s.scrapKg));
@@ -56,7 +57,7 @@ export function SixHiShiftSummaryPage() {
         if (s.coolantPressKgCm2) setCoolantPress(String(s.coolantPressKgCm2));
       })
       .catch(console.error);
-  }, [currentShiftLogId]);
+  }, [currentShiftLogId, machineCode]);
 
   const handleSubmit = async () => {
     if (!currentShiftLogId) return;

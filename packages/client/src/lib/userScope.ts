@@ -9,7 +9,6 @@ export function roleSlug(role: Role): string {
 const SLUG_TO_ROLE: Record<string, Role> = {
   operator: UserRole.OPERATOR,
   machine_head: UserRole.MACHINE_HEAD,
-  supervisor: UserRole.SUPERVISOR,
   plant_head: UserRole.PLANT_HEAD,
   admin: UserRole.ADMIN,
 };
@@ -62,5 +61,5 @@ export function matchesUserScope(
 
 /** Roles that use /username.role as their primary workspace URL. */
 export function usesUserScopeHome(role: Role | null): boolean {
-  return role === UserRole.OPERATOR || role === UserRole.MACHINE_HEAD || role === UserRole.SUPERVISOR;
+  return role === UserRole.OPERATOR || role === UserRole.MACHINE_HEAD;
 }

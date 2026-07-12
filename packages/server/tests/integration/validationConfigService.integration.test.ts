@@ -107,12 +107,12 @@ describe('ValidationConfigService Integration Tests', () => {
       .send(ruleData);
     expect(resOperator.status).toBe(403);
 
-    // 2. Supervisor should be forbidden
-    const resSupervisor = await request(app)
+    // 2. MachineHead should be forbidden
+    const resMachineHead = await request(app)
       .post(`/validation-rules/${fieldId}`)
-      .set('x-mock-role', UserRole.SUPERVISOR)
+      .set('x-mock-role', UserRole.MachineHead)
       .send(ruleData);
-    expect(resSupervisor.status).toBe(403);
+    expect(resMachineHead.status).toBe(403);
     
     // 3. Plant Head should be forbidden (only ADMIN allowed by route definition)
     const resPlantHead = await request(app)

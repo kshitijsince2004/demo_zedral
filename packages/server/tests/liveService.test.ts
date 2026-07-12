@@ -14,6 +14,7 @@ vi.mock('../src/services/sixHi', () => ({
       completedProdMt: 32,
       inProgressProdMt: 0,
       completedOrders: [{}, {}],
+      ordersInProgress: [],
     })),
   },
 }));
@@ -33,6 +34,8 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
     expect(SixHiShiftService.resolveShiftLogIdForPlan).toHaveBeenCalledWith('2026-06-10', 'A');
     expect(SixHiShiftService.getShiftSummary).toHaveBeenCalledWith('shift-1', ['6HI']);
     expect(result.completedOrderCount).toBe(2);
+    expect(result.inProgressOrderCount).toBe(0);
+    expect(result.orderCount).toBe(2);
     expect(result.actualMt).toBe(32);
     expect(result.totalProdMt).toBe(32);
   });
@@ -42,6 +45,8 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
     expect(result).toEqual({
       actualMt: 0,
       completedOrderCount: 0,
+      inProgressOrderCount: 0,
+      orderCount: 0,
       completedProdMt: 0,
       inProgressMt: 0,
       totalProdMt: 0,

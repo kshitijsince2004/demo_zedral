@@ -200,15 +200,3 @@ export function mapCtlEntry(row: Record<string, unknown>, shiftLogId: string) {
   };
 }
 
-export function mapGlvEntry(row: Record<string, unknown>, shiftLogId: string) {
-  const timeFrom = row.time_from ? new Date(String(row.time_from)).toISOString().slice(11, 16) : undefined;
-  const timeTo = row.time_to ? new Date(String(row.time_to)).toISOString().slice(11, 16) : undefined;
-  return {
-    ...baseEntry(row, shiftLogId),
-    zincCoatingGsm: num(row.zinc_coating_gsm),
-    spangleType: str(row.spangle_type),
-    weightMt: num(row.weight_mt)!,
-    timeFrom,
-    timeTo,
-  };
-}

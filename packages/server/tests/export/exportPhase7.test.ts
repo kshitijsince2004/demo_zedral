@@ -17,16 +17,17 @@ const adminUser = {
   lineScopes: [],
 } as any;
 
-const hrsSupervisor = {
+const hrsMACHINE_HEAD = {
   id: 2,
-  roles: ['SUPERVISOR'],
+  roles: ['MACHINE_HEAD'],
   lineAccess: ['HRS'],
   lineScopes: [{ code: 'HRS', accessLevel: 'APPROVE' }],
+  machineAccess: ['HRS'],
 } as any;
 
 describe('export phase 7 — authz & infra', () => {
-  it('assertExportPermission allows supervisor with line scope', () => {
-    expect(() => assertExportPermission(hrsSupervisor, 'RAW', {})).not.toThrow();
+  it('assertExportPermission allows MACHINE_HEAD with line scope', () => {
+    expect(() => assertExportPermission(hrsMACHINE_HEAD, 'RAW', {})).not.toThrow();
   });
 
   it('assertExportPermission rejects operator role', () => {
@@ -34,17 +35,17 @@ describe('export phase 7 — authz & infra', () => {
     expect(() => assertExportPermission(op, 'RAW', {})).toThrow(/Forbidden/);
   });
 
-  it('getScopedDprAreaCodes maps HRS supervisor to HRS area only', () => {
-    const areas = getScopedDprAreaCodes(hrsSupervisor);
+  it('getScopedDprAreaCodes maps HRS MACHINE_HEAD to HRS area only', () => {
+    const areas = getScopedDprAreaCodes(hrsMACHINE_HEAD);
     expect(areas).toEqual(['HRS']);
   });
 
-  it('filterRunsByAreaAccess limits rows for scoped supervisor', () => {
+  it('filterRunsByAreaAccess limits rows for scoped MACHINE_HEAD', () => {
     const rows = [
       { areaCode: 'HRS', coilNo: 'C1' },
       { areaCode: 'PKLG', coilNo: 'C2' },
     ];
-    const filtered = filterRunsByAreaAccess(hrsSupervisor, rows);
+    const filtered = filterRunsByAreaAccess(hrsMACHINE_HEAD, rows);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].areaCode).toBe('HRS');
   });

@@ -6,42 +6,59 @@ import { publishDefectLogged } from '../platform/m1Events';
 export { StoppageService } from './StoppageService';
 
 export class CrewService {
-  static async resolveOperatorId(operatorId: string | number): Promise<number> {
+  static async resolveOperatorInfo(operatorId: string | number): Promise<{ id: number; name: string }> {
     const asNum = Number(operatorId);
     if (!Number.isNaN(asNum) && asNum > 0) {
       const byId = await db
         .selectFrom('master.operator')
-        .select('operator_id')
+        .select(['operator_id', 'full_name'])
         .where('operator_id', '=', asNum)
         .executeTakeFirst();
-      if (byId) return Number(byId.operator_id);
+      if (byId) return { id: Number(byId.operator_id), name: byId.full_name };
     }
 
     const byCode = await db
       .selectFrom('master.operator')
-      .select('operator_id')
+      .select(['operator_id', 'full_name'])
       .where('emp_code', '=', String(operatorId))
       .executeTakeFirst();
 
     if (!byCode) throw new Error(`Operator not found: ${operatorId}`);
-    return Number(byCode.operator_id);
+    return { id: Number(byCode.operator_id), name: byCode.full_name };
   }
 
   static async listByShiftLog(shiftLogId: string) {
     const rows = await db
-      .selectFrom('txn.crew_entry as c')
-      .innerJoin('master.operator as o', 'o.operator_id', 'c.operator_id')
-      .select(['c.crew_id', 'c.operator_id', 'c.role_code', 'o.emp_code', 'o.full_name'])
-      .where('c.shift_log_id', '=', shiftLogId)
-      .orderBy('c.crew_id', 'asc')
+      .selectFrom('txn.session_crew as sc')
+      .innerJoin('txn.machine_shift_session as mss', 'mss.session_id', 'sc.session_id')
+      .innerJoin('master.machine_crew_roster as mcr', 'mcr.crew_id', 'sc.crew_id')
+      .select(['sc.session_crew_id', 'sc.session_id', 'mcr.crew_id', 'mcr.member_name', 'mcr.role_label'])
+      .where('mss.shift_log_id', '=', String(shiftLogId))
+      .orderBy('sc.session_crew_id', 'asc')
       .execute();
 
     return rows.map((r) => ({
-      id: String(r.crew_id),
-      operatorId: String(r.operator_id),
-      empCode: r.emp_code,
-      operatorName: r.full_name,
-      roleCode: r.role_code,
+      id: String(r.session_crew_id), // back-compat
+      crewId: String(r.crew_id),
+      operatorName: r.member_name,
+      roleCode: r.role_label,
+    }));
+  }
+
+  static async listBySession(sessionId: string) {
+    const rows = await db
+      .selectFrom('txn.session_crew as sc')
+      .innerJoin('master.machine_crew_roster as mcr', 'mcr.crew_id', 'sc.crew_id')
+      .select(['sc.session_crew_id', 'mcr.crew_id', 'mcr.member_name', 'mcr.role_label'])
+      .where('sc.session_id', '=', String(sessionId))
+      .orderBy('sc.session_crew_id', 'asc')
+      .execute();
+
+    return rows.map((r) => ({
+      sessionCrewId: String(r.session_crew_id),
+      crewId: String(r.crew_id),
+      memberName: r.member_name,
+      roleLabel: r.role_label,
     }));
   }
 
@@ -51,19 +68,49 @@ export class CrewService {
       throw new Error(`Invalid role code. Must be one of: ${validRoles.join(', ')}`);
     }
 
-    const operatorPk = await this.resolveOperatorId(payload.operatorId);
+    const operator = await this.resolveOperatorInfo(payload.operatorId);
 
+    // 1. Get session and machine from shiftLogId
+    const session = await db
+      .selectFrom('txn.machine_shift_session')
+      .select(['session_id', 'machine_code'])
+      .where('shift_log_id', '=', String(payload.shiftLogId))
+      .executeTakeFirst();
+      
+    if (!session) throw new Error('No active session found for this shift log');
+
+    // 2. Resolve or create roster entry for this machine
+    let rosterEntry = await db
+      .selectFrom('master.machine_crew_roster')
+      .select('crew_id')
+      .where('machine_code', '=', session.machine_code)
+      .where('member_name', '=', operator.name)
+      .where('role_label', '=', payload.roleCode)
+      .executeTakeFirst();
+
+    if (!rosterEntry) {
+      rosterEntry = await db
+        .insertInto('master.machine_crew_roster')
+        .values({
+          machine_code: session.machine_code,
+          member_name: operator.name,
+          role_label: payload.roleCode,
+        })
+        .returning('crew_id')
+        .executeTakeFirstOrThrow();
+    }
+
+    // 3. Insert session_crew
     const row = await db
-      .insertInto('txn.crew_entry')
+      .insertInto('txn.session_crew')
       .values({
-        shift_log_id: payload.shiftLogId,
-        operator_id: operatorPk,
-        role_code: payload.roleCode,
+        session_id: session.session_id,
+        crew_id: rosterEntry.crew_id,
       })
-      .returning('crew_id')
+      .returning('session_crew_id')
       .executeTakeFirstOrThrow();
 
-    return String(row.crew_id);
+    return String(row.session_crew_id);
   }
 }
 

@@ -72,19 +72,7 @@ const configs: Record<string, ProcessFormConfig> = {
       { name: 'temperatureDegc', label: 'Temperature C', type: 'number' },
     ],
   },
-  SKP: {
-    title: 'SKP Production Capture',
-    endpoint: 'skp',
-    fields: [
-      ...commonFields,
-      { name: 'widthMm', label: 'Width mm', type: 'number' },
-      { name: 'thkMm', label: 'Input Thickness mm', type: 'number' },
-      { name: 'finalThkMm', label: 'Final Thickness mm', type: 'number' },
-      { name: 'totalPasses', label: 'Total Passes', type: 'number' },
-      { name: 'weightMt', label: 'Weight MT', type: 'number' },
-      { name: 'surfaceFinish', label: 'Surface Finish' },
-    ],
-  },
+
   RWD: {
     title: 'RWD Production Capture',
     endpoint: 'rwd',
@@ -234,9 +222,7 @@ export function AnnCaptureForm(props: CaptureFormProps) {
   return <CaptureForm {...props} config={configs.ANN} />;
 }
 
-export function SkpCaptureForm(props: CaptureFormProps) {
-  return <CaptureForm {...props} config={configs.SKP} />;
-}
+
 
 export function RwdCaptureForm(props: CaptureFormProps) {
   return <CaptureForm {...props} config={configs.RWD} />;

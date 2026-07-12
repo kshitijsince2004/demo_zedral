@@ -3,7 +3,7 @@
  * Full admin environment seed — not bare PPC rows.
  *
  * Sets up:
- *   - Admin user (badge 1000) + supervisor + operator (PIN 1234)
+ *   - Admin user (badge 1000) + machine head + operator (PIN 1234)
  *   - Master data, coils, shift logs, production, stoppages, defects
  *   - 6HI queue via planning.import_batch (as if admin uploaded PPC)
  *   - SAP plan import batch attributed to admin
@@ -34,7 +34,7 @@ async function main() {
   console.log('\n=== Admin seed complete ===');
   console.log('Login as admin:');
   console.log(`  Badge  1000  PIN  ${pin}  →  /admin/planning, /admin/users, reports`);
-  console.log(`  Badge  2000  PIN  ${pin}  →  supervisor review queue`);
+  console.log(`  Badge  2000  PIN  ${pin}  →  machine head review queue`);
   console.log(`  Badge  3000  PIN  ${pin}  →  /6hi operator queue`);
   console.log('\n6HI operator queue: http://localhost:3000/6hi');
   console.log('Admin planning:       http://localhost:3000/admin/planning');

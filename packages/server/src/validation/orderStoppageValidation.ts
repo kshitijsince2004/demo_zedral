@@ -67,7 +67,7 @@ async function loadOrderShiftContext(orderId: string | number) {
 
 async function loadOrderStoppages(orderId: string | number, excludeStoppageId?: string) {
   let q = db
-    .selectFrom('txn.order_stoppage')
+    .selectFrom('txn.stoppage')
     .select(['stoppage_id', 'start_at', 'end_at'])
     .where('order_id', '=', String(orderId));
 
@@ -80,7 +80,7 @@ async function loadOrderStoppages(orderId: string | number, excludeStoppageId?: 
 
 export async function assertCanStartOrderStoppage(orderId: string | number): Promise<void> {
   const open = await db
-    .selectFrom('txn.order_stoppage')
+    .selectFrom('txn.stoppage')
     .select(db.fn.count('stoppage_id').as('c'))
     .where('order_id', '=', String(orderId))
     .where('end_at', 'is', null)

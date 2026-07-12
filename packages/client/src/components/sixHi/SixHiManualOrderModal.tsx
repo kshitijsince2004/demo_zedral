@@ -117,7 +117,7 @@ export function SixHiManualOrderModal() {
                 <ul className="list-disc pl-5 space-y-1">
                   <li>Verify batch number and coil details before saving.</li>
                   <li>Incorrect data may affect production records and shift reporting.</li>
-                  <li>Supervisor approval may be required for audit purposes.</li>
+                  <li>Machine head approval may be required for audit purposes.</li>
                 </ul>
               </div>
             </div>

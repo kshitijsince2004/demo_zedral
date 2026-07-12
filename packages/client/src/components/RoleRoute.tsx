@@ -87,14 +87,9 @@ function AccessDenied({ minRole, role }: { minRole: Role; role: Role }) {
  * Convenience wrappers for the two common guard levels used in the routing table.
  */
 
-/** Requires SUPERVISOR or higher (review/approval routes). */
-export function SupervisorRoute({ children }: { children: React.ReactNode }) {
-  return <RoleRoute minRole={UserRole.SUPERVISOR}>{children}</RoleRoute>;
-}
-
-/** Requires SUPERVISOR or higher (plant desk + review/approval routes). */
+/** Requires MACHINE_HEAD or higher (plant desk + review/approval routes). */
 export function PlantRoute({ children }: { children: React.ReactNode }) {
-  return <RoleRoute minRole={UserRole.SUPERVISOR}>{children}</RoleRoute>;
+  return <RoleRoute minRole={UserRole.MACHINE_HEAD}>{children}</RoleRoute>;
 }
 
 /** Requires MACHINE_HEAD or higher (machine-scoped ops). */

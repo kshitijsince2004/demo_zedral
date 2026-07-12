@@ -51,7 +51,7 @@ router.post('/override', requireRole([UserRole.ADMIN]), async (req, res) => {
     const validReasons: ShiftOverrideReason[] = [
       'OVERTIME',
       'PREV_SHIFT_CONTINUATION',
-      'SUPERVISOR_INSTRUCTION',
+      'MACHINE_HEAD_INSTRUCTION',
       'SHIFT_CORRECTION',
       'OTHER',
     ];
@@ -94,7 +94,7 @@ router.put('/windows/:shiftCode', requireRole([UserRole.ADMIN]), async (req, res
   }
 });
 
-router.get('/audit', requireRole([UserRole.ADMIN, UserRole.PLANT_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
+router.get('/audit', requireRole([UserRole.ADMIN, UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD]), async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const eventType = typeof req.query.eventType === 'string' ? req.query.eventType : undefined;

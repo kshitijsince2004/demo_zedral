@@ -70,7 +70,7 @@ describe('orderStoppageValidation', () => {
     };
 
     vi.mocked(db.selectFrom).mockImplementation((table: string) => {
-      if (String(table).includes('order_stoppage')) return stoppageChain as never;
+      if (String(table).includes('txn.stoppage')) return stoppageChain as never;
       if (String(table).includes('master.shift')) return shiftChain as never;
       return emptyOrderChain as never;
     });
@@ -101,7 +101,7 @@ describe('orderStoppageValidation', () => {
     };
 
     vi.mocked(db.selectFrom).mockImplementation((table: string) => {
-      if (String(table).includes('order_stoppage')) return stoppageChain as never;
+      if (String(table).includes('txn.stoppage')) return stoppageChain as never;
       return orderChain as never;
     });
 
@@ -165,7 +165,7 @@ describe('validateOrderStoppageStart', () => {
 
     vi.mocked(db.selectFrom).mockImplementation((table: string) => {
       if (String(table).includes('master.shift')) return shiftChain as never;
-      if (String(table).includes('order_stoppage')) return stoppageChain as never;
+      if (String(table).includes('txn.stoppage')) return stoppageChain as never;
       return orderChain as never;
     });
 

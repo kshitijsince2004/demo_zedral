@@ -1,6 +1,6 @@
 /**
  * SystemAdmin — infrastructure health and version info (Wave 5).
- * Replaces the legacy footer strip on operator/supervisor shells.
+ * Replaces the legacy footer strip on operator/machine_head shells.
  */
 import { AdminShell } from '../../components/layout/admin/AdminShell';
 import { AdminPanel } from '../../components/admin/AdminPanel';

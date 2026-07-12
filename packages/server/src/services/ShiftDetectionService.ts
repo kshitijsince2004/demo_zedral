@@ -11,7 +11,7 @@ import {
 export type ShiftOverrideReason =
   | 'OVERTIME'
   | 'PREV_SHIFT_CONTINUATION'
-  | 'SUPERVISOR_INSTRUCTION'
+  | 'MACHINE_HEAD_INSTRUCTION'
   | 'SHIFT_CORRECTION'
   | 'OTHER';
 

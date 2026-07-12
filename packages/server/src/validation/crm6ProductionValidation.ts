@@ -104,21 +104,18 @@ export async function assertShiftLogRuntimeAccounting(shiftLogId: string): Promi
   );
 
   const stoppageRows = await db
-    .selectFrom('txn.stoppage_entry')
-    .select(['duration_min'])
-    .where('shift_log_id', '=', shiftLogId)
-    .execute();
-
-  const orderStoppageRows = await db
-    .selectFrom('txn.order_stoppage as os')
-    .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+    .selectFrom('txn.stoppage as os')
+    .leftJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
     .select(['os.duration_min'])
-    .where('o.shift_log_id', '=', shiftLogId)
+    .where((eb) =>
+      eb.or([
+        eb('os.shift_log_id', '=', shiftLogId),
+        eb('o.shift_log_id', '=', shiftLogId)
+      ])
+    )
     .execute();
 
-  const downtimeMinutes =
-    stoppageRows.reduce((s, r) => s + Number(r.duration_min ?? 0), 0) +
-    orderStoppageRows.reduce((s, r) => s + Number(r.duration_min ?? 0), 0);
+  const downtimeMinutes = stoppageRows.reduce((s, r) => s + Number(r.duration_min ?? 0), 0);
 
   const runtimeRows = await db
     .selectFrom('txn.order_shift_attribution')

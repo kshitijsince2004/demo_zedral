@@ -42,6 +42,7 @@ export function PlantHeadDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveOrders, setLiveOrders] = useState<LiveOrderRow[]>([]);
+  const [liveOrdersError, setLiveOrdersError] = useState<string | null>(null);
   const [handovers, setHandovers] = useState<HandoverOverviewRow[]>([]);
   const [backlogOpen, setBacklogOpen] = useState(false);
   const [rejectedOpen, setRejectedOpen] = useState(false);
@@ -139,8 +140,13 @@ export function PlantHeadDashboard() {
             prevLiveOrdersFpRef.current = fingerprint;
             setLiveOrders(res.orders);
           }
+          setLiveOrdersError(null);
         })
-        .catch(() => { if (active) setLiveOrders([]); });
+        .catch((err: unknown) => {
+          if (!active) return;
+          setLiveOrders([]);
+          setLiveOrdersError((err as Error)?.message ?? 'Live order feed unavailable');
+        });
     };
     loadOrders();
     const interval = setInterval(loadOrders, LIVE_POLL_MS);
@@ -304,7 +310,7 @@ export function PlantHeadDashboard() {
                     ))}
                   </select>
                   <ZButton variant="outline" size="sm" onClick={() => setRejectedOpen(true)} className="gap-1 shrink-0">
-                    {ORDER_HOLD_STATUS_LABEL}
+                    Order Problems ({ORDER_HOLD_STATUS_LABEL})
                   </ZButton>
                   <ZButton variant="outline" size="sm" onClick={() => startRejectedExport('day')} className="gap-1 shrink-0">
                     <Download className="w-4 h-4" /> Day
@@ -362,6 +368,7 @@ export function PlantHeadDashboard() {
             data={displayData}
             liveMachines={liveMachines}
             liveOrders={liveOrders}
+            liveOrdersError={liveOrdersError}
             onOrderClick={(batchNumber) => void openOrderDetail(batchNumber)}
           />
         </section>

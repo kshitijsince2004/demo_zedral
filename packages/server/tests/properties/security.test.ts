@@ -18,8 +18,8 @@ describe('Property Tests: Security and RBAC', () => {
     it('requireRole: should allow if user has required role, else deny', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.constantFrom('OPERATOR', 'SUPERVISOR', 'PLANT_HEAD', 'ADMIN')), // user roles
-          fc.constantFrom('OPERATOR', 'SUPERVISOR', 'PLANT_HEAD', 'ADMIN'), // required role
+          fc.array(fc.constantFrom('OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN')), // user roles
+          fc.constantFrom('OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN'), // required role
           (userRoles, requiredRole) => {
             const req: any = { user: { roles: userRoles } };
             const res = mockRes();
@@ -45,7 +45,7 @@ describe('Property Tests: Security and RBAC', () => {
     it('requireLineAccess: should enforce line isolation and operation level', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.constantFrom('OPERATOR', 'SUPERVISOR', 'PLANT_HEAD', 'ADMIN')), // user roles
+          fc.array(fc.constantFrom('OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN')), // user roles
           fc.array(fc.string({ minLength: 1 })), // user line access
           fc.constantFrom('READ', 'WRITE', 'APPROVE'), // requested operation
           fc.string({ minLength: 1 }), // requested line

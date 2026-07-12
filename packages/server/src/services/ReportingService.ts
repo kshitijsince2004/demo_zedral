@@ -29,6 +29,7 @@ import {
   postgresDateOnly,
   startOfPlantDay,
 } from '@m1/shared-validation';
+import { ShiftLogService } from './shiftLogService';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -195,7 +196,7 @@ async function fetchDowntimeByShift(shiftIds: string[]): Promise<Record<string, 
   if (shiftIds.length === 0) return {};
 
   const rows = await reportingDb
-    .selectFrom('txn.stoppage_entry')
+    .selectFrom('txn.stoppage')
     .select([
       'shift_log_id',
       reportingDb.fn.sum<number>('duration_min').as('minutes'),
@@ -244,12 +245,12 @@ async function fetchLossByShift(shiftIds: string[]): Promise<Record<string, numb
     .execute();
   hrs.forEach((r) => addLoss(map, r.shift_log_id, r.scrap_mt));
 
-  const crm = await reportingDb
-    .selectFrom('txn.prod_crm')
-    .select(['shift_log_id', 'scrap_mt'])
+  const crm6 = await reportingDb
+    .selectFrom('txn.crm6_shift_summary')
+    .select(['shift_log_id', 'scrap_kg'])
     .where('shift_log_id', 'in', shiftIds)
     .execute();
-  crm.forEach((r) => addLoss(map, r.shift_log_id, r.scrap_mt));
+  crm6.forEach((r) => addLoss(map, r.shift_log_id, toNum(r.scrap_kg) / 1000));
 
   const crs = await reportingDb
     .selectFrom('txn.prod_crs')
@@ -334,12 +335,11 @@ function sumShiftProduction(shifts: ShiftRow[]): number {
 const PROD_ENTRY_TABLES = [
   'txn.prod_hrs',
   'txn.prod_pkl',
-  'txn.prod_crm',
+  'archive.prod_crm' as any,
   'txn.prod_crs',
   'txn.prod_ctl',
   'txn.prod_rwd',
-  'txn.prod_skp',
-  'txn.prod_glv',
+  'archive.prod_skp' as any,
 ] as const;
 
 async function fetchEntryIdsForShifts(shiftIds: string[]): Promise<string[]> {
@@ -429,7 +429,15 @@ export interface PlantHeadFilters {
 }
 
 export class ReportingService {
-  static async getSupervisorDashboard(lines: string[]) {
+  static async getMachineHeadDashboard(machines: string[]) {
+    const machineProcRows = await reportingDb
+      .selectFrom('master.machine')
+      .innerJoin('master.process', 'master.process.process_id', 'master.machine.process_id')
+      .select('master.process.code')
+      .where('master.machine.machine_code', 'in', machines.length > 0 ? machines : ['__NONE__'])
+      .execute();
+    const lines = Array.from(new Set(machineProcRows.map(r => r.code)));
+
     let activeShiftsQuery = reportingDb
       .selectFrom('txn.shift_log as sl')
       .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
@@ -455,10 +463,10 @@ export class ReportingService {
     const lineStatuses = await Promise.all(
       activeShifts.map(async (shift) => {
         const runningStoppage = await reportingDb
-          .selectFrom('txn.stoppage_entry')
+          .selectFrom('txn.stoppage')
           .select('stoppage_id')
           .where('shift_log_id', '=', shift.shift_log_id)
-          .where('time_to', 'is', null)
+          .where('end_at', 'is', null)
           .executeTakeFirst();
 
         return {
@@ -507,8 +515,8 @@ export class ReportingService {
     let downtimePareto: Array<{ reason: string; minutes: number }> = [];
     if (downtimeShiftIds.length > 0) {
       const stoppages = await reportingDb
-        .selectFrom('txn.stoppage_entry as se')
-        .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+        .selectFrom('txn.stoppage as se')
+        .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
         .select([
           'sc.description as reason',
           reportingDb.fn.sum<number>(sql`se.duration_min`).as('minutes'),
@@ -649,8 +657,8 @@ export class ReportingService {
     }> = [];
     if (shiftIds.length > 0) {
       const driverRows = await reportingDb
-        .selectFrom('txn.stoppage_entry as se')
-        .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+        .selectFrom('txn.stoppage as se')
+        .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
         .select([
           'sc.description as reason',
           reportingDb.fn.sum<number>(sql`se.duration_min`).as('totalMinutes'),
@@ -663,12 +671,51 @@ export class ReportingService {
         .limit(10)
         .execute();
 
-      downtimeDrivers = driverRows.map((d) => ({
-        reason: d.reason,
-        totalMinutes: toNum(d.totalMinutes),
-        occurrences: Number(d.occurrences || 0),
-        type: d.isPlanned ? 'PLANNED' : 'UNPLANNED',
-      }));
+      const merged = new Map<string, { reason: string; totalMinutes: number; occurrences: number; type: 'PLANNED' | 'UNPLANNED' }>();
+      for (const d of driverRows) {
+        merged.set(d.reason, {
+          reason: d.reason,
+          totalMinutes: toNum(d.totalMinutes),
+          occurrences: Number(d.occurrences || 0),
+          type: d.isPlanned ? 'PLANNED' : 'UNPLANNED',
+        });
+      }
+
+      // Include CRM6 order stoppages (operator production) attributed to the same shifts.
+      const crm6Rows = await reportingDb
+        .selectFrom('txn.stoppage as os')
+        .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+        .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
+        .select([
+          'sc.label as reason',
+          reportingDb.fn.sum<number>(sql`COALESCE(os.duration_min, 0)`).as('totalMinutes'),
+          reportingDb.fn.count<number>(sql`os.stoppage_id`).as('occurrences'),
+        ])
+        .where('o.shift_log_id', 'in', shiftIds)
+        .groupBy('sc.label')
+        .execute();
+
+      for (const d of crm6Rows) {
+        const reason = d.reason || 'Unspecified stoppage';
+        const prev = merged.get(reason);
+        const addMin = toNum(d.totalMinutes);
+        const addOcc = Number(d.occurrences || 0);
+        if (prev) {
+          prev.totalMinutes += addMin;
+          prev.occurrences += addOcc;
+        } else {
+          merged.set(reason, {
+            reason,
+            totalMinutes: addMin,
+            occurrences: addOcc,
+            type: 'UNPLANNED',
+          });
+        }
+      }
+
+      downtimeDrivers = [...merged.values()]
+        .sort((a, b) => b.totalMinutes - a.totalMinutes)
+        .slice(0, 10);
     }
 
     const previousWindowShifts = await fetchShiftRows(
@@ -1056,8 +1103,8 @@ export class ReportingService {
       case 'downtime':
         if (shiftIds.length > 0) {
           const rows = await reportingDb
-            .selectFrom('txn.stoppage_entry as se')
-            .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+            .selectFrom('txn.stoppage as se')
+            .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
             .innerJoin('txn.shift_log as sl', 'se.shift_log_id', 'sl.shift_log_id')
             .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
             .select([
@@ -1112,8 +1159,8 @@ export class ReportingService {
       }
 
       let downtimeQuery = reportingDb
-        .selectFrom('txn.stoppage_entry as se')
-        .innerJoin('master.stoppage_code as sc', 'se.stoppage_code', 'sc.stoppage_code')
+        .selectFrom('txn.stoppage as se')
+        .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
         .innerJoin('txn.shift_log as sl', 'se.shift_log_id', 'sl.shift_log_id')
         .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
         .select([
@@ -1198,5 +1245,41 @@ export class ReportingService {
     };
 
     return { found: true, coilNo: r.coilNo, genealogy };
+  }
+
+  static async getMachineHandoverSummary(shiftLogId: string) {
+    const summary = await ShiftLogService.getHandoverSummary(shiftLogId);
+    
+    const log = await reportingDb
+      .selectFrom('txn.shift_log')
+      .select(['shift_code', 'prod_date', 'process_id'])
+      .where('shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+
+    if (log) {
+      const machine = await reportingDb
+        .selectFrom('master.machine')
+        .select('machine_code')
+        .where('process_id', '=', log.process_id)
+        .executeTakeFirst();
+
+      if (machine) {
+        const prodDateStr = formatPlantDate(log.prod_date);
+        const handover = await reportingDb
+          .selectFrom('txn.machine_handover')
+          .select('remarks')
+          .where('machine_code', '=', machine.machine_code)
+          .where('outgoing_shift_code', '=', log.shift_code)
+          .where((eb) => eb(eb.fn('date', [eb.ref('outgoing_prod_date')]), '=', eb.val(parsePlantDateOnly(prodDateStr))))
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst();
+          
+        if (handover && handover.remarks) {
+          summary.notes = handover.remarks;
+        }
+      }
+    }
+    
+    return summary;
   }
 }
