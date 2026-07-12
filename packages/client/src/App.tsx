@@ -88,8 +88,8 @@ function App() {
         <Route path="/4hi/*" element={<ProtectedRoute><LegacyMillRedirect machine="4HI" /></ProtectedRoute>} />
         <Route path="/2hi" element={<ProtectedRoute><LegacyMillRedirect machine="2HI" /></ProtectedRoute>} />
         <Route path="/2hi/*" element={<ProtectedRoute><LegacyMillRedirect machine="2HI" /></ProtectedRoute>} />
-        <Route path="/crm6" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
-        <Route path="/crm6/*" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
+        <Route path="/crm" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
+        <Route path="/crm/*" element={<ProtectedRoute><LegacyMillRedirect machine="6HI" /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />
 
         <Route path="/reports/plant-head" element={<PlantRoute><Navigate to="/plant" replace /></PlantRoute>} />

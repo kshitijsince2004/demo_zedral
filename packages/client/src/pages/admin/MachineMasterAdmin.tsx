@@ -68,7 +68,7 @@ export function MachineMasterAdmin() {
     setForm({
       machineCode: row.machineCode,
       name: row.name,
-      processCode: row.processCode ?? '6HI',
+      processCode: row.processCode ?? 'ROLLING',
       machineType: row.machineType,
       department: row.department ?? '',
       capacityMt: row.capacityMt != null ? String(row.capacityMt) : '',

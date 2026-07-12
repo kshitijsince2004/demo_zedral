@@ -3,6 +3,8 @@ import { PPCInfoCards } from './PPCInfoCards';
 import { FourHiRollingForm } from './FourHiRollingForm';
 import { SharedSkinPassForm } from './SharedSkinPassForm';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
+import { millSupportsRolling } from '../../lib/millConfig';
 
 interface SixHiOrderWorkspaceProps {
   order: SixHiOrderDetail;
@@ -32,7 +34,8 @@ export function SixHiOrderWorkspace({
   onSaveRolling,
   onSaveSkinPass,
 }: SixHiOrderWorkspaceProps) {
-  const isRolling = order.subProcess === 'ROLLING';
+  const { machineCode } = useWorkspaceBase();
+  const isRolling = order.subProcess === 'ROLLING' && millSupportsRolling(machineCode);
 
   const isRunning = order.status === 'IN_PROGRESS' && !!order.prodStartAt && !order.activeStoppage;
   const isStoppageActive = !!order.activeStoppage;

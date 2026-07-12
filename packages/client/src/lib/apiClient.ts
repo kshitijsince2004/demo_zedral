@@ -167,9 +167,23 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  // Inject machine code into /6hi/ API requests
+  let finalPath = path;
+  if (typeof window !== 'undefined' && path.startsWith('/6hi/')) {
+    const pathname = window.location.pathname.toLowerCase();
+    let machine: string | null = null;
+    if (pathname.includes('/4hi')) machine = '4HI';
+    else if (pathname.includes('/2hi')) machine = '2HI';
+    else if (pathname.includes('/6hi')) machine = '6HI';
+    
+    if (machine && !path.includes('machine=')) {
+      finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
+    }
+  }
+
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${API_BASE}${finalPath}`, {
       ...fetchOptions,
       headers,
     });

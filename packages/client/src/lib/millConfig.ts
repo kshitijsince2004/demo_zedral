@@ -17,7 +17,7 @@ export function crmMillFromPath(pathname: string): MillCode {
 }
 
 /** Shift logs and line auth use master.process code 6HI for all CRM mills. */
-export const CRM_SHIFT_PROCESS_CODE = '6HI';
+export const CRM_SHIFT_PROCESS_CODE = 'ROLLING';
 
 export function millProcessTabs(machine: MillCode): MillProcessTab[] {
   if (machine === '2HI') return ['skinpass'];
