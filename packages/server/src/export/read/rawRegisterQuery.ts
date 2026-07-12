@@ -154,7 +154,7 @@ export function resolveEffectiveProcessCodes(
   processCodes?: string[],
 ): string[] {
   const scoped = getScopedLineCodes(user, 'READ');
-  const ALL = ['HRS', 'PKL', '6HI', 'CRM', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL', 'GLV'];
+  const ALL = ['HRS', 'PKL', '6HI', 'CRM', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL'];
   let lines = processCodes?.length ? processCodes.map((c) => c.toUpperCase()) : ALL;
   if (scoped !== null) {
     lines = lines.filter((l) => scoped.includes(l));

@@ -10,7 +10,6 @@ import {
 describe('userScope', () => {
   it('builds /username.role paths', () => {
     expect(userScopePath('operator', 'OPERATOR')).toBe('/operator.operator');
-    expect(userScopePath('Supervisor', 'SUPERVISOR')).toBe('/supervisor.supervisor');
     expect(userScopePath('machinehead', 'MACHINE_HEAD')).toBe('/machinehead.machine_head');
   });
 

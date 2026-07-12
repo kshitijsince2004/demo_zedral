@@ -7,7 +7,7 @@ export interface ImportRowError {
   error: string;
 }
 
-const PROCESS_CODES = new Set(['HRS', 'PKL', 'CRM', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL', 'GLV']);
+const PROCESS_CODES = new Set(['HRS', 'PKL', 'CRM', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL']);
 
 export async function validateImportRow(
   row: ParsedImportRow,

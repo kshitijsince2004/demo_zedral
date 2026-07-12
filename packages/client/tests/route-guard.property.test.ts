@@ -5,7 +5,7 @@
  *
  * For any (user role, guarded route) pair, navigation should be permitted if
  * and only if the role meets the route's minimum required role:
- *   - Review/approval routes require SUPERVISOR or higher.
+ *   - Review/approval routes require MACHINE_HEAD or higher.
  *   - Admin routes require ADMIN.
  *
  * This property tests the pure role-rank logic that backs RoleRoute, without
@@ -25,9 +25,8 @@ import type { Role } from '../src/lib/authStore';
 const ROLE_RANK: Record<Role, number> = {
   OPERATOR: 0,
   MACHINE_HEAD: 1,
-  SUPERVISOR: 2,
-  PLANT_HEAD: 3,
-  ADMIN: 4,
+  PLANT_HEAD: 2,
+  ADMIN: 3,
 };
 
 /**
@@ -61,13 +60,10 @@ const ROUTE_TABLE: RouteSpec[] = [
   { path: '/import/rolling',         minRole: 'MACHINE_HEAD' },
   // Plant head routes
   { path: '/plant',                  minRole: 'PLANT_HEAD' },
-  // Supervisor+ routes (Requirement 8.3)
-  { path: '/review',                 minRole: 'SUPERVISOR' },
-  { path: '/review/:shiftLogId',     minRole: 'SUPERVISOR' },
-  { path: '/reports/supervisor',     minRole: 'SUPERVISOR' },
-  { path: '/reports/plant-head',     minRole: 'SUPERVISOR' },
-  { path: '/reports/management',     minRole: 'SUPERVISOR' },
-  { path: '/reports/export',         minRole: 'SUPERVISOR' },
+  // Machine Head+ routes (Requirement 8.3)
+  { path: '/reports/plant-head',     minRole: 'MACHINE_HEAD' },
+  { path: '/reports/management',     minRole: 'MACHINE_HEAD' },
+  { path: '/reports/export',         minRole: 'MACHINE_HEAD' },
   // Admin-only routes (Requirement 7.6, 8.3)
   { path: '/admin/master-data',      minRole: 'ADMIN' },
   { path: '/admin/planning',         minRole: 'ADMIN' },
@@ -78,7 +74,7 @@ const ROUTE_TABLE: RouteSpec[] = [
 // Arbitraries
 // ---------------------------------------------------------------------------
 
-const roleArb = fc.constantFrom<Role>('OPERATOR', 'MACHINE_HEAD', 'SUPERVISOR', 'PLANT_HEAD', 'ADMIN');
+const roleArb = fc.constantFrom<Role>('OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN');
 const routeArb = fc.constantFrom(...ROUTE_TABLE);
 
 // ---------------------------------------------------------------------------
@@ -133,11 +129,11 @@ describe('Property 14: Role-based route guarding', () => {
   it(
     '14c — OPERATOR cannot access review or admin routes (Req 8.3)',
     () => {
-      const supervisorRoutes = ROUTE_TABLE.filter((r) => r.minRole === 'SUPERVISOR');
+      const machineHeadRoutes = ROUTE_TABLE.filter((r) => r.minRole === 'MACHINE_HEAD');
       const adminRoutes = ROUTE_TABLE.filter((r) => r.minRole === 'ADMIN');
 
-      for (let i = 0; i < supervisorRoutes.length; i += 1) {
-        expect(canAccess('OPERATOR', 'SUPERVISOR')).toBe(false);
+      for (let i = 0; i < machineHeadRoutes.length; i += 1) {
+        expect(canAccess('OPERATOR', 'MACHINE_HEAD')).toBe(false);
       }
       for (let i = 0; i < adminRoutes.length; i += 1) {
         expect(canAccess('OPERATOR', 'ADMIN')).toBe(false);
@@ -146,17 +142,17 @@ describe('Property 14: Role-based route guarding', () => {
   );
 
   it(
-    '14d — SUPERVISOR can access review routes but not admin routes (Req 8.3)',
+    '14d — MACHINE_HEAD can access review routes but not admin routes (Req 8.3)',
     () => {
-      expect(canAccess('SUPERVISOR', 'SUPERVISOR')).toBe(true);
-      expect(canAccess('SUPERVISOR', 'ADMIN')).toBe(false);
+      expect(canAccess('MACHINE_HEAD', 'MACHINE_HEAD')).toBe(true);
+      expect(canAccess('MACHINE_HEAD', 'ADMIN')).toBe(false);
     },
   );
 
   it(
     '14e — PLANT_HEAD can access review routes but not admin routes (Req 8.3)',
     () => {
-      expect(canAccess('PLANT_HEAD', 'SUPERVISOR')).toBe(true);
+      expect(canAccess('PLANT_HEAD', 'MACHINE_HEAD')).toBe(true);
       expect(canAccess('PLANT_HEAD', 'ADMIN')).toBe(false);
     },
   );
@@ -181,9 +177,9 @@ describe('Property 14: Role-based route guarding', () => {
   );
 
   it(
-    '14g — role hierarchy is strictly ordered: OPERATOR < SUPERVISOR < PLANT_HEAD < ADMIN',
+    '14g — role hierarchy is strictly ordered: OPERATOR < MACHINE_HEAD < PLANT_HEAD < ADMIN',
     () => {
-      const roles: Role[] = ['OPERATOR', 'SUPERVISOR', 'PLANT_HEAD', 'ADMIN'];
+      const roles: Role[] = ['OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN'];
       for (let i = 0; i < roles.length; i++) {
         for (let j = 0; j < roles.length; j++) {
           const expected = ROLE_RANK[roles[i]] >= ROLE_RANK[roles[j]];

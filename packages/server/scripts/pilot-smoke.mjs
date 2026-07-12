@@ -187,12 +187,12 @@ function printManualChecklist() {
     'Login with badge + PIN (not auto-login)',
     'Create HRS entry → verify row in txn.prod_hrs',
     'Submit shift log → validation gate blocks bad data',
-    'Supervisor approve → state APPROVED',
+    'Machine Head approve → state APPROVED',
     'Handover → notes + attestation persisted',
     'Change request approve → entry updated (APPLIED)',
     'Admin Users → create user with line access',
     'Export CSV → file in tmp/exports + audit.export_job row',
-    'Supervisor/Plant Head dashboards load real KPIs',
+    'Machine Head/Plant Head dashboards load real KPIs',
   ];
   items.forEach((item, i) => console.log(`  ${i + 1}. ${item}`));
 }

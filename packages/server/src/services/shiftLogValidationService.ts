@@ -31,7 +31,6 @@ const PROCESS_ID_TO_CODE: Record<number, string> = {
   6: 'RWD',
   7: 'CRS',
   8: 'CTL',
-  9: 'GLV',
 };
 
 const CODE_TO_PROCESS_ID: Record<string, number> = Object.fromEntries(

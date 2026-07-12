@@ -53,8 +53,9 @@ async function main() {
   console.log('\n=== Seed complete ===');
   console.log('Login PIN: 1234');
   console.log('  Badge 1000 — Admin');
-  console.log('  Badge 2000 — Supervisor');
   console.log('  Badge 3000 — Operator');
+  console.log('  Badge 4000 — Machine Head');
+  console.log('  Badge 5000 — Plant Head');
 }
 
 main().catch((err) => {

@@ -22,7 +22,7 @@ interface RoleRouteProps {
  * - Authenticated users who meet or exceed `minRole` see the children.
  *
  * Role hierarchy (ascending privilege):
- *   OPERATOR < MACHINE_HEAD < SUPERVISOR < PLANT_HEAD < ADMIN
+ *   OPERATOR < MACHINE_HEAD < PLANT_HEAD < ADMIN
  *
  * Note: ADMIN is treated as a superuser and always passes any role check
  * (consistent with authStore.hasRole).

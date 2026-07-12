@@ -30,7 +30,7 @@ async function main() {
   }
   console.log('\nExamples:');
   console.log(`  Badge 1000 / PIN ${pin} → Admin (/admin/master-data)`);
-  console.log(`  Badge 2000 / PIN ${pin} → Supervisor`);
+
   console.log(`  Badge 3000 / PIN ${pin} → Operator (/operator.operator → 6HI)`);
   console.log(`  Badge 4000 / PIN ${pin} → Machine Head (/machine-head-dashboard)`);
   console.log(`  Badge 5000 / PIN ${pin} → Plant Head (/plant)`);

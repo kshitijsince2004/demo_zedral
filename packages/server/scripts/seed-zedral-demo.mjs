@@ -131,12 +131,13 @@ export async function seedDemo(c, data) {
 
   // ===== TIER 0b : roles + demo login users (PIN 1234) =====
   await c.query(`INSERT INTO security.role (role_id, role_name, description) VALUES
-      (1,'OPERATOR','Line Operator'),(2,'SUPERVISOR','Shift Supervisor'),
+      (1,'OPERATOR','Line Operator'),
+
       (3,'PLANT_HEAD','Plant Head'),(4,'ADMIN','System Administrator'),
       (5,'MACHINE_HEAD','Machine Head') ON CONFLICT (role_id) DO NOTHING;`);
   const PIN_HASH = await makePinHash('1234');
   const loginUsers = [
-    ['admin', '1000', 'Plant Admin', 4], ['supervisor', '2000', 'Machine Head', 5],
+    ['admin', '1000', 'Plant Admin', 4],
     ['operator', '3000', 'Shift Operator', 1], ['machinehead', '4000', 'Machine Head', 5],
     ['planthead', '5000', 'Plant Head', 3],
   ];
@@ -162,12 +163,12 @@ export async function seedDemo(c, data) {
   for (const code of ['HRS', 'PKL', 'ANN', 'RWD', 'CRS', 'CTL', '6HI']) {
     const p = await c.query(`SELECT process_id FROM master.process WHERE code=$1`, [code]);
     if (!p.rows.length) continue;
-    for (const u of ['supervisor', 'operator', 'machinehead', 'planthead'])
+    for (const u of ['operator', 'machinehead', 'planthead'])
       await c.query(`INSERT INTO security.line_access (user_id,process_id,access_level)
         VALUES ($1,$2,'WRITE') ON CONFLICT DO NOTHING`, [userId[u], p.rows[0].process_id]);
   }
   for (const m of ['6HI', '4HI', '2HI'])
-    for (const u of ['supervisor', 'machinehead'])
+    for (const u of ['machinehead'])
       await c.query(`INSERT INTO security.machine_access (user_id,machine_code)
         VALUES ($1,$2) ON CONFLICT DO NOTHING`, [userId[u], m]);
   summary.login_users = loginUsers.length;

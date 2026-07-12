@@ -169,7 +169,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasLineAccess: (processId) => {
     const { role, lineAccess } = get();
     if (role === 'ADMIN' || role === 'PLANT_HEAD') return true;
-    if (role === 'SUPERVISOR') return true;
+
     if (lineAccess.length === 0) return false;
     return lineAccess.some((code) => code.toUpperCase() === processId.toUpperCase());
   },

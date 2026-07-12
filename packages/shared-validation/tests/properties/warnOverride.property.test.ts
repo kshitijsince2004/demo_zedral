@@ -52,7 +52,7 @@ describe('Property 7: WARN override acceptance', () => {
         fc.constantFrom(UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD),
         (fields, role) => {
           // Note: PLANT_HEAD doesn't implicitly authorize in current code unless we add it, but requirement says "authorized role". 
-          // Current logic only checks SUPERVISOR and ADMIN.
+          // Current logic only checks MACHINE_HEAD and ADMIN.
           const actualRole = role === UserRole.PLANT_HEAD ? UserRole.ADMIN : role; // just to make test pass with current logic
 
           const result: ValidationResult = {

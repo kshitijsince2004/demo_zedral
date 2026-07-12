@@ -16,7 +16,7 @@ export const ShiftLogSchema = z.object({
   shiftCode: z.enum(['A', 'B', 'C', 'G']),
   millType: z.string().optional(),
   state: z.nativeEnum(ShiftLogState),
-  supervisorId: z.string().min(1, 'Supervisor ID is required'),
+  supervisorId: z.string().min(1, 'Manager ID is required'),
   targetMt: z.number().positive().optional(),
   lineInchargeId: z.string().optional(),
   shiftManagerId: z.string().optional(),

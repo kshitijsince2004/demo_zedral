@@ -12,9 +12,7 @@ describe('getRoleHomePath', () => {
     expect(getRoleHomePath(UserRole.OPERATOR, ['6HI'], ['2HI'], 'operator')).toBe('/operator.operator');
   });
 
-  it('maps SUPERVISOR to /username.role workspace', () => {
-    expect(getRoleHomePath(UserRole.SUPERVISOR, [], ['4HI'], 'supervisor')).toBe('/supervisor.supervisor');
-  });
+
 
   it('falls back to assigned machine path without username', () => {
     expect(getRoleHomePath(UserRole.OPERATOR, ['6HI'], ['4HI'])).toBe('/4hi');
@@ -25,7 +23,7 @@ describe('getRoleHomePath', () => {
     const paths = [
       getRoleHomePath(UserRole.OPERATOR, ['HRS'], ['HRS'], 'operator'),
       getRoleHomePath(UserRole.MACHINE_HEAD, [], ['4HI'], 'machinehead'),
-      getRoleHomePath(UserRole.SUPERVISOR, [], [], 'supervisor'),
+
       getRoleHomePath(UserRole.PLANT_HEAD),
       getRoleHomePath(UserRole.ADMIN),
     ];

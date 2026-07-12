@@ -341,12 +341,6 @@ export const CTLSchema = BaseProcessEntrySchema.extend({
   }
 });
 
-// ─── Galvanizing ──────────────────────────────────────────────────────────────
-export const GLVSchema = BaseProcessEntrySchema.extend({
-  zincCoatingGsm: z.number().positive('Zinc coating must be positive').optional(),
-  spangleType: z.string().optional(),
-  weightMt: z.number().positive('Weight must be positive'),
-});
 
 // ─── Process schema registry ──────────────────────────────────────────────────
 
@@ -360,7 +354,6 @@ export const ProcessSchemas: Record<string, z.ZodTypeAny> = {
   RWD: RWDSchema,
   CRS: CRSSchema,
   CTL: CTLSchema,
-  GLV: GLVSchema,
 };
 
 /** Additional schemas for sub-entities (chart rows, passes, slit slots). */
