@@ -48,17 +48,24 @@ async function shiftCodeFromQueryOrCurrent(
   return detected.shiftCode.toUpperCase();
 }
 
-function requireSixHi(operation: LineAccessLevel) {
+function requireCrmMill(operation: LineAccessLevel) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
-      assertLineOperation(req.user, '6HI', operation);
+      const machineRaw = String(req.body?.machine ?? req.query?.machine ?? '6HI').toUpperCase();
+      const machine = parseCrmMillCode(machineRaw);
+      if (!machine) {
+        return res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
+      }
+      assertLineOperation(req.user, machine, operation);
       next();
     } catch (e: unknown) {
       res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
     }
   };
 }
+
+const requireSixHi = requireCrmMill; // keep name to minimize churn across 42 handlers
 
 router.use(requireAuth);
 
@@ -360,7 +367,7 @@ router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
     const date = req.query.date ? String(req.query.date).slice(0, 10) : undefined;
     const shiftCode = req.query.shiftCode ? String(req.query.shiftCode).toUpperCase() : undefined;
 
-    let q = db.selectFrom('txn.crm6_order as o')
+    let q = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
       .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')

@@ -214,11 +214,11 @@ export class LiveService {
     }
 
     let q = db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
       .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
-      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-      .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+      .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+      .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
       .select([
         'pb.batch_number',
         'pb.customer_name',
@@ -369,10 +369,10 @@ export class LiveService {
     const machineCodes = machines.map((m) => m.machine_code);
     const activeOrderRows = machineCodes.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
-        .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+        .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
         .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
-        .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-        .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+        .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+        .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
         .leftJoin('txn.stoppage as os', (join) =>
           join.onRef('os.order_id', '=', 'o.order_id').on('os.end_at', 'is', null))
         .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
@@ -429,7 +429,7 @@ export class LiveService {
 
     // 3. Rejects for today (for shift summary)
     const today = currentPlantDate();
-    const rejectedOrders = await db.selectFrom('txn.crm6_order as o')
+    const rejectedOrders = await db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['pb.machine_code', 'pb.ppc_weight_mt'])
       .where('o.status', '=', 'REJECTED')
@@ -530,10 +530,10 @@ export class LiveService {
 
     // Active order details
     let currentOrder: MachineCommandCenterData['currentOrder'] | undefined;
-    const activeOrders = await db.selectFrom('txn.crm6_order as o')
+    const activeOrders = await db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-      .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+      .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+      .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
       .select([
         'pb.batch_number', 'pb.coil_no', 'pb.customer_name', 'pb.grade_code', 'pb.sub_process',
         'pb.ppc_weight_mt', 'pb.ppc_thk_mm', 'pb.input_thk_mm',
@@ -593,7 +593,7 @@ export class LiveService {
         .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
         .select(['os.stoppage_id', 'os.category_code', 'sc.label', 'os.remarks', 'os.start_at', 'u.full_name'])
         .where('os.order_id', '=',
-          db.selectFrom('txn.crm6_order').select('order_id').where('batch_number', '=', activeOrder.batch_number),
+          db.selectFrom('txn.crm_order').select('order_id').where('batch_number', '=', activeOrder.batch_number),
         )
         .where('os.end_at', 'is', null)
         .executeTakeFirst();
@@ -621,7 +621,7 @@ export class LiveService {
     const nextOrder = await this.getNextOrder(machineCode);
 
     const orderQueue = await db.selectFrom('planning.ppc_batch as pb')
-      .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .select([
         'pb.batch_number',
         'pb.customer_name',
@@ -637,7 +637,7 @@ export class LiveService {
       .limit(20)
       .execute();
 
-    const completedOrders = await db.selectFrom('txn.crm6_order as o')
+    const completedOrders = await db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'pb.batch_number',
@@ -687,7 +687,7 @@ export class LiveService {
   /** Returns the next queued order for a machine (not yet started) */
   static async getNextOrder(machineCode: string) {
     const row = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .select(['pb.batch_number', 'pb.customer_name', 'pb.queue_seq', 'pb.ppc_weight_mt', 'pb.sub_process'])
       .where('pb.machine_code', '=', machineCode)
       .where('pb.machine_allocated', '=', true)
@@ -760,11 +760,11 @@ export class LiveService {
     machineFilter: string[] | null = null,
   ): Promise<LiveOrderDetail | null> {
     const batch = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
       .leftJoin('security.app_user as u', 'u.user_id', 'o.logged_in_user_id')
-      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-      .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+      .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+      .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
       .select([
         'pb.batch_number', 'pb.customer_name', 'pb.grade_code', 'pb.machine_code',
         'm.name as machine_name', 'pb.sub_process', 'pb.ppc_weight_mt', 'pb.destination',
@@ -891,7 +891,7 @@ export class LiveService {
     opts: { dateFrom?: string; dateTo?: string; shiftCode?: string; limit?: number } = {},
   ) {
     const limit = opts.limit ?? 50;
-    let q = db.selectFrom('txn.crm6_order as o')
+    let q = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
       .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
@@ -1044,7 +1044,7 @@ export class LiveService {
       .executeTakeFirst();
 
     let completedQ = db
-      .selectFrom('txn.crm6_order as o')
+      .selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'o.order_id',
@@ -1081,7 +1081,7 @@ export class LiveService {
     }
     const completed = await completedQ.execute();
 
-    let rejectedQ = db.selectFrom('txn.crm6_order as o')
+    let rejectedQ = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
       .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')
@@ -1100,7 +1100,7 @@ export class LiveService {
       .orderBy('o.prod_end_at', 'desc')
       .limit(10);
 
-    let rejectedCountQ = db.selectFrom('txn.crm6_order as o')
+    let rejectedCountQ = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(sql<number>`count(*)::int`.as('n'))
       .where('o.status', '=', 'REJECTED');
@@ -1135,7 +1135,7 @@ export class LiveService {
     const rejectedOrderCount = rejectedCountRow?.n ?? 0;
 
     let stoppageQ = db.selectFrom('txn.stoppage as os')
-      .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+      .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
       .select([

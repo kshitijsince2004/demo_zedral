@@ -48,7 +48,7 @@ export const RejectedOrdersReport: ReportDefinition = {
 
   async estimateRowCount(scope: Record<string, unknown>, _user: AuthUser): Promise<number> {
     const parsed = parseScope(scope);
-    let q = db.selectFrom('txn.crm6_order as o')
+    let q = db.selectFrom('txn.crm_order as o')
       .select(sql<number>`count(*)::int`.as('n'))
       .where('o.status', '=', 'REJECTED');
 
@@ -74,7 +74,7 @@ export const RejectedOrdersReport: ReportDefinition = {
 
     const parsed = parseScope(scope);
 
-    let rowsQuery = db.selectFrom('txn.crm6_order as o')
+    let rowsQuery = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
       .leftJoin('security.app_user as u', 'u.user_id', 'rej.operator_id')

@@ -227,7 +227,7 @@ export class ProductionService {
           batch_number: 'ARCHIVE-LEGACY', plan_date: new Date(), shift_code: 'A', machine_code: '6HI', sub_process: 'ROLLING', queue_seq: 9999, width_mm: 0, ppc_thk_mm: 0, ppc_weight_mt: 0, grade_code: 'ARCHIVE', customer_name: 'ARCHIVE', coil_no: 'ARCHIVE-COIL', input_thk_mm: 0
         }).returning('batch_id').executeTakeFirstOrThrow();
       }
-      const order = await trx.insertInto('txn.crm6_order').values({
+      const order = await trx.insertInto('txn.crm_order').values({
         shift_log_id: entry.shiftLogId,
         batch_id: batch.batch_id,
         batch_number: 'ARCHIVE-LEGACY',
@@ -242,7 +242,7 @@ export class ProductionService {
         prod_duration_min: 0,
         production_day: new Date()
       }).returning('order_id').executeTakeFirstOrThrow();
-      await trx.insertInto('txn.crm6_skinpass').values({
+      await trx.insertInto('txn.crm_skinpass').values({
         order_id: order.order_id,
         actual_weight_mt: entry.wtSkinpassMt ?? null,
         output_thk_mm: entry.finalThkMm ?? null,

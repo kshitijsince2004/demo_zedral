@@ -85,7 +85,7 @@ export class MachineMasterService {
           process_id: processId,
           process_code: processCode,
           machine_status: input.machineStatus ?? 'OPERATIONAL',
-          machine_type: input.machineType ?? (processCode === '6HI' ? 'CRM_COMBO' : 'PLANT'),
+          machine_type: input.machineType ?? (processCode === 'ROLLING' ? 'CRM_COMBO' : 'PLANT'),
           department: input.department?.trim() || null,
           capacity_mt: input.capacityMt ?? null,
         })
@@ -152,7 +152,7 @@ export class MachineMasterService {
     processCode: string | null,
     caps: { rolling: boolean; skinPass: boolean },
   ): Promise<void> {
-    if (processCode !== '6HI' && !caps.rolling && !caps.skinPass) return;
+    if (processCode !== 'ROLLING' && !caps.rolling && !caps.skinPass) return;
 
     await trx.deleteFrom('master.route_code')
       .where('machine_code', '=', machineCode)
@@ -168,7 +168,7 @@ export class MachineMasterService {
         VALUES (
           ${routeCode.slice(0, 4)},
           ${`${machineCode} Rolling`},
-          ${processCode ?? '6HI'},
+          ${processCode ?? 'ROLLING'},
           ${machineCode},
           'ROLLING',
           ${seqBase}
@@ -188,7 +188,7 @@ export class MachineMasterService {
         VALUES (
           ${routeCode},
           ${`${machineCode} Skin Pass`},
-          ${processCode ?? '6HI'},
+          ${processCode ?? 'ROLLING'},
           ${machineCode},
           'SKIN_PASS',
           ${seqBase + 1}

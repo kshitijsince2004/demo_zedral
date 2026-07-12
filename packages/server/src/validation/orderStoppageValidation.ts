@@ -31,7 +31,7 @@ async function loadMasterShiftWindows() {
 /** Production shift for an order: shift_log → crm6_order (never PPC plan_date). */
 async function loadOrderShiftContext(orderId: string | number) {
   const row = await db
-    .selectFrom('txn.crm6_order as o')
+    .selectFrom('txn.crm_order as o')
     .leftJoin('txn.shift_log as sl', 'sl.shift_log_id', 'o.shift_log_id')
     .select([
       'sl.prod_date as sl_prod_date',

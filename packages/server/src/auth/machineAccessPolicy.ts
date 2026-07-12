@@ -42,9 +42,9 @@ export async function resolveShiftLogMachines(shiftLogId: string): Promise<strin
     if (s.machine_code) machines.add(s.machine_code.toUpperCase());
   }
 
-  // 2. txn.crm6_order
+  // 2. txn.crm_order
   const orders = await db
-    .selectFrom('txn.crm6_order')
+    .selectFrom('txn.crm_order')
     .select('sub_process')
     .where('shift_log_id', '=', id as any)
     .execute();

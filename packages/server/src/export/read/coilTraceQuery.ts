@@ -265,7 +265,7 @@ export function assertCoilTraceAccess(user: AuthUser, runs: ProcessRunRow[]): vo
   if (scoped === null) return;
 
   for (const run of runs) {
-    const code = run.processCode === '6HI' ? 'CRM' : run.processCode;
+    const code = run.processCode === 'ROLLING' ? 'CRM' : run.processCode;
     if (!scoped.includes(run.processCode) && !scoped.includes(code)) {
       throw new Error(`No read access to line ${run.processCode} for coil trace`);
     }

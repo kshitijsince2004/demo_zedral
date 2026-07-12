@@ -26,7 +26,7 @@ export class TraceabilityService {
     let machineJourney: Record<string, unknown>[] = [];
 
     if (batch) {
-      const crmOrder = await db.selectFrom('txn.crm6_order')
+      const crmOrder = await db.selectFrom('txn.crm_order')
         .selectAll()
         .where('batch_id', '=', batch.batch_id)
         .executeTakeFirst();
@@ -142,9 +142,9 @@ export class TraceabilityService {
       }
 
       // Cold Rolling Mill 6HI (CRM6)
-      const crm6 = await db.selectFrom('txn.crm6_order as o')
-        .leftJoin('txn.crm6_rolling as r', 'o.order_id', 'r.order_id')
-        .leftJoin('txn.crm6_skinpass as s', 'o.order_id', 's.order_id')
+      const crm6 = await db.selectFrom('txn.crm_order as o')
+        .leftJoin('txn.crm_rolling as r', 'o.order_id', 'r.order_id')
+        .leftJoin('txn.crm_skinpass as s', 'o.order_id', 's.order_id')
         .select([
            'o.order_id',
            'o.coil_no',

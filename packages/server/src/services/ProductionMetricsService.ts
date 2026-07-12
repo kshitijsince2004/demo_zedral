@@ -23,7 +23,7 @@ function toProdDateString(prodDate: string | Date): string {
 
 export class ProductionMetricsService {
   /**
-   * Live shift production from txn.crm6_order + rolling/skinpass weights.
+   * Live shift production from txn.crm_order + rolling/skinpass weights.
    * Same aggregation used by operator shift summary and machine dashboard.
    */
   static async getShiftMetrics(

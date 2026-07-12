@@ -79,7 +79,7 @@ export class ShiftAttributionService {
     if (!active) return;
 
     const order = await db
-      .selectFrom('txn.crm6_order as o')
+      .selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'o.order_id',
@@ -156,7 +156,7 @@ export class ShiftAttributionService {
         : 0;
 
     const inProgress = await db
-      .selectFrom('txn.crm6_order as o')
+      .selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['o.batch_number', 'o.status', 'o.sub_process', 'pb.machine_code'])
       .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])

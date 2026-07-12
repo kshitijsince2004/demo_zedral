@@ -341,7 +341,7 @@ export class PPCImportService {
   ): Promise<{ batch_id: string } | undefined> {
     const targetKey = pendingMergeIdentityKey(row);
     const candidates = await trx.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.coil_no', '=', row.coil_no)
       .where('pb.sub_process', '=', row.sub_process)
@@ -365,9 +365,9 @@ export class PPCImportService {
     batchId: string | number,
   ): Promise<SafetyCheck> {
     const row = await trx.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
-      .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-      .leftJoin('txn.crm6_skinpass as sp', 'sp.order_id', 'o.order_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+      .leftJoin('txn.crm_skinpass as sp', 'sp.order_id', 'o.order_id')
       .select([
         'pb.machine_allocated',
         'o.status as order_status',
@@ -717,9 +717,9 @@ export class PPCImportService {
     // Bulk fetch existing batches with their order status
     const existingBatches = allBatchNumbers.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
-          .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
-          .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-          .leftJoin('txn.crm6_skinpass as sp', 'sp.order_id', 'o.order_id')
+          .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
+          .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+          .leftJoin('txn.crm_skinpass as sp', 'sp.order_id', 'o.order_id')
           .select([
             'pb.batch_number',
             'pb.machine_allocated',

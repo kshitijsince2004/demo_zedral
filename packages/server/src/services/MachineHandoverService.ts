@@ -353,7 +353,7 @@ export class MachineHandoverService {
     let orderId: number | null = null;
     if (active) {
       const row = await db
-        .selectFrom('txn.crm6_order')
+        .selectFrom('txn.crm_order')
         .select('order_id')
         .where('batch_number', '=', active.batchNumber)
         .executeTakeFirst();
@@ -476,7 +476,7 @@ export class MachineHandoverService {
     let orderId: number | null = null;
     if (active) {
       const row = await db
-        .selectFrom('txn.crm6_order')
+        .selectFrom('txn.crm_order')
         .select('order_id')
         .where('batch_number', '=', active.batchNumber)
         .executeTakeFirst();

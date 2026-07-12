@@ -177,7 +177,7 @@ export function mapCrm6OrderRow(
     ? toDateString(order.production_day as Date | string)
     : toDateString(ctx.prodDate);
 
-  return baseRun(ctx, String(order.coil_no), areaCode, 'txn.crm6_order', order.order_id as string, {
+  return baseRun(ctx, String(order.coil_no), areaCode, 'txn.crm_order', order.order_id as string, {
     prodDate,
     outputWeightMt: weight,
     outputThkMm: thk,

@@ -5,10 +5,10 @@ import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
 
 export async function resolveOrderProductionMt(orderId: string | number): Promise<number> {
   const row = await db
-    .selectFrom('txn.crm6_order as o')
+    .selectFrom('txn.crm_order as o')
     .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-    .leftJoin('txn.crm6_rolling as r', 'r.order_id', 'o.order_id')
-    .leftJoin('txn.crm6_skinpass as s', 's.order_id', 'o.order_id')
+    .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+    .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
     .select(['o.ppc_weight_mt', 'r.actual_weight_mt as rolling_actual', 's.actual_weight_mt as skinpass_actual'])
     .where('o.order_id', '=', String(orderId))
     .executeTakeFirst();
@@ -27,7 +27,7 @@ export async function assertCrm6OutputWeight(
   if (actualWeightMt == null) return;
 
   const ppc = await db
-    .selectFrom('txn.crm6_order')
+    .selectFrom('txn.crm_order')
     .select('ppc_weight_mt')
     .where('order_id', '=', String(orderId))
     .executeTakeFirst();
@@ -66,7 +66,7 @@ export async function assertOrderRuntimeAccounting(
   stoppageMinutes: number,
 ): Promise<void> {
   const ctx = await db
-    .selectFrom('txn.crm6_order as o')
+    .selectFrom('txn.crm_order as o')
     .leftJoin('txn.shift_log as sl', 'sl.shift_log_id', 'o.shift_log_id')
     .innerJoin('master.shift as s', (join) =>
       join.onRef('s.shift_code', '=', 'o.shift_code'),
@@ -105,7 +105,7 @@ export async function assertShiftLogRuntimeAccounting(shiftLogId: string): Promi
 
   const stoppageRows = await db
     .selectFrom('txn.stoppage as os')
-    .leftJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+    .leftJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
     .select(['os.duration_min'])
     .where((eb) =>
       eb.or([

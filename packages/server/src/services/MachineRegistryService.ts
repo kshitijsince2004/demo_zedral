@@ -81,7 +81,7 @@ export class MachineRegistryService {
         capacityMt: m.capacity_mt != null ? Number(m.capacity_mt) : null,
         rolling: caps.rolling,
         skinPass: caps.skinPass,
-        isCrmMill: processCode === 'CRM' || processCode === '6HI' || m.machine_type === 'CRM_ROLLING' || m.machine_type === 'CRM_SKIN_PASS' || m.machine_type === 'CRM_COMBO' || caps.rolling || caps.skinPass,
+        isCrmMill: processCode === 'CRM' || processCode === 'ROLLING' || m.machine_type === 'CRM_ROLLING' || m.machine_type === 'CRM_SKIN_PASS' || m.machine_type === 'CRM_COMBO' || caps.rolling || caps.skinPass,
       };
     });
 

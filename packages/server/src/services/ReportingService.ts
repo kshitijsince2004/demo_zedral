@@ -246,7 +246,7 @@ async function fetchLossByShift(shiftIds: string[]): Promise<Record<string, numb
   hrs.forEach((r) => addLoss(map, r.shift_log_id, r.scrap_mt));
 
   const crm6 = await reportingDb
-    .selectFrom('txn.crm6_shift_summary')
+    .selectFrom('txn.crm_shift_summary')
     .select(['shift_log_id', 'scrap_kg'])
     .where('shift_log_id', 'in', shiftIds)
     .execute();
@@ -684,7 +684,7 @@ export class ReportingService {
       // Include CRM6 order stoppages (operator production) attributed to the same shifts.
       const crm6Rows = await reportingDb
         .selectFrom('txn.stoppage as os')
-        .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+        .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
         .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
         .select([
           'sc.label as reason',
@@ -767,7 +767,7 @@ export class ReportingService {
     // completed/rejected (an order row is either absent or still incomplete).
     const backlogRow = await reportingDb
       .selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .select(sql<number>`count(distinct pb.batch_id)`.as('cnt'))
       .where(sql`pb.plan_date`, '<', sql`${postgresDateOnly(currentPlantDate())}::date`)
       .where((eb) =>
@@ -809,7 +809,7 @@ export class ReportingService {
   static async getPlantHeadBacklog() {
     const rows = await reportingDb
       .selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
       .select([
         'pb.batch_id',

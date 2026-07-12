@@ -208,7 +208,7 @@ export class ExportReadRepository {
     const sixHiIds = shiftIdsByProcess.get('6HI') ?? [];
     if (sixHiIds.length > 0) {
       let orderQ = db
-        .selectFrom('txn.crm6_order as o')
+        .selectFrom('txn.crm_order as o')
         .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
         .select([
           'o.order_id',
@@ -230,8 +230,8 @@ export class ExportReadRepository {
       if (orders.length > 0) {
         const orderIds = orders.map((o) => String(o.order_id));
         const [rollingRows, skinpassRows] = await Promise.all([
-          db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', 'in', orderIds).execute(),
-          db.selectFrom('txn.crm6_skinpass').selectAll().where('order_id', 'in', orderIds).execute(),
+          db.selectFrom('txn.crm_rolling').selectAll().where('order_id', 'in', orderIds).execute(),
+          db.selectFrom('txn.crm_skinpass').selectAll().where('order_id', 'in', orderIds).execute(),
         ]);
 
         const rollingByOrder = new Map(rollingRows.map((r) => [String(r.order_id), r]));
@@ -326,7 +326,7 @@ export class ExportReadRepository {
     // stoppage in its actual shift column instead of collapsing them all into shift A.
     let orderQ = db
       .selectFrom('txn.stoppage as os')
-      .innerJoin('txn.crm6_order as o', 'os.order_id', 'o.order_id')
+      .innerJoin('txn.crm_order as o', 'os.order_id', 'o.order_id')
       .leftJoin('planning.ppc_batch as pb', 'o.batch_id', 'pb.batch_id')
       .leftJoin('txn.shift_log as osl', 'o.shift_log_id', 'osl.shift_log_id')
       .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')

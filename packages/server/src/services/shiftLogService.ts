@@ -224,7 +224,7 @@ export class ShiftLogService {
       6: 'txn.prod_rwd',
       7: 'txn.prod_crs',
       8: 'txn.prod_ctl',
-      31: 'txn.crm6_order',
+      31: 'txn.crm_order',
     };
     return map[processId] || null;
   }
@@ -306,7 +306,7 @@ export class ShiftLogService {
     const processTable = this.getProcessTable(processId);
     if (!processTable) return 0;
 
-    if (processTable === 'txn.crm6_order') {
+    if (processTable === 'txn.crm_order') {
       const { SixHiShiftService } = await import('./sixHi');
       return SixHiShiftService.getProducedMt(shiftLogId);
     }

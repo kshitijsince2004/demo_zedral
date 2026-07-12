@@ -10,7 +10,7 @@ export async function ensureOrderMachineTransferTable(): Promise<void> {
     ensurePromise = sql`
       CREATE TABLE IF NOT EXISTS txn.order_machine_transfer (
         transfer_id       BIGSERIAL PRIMARY KEY,
-        order_id          BIGINT REFERENCES txn.crm6_order(order_id) ON DELETE SET NULL,
+        order_id          BIGINT REFERENCES txn.crm_order(order_id) ON DELETE SET NULL,
         batch_number      VARCHAR(64) NOT NULL,
         source_machine_code VARCHAR(16) NOT NULL,
         destination_machine_code VARCHAR(16) NOT NULL,

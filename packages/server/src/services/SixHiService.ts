@@ -9,6 +9,8 @@ import type {
 } from '@m1/shared-validation';
 import { db } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
+import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode } from '../utils/machineAllocation';
+import { PPCImportService } from '../services/PPCImportService';
 import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -35,7 +37,7 @@ import {
 } from '../validation/crm6ProductionValidation';
 
 
-const SIX_HI_PROCESS_CODE = '6HI';
+const SIX_HI_PROCESS_CODE = 'ROLLING';
 
 function mapDestination(raw: string | null): 'REWINDING' | 'ANNEALING' {
   return raw === 'REWINDING' ? 'REWINDING' : 'ANNEALING';
@@ -101,7 +103,7 @@ export class SixHiService {
     machineCode?: string,
   ): Promise<string | null> {
     const id = String(orderId);
-    const current = await db.selectFrom('txn.crm6_order')
+    const current = await db.selectFrom('txn.crm_order')
       .select(['shift_log_id'])
       .where('order_id', '=', id)
       .executeTakeFirst();
@@ -120,7 +122,7 @@ export class SixHiService {
     }
 
     await db.transaction().execute(async (trx) => {
-      await trx.updateTable('txn.crm6_order')
+      await trx.updateTable('txn.crm_order')
         .set({
           shift_log_id: targetShiftLogId,
           prod_date: prodDate,
@@ -131,7 +133,7 @@ export class SixHiService {
         .where('order_id', '=', id)
         .execute();
 
-      await trx.updateTable('txn.crm6_rolling')
+      await trx.updateTable('txn.crm_rolling')
         .set({ shift_code: shiftCode, prod_date: prodDate } as any)
         .where('order_id', '=', id)
         .execute();
@@ -246,7 +248,7 @@ export class SixHiService {
     queuePosition: number,
     options?: { isBacklog?: boolean },
   ): Promise<SixHiQueueCard> {
-    const order = await db.selectFrom('txn.crm6_order')
+    const order = await db.selectFrom('txn.crm_order')
       .selectAll()
       .where('batch_id', '=', String(b.batch_id))
       .executeTakeFirst();
@@ -264,17 +266,17 @@ export class SixHiService {
 
       if (order.status === 'PENDING' || order.status === 'PREPARING') {
         if (subProcess === 'ROLLING') {
-          const rolling = await db.selectFrom('txn.crm6_rolling')
+          const rolling = await db.selectFrom('txn.crm_rolling')
             .select(['actual_weight_mt', 'total_passes'])
             .where('order_id', '=', order.order_id)
             .executeTakeFirst();
-          const passCount = await db.selectFrom('txn.crm6_rolling_pass')
+          const passCount = await db.selectFrom('txn.crm_rolling_pass')
             .select(sql<number>`count(*)::int`.as('n'))
             .where('order_id', '=', order.order_id)
             .executeTakeFirst();
           prepReady = !!(rolling?.actual_weight_mt || (passCount?.n ?? 0) > 0 || (rolling?.total_passes ?? 0) > 0);
         } else {
-          const sp = await db.selectFrom('txn.crm6_skinpass')
+          const sp = await db.selectFrom('txn.crm_skinpass')
             .select(['output_thk_mm', 'ann_hard', 'operating_mode'])
             .where('order_id', '=', order.order_id)
             .executeTakeFirst();
@@ -370,7 +372,7 @@ export class SixHiService {
 
     // Operational assigned queue — machine sequence only (not planned date).
     const batches = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.machine_code', '=', machineCode)
       .where('pb.sub_process', '=', subProcess)
@@ -382,7 +384,7 @@ export class SixHiService {
 
     // Operational pending pool — unallocated, excluding PPC backlog bucket.
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
@@ -394,7 +396,7 @@ export class SixHiService {
 
     // Planning backlog visibility — compare PPC plan_date to operational view (not shift input).
     const backlogBatches = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
@@ -468,7 +470,7 @@ export class SixHiService {
     shiftLogId?: string,
   ): Promise<Array<{ status: 'COMPLETED' | 'REJECTED'; batch: Record<string, unknown> }>> {
     let query = db.selectFrom('planning.ppc_batch as pb')
-      .innerJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .select(['o.status'])
       .where('pb.machine_code', '=', machineCode)
@@ -534,7 +536,7 @@ export class SixHiService {
       throw new Error(`Order is already assigned to ${machine}`);
     }
 
-    const order = await db.selectFrom('txn.crm6_order')
+    const order = await db.selectFrom('txn.crm_order')
       .select(['order_id', 'status'])
       .where('batch_id', '=', batch.batch_id)
       .executeTakeFirst();
@@ -578,7 +580,7 @@ export class SixHiService {
           .execute();
       }
 
-      await trx.updateTable('txn.crm6_order')
+      await trx.updateTable('txn.crm_order')
         .set({ status: 'PREPARING' })
         .where('batch_id', '=', batch.batch_id)
         .where('status', '=', 'PENDING')
@@ -640,7 +642,7 @@ export class SixHiService {
     const nonAssignable = [...SixHiService.NON_ASSIGNABLE_ORDER_STATUSES];
 
     const batches = await db.selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.machine_allocated', '=', false)
       .where((eb) => eb.or([
@@ -656,7 +658,7 @@ export class SixHiService {
     const orders = [];
     for (const b of batches) {
       const subProcess = b.sub_process as SixHiSubProcess;
-      const crmOrder = await db.selectFrom('txn.crm6_order')
+      const crmOrder = await db.selectFrom('txn.crm_order')
         .select(['status'])
         .where('batch_id', '=', b.batch_id)
         .executeTakeFirst();
@@ -684,7 +686,7 @@ export class SixHiService {
       crmMills.map(async (entry) => {
         const code = entry.machineCode;
         const queueCount = await db.selectFrom('planning.ppc_batch as pb')
-          .leftJoin('txn.crm6_order as o', 'o.batch_id', 'pb.batch_id')
+          .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
           .select(db.fn.countAll<number>().as('cnt'))
           .where('pb.machine_code', '=', code)
           .where('pb.machine_allocated', '=', true)
@@ -694,7 +696,7 @@ export class SixHiService {
           ]))
           .executeTakeFirst();
 
-        const active = await db.selectFrom('txn.crm6_order as o')
+        const active = await db.selectFrom('txn.crm_order as o')
           .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
           .select(['pb.batch_number'])
           .where('pb.machine_code', '=', code)
@@ -728,7 +730,7 @@ export class SixHiService {
       .executeTakeFirst();
     if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
 
-    const existing = await db.selectFrom('txn.crm6_order')
+    const existing = await db.selectFrom('txn.crm_order')
       .select('order_id')
       .where('batch_id', '=', batch.batch_id)
       .executeTakeFirst();
@@ -757,7 +759,7 @@ export class SixHiService {
       .onConflict((oc) => oc.column('coil_no').doNothing())
       .execute();
 
-    const order = await db.insertInto('txn.crm6_order')
+    const order = await db.insertInto('txn.crm_order')
       .values({
         shift_log_id: shiftLogId,
         batch_id: batch.batch_id,
@@ -780,8 +782,8 @@ export class SixHiService {
       .returning('order_id')
       .executeTakeFirstOrThrow();
 
-    if (batch.sub_process === 'ROLLING') {
-      await db.insertInto('txn.crm6_rolling')
+    if (batch.sub_process === 'ROLLING' && ROLLING_MILLS.includes(batch.machine_code as CrmMillCode)) {
+      await db.insertInto('txn.crm_rolling')
         .values({
           order_id: order.order_id,
           destination: batch.destination ?? 'ANNEALING',
@@ -793,7 +795,7 @@ export class SixHiService {
         } as any)
         .execute();
     } else {
-      await db.insertInto('txn.crm6_skinpass').values({ order_id: order.order_id }).execute();
+      await db.insertInto('txn.crm_skinpass').values({ order_id: order.order_id }).execute();
     }
 
     return String(order.order_id);
@@ -801,7 +803,7 @@ export class SixHiService {
 
   static async getOrder(batchNumber: string, userId: number): Promise<SixHiOrderDetail> {
     await this.ensureOrder(batchNumber, userId);
-    const order = await db.selectFrom('txn.crm6_order')
+    const order = await db.selectFrom('txn.crm_order')
       .selectAll()
       .where('batch_number', '=', batchNumber)
       .executeTakeFirstOrThrow();
@@ -843,7 +845,7 @@ export class SixHiService {
     let resolvedStatus = order.status;
     if (order.status === 'STOPPAGE' && !activeStoppage) {
       resolvedStatus = order.prod_start_at ? 'IN_PROGRESS' : 'PENDING';
-      await db.updateTable('txn.crm6_order')
+      await db.updateTable('txn.crm_order')
         .set({ status: resolvedStatus, updated_at: new Date() })
         .where('order_id', '=', order.order_id)
         .execute();
@@ -853,8 +855,8 @@ export class SixHiService {
     let skinPass: SixHiSkinPassData | undefined;
 
     if (order.sub_process === 'ROLLING') {
-      const r = await db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
-      const passes = await db.selectFrom('txn.crm6_rolling_pass')
+      const r = await db.selectFrom('txn.crm_rolling').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
+      const passes = await db.selectFrom('txn.crm_rolling_pass')
         .selectAll()
         .where('order_id', '=', order.order_id)
         .orderBy('pass_no', 'asc')
@@ -877,7 +879,7 @@ export class SixHiService {
         };
       }
     } else {
-      const s = await db.selectFrom('txn.crm6_skinpass').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
+      const s = await db.selectFrom('txn.crm_skinpass').selectAll().where('order_id', '=', order.order_id).executeTakeFirst();
       if (s) {
         skinPass = {
           actualWeightMt: s.actual_weight_mt ? Number(s.actual_weight_mt) : undefined,
@@ -991,7 +993,7 @@ export class SixHiService {
   static async findActiveMachineOrder(
     machineCode: string = '6HI',
   ): Promise<{ batchNumber: string; status: string; subProcess: SixHiSubProcess } | null> {
-    const active = await db.selectFrom('txn.crm6_order as o')
+    const active = await db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select(['o.batch_number', 'o.status', 'o.sub_process'])
       .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
@@ -1024,7 +1026,7 @@ export class SixHiService {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
     }
 
-    const orderRow = await db.selectFrom('txn.crm6_order')
+    const orderRow = await db.selectFrom('txn.crm_order')
       .select(['order_id', 'status', 'coil_no', 'prod_start_at'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
@@ -1039,7 +1041,7 @@ export class SixHiService {
     }
     if (status === 'STOPPAGE') {
       await this.assertNoOpenStoppage(orderId);
-      await db.updateTable('txn.crm6_order')
+      await db.updateTable('txn.crm_order')
         .set({ status: 'IN_PROGRESS', updated_at: new Date() })
         .where('order_id', '=', orderId)
         .execute();
@@ -1061,7 +1063,7 @@ export class SixHiService {
       throw new Error('Only pending or preparing orders can be started');
     }
 
-    await db.updateTable('txn.crm6_order')
+    await db.updateTable('txn.crm_order')
       .set({ 
         status: 'IN_PROGRESS', 
         prod_start_at: orderRow?.prod_start_at ?? new Date(), 
@@ -1069,7 +1071,7 @@ export class SixHiService {
       })
       .where('order_id', '=', orderId)
       .execute();
-    const coilNo = orderRow?.coil_no ?? (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
+    const coilNo = orderRow?.coil_no ?? (await db.selectFrom('txn.crm_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
     await db.updateTable('coil.coil')
       .set({ status: 'IN_PROCESS' })
       .where('coil_no', '=', coilNo)
@@ -1164,7 +1166,7 @@ export class SixHiService {
 
     const startedAt = new Date();
     for (const batchNumber of uniqueBatchNumbers) {
-      const orderRow = await db.selectFrom('txn.crm6_order')
+      const orderRow = await db.selectFrom('txn.crm_order')
         .select(['order_id', 'status', 'coil_no'])
         .where('batch_number', '=', batchNumber)
         .executeTakeFirst();
@@ -1178,13 +1180,13 @@ export class SixHiService {
         throw new Error('Only pending or preparing orders can be started together');
       }
 
-      await db.updateTable('txn.crm6_order')
+      await db.updateTable('txn.crm_order')
         .set({ status: 'IN_PROGRESS', prod_start_at: startedAt, updated_at: startedAt })
         .where('order_id', '=', orderId)
         .execute();
 
       const coilNo = orderRow?.coil_no
-        ?? (await db.selectFrom('txn.crm6_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
+        ?? (await db.selectFrom('txn.crm_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
       await db.updateTable('coil.coil')
         .set({ status: 'IN_PROCESS' })
         .where('coil_no', '=', coilNo)
@@ -1214,7 +1216,7 @@ export class SixHiService {
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
-    const order = await db.selectFrom('txn.crm6_order').selectAll().where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
+    const order = await db.selectFrom('txn.crm_order').selectAll().where('batch_number', '=', batchNumber).executeTakeFirstOrThrow();
     if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
       throw new Error('Only running orders can be completed');
     }
@@ -1228,15 +1230,15 @@ export class SixHiService {
       durationMin = Math.max(0, wallMin - totalStoppageMin);
       await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
     }
-    const rolling = await db.selectFrom('txn.crm6_rolling')
+    const rolling = await db.selectFrom('txn.crm_rolling')
       .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
       .where('order_id', '=', order.order_id)
       .executeTakeFirst();
-    const skinpass = await db.selectFrom('txn.crm6_skinpass')
+    const skinpass = await db.selectFrom('txn.crm_skinpass')
       .select(['actual_weight_mt', 'output_thk_mm'])
       .where('order_id', '=', order.order_id)
       .executeTakeFirst();
-    const passes = await db.selectFrom('txn.crm6_rolling_pass')
+    const passes = await db.selectFrom('txn.crm_rolling_pass')
       .select('pass_no')
       .where('order_id', '=', order.order_id)
       .execute();
@@ -1265,7 +1267,7 @@ export class SixHiService {
     const isCompleted = true;
     const newStatus = 'COMPLETED';
 
-    await db.updateTable('txn.crm6_order')
+    await db.updateTable('txn.crm_order')
       .set({
         status: newStatus,
         prod_end_at: endAt,
@@ -1354,7 +1356,7 @@ export class SixHiService {
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
 
-    await db.updateTable('txn.crm6_rolling')
+    await db.updateTable('txn.crm_rolling')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
         destination: data.destination,
@@ -1368,9 +1370,9 @@ export class SixHiService {
       .where('order_id', '=', orderId)
       .execute();
 
-    await db.deleteFrom('txn.crm6_rolling_pass').where('order_id', '=', orderId).execute();
+    await db.deleteFrom('txn.crm_rolling_pass').where('order_id', '=', orderId).execute();
     if (data.passes.length > 0) {
-      await db.insertInto('txn.crm6_rolling_pass')
+      await db.insertInto('txn.crm_rolling_pass')
         .values(data.passes.map((p) => ({
           order_id: orderId,
           pass_no: p.passNo,
@@ -1379,7 +1381,7 @@ export class SixHiService {
         .execute();
     }
 
-    await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
     await this.refreshShiftProductionFromOrder(orderId);
     return this.getOrder(batchNumber, userId);
   }
@@ -1387,7 +1389,7 @@ export class SixHiService {
   static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
-    await db.updateTable('txn.crm6_skinpass')
+    await db.updateTable('txn.crm_skinpass')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
         output_thk_mm: data.outputThkMm ?? null,
@@ -1401,14 +1403,14 @@ export class SixHiService {
       })
       .where('order_id', '=', orderId)
       .execute();
-    await db.updateTable('txn.crm6_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
     await this.refreshShiftProductionFromOrder(orderId);
     return this.getOrder(batchNumber, userId);
   }
 
   static async addStoppage(batchNumber: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
-    const orderRow = await db.selectFrom('txn.crm6_order')
+    const orderRow = await db.selectFrom('txn.crm_order')
       .select(['status'])
       .where('order_id', '=', orderId)
       .executeTakeFirstOrThrow();
@@ -1432,7 +1434,7 @@ export class SixHiService {
         start_at: startAt,
       })
       .execute();
-    await db.updateTable('txn.crm6_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    await db.updateTable('txn.crm_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
 
     // Persist machine state event: RUNNING_ENDED → STOPPAGE_STARTED
     const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
@@ -1466,7 +1468,7 @@ export class SixHiService {
 
   static async endStoppage(batchNumber: string, stoppageId: string, userId: number) {
     await this.ensureOrder(batchNumber, userId);
-    const order = await db.selectFrom('txn.crm6_order')
+    const order = await db.selectFrom('txn.crm_order')
       .select(['order_id', 'logged_in_user_id', 'prod_start_at'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirstOrThrow();
@@ -1496,7 +1498,7 @@ export class SixHiService {
       .executeTakeFirst();
     const resumingToRunning = !!order.prod_start_at;
     if (Number(openCount?.c ?? 0) === 0) {
-      await db.updateTable('txn.crm6_order')
+      await db.updateTable('txn.crm_order')
         .set({ status: resumingToRunning ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
         .where('order_id', '=', order.order_id)
         .execute();
@@ -1552,7 +1554,7 @@ export class SixHiService {
     // Single source of truth: stoppages belong to the shift the order is attributed to
     // (crm6_order.shift_log_id), consistent with production attribution.
     let query = db.selectFrom('txn.stoppage as os')
-      .innerJoin('txn.crm6_order as o', 'o.order_id', 'os.order_id')
+      .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
       .select([
@@ -1710,7 +1712,7 @@ export class SixHiService {
       .executeTakeFirst();
     if (!batch) throw new Error('Order not found');
 
-    const order = await db.selectFrom('txn.crm6_order')
+    const order = await db.selectFrom('txn.crm_order')
       .select(['order_id', 'status', 'prod_start_at', 'coil_no'])
       .where('batch_id', '=', batch.batch_id)
       .executeTakeFirst();
@@ -1745,7 +1747,7 @@ export class SixHiService {
       }
     }
 
-    await db.deleteFrom('txn.crm6_order').where('order_id', '=', order.order_id).execute();
+    await db.deleteFrom('txn.crm_order').where('order_id', '=', order.order_id).execute();
 
     const coilNo = order.coil_no ?? batch.coil_no;
     if (coilNo) {
@@ -1816,7 +1818,7 @@ export class SixHiService {
     }
 
     // Set order status to REJECTED
-    await db.updateTable('txn.crm6_order')
+    await db.updateTable('txn.crm_order')
       .set({ 
         status: 'REJECTED', 
         updated_at: new Date(),
@@ -2019,7 +2021,7 @@ export class SixHiService {
     userId: number,
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
-    const rolling = await db.selectFrom('txn.crm6_rolling').selectAll().where('order_id', '=', orderId).executeTakeFirst();
+    const rolling = await db.selectFrom('txn.crm_rolling').selectAll().where('order_id', '=', orderId).executeTakeFirst();
     const prevNo = rollPosition === 'IN' ? rolling?.roll_in_no : rolling?.roll_out_no;
     const prevCode = rollPosition === 'IN' ? rolling?.roll_in_code : rolling?.roll_out_code;
 
@@ -2039,7 +2041,7 @@ export class SixHiService {
     const patch = rollPosition === 'IN'
       ? { roll_in_no: newRollNo, roll_in_code: newRollCode ?? null }
       : { roll_out_no: newRollNo, roll_out_code: newRollCode ?? null };
-    await db.updateTable('txn.crm6_rolling').set(patch).where('order_id', '=', orderId).execute();
+    await db.updateTable('txn.crm_rolling').set(patch).where('order_id', '=', orderId).execute();
     return this.getOrder(batchNumber, userId);
   }
 
@@ -2058,14 +2060,14 @@ export class SixHiService {
 
   static async getSavedOrderWeight(orderId: string, subProcess: string): Promise<number> {
     if (subProcess === 'ROLLING') {
-      const r = await db.selectFrom('txn.crm6_rolling')
+      const r = await db.selectFrom('txn.crm_rolling')
         .select('actual_weight_mt')
         .where('order_id', '=', orderId)
         .executeTakeFirst();
       const wt = r?.actual_weight_mt != null ? Number(r.actual_weight_mt) : 0;
       return wt > 0 ? wt : 0;
     }
-    const s = await db.selectFrom('txn.crm6_skinpass')
+    const s = await db.selectFrom('txn.crm_skinpass')
       .select('actual_weight_mt')
       .where('order_id', '=', orderId)
       .executeTakeFirst();
@@ -2089,7 +2091,7 @@ export class SixHiService {
       : Array.isArray(machineFilter) ? machineFilter : [machineFilter];
 
     let query = db
-      .selectFrom('txn.crm6_order as o')
+      .selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'o.order_id',
@@ -2123,13 +2125,13 @@ export class SixHiService {
 
   static async resolveOrderWeight(orderId: string, subProcess: string, ppcWeight: number): Promise<number> {
     if (subProcess === 'ROLLING') {
-      const r = await db.selectFrom('txn.crm6_rolling')
+      const r = await db.selectFrom('txn.crm_rolling')
         .select('actual_weight_mt')
         .where('order_id', '=', orderId)
         .executeTakeFirst();
       return r?.actual_weight_mt ? Number(r.actual_weight_mt) : ppcWeight;
     }
-    const s = await db.selectFrom('txn.crm6_skinpass')
+    const s = await db.selectFrom('txn.crm_skinpass')
       .select('actual_weight_mt')
       .where('order_id', '=', orderId)
       .executeTakeFirst();
@@ -2176,14 +2178,14 @@ export class SixHiService {
         });
         addWeight(o.sub_process, wt, 'completed');
         if (o.sub_process === 'ROLLING' && wt > 0) {
-          const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
+          const r = await db.selectFrom('txn.crm_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
           if (r?.rerolling) completedReroll += wt;
         }
       } else if (o.status === 'IN_PROGRESS' || o.status === 'STOPPAGE') {
         if (wt <= 0) continue;
         addWeight(o.sub_process, wt, 'inProgress');
         if (o.sub_process === 'ROLLING') {
-          const r = await db.selectFrom('txn.crm6_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
+          const r = await db.selectFrom('txn.crm_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
           if (r?.rerolling) inProgressReroll += wt;
         }
       }
@@ -2195,7 +2197,7 @@ export class SixHiService {
     const completedProdMt = completedRolling + completedSkinpass;
     const inProgressProdMt = inProgressRolling + inProgressSkinpass;
 
-    const saved = await db.selectFrom('txn.crm6_shift_summary')
+    const saved = await db.selectFrom('txn.crm_shift_summary')
       .selectAll()
       .where('shift_log_id', '=', shiftLogId)
       .executeTakeFirst();
@@ -2233,7 +2235,7 @@ export class SixHiService {
     await assertCrm6ScrapKg(shiftLogId, scrapKg);
     await assertShiftLogRuntimeAccounting(shiftLogId);
     const summary = await this.getShiftSummary(shiftLogId);
-    await db.insertInto('txn.crm6_shift_summary')
+    await db.insertInto('txn.crm_shift_summary')
       .values({
         shift_log_id: shiftLogId,
         total_prod_mt: summary.totalProdMt,
@@ -2280,7 +2282,7 @@ export class SixHiService {
   }
 
   static async resolveShiftLogIdForOrder(orderId: string): Promise<string | null> {
-    const order = await db.selectFrom('txn.crm6_order as o')
+    const order = await db.selectFrom('txn.crm_order as o')
       .select(['o.shift_log_id', 'o.prod_date', 'o.shift_code'])
       .where('o.order_id', '=', orderId)
       .executeTakeFirst();

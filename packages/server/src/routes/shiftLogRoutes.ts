@@ -103,8 +103,8 @@ router.get('/', async (req, res) => {
 
       const processTable = ShiftLogService.getProcessTable(log.processId);
       let entryCount = 0;
-      if (processTable === 'txn.crm6_order') {
-        const countRes = await db.selectFrom('txn.crm6_order')
+      if (processTable === 'txn.crm_order') {
+        const countRes = await db.selectFrom('txn.crm_order')
           .select(db.fn.count('order_id').as('count'))
           .where('shift_log_id', '=', log.id)
           .where('status', '!=', 'CANCELLED')
@@ -178,7 +178,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
           .executeTakeFirst();
       }
 
-      if (!activeLog && processCode === '6HI' && req.user) {
+      if (!activeLog && processCode === 'ROLLING' && req.user) {
         const shiftLogId = await SixHiShiftService.ensureActiveShiftLog(
           req.user.id,
           planDate,
@@ -217,7 +217,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
       .execute();
 
     let totalProducedMt = 0;
-    if (processCode === '6HI') {
+    if (processCode === 'ROLLING') {
       totalProducedMt = await SixHiExecutionService.getProducedMt(String(activeLog.shift_log_id));
     } else {
       const prodEntries = await db.selectFrom('txn.prod_hrs')

@@ -180,7 +180,7 @@ async function fetchShiftStoppages(shiftLogId: string) {
 async function fetchCrm6Stoppages(shiftLogId: string) {
   return db
     .selectFrom('txn.stoppage as os')
-    .innerJoin('txn.crm6_order as o', 'os.order_id', 'o.order_id')
+    .innerJoin('txn.crm_order as o', 'os.order_id', 'o.order_id')
     .leftJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
     .select([
       'os.category_code',
