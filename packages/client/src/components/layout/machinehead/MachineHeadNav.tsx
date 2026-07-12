@@ -1,4 +1,4 @@
-import { Activity, ArrowRightLeft, FileSpreadsheet, Upload } from 'lucide-react';
+import { Activity, ArrowRightLeft, FileSpreadsheet, Upload, ClipboardCheck } from 'lucide-react';
 import { Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
 
@@ -16,6 +16,13 @@ const NAV_ITEMS: DeskNavItem[] = [
     icon: Users,
     path: '/machine-head/crew',
     match: (p) => p === '/machine-head/crew',
+  },
+  {
+    id: 'shift-review',
+    label: 'Shift Review',
+    icon: ClipboardCheck,
+    path: '/machine-head/shift-review',
+    match: (p) => p === '/machine-head/shift-review',
   },
   {
     id: 'order-assignment',

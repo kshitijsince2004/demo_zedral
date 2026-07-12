@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import { sql } from 'kysely';
-import { m1ManifestMeta } from '@zedral/m1-collection';
-import { requireModule, type ModuleRegistry } from '@zedral/platform';
+import supertokens from 'supertokens-node';
+import Session from 'supertokens-node/recipe/session';
+import EmailPassword from 'supertokens-node/recipe/emailpassword';
+import { middleware as stMiddleware, errorHandler as stErrorHandler } from 'supertokens-node/framework/express';
+import { getSuperTokensConfig } from './config/authConfig';
+import { getAuthUserBySuperTokensId } from './services/authService';
 
 import authRoutes from './routes/authRoutes';
 import shiftLogRoutes from './routes/shiftLogRoutes';
@@ -50,7 +53,57 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'http://localhost'];
   const corsOrigins =
     configured.length > 0 ? [...new Set([...configured, ...capacitorOrigins])] : undefined;
-  app.use(cors(corsOrigins ? { origin: corsOrigins, credentials: true } : {}));
+  
+  const stConfig = getSuperTokensConfig();
+  supertokens.init({
+    framework: 'express',
+    supertokens: {
+      connectionURI: stConfig.connectionURI,
+      apiKey: stConfig.apiKey,
+    },
+    appInfo: {
+      appName: 'Zedral M1',
+      apiDomain: stConfig.apiDomain,
+      websiteDomain: stConfig.websiteDomain,
+      apiBasePath: '/auth',
+      websiteBasePath: '/login',
+    },
+    recipeList: [
+      EmailPassword.init(),
+      Session.init({
+        override: {
+          functions: (originalImplementation) => {
+            return {
+              ...originalImplementation,
+              createNewSession: async function (input) {
+                const user = await getAuthUserBySuperTokensId(input.userId);
+                if (user) {
+                  input.accessTokenPayload = {
+                    ...input.accessTokenPayload,
+                    id: user.id,
+                    username: user.username,
+                    roles: user.roles,
+                    lineAccess: user.lineAccess,
+                    lineScopes: user.lineScopes,
+                    machineAccess: user.machineAccess,
+                  };
+                }
+                return originalImplementation.createNewSession(input);
+              }
+            };
+          }
+        }
+      })
+    ]
+  });
+
+  app.use(cors(corsOrigins ? { 
+    origin: corsOrigins, 
+    credentials: true,
+    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()]
+  } : {
+    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()]
+  }));
   app.use(express.json());
 
   app.use(contextMiddleware);
@@ -58,6 +111,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
 
   const m1Guard = requireModule('M1', m1ManifestMeta.featureFlag, getTenantModuleConfig);
 
+  app.use(stMiddleware());
   app.use('/auth', authRoutes);
   app.use('/v1/canon', canonRoutes);
   app.use(
@@ -113,6 +167,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
     res.json(payload);
   });
 
+  app.use(stErrorHandler());
   app.use(rfc7807ErrorHandler);
   return { app, registry };
 }

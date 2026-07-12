@@ -7,6 +7,7 @@ import { isCrmMillCode } from './millConfig';
 import { authApi } from './authApi';
 import { markAuthGeneration } from './apiClient';
 import { scheduleAccessTokenRefresh, stopAccessTokenRefresh } from './authSession';
+import Session from 'supertokens-auth-react/recipe/session';
 
 function resetSessionStores() {
   useShiftStore.getState().resetSession();
@@ -121,7 +122,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
     sessionStorage.removeItem('mock_jwt');
     sessionStorage.removeItem('mock_refresh');
     sessionStorage.removeItem('mock_role');
@@ -132,6 +133,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     markAuthGeneration();
     resetSessionStores();
     stopAccessTokenRefresh();
+    
+    if (await Session.doesSessionExist()) {
+      await Session.signOut();
+    }
+    
     set({
       token: null,
       username: null,

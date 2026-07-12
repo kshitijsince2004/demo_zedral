@@ -5,10 +5,30 @@
  */
 import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
+import supertokens from 'supertokens-node';
+import EmailPassword from 'supertokens-node/recipe/emailpassword/index.js';
 import { resolveDatabaseUrl } from './lib/database-url.mjs';
 import { seedMachines } from './seed-machines.mjs';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 const DATABASE_URL = resolveDatabaseUrl();
+
+supertokens.init({
+  framework: 'express',
+  supertokens: {
+    connectionURI: process.env.SUPERTOKENS_CORE_URI || 'http://localhost:3567',
+    apiKey: process.env.SUPERTOKENS_API_KEY || 'local_development_key',
+  },
+  appInfo: {
+    appName: 'Zedral M1',
+    apiDomain: process.env.API_DOMAIN || 'http://localhost:3005',
+    websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:5173',
+  },
+  recipeList: [EmailPassword.init()],
+});
 
 /** Must match packages/server/src/services/pinService.ts scrypt parameters. */
 const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -75,11 +95,24 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
       );
       console.log(`Updated user ${u.emp_code} (${u.username})`);
     } else {
+      let stUserId = null;
+      if (u.role_id === 3 || u.role_id === 4 || u.role_id === 5) {
+        const email = `${u.username}@zedral.local`;
+        try {
+          const response = await EmailPassword.signUp('', email, 'Password123!');
+          if (response.status === 'OK') {
+            stUserId = response.user.id;
+          }
+        } catch (err) {
+          console.error(`Failed to create SuperTokens user for ${u.username}`, err);
+        }
+      }
+
       const inserted = await client.query(
-        `INSERT INTO security.app_user (username, full_name, emp_code, status, pin_hash)
-         VALUES ($1, $2, $3, 'ACTIVE', $4)
+        `INSERT INTO security.app_user (username, full_name, emp_code, status, pin_hash, supertokens_user_id)
+         VALUES ($1, $2, $3, 'ACTIVE', $4, $5)
          RETURNING user_id`,
-        [u.username, u.full_name, u.emp_code, pinHash],
+        [u.username, u.full_name, u.emp_code, pinHash, stUserId],
       );
       userId = inserted.rows[0].user_id;
       console.log(`Created user ${u.emp_code} (${u.username})`);

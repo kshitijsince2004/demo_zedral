@@ -29,6 +29,7 @@
     <!-- Local / Plant Development Hosts (HTTP) -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">plant-server.local</domain>
+        <domain includeSubdomains="true">headwind.local</domain>
         <domain includeSubdomains="true">10.149.217.114</domain>
         <domain includeSubdomains="true">192.168.168.1</domain>
         <domain includeSubdomains="true">localhost</domain>

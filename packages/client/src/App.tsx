@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from './lib/authStore';
 import { getRoleHomePath } from './lib/roleHome';
 
@@ -55,9 +57,36 @@ function UnknownRouteRedirect() {
   return <Navigate to={getRoleHomePath(role, lineAccess, machineAccess, username)} replace />;
 }
 
+function SuperTokensSync() {
+  const session = useSessionContext();
+  const { login, logout, token } = useAuthStore();
+  
+  useEffect(() => {
+    if (session.loading) return;
+    
+    if (session.doesSessionExist) {
+      const payload = session.accessTokenPayload;
+      if (token !== 'st-session') {
+        const role = payload.roles?.[0] ?? 'OPERATOR';
+        const lines = payload.lineAccess || [];
+        const username = payload.username as string | undefined;
+        login('st-session', role, lines, undefined, payload.machineAccess || [], username);
+      }
+    } else {
+      const existingLegacy = sessionStorage.getItem('mock_jwt');
+      if (!existingLegacy && token) {
+        logout();
+      }
+    }
+  }, [session, login, logout, token]);
+  
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
+      <SuperTokensSync />
       <Routes>
         {/* Auth */}
         <Route path="/login" element={<Login />} />
@@ -106,7 +135,6 @@ function App() {
           <Route path="stoppages" element={<PlantStoppages />} />
           <Route path="alerts" element={<PlantAlerts />} />
           <Route path="order-assignment" element={<OrderAssignmentPanel />} />
-          <Route path="shift-review" element={<PlantShiftReviewPage />} />
           <Route path="setup" element={<SetupPage embedded />} />
           <Route path="dpr-export" element={<PlantDprExport />} />
           <Route path="exports/history" element={<ExportHistory embedded />} />
@@ -120,6 +148,7 @@ function App() {
         <Route path="/order-assignment" element={<MachineHeadRoute><OrderAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
         <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/shift-review" element={<MachineHeadRoute><PlantShiftReviewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
         <Route path="/machine-head/exports/history" element={<MachineHeadRoute><ExportHistory embedded /></MachineHeadRoute>} />

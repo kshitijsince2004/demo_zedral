@@ -14,9 +14,13 @@ const DEV_OPERATOR_BADGE = '3000';
 const DEV_OPERATOR_PIN = '1234';
 
 function decodeToken(accessToken: string) {
-  const base64Url = accessToken.split('.')[1];
-  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-  return JSON.parse(window.atob(base64));
+  try {
+    const base64Url = accessToken.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(window.atob(base64));
+  } catch {
+    return {};
+  }
 }
 
 export function Login() {
@@ -59,15 +63,12 @@ export function Login() {
     if (!import.meta.env.DEV || import.meta.env.VITE_DEV_AUTO_LOGIN !== 'true') return;
     const doAutoLogin = async () => {
       try {
-        const data = await apiClient.post('/auth/badge-pin', {
+        await apiClient.post('/auth/badge-pin', {
           badgeId: DEV_OPERATOR_BADGE,
           pin: DEV_OPERATOR_PIN,
         });
-        const payload = decodeToken(data.accessToken);
-        const role = payload.roles?.[0] ?? 'OPERATOR';
-        const username = payload.username as string | undefined;
-        login(data.accessToken, role, payload.lineAccess || [], data.refreshToken, payload.machineAccess || [], username);
-        navigate(getRoleHomePath(role, payload.lineAccess || [], payload.machineAccess || [], username));
+        // Reload to let SuperTokensSync handle the new session
+        window.location.href = '/';
       } catch (err) {
         console.error('Auto login failed', err);
       }
@@ -75,13 +76,12 @@ export function Login() {
     doAutoLogin();
   }, [login, navigate]);
 
-  const finishLogin = async (accessToken: string, refreshToken?: string) => {
+  const finishLegacyLogin = async (accessToken: string, refreshToken?: string) => {
     const payload = decodeToken(accessToken);
     const role = payload.roles?.[0] ?? 'OPERATOR';
     const lines = payload.lineAccess || [];
     const username = payload.username as string | undefined;
     login(accessToken, role, lines, refreshToken, payload.machineAccess || [], username);
-    scheduleAccessTokenRefresh(accessToken);
     try {
       const machines = (payload.machineAccess || []) as string[];
       await bootstrapShiftContext(machines[0]);
@@ -96,9 +96,15 @@ export function Login() {
     try {
       setError('');
       console.log('Attempting login with:', { badgeId, pin });
-      const data = await apiClient.post('/auth/badge-pin', { badgeId, pin });
+      const data = await apiClient.post<{ ok: boolean; accessToken?: string; refreshToken?: string }>('/auth/badge-pin', { badgeId, pin });
       console.log('Login successful:', data);
-      finishLogin(data.accessToken, data.refreshToken);
+      
+      if (data.accessToken) {
+        finishLegacyLogin(data.accessToken, data.refreshToken);
+      } else {
+        // SuperTokens handled it via cookies, reload to let SuperTokensSync pick it up
+        window.location.href = '/';
+      }
     } catch (err: unknown) {
       console.error('Login failed:', err);
       const apiErr = err as { status?: number; message?: string; body?: { error?: string } };

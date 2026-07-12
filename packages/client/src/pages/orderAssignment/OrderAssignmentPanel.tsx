@@ -6,6 +6,7 @@ import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { useAuthStore } from '../../lib/authStore';
 
 type AssignmentOrder = {
   batchNumber: string;
@@ -61,6 +62,7 @@ function canTransferOrder(order: AssignmentOrder): boolean {
 }
 
 export function OrderAssignmentPanel() {
+  const machineAccess = useAuthStore((s) => s.machineAccess);
   const [board, setBoard] = useState<AssignmentBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -105,9 +107,14 @@ export function OrderAssignmentPanel() {
 
   const filteredOrders = useMemo(() => {
     if (!board) return [];
-    if (filter === 'ALL') return board.orders;
-    return board.orders.filter((o) => o.subProcess === filter);
-  }, [board, filter]);
+    let list = board.orders;
+    if (machineAccess.length > 0) {
+      // Show unassigned orders + orders assigned to our machines
+      list = list.filter((o) => !o.currentMachine || machineAccess.includes(o.currentMachine));
+    }
+    if (filter === 'ALL') return list;
+    return list.filter((o) => o.subProcess === filter);
+  }, [board, filter, machineAccess]);
 
   const transferableOrders = useMemo(
     () => filteredOrders.filter(canTransferOrder),
@@ -124,16 +131,21 @@ export function OrderAssignmentPanel() {
   const destinationOptions = useMemo(() => {
     if (!board || selectedOrders.length === 0) return [] as string[];
     const subProcesses = new Set(selectedOrders.map((o) => o.subProcess));
+    let machines = board.machines;
+    if (machineAccess.length > 0) {
+      machines = machines.filter((m) => machineAccess.includes(m.code));
+    }
+    
     if (subProcesses.size > 1) {
-      return board.machines
+      return machines
         .filter((m) => m.rolling && m.skinPass)
         .map((m) => m.code);
     }
     const sp = selectedOrders[0].subProcess;
-    return board.machines
+    return machines
       .filter((m) => (sp === 'ROLLING' ? m.rolling : m.skinPass))
       .map((m) => m.code);
-  }, [board, selectedOrders]);
+  }, [board, selectedOrders, machineAccess]);
 
   useEffect(() => {
     if (destinationOptions.length === 0) {

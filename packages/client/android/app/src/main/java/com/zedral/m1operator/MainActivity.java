@@ -38,12 +38,12 @@ public class MainActivity extends BridgeActivity {
       ComponentName admin = new ComponentName(this, KioskAdminReceiver.class);
       if (dpm.isDeviceOwnerApp(getPackageName())) {
         dpm.setLockTaskPackages(admin, new String[]{ getPackageName() });
+        try {
+          startLockTask();
+        } catch (Exception e) {
+          // ignore
+        }
       }
-    }
-    try {
-      startLockTask();
-    } catch (Exception e) {
-      // Screen pinning when device-owner is not configured.
     }
   }
 

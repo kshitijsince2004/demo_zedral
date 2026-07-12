@@ -1,4 +1,4 @@
-import { isAuthStrict, getJwtSecret } from './authConfig';
+import { isAuthStrict } from './authConfig';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,8 +65,7 @@ export function validateEnvironmentAtStartup(): void {
     }
   }
 
-  // Always validate auth config (throws in strict mode without JWT_SECRET).
-  getJwtSecret();
+
 
   if (isAuthStrict() && process.env.JWT_SECRET) {
     const secret = process.env.JWT_SECRET.trim();

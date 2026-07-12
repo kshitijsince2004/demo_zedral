@@ -572,6 +572,7 @@ export interface SecurityAppUser {
   pin_hash: string | null;
   pin_locked_until: Timestamp | null;
   status: Generated<string>;
+  supertokens_user_id: string | null;
   tenant_id: Generated<string>;
   user_id: Generated<number>;
   username: string;

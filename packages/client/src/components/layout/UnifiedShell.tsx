@@ -28,13 +28,6 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     match: (p) => p === '/plant/order-assignment',
   },
   {
-    id: 'shift-review',
-    label: 'Shift Review',
-    icon: ClipboardCheck,
-    path: '/plant/shift-review',
-    match: (p) => p === '/plant/shift-review',
-  },
-  {
     id: 'traceability',
     label: 'Traceability',
     icon: Search,

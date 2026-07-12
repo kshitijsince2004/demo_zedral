@@ -9,7 +9,7 @@ android {
         applicationId "com.zedral.m1operator"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
+        versionCode (System.getenv("ZEDRAL_VERSION_CODE") ?: "6").toInteger()
         versionName "1.2.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

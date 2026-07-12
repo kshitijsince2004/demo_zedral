@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import Session from 'supertokens-node/recipe/session';
 import { UserRole } from '@m1/shared-validation';
-import { verifyToken, AuthUser, LineAccessLevel } from '../services/authService';
+import { AuthUser, LineAccessLevel } from '../services/authService';
 import { assertLineOperation, ensureLineScopes } from '../auth/lineAccessPolicy';
 import { requestContext } from '../context';
 
@@ -13,15 +14,22 @@ declare global {
   }
 }
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or malformed Authorization header' });
+    const session = await Session.getSession(req, res, { sessionRequired: false });
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthenticated' });
     }
 
-    const token = authHeader.split(' ')[1];
-    const user = ensureLineScopes(verifyToken(token) as AuthUser);
+    const payload = session.getAccessTokenPayload();
+    const user = ensureLineScopes({
+      id: payload.id || parseInt(session.getUserId(), 10),
+      username: payload.username || 'unknown',
+      roles: payload.roles || [],
+      lineAccess: payload.lineAccess || [],
+      lineScopes: payload.lineScopes || [],
+      machineAccess: payload.machineAccess || [],
+    });
 
     req.user = user;
     const store = requestContext.getStore();
@@ -31,7 +39,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
     
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    return res.status(401).json({ error: 'Invalid or expired session' });
   }
 };
 

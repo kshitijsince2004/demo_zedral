@@ -2,15 +2,13 @@ import { Router } from 'express';
 import {
   AuthError,
   ServiceUnavailableError,
-  exchangeOidcCode,
-  generateTokens,
   isDbConnectionError,
   validateBadgePin,
-  verifyToken,
-  getUserWithRolesAndAccess,
   verifyAuthenticatedUserPin,
   verifySupervisorOverridePin,
 } from '../services/authService';
+import Session from 'supertokens-node/recipe/session';
+import supertokens from 'supertokens-node';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { requireAuth } from '../middleware/authMiddleware';
 import { AuditTrailService } from '../services/AuditTrailService';
@@ -20,50 +18,6 @@ const router = Router();
 
 // Used by express to parse JSON bodies
 router.use(require('express').json());
-
-router.post('/token', async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code) {
-      return res.status(400).json({ error: 'Missing OIDC code' });
-    }
-
-    const user = await exchangeOidcCode(code);
-    const tokens = generateTokens(user);
-
-    res.json(tokens);
-  } catch (error: any) {
-    res.status(401).json({ error: error.message || 'Authentication failed' });
-  }
-});
-
-router.post('/refresh', async (req, res) => {
-  try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-      return res.status(400).json({ error: 'Missing refresh token' });
-    }
-
-    // Verify refresh token validity
-    const decoded = verifyToken(refreshToken);
-    
-    // Look up user again
-    const user = await db.selectFrom('security.app_user')
-      .select(['user_id', 'username'])
-      .where('user_id', '=', Number(decoded.id))
-      .where('status', 'in', ['ACTIVE', 'LOCKED'])
-      .executeTakeFirst();
-      
-    if (!user) throw new Error('User not found');
-
-    const freshUser = await getUserWithRolesAndAccess(user.user_id, user.username);
-    const tokens = generateTokens(freshUser);
-
-    res.json(tokens);
-  } catch (error: any) {
-    res.status(401).json({ error: 'Invalid refresh token' });
-  }
-});
 
 function authRouteError(res: import('express').Response, error: unknown) {
   if (error instanceof AuthError) {
@@ -88,9 +42,17 @@ router.post('/badge-pin', rateLimitMiddleware(20, 60_000), async (req, res) => {
     }
 
     const user = await validateBadgePin(badgeId, pin);
-    const tokens = generateTokens(user);
+    const stUserId = supertokens.convertToRecipeUserId(String(user.id));
+    await Session.createNewSession(req, res, 'public', stUserId, {
+      id: user.id,
+      username: user.username,
+      roles: user.roles,
+      lineAccess: user.lineAccess,
+      lineScopes: user.lineScopes,
+      machineAccess: user.machineAccess,
+    });
 
-    res.json(tokens);
+    res.json({ ok: true });
   } catch (error: unknown) {
     authRouteError(res, error);
   }

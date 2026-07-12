@@ -1,6 +1,5 @@
-import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { getJwtSecret, isAuthStrict } from '../config/authConfig';
+import { isAuthStrict } from '../config/authConfig';
 import { verifyPin } from './pinService';
 
 const JWT_EXPIRES_IN = '15m';
@@ -74,26 +73,7 @@ export const exchangeOidcCode = async (code: string): Promise<AuthUser> => {
   return await getUserWithRolesAndAccess(user.user_id, user.username);
 };
 
-export const generateTokens = (user: AuthUser) => {
-  const secret = getJwtSecret();
-  const payload = {
-    id: user.id,
-    username: user.username,
-    roles: user.roles,
-    lineAccess: user.lineAccess,
-    lineScopes: user.lineScopes,
-    machineAccess: user.machineAccess,
-  };
 
-  const accessToken = jwt.sign(payload, secret, { expiresIn: JWT_EXPIRES_IN });
-  const refreshToken = jwt.sign({ id: user.id }, secret, { expiresIn: REFRESH_EXPIRES_IN });
-
-  return {
-    accessToken,
-    refreshToken,
-    expiresIn: 15 * 60,
-  };
-};
 
 async function recordPinSuccess(userId: number): Promise<void> {
   await db.updateTable('security.app_user')
@@ -222,9 +202,7 @@ export const validateBadgePin = async (badgeId: string, pin: string): Promise<Au
   return await getUserWithRolesAndAccess(user.user_id, user.username);
 };
 
-export const verifyToken = (token: string): AuthUser => {
-  return jwt.verify(token, getJwtSecret()) as AuthUser;
-};
+
 
 export async function getUserWithRolesAndAccess(userId: number, username: string): Promise<AuthUser> {
   const rolesRows = await db.selectFrom('security.user_role')
@@ -272,3 +250,13 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
 }
 
 export { assertLineWriteAccess, assertLineOperation } from '../auth/lineAccessPolicy';
+
+export async function getAuthUserBySuperTokensId(stUserId: string): Promise<AuthUser | null> {
+  const user = await db.selectFrom('security.app_user')
+    .select(['user_id', 'username'])
+    .where('supertokens_user_id', '=', stUserId)
+    .executeTakeFirst();
+    
+  if (!user) return null;
+  return await getUserWithRolesAndAccess(user.user_id, user.username);
+}
