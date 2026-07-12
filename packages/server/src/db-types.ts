@@ -674,6 +674,86 @@ export interface TxnAnnChargeCoil {
 }
 
 export interface TxnCrm6Order {
+  batch_id: Int8 | null;
+  batch_number: string | null;
+  coil_no: string | null;
+  created_at: Timestamp | null;
+  customer_name: string | null;
+  grade_code: string | null;
+  input_thk_mm: Numeric | null;
+  logged_in_user_id: number | null;
+  order_id: Generated<Int8 | null>;
+  ppc_thk_mm: Numeric | null;
+  ppc_weight_mt: Numeric | null;
+  prod_date: Timestamp | null;
+  prod_duration_min: number | null;
+  prod_end_at: Timestamp | null;
+  prod_start_at: Timestamp | null;
+  production_day: Timestamp | null;
+  shift_code: string | null;
+  shift_log_id: Int8 | null;
+  slit_id: string | null;
+  status: string | null;
+  sub_process: string | null;
+  updated_at: Timestamp | null;
+  width_mm: Numeric | null;
+}
+
+export interface TxnCrm6Rolling {
+  actual_weight_mt: Numeric | null;
+  associate_rw: string | null;
+  destination: string | null;
+  destination_override: boolean | null;
+  dtr: Numeric | null;
+  etr: Numeric | null;
+  final_thk_mm: Numeric | null;
+  order_id: Int8 | null;
+  prod_date: Timestamp | null;
+  rerolling: boolean | null;
+  roll_finish: string | null;
+  roll_in_code: string | null;
+  roll_in_no: string | null;
+  roll_out_code: string | null;
+  roll_out_no: string | null;
+  shift_code: string | null;
+  total_passes: number | null;
+}
+
+export interface TxnCrm6RollingPass {
+  order_id: Int8 | null;
+  pass_id: Generated<Int8 | null>;
+  pass_no: number | null;
+  thickness_mm: Numeric | null;
+}
+
+export interface TxnCrm6ShiftSummary {
+  coolant_press_kgcm2: Numeric | null;
+  coolant_temp_degc: Numeric | null;
+  scrap_kg: Numeric | null;
+  shift_log_id: Int8 | null;
+  submitted_at: Timestamp | null;
+  submitted_by: number | null;
+  summary_id: Generated<Int8 | null>;
+  total_prod_mt: Numeric | null;
+  total_reroll_mt: Numeric | null;
+  total_rolling_mt: Numeric | null;
+  total_skinpass_mt: Numeric | null;
+}
+
+export interface TxnCrm6Skinpass {
+  actual_weight_mt: Numeric | null;
+  ann_hard: Numeric | null;
+  load_max_t: Numeric | null;
+  load_min_t: Numeric | null;
+  operating_mode: string | null;
+  order_id: Int8 | null;
+  output_thk_mm: Numeric | null;
+  rw_tension_1: Numeric | null;
+  rw_tension_2: Numeric | null;
+  stretch_pct: Numeric | null;
+}
+
+export interface TxnCrmOrder {
   batch_id: Int8;
   batch_number: string;
   coil_no: string;
@@ -699,7 +779,20 @@ export interface TxnCrm6Order {
   width_mm: Numeric;
 }
 
-export interface TxnCrm6Rolling {
+export interface TxnCrmRollChange {
+  change_id: Generated<Int8>;
+  changed_at: Generated<Timestamp>;
+  new_roll_code: string | null;
+  new_roll_no: string;
+  operator_id: number | null;
+  order_id: Int8;
+  prev_roll_code: string | null;
+  prev_roll_no: string | null;
+  reason_text: string | null;
+  roll_position: string;
+}
+
+export interface TxnCrmRolling {
   actual_weight_mt: Numeric | null;
   associate_rw: string | null;
   destination: string | null;
@@ -719,14 +812,14 @@ export interface TxnCrm6Rolling {
   total_passes: number | null;
 }
 
-export interface TxnCrm6RollingPass {
+export interface TxnCrmRollingPass {
   order_id: Int8;
   pass_id: Generated<Int8>;
   pass_no: number;
   thickness_mm: Numeric;
 }
 
-export interface TxnCrm6ShiftSummary {
+export interface TxnCrmShiftSummary {
   coolant_press_kgcm2: Numeric | null;
   coolant_temp_degc: Numeric | null;
   scrap_kg: Numeric | null;
@@ -740,7 +833,7 @@ export interface TxnCrm6ShiftSummary {
   total_skinpass_mt: Numeric | null;
 }
 
-export interface TxnCrm6Skinpass {
+export interface TxnCrmSkinpass {
   actual_weight_mt: Numeric | null;
   ann_hard: Numeric | null;
   load_max_t: Numeric | null;
@@ -751,19 +844,6 @@ export interface TxnCrm6Skinpass {
   rw_tension_1: Numeric | null;
   rw_tension_2: Numeric | null;
   stretch_pct: Numeric | null;
-}
-
-export interface TxnCrmRollChange {
-  change_id: Generated<Int8>;
-  changed_at: Generated<Timestamp>;
-  new_roll_code: string | null;
-  new_roll_no: string;
-  operator_id: number | null;
-  order_id: Int8;
-  prev_roll_code: string | null;
-  prev_roll_no: string | null;
-  reason_text: string | null;
-  roll_position: string;
 }
 
 export interface TxnDefectEntry {
@@ -1202,7 +1282,12 @@ export interface DB {
   "security.user_role": SecurityUserRole;
   "txn.ann_charge": TxnAnnCharge;
   "txn.ann_charge_coil": TxnAnnChargeCoil;
+  "txn.crm_order": TxnCrmOrder;
   "txn.crm_roll_change": TxnCrmRollChange;
+  "txn.crm_rolling": TxnCrmRolling;
+  "txn.crm_rolling_pass": TxnCrmRollingPass;
+  "txn.crm_shift_summary": TxnCrmShiftSummary;
+  "txn.crm_skinpass": TxnCrmSkinpass;
   "txn.crm6_order": TxnCrm6Order;
   "txn.crm6_rolling": TxnCrm6Rolling;
   "txn.crm6_rolling_pass": TxnCrm6RollingPass;
