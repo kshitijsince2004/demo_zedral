@@ -111,7 +111,8 @@ Deploy workflows rsync **only** `deploy/` to the host (never the full monorepo).
 
 CI uses **Node 20** + `npm ci` (same major as the Dockerfile). Images are stamped with
 `org.opencontainers.image.revision` so Factory/QA can check out the matching commit when
-deploying `latest-main` or a SemVer tag.
+deploying `latest-main` or a SemVer tag. `dependency-cruiser` is pinned to **17.4.3**
+(supports Node 20); v18+ requires Node 22+.
 
 CI upgrades to **npm 11** before `npm ci`, then runs `scripts/ensure-native-bindings.mjs`
 so Vite 8 (rolldown), vite-plugin-pwa (rollup), Tailwind (lightningcss/oxide), and esbuild
