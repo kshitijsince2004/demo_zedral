@@ -2,7 +2,7 @@
 # Configure Zedral for a public domain (e.g. hsl.zedral.com) on AWS EC2.
 #
 # Usage:
-#   cd /opt/zedralv2
+#   cd /opt/zedral
 #   sudo bash deploy/scripts/configure-domain.sh hsl.zedral.com
 #   sudo bash deploy/scripts/configure-domain.sh hsl.zedral.com --tls   # HTTPS via Let's Encrypt
 #

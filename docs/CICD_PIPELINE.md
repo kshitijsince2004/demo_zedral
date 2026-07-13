@@ -114,7 +114,7 @@ AWS QA and Factory can deploy the **exact same digest** by using the same SHA (o
 **Manual on server:**
 
 ```bash
-cd /opt/zedralv2 && bash deploy/scripts/rollback-images.sh
+cd /opt/zedral && bash deploy/scripts/rollback-images.sh
 ```
 
 **Redeploy previous build (preferred on Free):**

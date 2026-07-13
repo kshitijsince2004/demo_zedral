@@ -2,7 +2,7 @@
 # Generate JWT_SECRET and DB_PASSWORD in deploy/.env (one-time on EC2).
 set -euo pipefail
 
-ENV_FILE="${1:-/opt/zedralv2/deploy/.env}"
+ENV_FILE="${1:-/opt/zedral/deploy/.env}"
 [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}" >&2; exit 1; }
 
 JWT="$(openssl rand -hex 32)"

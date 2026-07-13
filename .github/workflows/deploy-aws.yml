@@ -121,7 +121,7 @@ jobs:
         env:
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
           echo "APP_DIR=${APP_DIR}"
 
@@ -282,7 +282,7 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \

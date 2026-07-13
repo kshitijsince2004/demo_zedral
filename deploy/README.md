@@ -40,16 +40,16 @@ Push / merge to `main` → workflow **CI** (GitHub-hosted):
 export RUNNER_TOKEN='…'
 export RUNNER_ENV=zedral-aws-qa
 export RUNNER_NAME=zedral-aws-qa
-bash /opt/zedralv2/deploy/setup-github-runner.sh
+bash /opt/zedral/deploy/setup-github-runner.sh
 
 # On Factory box (if re-registering)
 export RUNNER_TOKEN='…'
 export RUNNER_ENV=hslsmed
 export RUNNER_NAME=hslsmed
-bash /opt/zedralv2/deploy/setup-github-runner.sh
+bash /opt/zedral/deploy/setup-github-runner.sh
 ```
 
-Prerequisites on each box: runner user owns `APP_DIR` (default `/opt/zedralv2`), is in the `docker` group, has `rsync`/`curl`/`jq`, and `deploy/.env` already exists.
+Prerequisites on each box: runner user owns `APP_DIR` (default `/opt/zedral`), is in the `docker` group, has `rsync`/`curl`/`jq`, and `deploy/.env` already exists.
 
 ## How AWS QA works
 
@@ -102,7 +102,7 @@ Run Production again with an older tag:
 ## Manual ops (emergency)
 
 ```bash
-cd /opt/zedralv2
+cd /opt/zedral
 export BACKEND_IMAGE=ghcr.io/<owner>/<repo>/backend:v1.3.0
 export NGINX_IMAGE=ghcr.io/<owner>/<repo>/nginx:v1.3.0
 export GHCR_USER=<github-user>

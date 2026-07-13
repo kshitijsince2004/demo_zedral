@@ -10,14 +10,14 @@
 ## Secrets & Environments
 
 ### `staging`
-- `AWS_APP_DIR` (default `/opt/zedralv2`)
+- `AWS_APP_DIR` (default `/opt/zedral`)
 - `AWS_PUBLIC_URL`
 - `SMOKE_BADGE_ID`
 - `SMOKE_PIN`
 - `DEPLOY_WEBHOOK_URL`
 
 ### `production`
-- `FACTORY_APP_DIR` (default `/opt/zedralv2`)
+- `FACTORY_APP_DIR` (default `/opt/zedral`)
 - `SMOKE_BADGE_ID`
 - `SMOKE_PIN`
 - `DEPLOY_WEBHOOK_URL`
@@ -29,11 +29,11 @@ Register one runner per box with `deploy/setup-github-runner.sh`.
 export RUNNER_TOKEN='...'
 export RUNNER_ENV=zedral-aws-qa
 export RUNNER_NAME=zedral-aws-qa
-bash /opt/zedralv2/deploy/setup-github-runner.sh
+bash /opt/zedral/deploy/setup-github-runner.sh
 
 # Factory
 export RUNNER_TOKEN='...'
 export RUNNER_ENV=hslsmed
 export RUNNER_NAME=hslsmed
-bash /opt/zedralv2/deploy/setup-github-runner.sh
+bash /opt/zedral/deploy/setup-github-runner.sh
 ```

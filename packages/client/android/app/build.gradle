@@ -4,12 +4,12 @@ apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 android {
     namespace = "com.zedral.m1operator"
-    compileSdk = rootProject.ext.compileSdkVersion
+    compileSdk rootProject.ext.appCompileSdkVersion
     defaultConfig {
         applicationId "com.zedral.m1operator"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("ZEDRAL_VERSION_CODE") ?: "6").toInteger()
+        minSdk rootProject.ext.appMinSdkVersion
+        targetSdk rootProject.ext.appTargetSdkVersion
+        versionCode providers.environmentVariable("ZEDRAL_VERSION_CODE").getOrElse("6").toInteger()
         versionName "1.2.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -24,10 +24,10 @@ android {
     }
 
     // Release signing only when all env vars are set; otherwise debug (local/dev APKs).
-    def releaseStorePass = System.getenv("ZEDRAL_KEYSTORE_PASS")
-    def releaseKeyAlias = System.getenv("ZEDRAL_KEY_ALIAS")
-    def releaseKeyPass = System.getenv("ZEDRAL_KEY_PASS")
-    def releaseStoreFile = System.getenv("ZEDRAL_KEYSTORE_PATH")
+    def releaseStorePass = providers.environmentVariable("ZEDRAL_KEYSTORE_PASS").getOrNull()
+    def releaseKeyAlias = providers.environmentVariable("ZEDRAL_KEY_ALIAS").getOrNull()
+    def releaseKeyPass = providers.environmentVariable("ZEDRAL_KEY_PASS").getOrNull()
+    def releaseStoreFile = providers.environmentVariable("ZEDRAL_KEYSTORE_PATH").getOrNull()
     def hasReleaseSigning = releaseStoreFile && releaseStorePass && releaseKeyAlias && releaseKeyPass
 
     if (hasReleaseSigning) {

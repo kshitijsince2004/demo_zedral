@@ -114,7 +114,7 @@ section "STEP 2 — API (localhost with seeded login)"
 
 # Get PIN from env if set
 PIN="${SEED_PIN:-}"
-if [ -z "$PIN" ] && [ -f /opt/zedralv2/deploy/.env ]; then
+if [ -z "$PIN" ] && [ -f /opt/zedral/deploy/.env ]; then
   # don't print password, try common or read from seed script default
   PIN="1234"
 fi
@@ -209,12 +209,12 @@ WHERE pb.plan_date=CURRENT_DATE AND pb.shift_code='B' AND o.status IN ('COMPLETE
 "
 
 section "DEPLOYED CODE CHECK"
-if [ -f /opt/zedralv2/packages/server/src/services/ProductionMetricsService.ts ]; then
+if [ -f /opt/zedral/packages/server/src/services/ProductionMetricsService.ts ]; then
   echo "ProductionMetricsService.ts: PRESENT on server"
 else
   echo "ProductionMetricsService.ts: MISSING — fixes NOT deployed"
 fi
-if grep -q shiftProductionMt /opt/zedralv2/packages/shared-validation/src/types/live.ts 2>/dev/null; then
+if grep -q shiftProductionMt /opt/zedral/packages/shared-validation/src/types/live.ts 2>/dev/null; then
   echo "LiveKpis.shiftProductionMt: PRESENT in source"
 else
   echo "LiveKpis.shiftProductionMt: MISSING in source — fixes NOT deployed"

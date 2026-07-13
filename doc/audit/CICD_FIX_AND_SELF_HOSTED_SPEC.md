@@ -233,7 +233,7 @@ jobs:
         env:
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
           echo "APP_DIR=${APP_DIR}"
 
@@ -392,7 +392,7 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
@@ -591,7 +591,7 @@ jobs:
         env:
           APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
         run: |
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
           echo "APP_DIR=${APP_DIR}"
 
@@ -755,7 +755,7 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
@@ -800,13 +800,13 @@ fi
 #     export RUNNER_TOKEN='XXXX'
 #     export RUNNER_ENV=aws-qa            # → labels: self-hosted,linux,x64,aws-qa
 #     export RUNNER_NAME=zedral-aws-qa
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 #   Factory (production) box:
 #     export RUNNER_TOKEN='YYYY'
 #     export RUNNER_ENV=factory           # → labels: self-hosted,linux,x64,factory
 #     export RUNNER_NAME=zedral-factory
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 # Get RUNNER_TOKEN from: GitHub → repo → Settings → Actions → Runners → New self-hosted runner
 # (token is valid ~1 hour; generate a fresh one per box).
@@ -913,7 +913,7 @@ echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."
 
 1. **Environments** (Settings → Environments) — create `staging` and `production`. No required reviewers (GitHub Free).
 2. **Secrets per environment** (SSH secrets are no longer needed — E3):
-   - `staging`: `AWS_APP_DIR` (optional, default `/opt/zedralv2`), `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
+   - `staging`: `AWS_APP_DIR` (optional, default `/opt/zedral`), `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
    - `production`: `FACTORY_APP_DIR` (optional), `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`. **`FACTORY_PUBLIC_URL` is NOT needed** — Factory is LAN-only and its smoke job hits `http://127.0.0.1` on the box directly. Do **not** set it to the private IP `http://10.255.92.33` (a private IP over HTTP can't be a smoke target).
    - You may delete: `AWS_HOST`/`AWS_EC2_HOST`, `AWS_USER`, `AWS_SSH_KEY`, `FACTORY_HOST`, `FACTORY_USER`, `FACTORY_SSH_KEY` (no longer referenced).
 3. **Runners** — register one per box with Part 5 (`RUNNER_ENV=aws-qa`, then `RUNNER_ENV=factory`).

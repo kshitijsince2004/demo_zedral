@@ -32,7 +32,7 @@ Configure GitHub **production** environment secrets for `.github/workflows/deplo
 | Secret | Description |
 |--------|-------------|
 | `AWS_GIT_DEPLOY_TOKEN` | PAT for private repo clone + raw script fetch |
-| `AWS_APP_DIR` | App directory on VM (default `/opt/zedralv2`) |
+| `AWS_APP_DIR` | App directory on VM (default `/opt/zedral`) |
 | `AWS_PUBLIC_URL` | Public HTTPS URL for optional external smoke test |
 
 Register a **self-hosted runner** on EC2 (one-time): see `deploy/setup-github-runner.sh`.
@@ -46,12 +46,12 @@ docker --version
 docker compose version
 ```
 
-The bootstrap script installs Docker, enables a 4 GB swap file, clones the repo to `/opt/zedralv2`, and creates `deploy/.env` from the template.
+The bootstrap script installs Docker, enables a 4 GB swap file, clones the repo to `/opt/zedral`, and creates `deploy/.env` from the template.
 
 ### 4. Environment Configuration
 
 ```bash
-nano /opt/zedralv2/deploy/.env
+nano /opt/zedral/deploy/.env
 ```
 
 Generate secrets:
@@ -88,7 +88,7 @@ The **Deploy to AWS EC2** workflow (`.github/workflows/deploy-aws.yml`):
 ### Manual deploy
 
 ```bash
-cd /opt/zedralv2
+cd /opt/zedral
 bash deploy/deploy.sh
 ```
 
@@ -116,7 +116,7 @@ aws s3 cp "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz" s3://zedral-db-backups/
 3. **On EC2:**
 
 ```bash
-cd /opt/zedralv2
+cd /opt/zedral
 # HTTP (quick test via domain)
 sudo bash deploy/scripts/configure-domain.sh hsl.zedral.com
 
@@ -137,7 +137,7 @@ SSH to EC2, then run the post-deploy setup script:
 
 ```bash
 ssh -i /path/to/zedral.pem ubuntu@51.21.24.75
-cd /opt/zedralv2
+cd /opt/zedral
 
 # Production: users + roles only (recommended)
 SEED_PIN='5678' bash deploy/scripts/post-deploy-setup.sh

@@ -2,7 +2,7 @@
 # Shared deployment helpers for ZedralV2 AWS EC2 VM (sourced, not executed directly).
 set -euo pipefail
 
-: "${APP_BASE:=/opt/zedralv2}"
+: "${APP_BASE:=/opt/zedral}"
 : "${GITHUB_REPO:=kshitijsince2004/hsl_zedral}"
 
 REPO_ROOT=""
@@ -16,8 +16,8 @@ repo_basename() {
   echo "${GITHUB_REPO##*/}"
 }
 
-# Case A: /opt/zedralv2/.git
-# Case B: /opt/zedralv2/<repo>/.git (clone into non-empty parent)
+# Case A: /opt/zedral/.git
+# Case B: /opt/zedral/<repo>/.git (clone into non-empty parent)
 # Legacy: ZedralV2 / ZedralV2.1 nested folders from earlier bootstraps
 resolve_repo_root() {
   local candidate name

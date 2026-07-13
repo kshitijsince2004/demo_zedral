@@ -139,8 +139,8 @@ networks:
     name: zedral
 ```
 ```bash
-echo 'TUNNEL_TOKEN=eyJ...token...' >> /opt/zedralv2/deploy/.env   # never commit
-cd /opt/zedralv2
+echo 'TUNNEL_TOKEN=eyJ...token...' >> /opt/zedral/deploy/.env   # never commit
+cd /opt/zedral
 docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.cloudflared.yml --env-file deploy/.env up -d cloudflared
 docker logs -f zedral-cloudflared      # expect "Registered tunnel connection"
 ```

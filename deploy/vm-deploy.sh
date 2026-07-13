@@ -16,7 +16,7 @@ normalize_lf "${SCRIPT_DIR}/vm-deploy.sh" "${SCRIPT_DIR}/lib/common.sh" "${SCRIP
 
 # When fetched via curl into /tmp, bootstrap via common.sh then re-exec from the on-disk repo.
 if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ]; then
-  : "${APP_BASE:=/opt/zedralv2}"
+  : "${APP_BASE:=/opt/zedral}"
   : "${GITHUB_REPO:=kshitijsince2004/hsl_zedral}"
   : "${DEPLOY_REF:=main}"
   : "${SKIP_MIGRATE:=${SKIP_MIGRATE:-false}}"
@@ -57,7 +57,7 @@ fi
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
 
-: "${APP_BASE:=/opt/zedralv2}"
+: "${APP_BASE:=/opt/zedral}"
 : "${DEPLOY_REF:=main}"
 : "${SKIP_MIGRATE:=false}"
 

@@ -3,7 +3,7 @@
 # Run on EC2 after the stack is healthy.
 #
 # Usage:
-#   cd /opt/zedralv2
+#   cd /opt/zedral
 #   SEED_PIN='5678' bash deploy/scripts/post-deploy-setup.sh
 #
 # Options:

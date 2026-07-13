@@ -3,7 +3,7 @@
 # Restores the last known-good release/SHA tags (never rebuilds).
 #
 # Usage (on server):
-#   export APP_BASE=/opt/zedralv2
+#   export APP_BASE=/opt/zedral
 #   bash deploy/scripts/rollback-images.sh
 set -euo pipefail
 

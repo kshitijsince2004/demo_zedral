@@ -29,8 +29,8 @@ On the EC2 instance as the deploy user:
 sudo mkdir -p /var/backups/zedral /var/log
 sudo chown deploy:deploy /var/backups/zedral
 
-chmod +x /opt/zedralv2/deploy/scripts/backup-db.sh
-chmod +x /opt/zedralv2/deploy/scripts/verify-backup.sh
+chmod +x /opt/zedral/deploy/scripts/backup-db.sh
+chmod +x /opt/zedral/deploy/scripts/verify-backup.sh
 
 crontab -e
 ```
@@ -39,16 +39,16 @@ Add:
 
 ```cron
 # Daily backup at 02:00 IST (adjust TZ as needed)
-0 2 * * * /opt/zedralv2/deploy/scripts/backup-db.sh >> /var/log/zedral-backup.log 2>&1
+0 2 * * * /opt/zedral/deploy/scripts/backup-db.sh >> /var/log/zedral-backup.log 2>&1
 
 # Weekly backup integrity check (Sunday 03:00)
-0 3 * * 0 /opt/zedralv2/deploy/scripts/verify-backup.sh >> /var/log/zedral-backup.log 2>&1
+0 3 * * 0 /opt/zedral/deploy/scripts/verify-backup.sh >> /var/log/zedral-backup.log 2>&1
 ```
 
 ### Manual Backup
 
 ```bash
-cd /opt/zedralv2
+cd /opt/zedral
 bash deploy/scripts/backup-db.sh
 ```
 
@@ -82,7 +82,7 @@ bash deploy/scripts/backup-db.sh
 
 ```bash
 # 1. Stop backend to prevent writes (nginx can show maintenance page)
-cd /opt/zedralv2
+cd /opt/zedral
 docker compose -f deploy/docker-compose.prod.yml stop backend
 
 # 2. Restore into PostgreSQL (DESTRUCTIVE — drops and recreates objects in dump)

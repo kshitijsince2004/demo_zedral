@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Empty string must not win over the default (secret may be set but blank).
 if [ -z "${APP_BASE:-}" ]; then
-  APP_BASE="/opt/zedralv2"
+  APP_BASE="/opt/zedral"
 fi
 : "${BACKEND_IMAGE:?BACKEND_IMAGE required}"
 : "${NGINX_IMAGE:?NGINX_IMAGE required}"

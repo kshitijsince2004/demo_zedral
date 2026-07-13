@@ -2,7 +2,7 @@
 # One-time AWS EC2 VM bootstrap (Ubuntu 22.04/24.04). Run as a user with sudo.
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/opt/zedralv2}"
+APP_DIR="${APP_DIR:-/opt/zedral}"
 REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/hsl_zedral.git}"
 
 echo "==> Setting up 4GB Swap file to prevent Out-Of-Memory errors on Free Tier..."

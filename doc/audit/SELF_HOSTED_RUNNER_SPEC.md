@@ -44,7 +44,7 @@ Do **not** change: `ci.yml`, `deploy-staging.yml` (retired stub — leave as is)
 ## Runner prerequisites (document, don't script beyond setup file)
 
 On each server the runner user (e.g. `ubuntu`) must:
-- own `APP_DIR` (default `/opt/zedralv2`) and its `deploy/` subtree,
+- own `APP_DIR` (default `/opt/zedral`) and its `deploy/` subtree,
 - be in the `docker` group (`sudo usermod -aG docker ubuntu`),
 - have `rsync`, `curl`, `jq` installed,
 - have a valid `deploy/.env` already present at `${APP_DIR}/deploy/.env`.
@@ -55,7 +55,7 @@ On each server the runner user (e.g. `ubuntu`) must:
 
 - Create environments **`staging`** and **`production`** (Settings → Environments). No required reviewers (GitHub Free).
 - Secrets needed **per environment** (SSH secrets are no longer needed):
-  - `staging`: `AWS_APP_DIR` (optional, default `/opt/zedralv2`), `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
+  - `staging`: `AWS_APP_DIR` (optional, default `/opt/zedral`), `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
   - `production`: `FACTORY_APP_DIR` (optional), `FACTORY_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
   - Repo-level (shared): `GHCR_TOKEN` (optional; falls back to `GITHUB_TOKEN` + `packages: read`).
 - Register one runner per box with `deploy/setup-github-runner.sh` using `RUNNER_ENV=aws-qa` and `RUNNER_ENV=factory` respectively (Section C).
@@ -188,7 +188,7 @@ jobs:
         env:
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
         run: |
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
           echo "APP_DIR=${APP_DIR}"
 
@@ -347,7 +347,7 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
@@ -547,7 +547,7 @@ jobs:
         env:
           APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
         run: |
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
           echo "APP_DIR=${APP_DIR}"
 
@@ -714,7 +714,7 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedral"; fi
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
@@ -737,13 +737,13 @@ jobs:
 #     export RUNNER_TOKEN='XXXX'
 #     export RUNNER_ENV=aws-qa            # → labels: self-hosted,linux,x64,aws-qa
 #     export RUNNER_NAME=zedral-aws-qa
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 #   Factory (production) box:
 #     export RUNNER_TOKEN='YYYY'
 #     export RUNNER_ENV=factory           # → labels: self-hosted,linux,x64,factory
 #     export RUNNER_NAME=zedral-factory
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 # Get RUNNER_TOKEN from: GitHub → repo → Settings → Actions → Runners → New self-hosted runner
 # (token is valid ~1 hour; generate a fresh one per box).

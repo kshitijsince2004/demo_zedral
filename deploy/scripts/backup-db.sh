@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Daily PostgreSQL backup for Zedral production VM.
-# Schedule: 0 2 * * * /opt/zedralv2/deploy/scripts/backup-db.sh >> /var/log/zedral-backup.log 2>&1
+# Schedule: 0 2 * * * /opt/zedral/deploy/scripts/backup-db.sh >> /var/log/zedral-backup.log 2>&1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

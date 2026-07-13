@@ -9,13 +9,13 @@
 #     export RUNNER_TOKEN='XXXX'
 #     export RUNNER_ENV=aws-qa            # → labels: self-hosted,linux,x64,aws-qa
 #     export RUNNER_NAME=zedral-aws-qa
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 #   Factory (production) box:
 #     export RUNNER_TOKEN='YYYY'
 #     export RUNNER_ENV=factory           # → labels: self-hosted,linux,x64,factory
 #     export RUNNER_NAME=zedral-factory
-#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#     bash /opt/zedral/deploy/setup-github-runner.sh
 #
 # Get RUNNER_TOKEN from: GitHub → repo → Settings → Actions → Runners → New self-hosted runner
 # (token is valid ~1 hour; generate a fresh one per box).
