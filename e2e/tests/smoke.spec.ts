@@ -4,7 +4,10 @@ const badge = process.env.SMOKE_BADGE_ID || '1001';
 const pin = process.env.SMOKE_PIN || '1234';
 
 async function login(page: Page) {
-  await page.goto('/login');
+  const res = await page.goto('/login');
+  if (res && !res.ok()) {
+    throw new Error(`Failed to load /login. Status: ${res.status()} ${res.statusText()}`);
+  }
   await expect(page.getByPlaceholder(/badge/i)).toBeVisible();
   await page.getByPlaceholder(/badge/i).fill(badge);
   await page.locator('input[type="password"]').fill(pin);
@@ -15,7 +18,11 @@ async function login(page: Page) {
 test.describe('Staging smoke', () => {
   test('health endpoint is ok', async ({ request }) => {
     const res = await request.get('/health');
-    expect(res.ok()).toBeTruthy();
+    if (!res.ok()) {
+      const text = await res.text();
+      throw new Error(`Health check failed with status ${res.status()}: ${text.slice(0, 200)}`);
+    }
+    expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.status).toBe('ok');
   });
