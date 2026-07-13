@@ -137,9 +137,39 @@ compose() {
   fi
 }
 
+auto_heal_env_file() {
+  [ -f "${ENV_FILE}" ] || return 0
+  
+  if ! grep -q "^SUPERTOKENS_API_KEY=" "${ENV_FILE}"; then
+    local new_key
+    new_key="$(openssl rand -hex 32)"
+    printf '\n# Auto-healed by deploy script\nSUPERTOKENS_API_KEY=%s\n' "${new_key}" >> "${ENV_FILE}"
+    log "Auto-generated missing SUPERTOKENS_API_KEY in .env"
+  fi
+
+  if ! grep -q "^API_DOMAIN=" "${ENV_FILE}" || ! grep -q "^WEBSITE_DOMAIN=" "${ENV_FILE}"; then
+    local public_ip
+    public_ip="$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)"
+    if [ -n "${public_ip}" ]; then
+      if ! grep -q "^API_DOMAIN=" "${ENV_FILE}"; then
+        printf 'API_DOMAIN=http://%s\n' "${public_ip}" >> "${ENV_FILE}"
+        log "Auto-filled API_DOMAIN=http://${public_ip} in .env"
+      fi
+      if ! grep -q "^WEBSITE_DOMAIN=" "${ENV_FILE}"; then
+        printf 'WEBSITE_DOMAIN=http://%s\n' "${public_ip}" >> "${ENV_FILE}"
+        log "Auto-filled WEBSITE_DOMAIN=http://${public_ip} in .env"
+      fi
+    else
+      log "Could not auto-fill API_DOMAIN/WEBSITE_DOMAIN (not an EC2 instance or metadata unreachable)."
+    fi
+  fi
+}
+
 validate_env_file() {
   [ -n "${ENV_FILE:-}" ] || die "ENV_FILE is unset (internal deploy bug — REPO_ROOT was empty)."
   [ -f "${ENV_FILE}" ] || die "Missing ${ENV_FILE}. On the server: cp deploy/.env.production.example deploy/.env && edit secrets (never commit .env)."
+
+  auto_heal_env_file
 
   while IFS='=' read -r key value || [ -n "$key" ]; do
     key="$(echo -n "$key" | xargs)"
@@ -157,7 +187,7 @@ validate_env_file() {
   done < "${ENV_FILE}"
 
   local missing=()
-  for key in JWT_SECRET DB_PASSWORD DB_USER DB_NAME TENANT_ID; do
+  for key in JWT_SECRET DB_PASSWORD DB_USER DB_NAME TENANT_ID SUPERTOKENS_API_KEY API_DOMAIN WEBSITE_DOMAIN; do
     if [ -z "${!key:-}" ]; then
       missing+=("$key")
     fi
@@ -182,6 +212,9 @@ validate_env_file() {
   fi
   case "${DB_PASSWORD}" in
     CHANGE_ME*|change_me*) die "DB_PASSWORD is still a placeholder in deploy/.env" ;;
+  esac
+  case "${SUPERTOKENS_API_KEY}" in
+    CHANGE_ME*|change_me*) die "SUPERTOKENS_API_KEY is still a placeholder in deploy/.env" ;;
   esac
 
   log "Environment validation passed (SSL / host certificates are not modified by this deploy)."
