@@ -60,7 +60,9 @@ fi
 
 echo ""
 echo "Bootstrap complete. Next steps:"
-echo "  1. Edit $APP_DIR/deploy/.env (JWT_SECRET, DB_PASSWORD)"
-echo "  2. bash $APP_DIR/deploy/deploy.sh"
-echo "  3. Optional one-time seed: docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:admin"
-echo "  4. Open AWS Security Group TCP 80 (and 443 if using TLS)"
+echo "  1. Edit $APP_DIR/deploy/.env (JWT_SECRET, DB_PASSWORD, SUPERTOKENS_API_KEY)"
+echo "  2. docker login ghcr.io -u <github-user>  (read:packages token)"
+echo "  3. Leave BACKEND_IMAGE/NGINX_IMAGE empty — CI will set them on first Deploy AWS QA"
+echo "  4. Optional one-time seed after first pull: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env exec backend npm run seed:profiles"
+echo "  5. Open AWS Security Group TCP 80 (and 443 if using TLS)"
+echo "  See docs/CICD_PIPELINE.md — Build Once → Deploy Many (never docker compose build on the host)"

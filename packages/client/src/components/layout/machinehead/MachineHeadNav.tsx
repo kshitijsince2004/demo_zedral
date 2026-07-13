@@ -45,6 +45,13 @@ const NAV_ITEMS: DeskNavItem[] = [
     path: '/import/rolling',
     match: (p) => p.startsWith('/import'),
   },
+  {
+    id: 'traceability',
+    label: 'Order Tracing',
+    icon: Activity, // Reuse an icon or import a specific one like Search, but Activity is already imported
+    path: '/machine-head/traceability',
+    match: (p) => p.startsWith('/machine-head/traceability'),
+  },
 ];
 
 export function MachineHeadNav() {

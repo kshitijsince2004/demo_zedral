@@ -17,6 +17,7 @@ import { formatPlantDateTime } from '../../lib/dateFormat';
 import { flattenHandoverQueue } from '../../lib/handoverQueue';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
+import { useManualDraft } from '../../lib/useFormDraft';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -264,13 +265,33 @@ export function CrmOutgoingHandoverPage() {
     }
   }, [machineCode, preview, buildPayload]);
 
-  // Auto-save on changes
+  // Server Auto-save on changes
   useEffect(() => {
     if (!preview) return;
     clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(saveDraft, AUTO_SAVE_MS);
     return () => clearTimeout(autoSaveRef.current);
   }, [saveDraft, preview]);
+
+  // Local auto-save draft
+  const { clearDraft } = useManualDraft(
+    buildPayload(),
+    (parsed: any) => {
+      if (parsed.machineStatus) setMachineStatus(parsed.machineStatus);
+      if (parsed.machineCondition) setMachineCondition(parsed.machineCondition);
+      if (parsed.machineConditionRemarks) setConditionRemarks(parsed.machineConditionRemarks);
+      if (parsed.remarks) setOutgoingNotes(parsed.remarks);
+      if (parsed.handoverPriority) setPriority(parsed.handoverPriority);
+      if (parsed.scrapKg) setScrapKg(String(parsed.scrapKg));
+      if (parsed.coolantTempDegC) setCoolantTemp(String(parsed.coolantTempDegC));
+      if (parsed.coolantPressKgCm2) setCoolantPress(String(parsed.coolantPressKgCm2));
+      if (parsed.shiftRemarks) setShiftRemarks(parsed.shiftRemarks);
+      if (parsed.orderSnapshot) setOrderSnapshot(parsed.orderSnapshot);
+      if (parsed.crewNotes) setCrewNotes(parsed.crewNotes);
+      if (parsed.selectedCrewIds) setSelectedRosterIds(new Set(parsed.selectedCrewIds));
+    },
+    `handover_${machineCode}`
+  );
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const submit = async () => {
@@ -285,6 +306,7 @@ export function CrmOutgoingHandoverPage() {
         ...buildPayload(),
         remarks: outgoingNotes.trim(),
       });
+      clearDraft();
       logout();
       navigate('/login');
     } catch (e: unknown) {

@@ -217,26 +217,19 @@ run_stack_deploy() {
     log "SKIP_MIGRATE=true — migrations disabled for this deploy"
   fi
 
-  # ponytail: GHCR pull path when images are set; otherwise build on the host (legacy AWS)
-  if [ -n "${BACKEND_IMAGE:-}" ] && [ -n "${NGINX_IMAGE:-}" ]; then
-    upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
-    upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
-    if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
-      echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-    fi
-    log "Pulling pre-built images…"
-    log "  backend: ${BACKEND_IMAGE}"
-    log "  nginx:   ${NGINX_IMAGE}"
-    compose pull backend nginx
-    compose up -d --remove-orphans --no-build
-    return
+  [ -n "${BACKEND_IMAGE:-}" ] || die "BACKEND_IMAGE is required (GHCR pull-only deploy — never build on host)"
+  [ -n "${NGINX_IMAGE:-}" ] || die "NGINX_IMAGE is required (GHCR pull-only deploy — never build on host)"
+
+  upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
+  upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
+  if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
+    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
   fi
-
-  log "Pulling pre-built images (if any)…"
-  compose pull --ignore-pull-failures 2>/dev/null || compose pull || true
-
-  log "Building and starting production stack…"
-  compose up -d --build --remove-orphans
+  log "Pulling pre-built images (Build Once → Deploy Many)…"
+  log "  backend: ${BACKEND_IMAGE}"
+  log "  nginx:   ${NGINX_IMAGE}"
+  compose pull backend nginx
+  compose up -d --remove-orphans --no-build
 }
 
 upsert_env_var() {
@@ -275,14 +268,17 @@ rollback_to_previous_images() {
   source "${prev}"
   set +a
   [ -n "${BACKEND_IMAGE:-}" ] && [ -n "${NGINX_IMAGE:-}" ] || die "Previous checkpoint missing image refs"
-  log "Rolling back to previous images…"
+  log "Rolling back to previous release / image pair…"
   log "  backend: ${BACKEND_IMAGE}"
   log "  nginx:   ${NGINX_IMAGE}"
+  if [ -n "${RECORDED_AT:-}" ]; then
+    log "  previous checkpoint recorded at: ${RECORDED_AT}"
+  fi
   export BACKEND_IMAGE NGINX_IMAGE
   SKIP_MIGRATE=true run_stack_deploy
   verify_deployment_health
   save_image_checkpoint
-  log "Image rollback complete."
+  log "Image rollback complete — previous tag restored."
 }
 
 wait_for_container_running() {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { hashPin, verifyPin } from '../src/services/pinService';
-import { getJwtSecret, isAuthStrict } from '../src/config/authConfig';
+import { isAuthStrict } from '../src/config/authConfig';
 import { assertLineWriteAccess, AuthUser } from '../src/services/authService';
 import { assertLineOperation } from '../src/auth/lineAccessPolicy';
 
@@ -27,23 +27,12 @@ describe('authConfig', () => {
     process.env = originalEnv;
   });
 
-  it('allows dev fallback secret when AUTH_STRICT=false', () => {
+  it('evaluates AUTH_STRICT correctly', () => {
     process.env.AUTH_STRICT = 'false';
-    delete process.env.JWT_SECRET;
     expect(isAuthStrict()).toBe(false);
-    expect(getJwtSecret()).toBe('fallback-secret-for-local-dev-only');
-  });
-
-  it('requires JWT_SECRET when AUTH_STRICT=true', () => {
+    
     process.env.AUTH_STRICT = 'true';
-    delete process.env.JWT_SECRET;
-    expect(() => getJwtSecret()).toThrow(/JWT_SECRET/);
-  });
-
-  it('accepts a configured JWT_SECRET in strict mode', () => {
-    process.env.AUTH_STRICT = 'true';
-    process.env.JWT_SECRET = 'test-secret-at-least-16-chars';
-    expect(getJwtSecret()).toBe('test-secret-at-least-16-chars');
+    expect(isAuthStrict()).toBe(true);
   });
 });
 

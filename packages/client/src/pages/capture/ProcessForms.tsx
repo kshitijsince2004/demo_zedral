@@ -3,6 +3,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { submitOrQueue } from '../../operator/sync/submitOrQueue';
+import { useManualDraft } from '../../lib/useFormDraft';
 
 interface CaptureFormProps {
   machineCode: string;
@@ -149,6 +150,9 @@ function CaptureForm({ machineCode, shiftLogId, config }: CaptureFormProps & { c
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const draftKey = `capture_${machineCode}_${shiftLogId}_${config.endpoint}`;
+  const { clearDraft } = useManualDraft(values, setValues, draftKey);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -166,6 +170,7 @@ function CaptureForm({ machineCode, shiftLogId, config }: CaptureFormProps & { c
         aggregateKey: `shiftlog:${shiftLogId}`,
       });
       setStatus(result.queued ? `Saved locally. Sync queue item ${result.id} will replay when online.` : 'Saved locally. Sync will complete shortly.');
+      clearDraft();
       setValues(initialValues);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Failed to save production entry');

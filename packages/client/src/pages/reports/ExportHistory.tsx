@@ -67,7 +67,7 @@ export function ExportHistory({ embedded = false }: { embedded?: boolean }) {
           : null;
     if (!url) return;
 
-    const res = await fetch(url, { headers: getAuthHeaders() });
+    const res = await fetch(url, { headers: getAuthHeaders(), credentials: 'include' });
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const blob = await res.blob();
     const objectUrl = URL.createObjectURL(blob);

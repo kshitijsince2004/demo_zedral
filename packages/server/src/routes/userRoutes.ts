@@ -18,6 +18,8 @@ function mapClientPayload(body: any) {
     pin: body.pin,
     line_access: body.line_access ?? body.lineAccess ?? [],
     machine_access: body.machine_access ?? body.machineAccess,
+    email: body.email,
+    password: body.password,
   };
 }
 
@@ -46,6 +48,7 @@ router.post('/', async (req, res) => {
     res.status(201).json(created);
   } catch (error: any) {
     const status = error.message?.includes('unique') ? 409 : 400;
+    console.error("USER_UPDATE_ERR", error); 
     res.status(status).json({ error: error.message });
   }
 });
@@ -56,6 +59,7 @@ router.put('/:id', async (req, res) => {
     res.json(updated);
   } catch (error: any) {
     const status = error.message === 'User not found' ? 404 : 400;
+    console.error("USER_UPDATE_ERR", error);
     res.status(status).json({ error: error.message });
   }
 });
@@ -67,6 +71,7 @@ router.put('/:id/line-access', async (req, res) => {
     res.json(updated);
   } catch (error: any) {
     const status = error.message === 'User not found' ? 404 : 400;
+    console.error("USER_UPDATE_ERR", error);
     res.status(status).json({ error: error.message });
   }
 });

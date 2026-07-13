@@ -9,6 +9,7 @@ import {
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { SixHiStatusPill } from './SixHiStatusPill';
+import { ThicknessSpecs } from './ThicknessSpecs';
 
 interface CombinedProductionOrdersPanelProps {
   combinedRun: CombinedProductionRun;
@@ -125,7 +126,12 @@ export function CombinedProductionOrdersPanel({
                   </span>
                   <span className="text-muted-foreground"> / {targetMt} MT</span>
                 </p>
-                {isSelected && (
+                {isSelected && detail && (
+                  <div className="mt-3 pt-3 border-t border-border/50">
+                    <ThicknessSpecs order={detail} compact />
+                  </div>
+                )}
+                {isSelected && !detail && (
                   <p className="text-[10px] font-bold uppercase tracking-widest text-primary mt-2">Viewing details →</p>
                 )}
               </button>

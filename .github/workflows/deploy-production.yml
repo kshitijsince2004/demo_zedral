@@ -1,18 +1,32 @@
 name: Deploy Production (Factory)
 
+# GitHub Free compatible: NO Environment required-reviewers.
+# Manual gate = Actions → Deploy Production (Factory) → Run workflow.
+# Never builds. Pulls whatever GHCR tag you enter (SHA / latest-main / vX.Y.Z).
+
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       image_tag:
-        description: GHCR image tag to deploy (git SHA or SemVer e.g. v1.2.0). Must already exist from staging.
+        description: 'GHCR tag to deploy (latest-main | full git SHA | v1.3.0)'
         required: true
         type: string
+        default: latest-main
+      promote_as:
+        description: 'Optional — also tag this digest as SemVer (e.g. v1.3.0) before deploy'
+        required: false
+        type: string
+        default: ''
       skip_migrate:
         description: Skip DB migrations
         required: false
         default: 'false'
+        type: choice
+        options: ['false', 'true']
+      skip_smoke:
+        description: Skip Playwright smoke (needs FACTORY_PUBLIC_URL)
+        required: false
+        default: 'true'
         type: choice
         options: ['false', 'true']
 
@@ -25,80 +39,98 @@ env:
 
 jobs:
   resolve-images:
-    name: Resolve release images (no rebuild)
+    name: Resolve image tag (no rebuild)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     outputs:
-      backend_image: ${{ steps.tags.outputs.backend }}
-      nginx_image: ${{ steps.tags.outputs.nginx }}
-      image_tag: ${{ steps.tags.outputs.tag }}
+      backend_image: ${{ steps.meta.outputs.backend }}
+      nginx_image: ${{ steps.meta.outputs.nginx }}
+      image_tag: ${{ steps.meta.outputs.tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Compute image tag
-        id: tags
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-            SHA="$(git rev-list -n 1 "${TAG}")"
-            echo "Release ${TAG} → commit ${SHA}"
-            # Retag existing SHA images as SemVer (exact same digests — no rebuild)
-            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-            echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
-            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
-            echo "SOURCE_SHA=${SHA}" >> "$GITHUB_ENV"
-            echo "SEMVER_TAG=${TAG}" >> "$GITHUB_ENV"
-          else
-            TAG="${{ github.event.inputs.image_tag }}"
-            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-            echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
-            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Login to GHCR
-        if: github.event_name == 'release'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Retag SHA → SemVer (same digest)
-        if: github.event_name == 'release'
+      - name: Resolve / optional promote
+        id: meta
         run: |
           set -euo pipefail
-          docker buildx imagetools create \
-            --tag "${IMAGE_PREFIX}/backend:${SEMVER_TAG}" \
-            "${IMAGE_PREFIX}/backend:${SOURCE_SHA}"
-          docker buildx imagetools create \
-            --tag "${IMAGE_PREFIX}/nginx:${SEMVER_TAG}" \
-            "${IMAGE_PREFIX}/nginx:${SOURCE_SHA}"
-          echo "Retagged ${SOURCE_SHA:0:7} → ${SEMVER_TAG}"
+          SRC="$(echo -n '${{ github.event.inputs.image_tag }}' | tr -d '[:space:]')"
+          PROMOTE="$(echo -n '${{ github.event.inputs.promote_as }}' | tr -d '[:space:]')"
+          if [ -z "${SRC}" ]; then
+            echo "::error::image_tag is empty"
+            exit 1
+          fi
+
+          echo "Inspecting source images for tag=${SRC}"
+          docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${SRC}" >/dev/null
+          docker buildx imagetools inspect "${IMAGE_PREFIX}/nginx:${SRC}" >/dev/null
+
+          DEPLOY_TAG="${SRC}"
+          if [ -n "${PROMOTE}" ]; then
+            echo "Promoting ${SRC} → ${PROMOTE} (identical digests, no rebuild)"
+            docker buildx imagetools create \
+              --tag "${IMAGE_PREFIX}/backend:${PROMOTE}" \
+              "${IMAGE_PREFIX}/backend:${SRC}"
+            docker buildx imagetools create \
+              --tag "${IMAGE_PREFIX}/nginx:${PROMOTE}" \
+              "${IMAGE_PREFIX}/nginx:${SRC}"
+            DEPLOY_TAG="${PROMOTE}"
+          fi
+
+          echo "tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "backend=${IMAGE_PREFIX}/backend:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "nginx=${IMAGE_PREFIX}/nginx:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Factory will pull tag=${DEPLOY_TAG}"
 
       - name: Notify started
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           bash deploy/scripts/notify-deploy.sh started \
-            "Production deploy tag=${{ steps.tags.outputs.tag }} on Factory"
+            "Production (manual) tag=${{ steps.meta.outputs.tag }} → Factory"
 
   deploy-factory:
     name: Deploy to Factory
     needs: resolve-images
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Environment used only to group secrets (no required reviewers — GitHub Free).
     environment: production
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Preflight production secrets
+        env:
+          FACTORY_HOST: ${{ secrets.FACTORY_HOST }}
+          FACTORY_USER: ${{ secrets.FACTORY_USER }}
+          FACTORY_SSH_KEY: ${{ secrets.FACTORY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${FACTORY_HOST:-}" ] || missing+=("FACTORY_HOST")
+          [ -n "${FACTORY_USER:-}" ] || missing+=("FACTORY_USER")
+          [ -n "${FACTORY_SSH_KEY:-}" ] || missing+=("FACTORY_SSH_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing secrets for environment 'production': ${missing[*]}"
+            echo "::error::Add under Settings → Environments → production (or repo Secrets)."
+            echo "::error::Do NOT enable Required reviewers (unavailable / unused on GitHub Free)."
+            exit 1
+          fi
 
       - name: Configure SSH
         uses: webfactory/ssh-agent@v0.9.0
@@ -110,7 +142,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.FACTORY_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Sync deploy scripts (preserve .env)
+      - name: Sync deploy scripts (preserve .env + image checkpoints)
         env:
           HOST: ${{ secrets.FACTORY_HOST }}
           USER: ${{ secrets.FACTORY_USER }}
@@ -124,7 +156,7 @@ jobs:
             --exclude 'deploy/.previous-good-*' \
             ./ "${USER}@${HOST}:${APP_DIR}/"
 
-      - name: Backup PostgreSQL + pull SAME images + deploy
+      - name: Backup DB · verify · pull images · deploy
         id: deploy
         env:
           HOST: ${{ secrets.FACTORY_HOST }}
@@ -141,8 +173,25 @@ jobs:
           ssh "${USER}@${HOST}" \
             "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
              SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \
-             APP_BASE='${APP_DIR}' RUN_BACKUP=true; \
+             APP_BASE='${APP_DIR}' RUN_BACKUP=true VERIFY_BACKUP=true; \
              bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
+
+      - name: Health check (curl /health)
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+        run: |
+          set -euo pipefail
+          ssh "${USER}@${HOST}" \
+            "for attempt in 1 2 3 4 5 6 8 10; do
+               if curl -fsS http://127.0.0.1/health | head -c 200; then
+                 echo ''; echo 'Factory health check passed'; exit 0
+               fi
+               echo \"Attempt \${attempt} failed — retrying in 10s…\"
+               sleep 10
+             done
+             echo 'Factory health check failed'
+             exit 1"
 
       - name: Verify containers
         env:
@@ -205,3 +254,76 @@ jobs:
         run: |
           bash deploy/scripts/notify-deploy.sh failed \
             "Factory production FAILED tag=${{ needs.resolve-images.outputs.image_tag }}"
+
+  smoke:
+    name: Playwright smoke (Factory)
+    needs: [resolve-images, deploy-factory]
+    if: ${{ github.event.inputs.skip_smoke != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suite
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ secrets.FACTORY_PUBLIC_URL }}
+          SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
+          SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
+        run: |
+          if [ -z "${BASE_URL}" ]; then
+            echo "::error::FACTORY_PUBLIC_URL required when skip_smoke=false"
+            exit 1
+          fi
+          npx playwright test --reporter=list,html,json
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-playwright-smoke-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+
+      - name: Configure SSH (for rollback)
+        if: failure()
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.FACTORY_SSH_KEY }}
+
+      - name: Rollback Factory on smoke failure
+        if: failure()
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          APP_DIR: ${{ secrets.FACTORY_APP_DIR }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${HOST}" >> ~/.ssh/known_hosts
+          APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${USER}@${HOST}" \
+            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
+          bash deploy/scripts/notify-deploy.sh rollback \
+            "Factory rolled back after smoke failure (${{ needs.resolve-images.outputs.image_tag }})"

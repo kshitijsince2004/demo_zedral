@@ -1,6 +1,9 @@
 import { db } from '../db';
 import { hashPin } from './pinService';
 import { MachineAccessService } from './MachineAccessService';
+import supertokens from 'supertokens-node';
+import EmailPassword from 'supertokens-node/recipe/emailpassword';
+import Session from 'supertokens-node/recipe/session';
 
 export interface LineAccessInput {
   line_id: string;
@@ -27,6 +30,16 @@ export interface UpsertUserInput {
   pin?: string;
   line_access?: LineAccessInput[];
   machine_access?: string[];
+  email?: string;
+  password?: string;
+}
+
+function isStaffRole(role: string): boolean {
+  return ['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'].includes(role.toUpperCase());
+}
+
+function genTempPassword(): string {
+  return Math.random().toString(36).slice(2, 12) + 'A1!';
 }
 
 const VALID_STATUSES = new Set(['ACTIVE', 'DISABLED', 'LOCKED']);
@@ -162,6 +175,9 @@ export class UserService {
       emp_code: empCode,
       status: input.status,
     };
+    if (input.email?.trim()) {
+      values.email = input.email.trim();
+    }
 
     if (input.pin?.trim()) {
       if (!/^\d{4}$/.test(input.pin.trim())) {
@@ -189,6 +205,17 @@ export class UserService {
       await replaceLineAccess(created.user_id, input.line_access ?? []);
     }
 
+    if (isStaffRole(input.role) && input.email?.trim()) {
+      const signUp = await EmailPassword.signUp('public', input.email.trim(), input.password || genTempPassword());
+      if (signUp.status === 'OK') {
+        await db.updateTable('security.app_user')
+          .set({ supertokens_user_id: signUp.user.id })
+          .where('user_id', '=', created.user_id).execute();
+      } else if (signUp.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
+        throw new Error('Email already registered');
+      }
+    }
+
     return toDto(created);
   }
 
@@ -199,7 +226,7 @@ export class UserService {
   ): Promise<UserAccessDto> {
     const existing = await db
       .selectFrom('security.app_user')
-      .select(['user_id', 'username', 'full_name', 'emp_code', 'status'])
+      .select(['user_id', 'username', 'full_name', 'emp_code', 'status', 'supertokens_user_id', 'email'])
       .where('user_id', '=', Number(userId))
       .executeTakeFirst();
 
@@ -212,9 +239,15 @@ export class UserService {
     if (input.username?.trim()) updates.username = input.username.trim();
     if (input.display_name?.trim()) updates.full_name = input.display_name.trim();
     if (input.emp_code?.trim()) updates.emp_code = input.emp_code.trim();
+    if (input.email?.trim()) updates.email = input.email.trim();
+    
     if (input.status) {
       if (!VALID_STATUSES.has(input.status)) throw new Error(`Invalid status: ${input.status}`);
       updates.status = input.status;
+      
+      if (input.status === 'DISABLED' && existing.supertokens_user_id) {
+        await Session.revokeAllSessionsForUser(existing.supertokens_user_id);
+      }
     }
     if (input.pin?.trim()) {
       if (!/^\d{4}$/.test(input.pin.trim())) {
@@ -231,8 +264,33 @@ export class UserService {
         .updateTable('security.app_user')
         .set(updates as any)
         .where('user_id', '=', Number(userId))
-        .returning(['user_id', 'username', 'full_name', 'emp_code', 'status'])
+        .returning(['user_id', 'username', 'full_name', 'emp_code', 'status', 'supertokens_user_id', 'email'])
         .executeTakeFirstOrThrow();
+    }
+
+    if (existing.supertokens_user_id) {
+      const recipeUserId = new supertokens.RecipeUserId(existing.supertokens_user_id);
+      if (input.email?.trim() && input.email.trim() !== existing.email) {
+        await EmailPassword.updateEmailOrPassword({
+          recipeUserId,
+          email: input.email.trim(),
+        });
+      }
+      if (input.password?.trim()) {
+        await EmailPassword.updateEmailOrPassword({
+          recipeUserId,
+          password: input.password.trim(),
+        });
+      }
+    } else if (input.email?.trim() && isStaffRole(input.role || await loadPrimaryRole(existing.user_id))) {
+      const signUp = await EmailPassword.signUp('public', input.email.trim(), input.password || genTempPassword());
+      if (signUp.status === 'OK') {
+        await db.updateTable('security.app_user')
+          .set({ supertokens_user_id: signUp.user.id })
+          .where('user_id', '=', existing.user_id).execute();
+      } else if (signUp.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
+        throw new Error('Email already registered');
+      }
     }
 
     if (input.role) {

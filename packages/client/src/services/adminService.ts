@@ -324,6 +324,8 @@ export interface UserAccess {
   line_access?: LineAccess[];
   machine_access?: string[];
   status: UserStatus;
+  email?: string;
+  password?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +387,7 @@ export const adminService = {
     const res = await fetch('/api/import', {
       method: 'POST',
       headers: getAuthHeaders(),
+      credentials: 'include',
       body: formData,
     });
 
@@ -415,6 +418,7 @@ export const adminService = {
     const res = await fetch('/api/6hi/import/ppc', {
       method: 'POST',
       headers: getAuthHeaders(),
+      credentials: 'include',
       body: formData,
     });
     const json = await res.json();
@@ -435,6 +439,7 @@ export const adminService = {
     const res = await fetch('/api/6hi/import/ppc/preview', {
       method: 'POST',
       headers: getAuthHeaders(),
+      credentials: 'include',
       body: formData,
     });
     const json = await res.json();
@@ -451,6 +456,7 @@ export const adminService = {
     const res = await fetch(`/api/6hi/import/ppc/preview/${sessionId}/machines`, {
       method: 'PUT',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ assignments }),
     });
     const json = await res.json();
@@ -481,6 +487,7 @@ export const adminService = {
     const res = await fetch(`/api/6hi/import/ppc/preview/${sessionId}/commit`, {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(batchNumbers?.length ? { batchNumbers } : {}),
     });
     const json = await res.json();
@@ -509,6 +516,7 @@ export const adminService = {
     const res = await fetch('/api/6hi/orders/transfer-machine', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ batchNumbers, targetMachine }),
     });
     const json = await res.json();
@@ -528,6 +536,7 @@ export const adminService = {
   async downloadErrorRows(batchId: string): Promise<Blob> {
     const res = await fetch(`/api/import/${batchId}/error-rows`, {
       headers: getAuthHeaders(),
+      credentials: 'include',
     });
     if (!res.ok) {
       throw new Error(`Download failed (${res.status})`);

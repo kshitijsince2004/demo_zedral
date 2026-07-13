@@ -71,4 +71,26 @@ describe('machineAccessPolicy', () => {
     expect(() => assertMachineAccess(operatorMulti, '4HI')).not.toThrow();
     expect(() => assertMachineAccess(operatorMulti, '2HI')).toThrow(/Forbidden/);
   });
+
+  // machine-wise CRM access (requireCrmMill delegates here)
+  it('4HI machine-head: allows 4HI, denies 6HI', () => {
+    const mh: AuthUser = {
+      id: 10,
+      username: 'mh4',
+      roles: ['MACHINE_HEAD'],
+      lineAccess: ['ROLLING'],
+      lineScopes: [{ code: 'ROLLING', accessLevel: 'WRITE' }],
+      machineAccess: ['4HI'],
+    };
+    expect(() => assertMachineAccess(mh, '4HI')).not.toThrow();
+    expect(() => assertMachineAccess(mh, '6HI')).toThrow(MachineAccessForbiddenError);
+  });
+
+  it('6HI operator keeps access', () => {
+    expect(() => assertMachineAccess(operator6Hi, '6HI')).not.toThrow();
+  });
+
+  it('PLANT_HEAD bypasses machine scope', () => {
+    expect(() => assertMachineAccess(plantHead, '2HI')).not.toThrow();
+  });
 });

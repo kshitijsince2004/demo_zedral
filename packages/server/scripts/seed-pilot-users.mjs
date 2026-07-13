@@ -39,14 +39,39 @@ function hashPin(pin) {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
+/** Staff email/password for SuperTokens EmailPassword (roles 3/4/5). */
+const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD || 'Password123!';
+
 const USERS = [
-  { username: 'admin', emp_code: '1000', full_name: 'Plant Admin', role_id: 4, lines: [], machines: [] },
-  { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', '6HI'], machines: ['6HI'] },
-  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['6HI', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'] },
-  { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', '6HI'], machines: [] },
+  { username: 'admin', emp_code: '1000', full_name: 'Plant Admin', role_id: 4, lines: [], machines: [], staff: true },
+  { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', 'ROLLING'], machines: ['6HI'] },
+  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
+  { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
 ];
 
 const PIN = process.env.SEED_PIN || '1234';
+
+function staffEmail(username) {
+  return `${username}@zedral.local`;
+}
+
+/** Create or look up SuperTokens EmailPassword user; return ST user id. */
+async function ensureStaffSuperTokensUser(username) {
+  const email = staffEmail(username);
+  try {
+    const signedUp = await EmailPassword.signUp('', email, STAFF_PASSWORD);
+    if (signedUp.status === 'OK') return signedUp.user.id;
+    if (signedUp.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
+      const existing = await supertokens.listUsersByAccountInfo('', { email });
+      const id = existing?.[0]?.id;
+      if (id) return id;
+      console.warn(`SuperTokens user exists for ${email} but id could not be resolved`);
+    }
+  } catch (err) {
+    console.error(`Failed to ensure SuperTokens user for ${email}:`, err?.message ?? err);
+  }
+  return null;
+}
 
 /** @param {pg.Client} client */
 async function seedRoles(client) {
@@ -80,34 +105,27 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
 
   for (const u of USERS) {
     const existing = await client.query(
-      `SELECT user_id FROM security.app_user WHERE emp_code = $1`,
+      `SELECT user_id, supertokens_user_id FROM security.app_user WHERE emp_code = $1`,
       [u.emp_code],
     );
 
     let userId;
+    let stUserId = existing.rows[0]?.supertokens_user_id ?? null;
+    if (u.staff && !stUserId) {
+      stUserId = await ensureStaffSuperTokensUser(u.username);
+    }
+
     if (existing.rows.length > 0) {
       userId = existing.rows[0].user_id;
       await client.query(
         `UPDATE security.app_user
-         SET pin_hash = $1, status = 'ACTIVE', pin_failed_attempts = 0, pin_locked_until = NULL
+         SET pin_hash = $1, status = 'ACTIVE', pin_failed_attempts = 0, pin_locked_until = NULL,
+             supertokens_user_id = COALESCE($3, supertokens_user_id)
          WHERE user_id = $2`,
-        [pinHash, userId],
+        [pinHash, userId, stUserId],
       );
-      console.log(`Updated user ${u.emp_code} (${u.username})`);
+      console.log(`Updated user ${u.emp_code} (${u.username})${u.staff ? ` → ${staffEmail(u.username)}` : ''}`);
     } else {
-      let stUserId = null;
-      if (u.role_id === 3 || u.role_id === 4 || u.role_id === 5) {
-        const email = `${u.username}@zedral.local`;
-        try {
-          const response = await EmailPassword.signUp('', email, 'Password123!');
-          if (response.status === 'OK') {
-            stUserId = response.user.id;
-          }
-        } catch (err) {
-          console.error(`Failed to create SuperTokens user for ${u.username}`, err);
-        }
-      }
-
       const inserted = await client.query(
         `INSERT INTO security.app_user (username, full_name, emp_code, status, pin_hash, supertokens_user_id)
          VALUES ($1, $2, $3, 'ACTIVE', $4, $5)
@@ -115,7 +133,7 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
         [u.username, u.full_name, u.emp_code, pinHash, stUserId],
       );
       userId = inserted.rows[0].user_id;
-      console.log(`Created user ${u.emp_code} (${u.username})`);
+      console.log(`Created user ${u.emp_code} (${u.username})${u.staff ? ` → ${staffEmail(u.username)}` : ''}`);
     }
 
     await client.query(
@@ -152,16 +170,20 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
   }
 
   await client.end();
-  return { pin: PIN, users: USERS, userIds };
+  return { pin: PIN, staffPassword: STAFF_PASSWORD, users: USERS, userIds };
 }
 
 const isMain = process.argv[1]?.includes('seed-pilot-users');
 if (isMain) {
   seedPilotUsers()
     .then((result) => {
-      console.log(`\nPilot users ready (PIN: ${result.pin}):`);
+      console.log(`\nPilot users ready (operator PIN: ${result.pin}):`);
       for (const u of result.users) {
-        console.log(`  Badge ${u.emp_code} — ${u.full_name} (role ${u.role_id})`);
+        if (u.staff) {
+          console.log(`  Staff  ${staffEmail(u.username)} / ${result.staffPassword} — ${u.full_name}`);
+        } else {
+          console.log(`  Badge  ${u.emp_code} / PIN ${result.pin} — ${u.full_name}`);
+        }
       }
     })
     .catch((err) => {

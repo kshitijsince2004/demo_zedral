@@ -106,7 +106,7 @@ export function computeEffectiveRuleset(
   };
 }
 
-export function evaluateField(value: unknown, rules: ValidationRule[]): ValidationError[] {
+export function evaluateField(value: unknown, rules: ValidationRule[], record: Record<string, unknown>): ValidationError[] {
   const errors: ValidationError[] = [];
 
   for (const rule of rules) {
@@ -171,6 +171,48 @@ export function evaluateField(value: unknown, rules: ValidationRule[]): Validati
           }
         }
         break;
+
+      case 'MIN_PCT_OF_FIELD':
+        if (!isEmpty && typeof value === 'number') {
+          const targetField = rule.params.ofField;
+          const targetValue = record[targetField];
+          if (typeof targetValue === 'number') {
+            const minAllowed = targetValue * (rule.params.pct / 100);
+            if (value < minAllowed) {
+              isBreach = true;
+              message = `Value must be at least ${rule.params.pct}% of ${targetField}.`;
+            }
+          }
+        }
+        break;
+
+      case 'MAX_PCT_OF_FIELD':
+        if (!isEmpty && typeof value === 'number') {
+          const targetField = rule.params.ofField;
+          const targetValue = record[targetField];
+          if (typeof targetValue === 'number') {
+            const maxAllowed = targetValue * (rule.params.pct / 100);
+            if (value > maxAllowed) {
+              isBreach = true;
+              message = `Value must be at most ${rule.params.pct}% of ${targetField}.`;
+            }
+          }
+        }
+        break;
+
+      case 'COMPARE_FIELD':
+        if (!isEmpty && typeof value === 'number') {
+          const targetField = rule.params.field;
+          const targetValue = record[targetField];
+          if (typeof targetValue === 'number') {
+            const op = rule.params.op;
+            if (op === '<' && !(value < targetValue)) { isBreach = true; message = `Value must be < ${targetField}.`; }
+            if (op === '<=' && !(value <= targetValue)) { isBreach = true; message = `Value must be <= ${targetField}.`; }
+            if (op === '>' && !(value > targetValue)) { isBreach = true; message = `Value must be > ${targetField}.`; }
+            if (op === '>=' && !(value >= targetValue)) { isBreach = true; message = `Value must be >= ${targetField}.`; }
+          }
+        }
+        break;
     }
 
     if (isBreach) {
@@ -194,18 +236,26 @@ export function evaluateRules(
   for (const [fieldId, rules] of Object.entries(effectiveRuleset.rules)) {
     // For simplicity, support simple flat paths like "PKL.lineSpeedMpm" mapping to { PKL: { lineSpeedMpm: 123 } }
     const parts = fieldId.split('.');
-    let value: unknown = data;
+    let valuesToTest: unknown[] = [data];
     for (const part of parts) {
-      if (isRecord(value)) {
-        value = value[part];
-      } else {
-        value = undefined;
-        break;
+      const nextValues: unknown[] = [];
+      for (const currentVal of valuesToTest) {
+        if (Array.isArray(currentVal)) {
+          for (const item of currentVal) {
+            if (isRecord(item)) nextValues.push(item[part]);
+          }
+        } else if (isRecord(currentVal)) {
+          nextValues.push(currentVal[part]);
+        }
       }
+      valuesToTest = nextValues;
+      if (valuesToTest.length === 0) break;
     }
 
-    const fieldErrors = evaluateField(value, rules);
-    allErrors.push(...fieldErrors);
+    for (const val of valuesToTest) {
+      const fieldErrors = evaluateField(val, rules, data);
+      allErrors.push(...fieldErrors);
+    }
   }
 
   const hasBlock = allErrors.some((e) => e.severity === 'BLOCK');

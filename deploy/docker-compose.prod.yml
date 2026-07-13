@@ -1,6 +1,8 @@
-# Production stack for a single AWS EC2 VM (or any Docker host).
-# Usage: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
-# ponytail: build-on-host for now; switch back to GHCR image: refs when staging pipeline is ready
+# Production / QA stack — pull-only. Never build on the host.
+# Images are set by CI/CD via BACKEND_IMAGE / NGINX_IMAGE in deploy/.env.
+#
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env pull
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --no-build
 
 services:
   db:
@@ -21,11 +23,26 @@ services:
     networks:
       - zedral
 
+  # ponytail: ST core required for staff EmailPassword + badge sessions; pin major for compose stability
+  supertokens:
+    image: registry.supertokens.io/supertokens/supertokens-postgresql:9.2
+    container_name: zedral-supertokens
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3567:3567"
+    environment:
+      POSTGRESQL_CONNECTION_URI: "postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
+      API_KEYS: ${SUPERTOKENS_API_KEY}
+      ACCESS_TOKEN_VALIDITY: 900
+      REFRESH_TOKEN_VALIDITY: 10080
+    restart: unless-stopped
+    networks:
+      - zedral
+
   backend:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: backend
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to a GHCR tag (sha or vX.Y.Z)}
     container_name: zedral-backend
     environment:
       NODE_ENV: production
@@ -45,9 +62,15 @@ services:
       EXPORT_WORKER_ENABLED: ${EXPORT_WORKER_ENABLED:-true}
       DPR_SCHEDULER_ENABLED: ${DPR_SCHEDULER_ENABLED:-true}
       SHIFT_BOUNDARY_SCHEDULER_ENABLED: ${SHIFT_BOUNDARY_SCHEDULER_ENABLED:-false}
+      SUPERTOKENS_CORE_URI: http://supertokens:3567
+      SUPERTOKENS_API_KEY: ${SUPERTOKENS_API_KEY}
+      API_DOMAIN: ${API_DOMAIN}
+      WEBSITE_DOMAIN: ${WEBSITE_DOMAIN}
     depends_on:
       db:
         condition: service_healthy
+      supertokens:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:3005/health"]
       interval: 30s
@@ -60,10 +83,7 @@ services:
       - zedral
 
   nginx:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: nginx
+    image: ${NGINX_IMAGE:?Set NGINX_IMAGE to a GHCR tag (sha or vX.Y.Z)}
     container_name: zedral-nginx
     ports:
       - "${DOCKER_HTTP_BIND:-0.0.0.0:80}:80"

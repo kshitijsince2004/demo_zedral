@@ -3,8 +3,8 @@
  *
  * - Prefixes all calls with the configured API host plus `/api` (Vite proxy
  *   still handles the empty-host web case).
- * - Attaches the bearer token from session storage on every request.
- * - Refreshes expired access tokens automatically using the refresh token.
+ * - Sends cookies (`credentials: 'include'`); SuperTokens' fetch interceptor
+ *   attaches/refreshes the session cookie.
  * - Unwraps the `{ data, meta, errors }` envelope when present, otherwise
  *   returns the raw JSON body (the current backend returns bare objects).
  * - Surfaces a typed ApiError so callers can branch on status / offline.
@@ -40,22 +40,9 @@ export function getAuthToken(): string | null {
   return sessionStorage.getItem('mock_jwt');
 }
 
-function getRefreshToken(): string | null {
-  return sessionStorage.getItem('mock_refresh');
-}
-
-function setAuthTokens(accessToken: string, refreshToken?: string) {
-  sessionStorage.setItem('mock_jwt', accessToken);
-  if (refreshToken) sessionStorage.setItem('mock_refresh', refreshToken);
-  useAuthStore.setState({ token: accessToken });
-}
-
-/** Bearer headers for fetch calls that bypass apiClient (e.g. sync batch). */
+/** Headers for fetch calls that bypass apiClient (cookies via credentials:'include'). */
 export function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const headers: Record<string, string> = { ...extra };
-  const token = getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
+  return { ...extra };
 }
 
 interface RequestOptions {
@@ -63,13 +50,6 @@ interface RequestOptions {
   body?: unknown;
   /** Skip throwing on non-2xx; return the parsed body instead. */
   raw?: boolean;
-  /** Internal: skip one refresh retry to avoid infinite loops. */
-  _retried?: boolean;
-}
-
-interface RefreshResponse {
-  accessToken?: string;
-  refreshToken?: string;
 }
 
 interface ApiEnvelope<T> {
@@ -77,22 +57,24 @@ interface ApiEnvelope<T> {
   errors: unknown;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): boolean {
   return typeof value === 'object' && value !== null;
 }
 
 function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
-  return isRecord(value) && 'data' in value && 'errors' in value;
+  return isRecord(value) && 'data' in (value as object) && 'errors' in (value as object);
 }
 
 function formatApiError(parsed: unknown, status: number): string {
   if (!isRecord(parsed)) return `Request failed (${status})`;
-  const direct = parsed.error ?? parsed.message;
+  const record = parsed as Record<string, unknown>;
+  const direct = record.error ?? record.message;
   if (typeof direct === 'string') return direct;
   if (isRecord(direct)) {
-    const formErrors = Array.isArray(direct.formErrors) ? direct.formErrors.filter((e): e is string => typeof e === 'string') : [];
-    const fieldErrors = isRecord(direct.fieldErrors)
-      ? Object.entries(direct.fieldErrors).flatMap(([field, messages]) =>
+    const d = direct as Record<string, unknown>;
+    const formErrors = Array.isArray(d.formErrors) ? d.formErrors.filter((e): e is string => typeof e === 'string') : [];
+    const fieldErrors = isRecord(d.fieldErrors)
+      ? Object.entries(d.fieldErrors as Record<string, unknown>).flatMap(([field, messages]) =>
           Array.isArray(messages) ? messages.map((m) => `${field}: ${String(m)}`) : [],
         )
       : [];
@@ -102,7 +84,6 @@ function formatApiError(parsed: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
-let refreshInFlight: Promise<string | null> | null = null;
 /** Bumped on login/logout so stale 401 responses cannot clear a fresh session. */
 let authGeneration = 0;
 
@@ -122,50 +103,15 @@ function isPublicAuthPath(path: string): boolean {
   );
 }
 
-export async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return null;
-
-  if (!refreshInFlight) {
-    refreshInFlight = (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-App-Version': APP_VERSION },
-          body: JSON.stringify({ refreshToken }),
-        });
-        if (!res.ok) return null;
-        const data = (await res.json()) as RefreshResponse;
-        if (data?.accessToken) {
-          setAuthTokens(data.accessToken, data.refreshToken ?? refreshToken);
-          return data.accessToken as string;
-        }
-        return null;
-      } catch {
-        return null;
-      } finally {
-        refreshInFlight = null;
-      }
-    })();
-  }
-  return refreshInFlight;
-}
-
-export async function apiFetch(path: string, options: RequestInit & { _retried?: boolean } = {}): Promise<Response> {
-  const { _retried = false, ...fetchOptions } = options;
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const generationAtStart = authGeneration;
   const tokenAtStart = getAuthToken();
-  const token = tokenAtStart;
-  const headers = new Headers(fetchOptions.headers);
+  const headers = new Headers(options.headers);
 
-  if (!headers.has('Content-Type') && fetchOptions.body !== undefined) {
+  if (!headers.has('Content-Type') && options.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
   headers.set('X-App-Version', APP_VERSION);
-
-  if (token && !isPublicAuthPath(path)) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
 
   // Inject machine code into /6hi/ API requests
   let finalPath = path;
@@ -175,7 +121,7 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
     if (pathname.includes('/4hi')) machine = '4HI';
     else if (pathname.includes('/2hi')) machine = '2HI';
     else if (pathname.includes('/6hi')) machine = '6HI';
-    
+
     if (machine && !path.includes('machine=')) {
       finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
     }
@@ -184,18 +130,16 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${finalPath}`, {
-      ...fetchOptions,
+      ...options,
       headers,
+      credentials: 'include',
     });
   } catch (networkErr) {
     throw new ApiError('Network unavailable', 0, networkErr, true);
   }
 
-  if (res.status === 401 && !_retried && !path.startsWith('/auth/')) {
-    const newToken = await refreshAccessToken();
-    if (newToken && authGeneration === generationAtStart) {
-      return apiFetch(path, { ...options, _retried: true });
-    }
+  // ST fetch interceptor refreshes the session; a remaining 401 means the session is dead.
+  if (res.status === 401 && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {
     const sameSession =
       authGeneration === generationAtStart && getAuthToken() === tokenAtStart;
     if (sameSession) {
@@ -212,12 +156,11 @@ export async function apiFetch(path: string, options: RequestInit & { _retried?:
 }
 
 async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, raw = false, _retried = false } = options;
+  const { method = 'GET', body, raw = false } = options;
 
   const res = await apiFetch(path, {
     method,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    _retried,
   });
 
   let parsed: unknown = null;

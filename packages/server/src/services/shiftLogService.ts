@@ -224,6 +224,7 @@ export class ShiftLogService {
       6: 'txn.prod_rwd',
       7: 'txn.prod_crs',
       8: 'txn.prod_ctl',
+      9: 'txn.prod_glv',
       31: 'txn.crm_order',
     };
     return map[processId] || null;

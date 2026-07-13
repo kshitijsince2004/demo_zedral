@@ -11,6 +11,7 @@ import {
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertLineOperation } from '../auth/lineAccessPolicy';
+import { assertMachineAccess } from '../auth/machineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
 import type { LineAccessLevel } from '../services/authService';
 import { db } from '../db';
@@ -48,7 +49,8 @@ async function shiftCodeFromQueryOrCurrent(
   return detected.shiftCode.toUpperCase();
 }
 
-function requireCrmMill(operation: LineAccessLevel) {
+// operation kept in the signature so the 42 call sites (requireSixHi('READ'|'WRITE')) don't change.
+function requireCrmMill(_operation: LineAccessLevel) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
@@ -57,7 +59,8 @@ function requireCrmMill(operation: LineAccessLevel) {
       if (!machine) {
         return res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
       }
-      assertLineOperation(req.user, machine, operation);
+      // Machine-wise scope: security.machine_access holds 6HI/4HI/2HI; ADMIN/PLANT_HEAD bypass inside.
+      assertMachineAccess(req.user, machine);
       next();
     } catch (e: unknown) {
       res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });

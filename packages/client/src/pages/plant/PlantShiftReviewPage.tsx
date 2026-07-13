@@ -113,11 +113,18 @@ export function PlantShiftReviewPage() {
         </div>
       )}
 
-      {loading && <p className="text-sm text-muted-foreground">Loading pending reviews…</p>}
+      {loading && (
+        <div className="flex items-center justify-center rounded-2xl border border-border bg-white px-6 py-12 text-sm text-muted-foreground">
+          <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+          Loading pending reviews…
+        </div>
+      )}
 
       {!loading && logs.length === 0 && (
-        <div className="rounded-2xl border border-border bg-white px-6 py-12 text-center text-sm text-muted-foreground">
-          No shift logs awaiting review
+        <div className="rounded-2xl border border-border bg-white px-6 py-12 flex flex-col items-center justify-center text-center">
+          <Check className="h-8 w-8 text-muted-foreground/30 mb-3" />
+          <p className="text-sm font-medium text-foreground">All caught up</p>
+          <p className="text-sm text-muted-foreground mt-1">No shift logs are awaiting your review.</p>
         </div>
       )}
 

@@ -10,6 +10,7 @@ export const validationConfigService = {
   async getConfiguredRules(): Promise<ValidationRule[]> {
     const res = await fetch(`${API_BASE}/validation-rules`, {
       headers: getAuthHeaders(),
+      credentials: 'include',
     });
     if (!res.ok) {
       throw new Error('Failed to fetch validation rules');
@@ -23,6 +24,7 @@ export const validationConfigService = {
   async getVersion(): Promise<number> {
     const res = await fetch(`${API_BASE}/validation-rules/version`, {
       headers: getAuthHeaders(),
+      credentials: 'include',
     });
     if (!res.ok) {
       throw new Error('Failed to fetch validation rules version');
@@ -38,6 +40,7 @@ export const validationConfigService = {
     const res = await fetch(`${API_BASE}/validation-rules/${encodeURIComponent(fieldId)}`, {
       method: 'POST',
       headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
       body: JSON.stringify(ruleData),
     });
     if (!res.ok) {

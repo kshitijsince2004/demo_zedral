@@ -117,7 +117,7 @@ export async function seedSixHiPpc(client, opts = {}) {
   // SixHi process + machine (migration should have created these)
   await client.query(`
     INSERT INTO master.process (process_id, code, name, seq_no, has_mill_type)
-    VALUES (31, '6HI', '6HI', 31, FALSE)
+    VALUES (31, 'ROLLING', 'Rolling', 31, FALSE)
     ON CONFLICT (process_id) DO NOTHING;
   `);
 

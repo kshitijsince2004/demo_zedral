@@ -26,12 +26,16 @@ export class ValidationConfigService {
     const rows = await query.execute();
 
     const result = rows.map(row => ({
+      ruleId: row.rule_id,
       fieldId: row.field_id,
       origin: 'CONFIGURER' as const,
       isActive: row.is_active,
       severity: row.severity as 'BLOCK' | 'WARN',
       type: row.rule_type as any,
       params: row.params as any,
+      processCode: row.process_code ?? undefined,
+      machineCode: row.machine_code ?? undefined,
+      appliesWhen: row.applies_when as any ?? undefined,
     }));
 
     this.cache.set(cacheKey, result);
@@ -76,12 +80,10 @@ export class ValidationConfigService {
     return nextVersion;
   }
 
-  /**
-   * Update or create a configuration rule for a specific field
-   */
-  async updateRule(
+  async upsertRule(
+    ruleId: string | undefined,
     fieldId: string, 
-    ruleData: Omit<ValidationRule, 'fieldId' | 'origin'>,
+    ruleData: Omit<ValidationRule, 'fieldId' | 'origin' | 'ruleId'>,
     username: string
   ): Promise<void> {
     if (!isKnownField(fieldId)) {
@@ -89,30 +91,42 @@ export class ValidationConfigService {
     }
 
     await this.db.transaction().execute(async (trx) => {
-      // Upsert the rule
-      await trx
-        .insertInto('config.validation_rule')
-        .values({
-          field_id: fieldId,
-          rule_type: ruleData.type,
-          severity: ruleData.severity,
-          is_active: ruleData.isActive,
-          params: JSON.stringify(ruleData.params),
-          updated_by: username,
-          updated_at: new Date()
-        })
-        .onConflict((oc) => oc
-          .column('field_id')
-          .doUpdateSet({
+      if (ruleId) {
+        // Update existing rule
+        await trx
+          .updateTable('config.validation_rule')
+          .set({
+            field_id: fieldId,
             rule_type: ruleData.type,
             severity: ruleData.severity,
             is_active: ruleData.isActive,
             params: JSON.stringify(ruleData.params),
+            process_code: ruleData.processCode ?? null,
+            machine_code: ruleData.machineCode ?? null,
+            applies_when: ruleData.appliesWhen ? JSON.stringify(ruleData.appliesWhen) : null,
             updated_by: username,
             updated_at: new Date()
           })
-        )
-        .execute();
+          .where('rule_id', '=', ruleId)
+          .execute();
+      } else {
+        // Insert new rule
+        await trx
+          .insertInto('config.validation_rule')
+          .values({
+            field_id: fieldId,
+            rule_type: ruleData.type,
+            severity: ruleData.severity,
+            is_active: ruleData.isActive,
+            params: JSON.stringify(ruleData.params),
+            process_code: ruleData.processCode ?? null,
+            machine_code: ruleData.machineCode ?? null,
+            applies_when: ruleData.appliesWhen ? JSON.stringify(ruleData.appliesWhen) : null,
+            updated_by: username,
+            updated_at: new Date()
+          })
+          .execute();
+      }
 
       // Bump version
       const current = await trx
@@ -137,9 +151,9 @@ export class ValidationConfigService {
     this.cache.flushAll();
   }
   /**
-   * Deactivate a configuration rule for a specific field
+   * Deactivate a configuration rule
    */
-  async deactivateRule(fieldId: string, username: string): Promise<void> {
+  async deactivateRule(ruleId: string, username: string): Promise<void> {
     await this.db.transaction().execute(async (trx) => {
       const result = await trx
         .updateTable('config.validation_rule')
@@ -148,7 +162,7 @@ export class ValidationConfigService {
           updated_by: username,
           updated_at: new Date()
         })
-        .where('field_id', '=', fieldId)
+        .where('rule_id', '=', ruleId)
         .executeTakeFirst();
       
       if (Number(result.numUpdatedRows) > 0) {
@@ -176,14 +190,14 @@ export class ValidationConfigService {
   }
 
   /**
-   * Get audit history for a specific field
+   * Get audit history for a specific rule
    */
-  async getFieldHistory(fieldId: string): Promise<any[]> {
+  async getRuleHistory(ruleId: string): Promise<any[]> {
     const history = await this.db
       .selectFrom('audit.audit_log')
       .selectAll()
       .where('table_name', '=', 'config.validation_rule')
-      .where('record_pk', '=', fieldId)
+      .where('record_pk', '=', ruleId)
       .orderBy('ts', 'desc')
       .execute();
       

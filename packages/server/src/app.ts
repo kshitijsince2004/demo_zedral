@@ -37,7 +37,9 @@ import { tenantScopeMiddleware } from './middleware/tenantScopeMiddleware';
 import { idempotencyMiddleware } from './middleware/idempotencyMiddleware';
 import { rfc7807ErrorHandler } from './middleware/errorMiddleware';
 import { getTenantModuleConfig } from './platform/tenantConfig';
-
+import { sql } from 'kysely';
+import { ModuleRegistry, requireModule } from '@zedral/platform';
+import { m1ManifestMeta } from '@zedral/m1-collection';
 export interface ComposedApp {
   app: express.Express;
   registry: ModuleRegistry;
@@ -88,7 +90,10 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
                     machineAccess: user.machineAccess,
                   };
                 }
-                return originalImplementation.createNewSession(input);
+                const existing = await Session.getAllSessionHandlesForUser(input.userId);
+                const newSession = await originalImplementation.createNewSession(input);
+                await Promise.all(existing.map((h) => Session.revokeSession(h)));
+                return newSession;
               }
             };
           }
@@ -97,12 +102,14 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
     ]
   });
 
-  app.use(cors(corsOrigins ? { 
-    origin: corsOrigins, 
+  app.use(cors({
+    origin: corsOrigins
+      // Explicit allow-list when CORS_ORIGIN is configured
+      ? corsOrigins
+      // Fallback: echo the request origin (safe for dev, never sends '*' with credentials)
+      : (origin, callback) => callback(null, origin || true),
     credentials: true,
-    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()]
-  } : {
-    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()]
+    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()],
   }));
   app.use(express.json());
 

@@ -11,6 +11,8 @@ import { db } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
 import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
+import { ValidationConfigService } from './ValidationConfigService';
+import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
 import { getTenantId } from '../context';
 import { ShiftLogService } from './shiftLogService';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -1351,9 +1353,23 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
+  static async getEffectiveRuleset() {
+    const configService = new ValidationConfigService(db);
+    const rules = await configService.getConfiguredRules(false);
+    const version = await configService.getVersion();
+    return computeEffectiveRuleset(rules, version);
+  }
+
   static async updateRolling(batchNumber: string, data: SixHiRollingData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
+
+    const ruleset = await this.getEffectiveRuleset();
+    const validationResult = evaluateRules({ rolling: data }, ruleset);
+    if (!validationResult.isValid) {
+      throw new Error('Validation failed: ' + validationResult.errors.map(e => e.message).join(', '));
+    }
+
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
 
     await db.updateTable('txn.crm_rolling')
@@ -1389,6 +1405,13 @@ export class SixHiService {
   static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
+
+    const ruleset = await this.getEffectiveRuleset();
+    const validationResult = evaluateRules({ skinPass: data }, ruleset);
+    if (!validationResult.isValid) {
+      throw new Error('Validation failed: ' + validationResult.errors.map(e => e.message).join(', '));
+    }
+
     await db.updateTable('txn.crm_skinpass')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,

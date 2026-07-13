@@ -1,5 +1,8 @@
 name: CI
 
+# Build Once: quality gates + (on main) push immutable images to GHCR.
+# Deploy Many: deploy-aws.yml (QA) and deploy-production.yml (Factory) only pull these tags.
+
 on:
   pull_request:
     branches: [main]
@@ -10,11 +13,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
 jobs:
   quality:
-    name: Lint · Typecheck · Test · Security
+    name: Lint · Build · Test · Arch · Security
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     services:
       postgres:
@@ -78,24 +85,42 @@ jobs:
       - name: Server integration tests
         run: npm run test:integration -w @m1/server
 
+      - name: Architecture check
+        run: npm run arch:check
+
       - name: npm audit (high+)
         run: npm audit --audit-level=high
         continue-on-error: true
 
-  docker-validate:
-    name: Docker build validation
+  docker-build-push:
+    name: Docker build · Trivy · Push GHCR
     runs-on: ubuntu-latest
     needs: quality
-    timeout-minutes: 30
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_image: ${{ steps.meta.outputs.backend }}
+      nginx_image: ${{ steps.meta.outputs.nginx }}
+      image_tag: ${{ steps.meta.outputs.tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Image tags
+        id: meta
+        run: |
+          TAG="${GITHUB_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build backend (no push)
+      - name: Build backend (local, for scan)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -106,7 +131,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build nginx (no push)
+      - name: Build nginx (local, for scan)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -117,7 +142,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # v-prefix required after aquasecurity tag remediation (0.28.0 no longer exists)
+      # Worker target does not exist in Dockerfile — skipped.
+
       - name: Trivy scan backend image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -127,5 +153,39 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           trivyignores: .trivyignore
-          # Runtime image is Node; skip unused Go toolchains (esbuild) if still present
           skip-files: '**/node_modules/esbuild/bin/esbuild,**/node_modules/@esbuild/**/esbuild'
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push images to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_SHA}"
+
+          docker tag zedral-backend:ci "${IMAGE_PREFIX}/backend:${TAG}"
+          docker tag zedral-backend:ci "${IMAGE_PREFIX}/backend:latest-main"
+          docker tag zedral-nginx:ci "${IMAGE_PREFIX}/nginx:${TAG}"
+          docker tag zedral-nginx:ci "${IMAGE_PREFIX}/nginx:latest-main"
+
+          docker push "${IMAGE_PREFIX}/backend:${TAG}"
+          docker push "${IMAGE_PREFIX}/backend:latest-main"
+          docker push "${IMAGE_PREFIX}/nginx:${TAG}"
+          docker push "${IMAGE_PREFIX}/nginx:latest-main"
+
+          {
+            echo "## GHCR images (this commit)"
+            echo ""
+            echo "| Service | Tags |"
+            echo "|---------|------|"
+            echo "| backend | \`${IMAGE_PREFIX}/backend:${TAG}\` · \`latest-main\` |"
+            echo "| nginx | \`${IMAGE_PREFIX}/nginx:${TAG}\` · \`latest-main\` |"
+            echo ""
+            echo "AWS QA auto-deploys the **SHA** tag. Promote to Factory manually via **Deploy Production** → Run workflow (\`latest-main\`, SHA, or \`vX.Y.Z\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

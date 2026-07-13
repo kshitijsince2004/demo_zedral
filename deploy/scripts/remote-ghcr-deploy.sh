@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remote GHCR deploy entrypoint (invoked over SSH from GitHub Actions).
 # Required env: BACKEND_IMAGE, NGINX_IMAGE
-# Optional: APP_BASE, SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true
+# Optional: APP_BASE, SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true, VERIFY_BACKUP=true
 set -euo pipefail
 
 # Empty string must not win over the default (secret may be set but blank).
@@ -12,6 +12,7 @@ fi
 : "${NGINX_IMAGE:?NGINX_IMAGE required}"
 : "${SKIP_MIGRATE:=false}"
 : "${RUN_BACKUP:=false}"
+: "${VERIFY_BACKUP:=false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANDIDATE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -38,9 +39,13 @@ validate_env_file
 if [ "${RUN_BACKUP}" = "true" ]; then
   log "Pre-deploy PostgreSQL backup..."
   bash "${REPO_ROOT}/deploy/scripts/backup-db.sh"
+  if [ "${VERIFY_BACKUP}" = "true" ]; then
+    log "Verifying backup archive..."
+    bash "${REPO_ROOT}/deploy/scripts/verify-backup.sh"
+  fi
 fi
 
-# Checkpoint current images before switching
+# Checkpoint current images before switching (enables rollback-images.sh)
 if [ -f "${REPO_ROOT}/deploy/.last-good-images" ]; then
   cp "${REPO_ROOT}/deploy/.last-good-images" "${REPO_ROOT}/deploy/.previous-good-images"
 fi

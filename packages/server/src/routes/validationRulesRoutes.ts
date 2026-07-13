@@ -34,18 +34,28 @@ router.get('/version', requireAuth, async (req, res, next) => {
 });
 
 /**
- * 6.2 Implement `POST /validation-rules/:fieldId`
- * Updates a validation rule (ADMIN only)
+ * 6.2 Implement `POST /validation-rules`
+ * Updates or creates a validation rule (ADMIN only)
  */
-router.post('/:fieldId', requireAuth, requireRole([UserRole.ADMIN]), async (req, res, next) => {
+router.post('/', requireAuth, requireRole([UserRole.ADMIN]), async (req, res, next) => {
   try {
-    const { fieldId } = req.params;
-    const ruleData = req.body;
+    const { ruleId, fieldId, ...ruleData } = req.body;
     const username = req.user?.username || 'admin'; // Provided by requireAuth
     
-    await validationConfigService.updateRule(fieldId, ruleData, username);
+    await validationConfigService.upsertRule(ruleId, fieldId, ruleData, username);
     
-    res.status(200).json({ success: true, message: 'Rule updated' });
+    res.status(200).json({ success: true, message: 'Rule upserted' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:ruleId', requireAuth, requireRole([UserRole.ADMIN]), async (req, res, next) => {
+  try {
+    const { ruleId } = req.params;
+    const username = req.user?.username || 'admin';
+    await validationConfigService.deactivateRule(ruleId, username);
+    res.status(200).json({ success: true, message: 'Rule deactivated' });
   } catch (err) {
     next(err);
   }

@@ -99,6 +99,8 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                   role: UserRole.OPERATOR,
                   status: 'ACTIVE',
                   machine_access: [],
+                  email: '',
+                  password: '',
                 })
               }
             >
@@ -214,6 +216,32 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
             </div>
+
+            {['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'].includes(editingUser.role) && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Email (Required for Staff)</label>
+                  <input
+                    type="email"
+                    value={editingUser.email ?? ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                    required
+                    placeholder="staff@example.com"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Temp password (Optional)</label>
+                  <input
+                    type="text"
+                    value={editingUser.password ?? ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })}
+                    placeholder="Auto-generate if blank"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm font-mono"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>

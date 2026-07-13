@@ -19,21 +19,26 @@ async function main() {
   console.log('=== Zedral Login Profiles + Machines Seed ===\n');
   console.log(`Database: ${PRIMARY_URL.replace(/:[^:@]+@/, ':***@')}\n`);
 
-  const { pin, users } = await seedPilotUsers(PRIMARY_URL);
+  const { pin, staffPassword, users } = await seedPilotUsers(PRIMARY_URL);
 
   console.log('\n=== Seed complete ===');
-  console.log(`Default PIN: ${pin}${process.env.SEED_PIN ? '' : ' (set SEED_PIN to override — rotate after first login)'}`);
+  console.log(`Operator PIN: ${pin}${process.env.SEED_PIN ? '' : ' (set SEED_PIN to override — rotate after first login)'}`);
+  console.log(`Staff password: ${staffPassword}${process.env.SEED_STAFF_PASSWORD ? '' : ' (set SEED_STAFF_PASSWORD to override)'}`);
   console.log('\nLogin profiles:');
   for (const u of users) {
     const machines = u.machines?.length ? u.machines.join(', ') : '(all — via role)';
-    console.log(`  Badge ${u.emp_code}  ${u.full_name.padEnd(18)} role_id=${u.role_id}  machines: ${machines}`);
+    if (u.staff) {
+      console.log(`  ${`${u.username}@zedral.local`.padEnd(28)}  ${u.full_name.padEnd(18)} role_id=${u.role_id}  machines: ${machines}`);
+    } else {
+      console.log(`  Badge ${u.emp_code.padEnd(22)}  ${u.full_name.padEnd(18)} role_id=${u.role_id}  machines: ${machines}`);
+    }
   }
-  console.log('\nExamples:');
-  console.log(`  Badge 1000 / PIN ${pin} → Admin (/admin/master-data)`);
-
+  console.log('\nStaff (email tab):');
+  console.log(`  admin@zedral.local / ${staffPassword} → Admin`);
+  console.log(`  machinehead@zedral.local / ${staffPassword} → Machine Head`);
+  console.log(`  planthead@zedral.local / ${staffPassword} → Plant Head`);
+  console.log('\nOperator (badge tab):');
   console.log(`  Badge 3000 / PIN ${pin} → Operator (/operator.operator → 6HI)`);
-  console.log(`  Badge 4000 / PIN ${pin} → Machine Head (/machine-head-dashboard)`);
-  console.log(`  Badge 5000 / PIN ${pin} → Plant Head (/plant)`);
   console.log('\nFor demo coils + PPC queue, run: npm run seed:admin');
 }
 

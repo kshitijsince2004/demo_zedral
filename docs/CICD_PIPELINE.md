@@ -1,158 +1,125 @@
-# Zedral Enterprise CI/CD Pipeline
+# Zedral CI/CD — Build Once → Deploy Many (GitHub Free)
 
-## 1. Audit summary (pre-change)
+Compatible with **GitHub Free** private repos: production is gated by **manual
+`workflow_dispatch`**, not Environment Required Reviewers (Team/Enterprise feature).
 
-| Area | Before | Gap vs target |
-|------|--------|---------------|
-| CI (`.github/workflows/ci.yml`) | Build + unit/integration tests; Docker build only on `main` push | No ESLint gate, no security scan, no PR Docker validation |
-| Deploy (`.github/workflows/deploy-aws.yml`) | Self-hosted runner; **builds images on the VM** | No GHCR; no Factory path; no Playwright; auto after CI |
-| Compose (`deploy/docker-compose.prod.yml`) | `build:` on host | Must pull pre-built GHCR images |
-| Rollback | Git SHA + rebuild | Must roll back by **image tag** |
-| Backup | Cron script only | Must run automatically before Factory deploy |
-| Smoke | `/health` curl | Playwright UI smoke after staging |
-| Monitoring | None | Prometheus / Grafana / Loki / Uptime Kuma stubs |
-
-Preserved: multi-stage `Dockerfile`, `/health`, `backup-db.sh`, nginx prod config, entrypoint migrations, existing env validation.
-
-## 2. Target architecture
+## Flow
 
 ```
-feature/* → PR → ci.yml (lint, typecheck/build, tests, security, docker validate)
-                 ↓ merge to main (protected)
-          deploy-staging.yml
-                 → build once → push GHCR (sha + main)
-                 → SSH AWS → pull → compose up → migrate → /health
-                 → Playwright smoke → report / notify
-                 ↓ GitHub Release (vX.Y.Z) or workflow_dispatch
-          deploy-production.yml
-                 → retag same digest as vX.Y.Z (no rebuild)
-                 → SSH Factory → pg_dump → pull SAME images → deploy
-                 → /health → auto image rollback on failure → notify
+Developer
+    │
+    ▼
+git push main
+    │
+    ▼
+CI  (.github/workflows/ci.yml)
+    ├── npm ci · build · test · arch:check · audit
+    ├── Docker build backend + nginx
+    ├── Trivy (CRITICAL)
+    └── Push GHCR:
+          …/backend:<sha>  +  …/backend:latest-main
+          …/nginx:<sha>    +  …/nginx:latest-main
+    │
+    ▼
+Deploy AWS QA  (.github/workflows/deploy-aws.yml)   ← automatic after CI
+    ├── SSH → compose pull (SHA) → up -d --no-build
+    ├── migrations · curl /health
+    ├── Playwright smoke
+    └── Ready for manual QA
+    │
+    ▼
+You test AWS QA.
+    │
+    ▼
+GitHub → Actions → "Deploy Production (Factory)" → Run workflow
+    inputs: image_tag = latest-main | <sha> | v1.3.0
+            promote_as = (optional) v1.3.0
+    │
+    ▼
+Factory
+    ├── backup-db.sh + verify-backup.sh
+    ├── compose pull + up -d --no-build   (SAME digests — no rebuild)
+    ├── curl /health
+    └── on failure → rollback-images.sh
 ```
 
-**One repository. One image per commit. AWS = staging. Factory = production.**
+## Workflows
 
-## 3. Workflows
+| Workflow | Trigger | Builds? | Deploys |
+|----------|---------|---------|---------|
+| `ci.yml` | PR + push `main` | Yes (push images only on `main`) | No |
+| `deploy-aws.yml` | After CI success · manual | No | AWS QA |
+| `deploy-production.yml` | **Manual Run workflow only** | No (optional promote tag) | Factory |
+| `deploy-staging.yml` | Retired stub | — | — |
 
-| Workflow | Trigger | Deploys? |
-|----------|---------|----------|
-| `ci.yml` | PR + push to `main` | No |
-| `deploy-staging.yml` | Push to `main`, manual dispatch | AWS staging |
-| `deploy-production.yml` | GitHub Release **or** manual dispatch | Factory only |
-| `deploy-aws.yml` | Deprecated stub | No |
+## How to deploy production (GitHub Free)
 
-## 4. Branch strategy
+1. Confirm AWS QA is good for the build you want.
+2. GitHub → **Actions** → **Deploy Production (Factory)** → **Run workflow**.
+3. Set `image_tag`:
+   - `latest-main` — tip of main (same as latest green CI)
+   - full git SHA — exact QA build
+   - `v1.3.0` — only if that tag already exists in GHCR
+4. Optional `promote_as: v1.3.0` — copies the digest of `image_tag` to SemVer (still no rebuild), then deploys that SemVer.
+5. Factory pulls those images, backs up DB, health-checks; auto-rolls back on failure.
 
-- `main` — protected; no direct pushes; require CI
-- `feature/*` — PRs into `main`
-- `hotfix/*` — PRs into `main`
+**Rollback / previous version:** run the same workflow again with an older SHA or SemVer (or `latest-main`). No GitHub Release required.
 
-### Branch protection (configure in GitHub UI)
+## Secrets
 
-Settings → Branches → Protect `main`:
+### Environment `staging` (or repo secrets)
 
-- Require pull request before merging
-- Require status checks: `Lint · Typecheck · Test · Security`, `Docker build validation`
-- Restrict who can push
-- Do not allow force pushes / deletions
+`AWS_HOST`, `AWS_USER`, `AWS_SSH_KEY`, `AWS_APP_DIR?`, `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `GHCR_TOKEN?`, `DEPLOY_WEBHOOK_URL?`
 
-## 5. Secrets reference
+Legacy: `AWS_EC2_HOST`, `AWS_EC2_USER`, `AWS_EC2_SSH_KEY`.
 
-### Repository or environment `staging`
+### Environment `production` (secret grouping only — no required reviewers)
 
-| Secret | Purpose |
-|--------|---------|
-| `AWS_HOST` | Staging EC2 hostname / IP |
-| `AWS_USER` | SSH user |
-| `AWS_SSH_KEY` | Private key (PEM) |
-| `AWS_APP_DIR` | Optional, default `/opt/zedralv2` |
-| `AWS_PUBLIC_URL` | Public HTTPS URL for Playwright + external health |
-| `GHCR_TOKEN` | PAT with `read:packages` + `write:packages` (or rely on `GITHUB_TOKEN`) |
-| `SMOKE_BADGE_ID` | Badge for Playwright login |
-| `SMOKE_PIN` | PIN for Playwright login |
-| `DEPLOY_WEBHOOK_URL` | Slack or Discord webhook |
+`FACTORY_HOST`, `FACTORY_USER`, `FACTORY_SSH_KEY`, `FACTORY_APP_DIR?`, `FACTORY_PUBLIC_URL?` (if smoke enabled), `GHCR_TOKEN?`, `DEPLOY_WEBHOOK_URL?`, `SMOKE_BADGE_ID?`, `SMOKE_PIN?`
 
-Legacy aliases still accepted: `AWS_EC2_HOST`, `AWS_EC2_USER`, `AWS_EC2_SSH_KEY`.
+Do **not** enable Required reviewers on Free.
 
-**Required for deploy:** put `AWS_HOST` / `AWS_USER` / `AWS_SSH_KEY` on the GitHub **Environment** named `staging` (Settings → Environments → staging), not only as repo secrets if the environment overrides them. Empty `AWS_SSH_KEY` fails at `webfactory/ssh-agent` with “ssh-private-key argument is empty”.
+## Image tags
 
-### Environment `production`
+| Tag | Meaning |
+|-----|---------|
+| `<git-sha>` | Immutable CI build (AWS QA uses this) |
+| `latest-main` | Moving pointer to tip of main |
+| `vMAJOR.MINOR.PATCH` | Optional promote via `promote_as` or prior tag |
 
-| Secret | Purpose |
-|--------|---------|
-| `FACTORY_HOST` | Factory RHEL hostname / IP |
-| `FACTORY_USER` | SSH user |
-| `FACTORY_SSH_KEY` | Private key |
-| `FACTORY_APP_DIR` | Optional, default `/opt/zedralv2` |
-| `GHCR_TOKEN` | Package pull (and retag on release) |
-| `DEPLOY_WEBHOOK_URL` | Same or separate webhook |
+AWS QA and Factory can deploy the **exact same digest** by using the same SHA (or promoting that SHA to SemVer).
 
-### On each server (`deploy/.env` — never in GitHub)
+## Rollback
 
-`JWT_SECRET`, `DATABASE_URL` / `DB_*`, `TENANT_ID`, `SMTP_PASSWORD` (if used), etc.  
-CI never injects production DB credentials into the image; servers keep local `.env`.
+**Automatic:** health/smoke failure → `deploy/scripts/rollback-images.sh` (`.previous-good-images`).
 
-## 6. Versioning
-
-- Staging tags: `<git-sha>` and `main`
-- Production: SemVer release tags `vMAJOR.MINOR.PATCH`
-- Release workflow **retags** the SHA digest already built on staging — never rebuilds
+**Manual on server:**
 
 ```bash
-# After staging is green on main:
-git tag -a v1.2.0 -m "Release v1.2.0"
-git push origin v1.2.0
-# Publish GitHub Release → deploy-production.yml
+cd /opt/zedralv2 && bash deploy/scripts/rollback-images.sh
 ```
 
-## 7. Health check
+**Redeploy previous build (preferred on Free):**
 
-```
-GET /health → 200 {"status":"ok","database":"ok",...}
-```
+Actions → Deploy Production → `image_tag=<old-sha-or-vX.Y.Z>` → Run workflow.
 
-Deploy fails (and rolls back images) if health check fails.
+## Compose
 
-## 8. Rollback
+Pull-only — no `build:` keys. Full image refs written to `deploy/.env` as `BACKEND_IMAGE` / `NGINX_IMAGE`.
 
-Automatic on staging/production when health or smoke fails:
+## Server secrets
 
-1. Stop failed deploy
-2. `deploy/scripts/rollback-images.sh` pulls `.previous-good-images`
-3. Notify `rollback`
+`deploy/.env` on each host (never in GitHub). See `deploy/.env.production.example`.
 
-Manual:
+## Files
 
-```bash
-bash deploy/scripts/rollback-images.sh
-```
-
-## 9. Monitoring
-
-See `deploy/monitoring/README.md`. Probe `/health` with Uptime Kuma.
-
-## 10. Files changed
-
-| Path | Change |
-|------|--------|
-| `.github/workflows/ci.yml` | Lint, tests, security, Docker+Trivy on PRs |
-| `.github/workflows/deploy-staging.yml` | GHCR build/push + AWS SSH deploy + Playwright |
-| `.github/workflows/deploy-production.yml` | Release/dispatch Factory deploy + backup + rollback |
-| `.github/workflows/deploy-aws.yml` | Deprecated |
-| `deploy/docker-compose.prod.yml` | `image:` from GHCR (no host build) |
-| `deploy/lib/common.sh` | Pull-only deploy + image checkpoints |
-| `deploy/scripts/remote-ghcr-deploy.sh` | SSH entrypoint |
-| `deploy/scripts/rollback-images.sh` | Image rollback |
-| `deploy/scripts/notify-deploy.sh` | Slack/Discord notify |
-| `deploy/rollback.sh` | Prefers image rollback |
-| `e2e/*` | Playwright smoke suite |
-| `deploy/monitoring/*` | Grafana/Prometheus/Loki/Uptime Kuma stubs |
-| `docs/CICD_PIPELINE.md` | This document |
-
-## 11. One-time server cutover
-
-1. Ensure Docker can pull from `ghcr.io` (login with read token).
-2. Keep existing `deploy/.env`.
-3. First staging deploy sets `BACKEND_IMAGE` / `NGINX_IMAGE` automatically.
-4. Factory: same, plus confirm backup directory `/var/backups/zedral` is writable.
-5. Remove self-hosted runner dependency once SSH deploy is verified (optional).
+| Path | Role |
+|------|------|
+| `.github/workflows/ci.yml` | Quality + GHCR push |
+| `.github/workflows/deploy-aws.yml` | Auto QA after CI |
+| `.github/workflows/deploy-production.yml` | Manual Factory deploy |
+| `deploy/docker-compose.prod.yml` | `image:` only |
+| `deploy/scripts/remote-ghcr-deploy.sh` | SSH pull/up/health |
+| `deploy/scripts/backup-db.sh` / `verify-backup.sh` | Pre-prod backup |
+| `deploy/scripts/rollback-images.sh` | Previous tag restore |
+| `deploy/lib/common.sh` | Shared pull-only helpers |

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Roll back to previous GHCR image pair recorded in deploy/.previous-good-images
+# Roll back to the previous GHCR image pair recorded in deploy/.previous-good-images.
+# Restores the last known-good release/SHA tags (never rebuilds).
+#
+# Usage (on server):
+#   export APP_BASE=/opt/zedralv2
+#   bash deploy/scripts/rollback-images.sh
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -16,4 +21,13 @@ resolve_repo_root || {
 
 require_docker
 validate_env_file
+
+PREV="${REPO_ROOT}/deploy/.previous-good-images"
+if [ ! -f "${PREV}" ]; then
+  die "No previous image checkpoint at ${PREV}. Cannot roll back."
+fi
+
+log "Previous image checkpoint:"
+cat "${PREV}" || true
+
 rollback_to_previous_images

@@ -59,7 +59,7 @@ export function ExportJobPanel({ jobId, onReset, pollIntervalMs = 2000 }: Export
 
   const handleDownload = async () => {
     if (!downloadUrl) return;
-    const res = await fetch(downloadUrl, { headers: getAuthHeaders() });
+    const res = await fetch(downloadUrl, { headers: getAuthHeaders(), credentials: 'include' });
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

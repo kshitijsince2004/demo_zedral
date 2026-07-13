@@ -19,11 +19,13 @@ function paramsOf(params: RuleFormState['params']): RuleFormParams {
 function buildRulePayload(formState: RuleFormState): Omit<ValidationRule, 'fieldId' | 'origin'> | null {
   const severity = formState.severity ?? 'WARN';
   const isActive = formState.isActive ?? true;
+  const processCode = formState.processCode;
+  const machineCode = formState.machineCode;
   const params = paramsOf(formState.params);
 
   switch (formState.type) {
     case 'MANDATORY':
-      return { type: 'MANDATORY', severity, isActive, params: { mandatory: Boolean(params.mandatory ?? true) } };
+      return { type: 'MANDATORY', severity, isActive, processCode, machineCode, params: { mandatory: Boolean(params.mandatory ?? true) } };
     case 'RANGE':
       return {
         type: 'RANGE',
@@ -53,8 +55,32 @@ function buildRulePayload(formState: RuleFormState): Omit<ValidationRule, 'field
         type: 'ALLOWED_VALUES',
         severity,
         isActive,
+        processCode, machineCode,
         params: {
           values: Array.isArray(params.values) ? params.values.filter((value): value is string => typeof value === 'string') : [],
+        },
+      };
+    case 'MIN_PCT_OF_FIELD':
+    case 'MAX_PCT_OF_FIELD':
+      return {
+        type: formState.type,
+        severity,
+        isActive,
+        processCode, machineCode,
+        params: {
+          ofField: typeof params.ofField === 'string' ? params.ofField : '',
+          pct: typeof params.pct === 'number' ? params.pct : 100,
+        },
+      };
+    case 'COMPARE_FIELD':
+      return {
+        type: 'COMPARE_FIELD',
+        severity,
+        isActive,
+        processCode, machineCode,
+        params: {
+          op: (params.op as any) || '<',
+          field: typeof params.field === 'string' ? params.field : '',
         },
       };
     default:
@@ -102,10 +128,11 @@ export const ValidationRulesAdmin: React.FC = () => {
   const handleEdit = (fieldId: string) => {
     setSelectedField(fieldId);
     
-    // Find if we have an existing configurable rule
-    const existingRule = effective.rules[fieldId]?.find(r => r.origin === 'CONFIGURER');
-    if (existingRule) {
-      setFormState({ ...existingRule });
+    const existingRules = effective.rules[fieldId] || [];
+    const configRules = existingRules.filter(r => r.origin === 'CONFIGURER');
+    // For simplicity in this UI, we just edit the first one or create new
+    if (configRules.length > 0) {
+      setFormState({ ...configRules[0] });
     } else {
       setFormState({
         type: 'MANDATORY',
@@ -124,7 +151,7 @@ export const ValidationRulesAdmin: React.FC = () => {
     try {
       const payload = buildRulePayload(formState);
       if (!payload) return;
-      await validationConfigService.updateRule(selectedField, payload);
+      await validationConfigService.upsertRule(formState.ruleId, selectedField, payload);
       setDialogOpen(false);
       await loadData();
     } catch (err) {
@@ -229,7 +256,33 @@ export const ValidationRulesAdmin: React.FC = () => {
               <option value="STEP">STEP</option>
               <option value="ALLOWED_VALUES">ALLOWED_VALUES</option>
               <option value="PATTERN">PATTERN</option>
+              <option value="MIN_PCT_OF_FIELD">MIN % OF FIELD</option>
+              <option value="MAX_PCT_OF_FIELD">MAX % OF FIELD</option>
+              <option value="COMPARE_FIELD">COMPARE FIELD</option>
             </select>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Process Code (Scope)</label>
+              <input
+                type="text"
+                placeholder="e.g. ROLLING (optional)"
+                className="w-full rounded-lg border-slate-200 px-3 py-2 border shadow-sm focus:ring-2 focus:ring-blue-500"
+                value={formState.processCode || ''}
+                onChange={e => setFormState({ ...formState, processCode: e.target.value || undefined })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Machine Code (Scope)</label>
+              <input
+                type="text"
+                placeholder="e.g. 6HI (optional)"
+                className="w-full rounded-lg border-slate-200 px-3 py-2 border shadow-sm focus:ring-2 focus:ring-blue-500"
+                value={formState.machineCode || ''}
+                onChange={e => setFormState({ ...formState, machineCode: e.target.value || undefined })}
+              />
+            </div>
           </div>
           
           <div>
@@ -333,6 +386,59 @@ export const ValidationRulesAdmin: React.FC = () => {
                   className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
                   placeholder="OK, REJECT, HOLD"
                 />
+              </div>
+            )}
+
+            {(formState.type === 'MIN_PCT_OF_FIELD' || formState.type === 'MAX_PCT_OF_FIELD') && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Target Field</label>
+                  <input
+                    type="text"
+                    value={typeof paramsOf(formState.params).ofField === 'string' ? paramsOf(formState.params).ofField as string : ''}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), ofField: e.target.value } })}
+                    className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
+                    placeholder="e.g. ppc_weight_mt"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Percentage</label>
+                  <input
+                    type="number"
+                    value={typeof paramsOf(formState.params).pct === 'number' ? String(paramsOf(formState.params).pct) : ''}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), pct: Number(e.target.value) } })}
+                    className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
+                    placeholder="e.g. 97"
+                  />
+                </div>
+              </div>
+            )}
+
+            {formState.type === 'COMPARE_FIELD' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Operator</label>
+                  <select
+                    value={typeof paramsOf(formState.params).op === 'string' ? paramsOf(formState.params).op as string : '<'}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), op: e.target.value } })}
+                    className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
+                  >
+                    <option value="<">&lt;</option>
+                    <option value="<=">&lt;=</option>
+                    <option value=">">&gt;</option>
+                    <option value=">=">&gt;=</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Target Field</label>
+                  <input
+                    type="text"
+                    value={typeof paramsOf(formState.params).field === 'string' ? paramsOf(formState.params).field as string : ''}
+                    onChange={e => setFormState({ ...formState, params: { ...paramsOf(formState.params), field: e.target.value } })}
+                    className="w-full rounded-md border-slate-300 px-3 py-1.5 border"
+                    placeholder="e.g. input_thk_mm"
+                  />
+                </div>
               </div>
             )}
           </div>

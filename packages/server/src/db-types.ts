@@ -27,6 +27,30 @@ export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface AllAuthRecipeUsers {
+  app_id: Generated<string>;
+  is_linked_or_is_a_primary_user: Generated<boolean>;
+  primary_or_recipe_user_id: string;
+  primary_or_recipe_user_time_joined: Int8;
+  recipe_id: string;
+  tenant_id: Generated<string>;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface AppIdToUserId {
+  app_id: Generated<string>;
+  is_linked_or_is_a_primary_user: Generated<boolean>;
+  primary_or_recipe_user_id: string;
+  recipe_id: string;
+  user_id: string;
+}
+
+export interface Apps {
+  app_id: Generated<string>;
+  created_at_time: Int8 | null;
+}
+
 export interface ArchiveProdCrm {
   ann_hardness: Numeric | null;
   coil_no: string;
@@ -148,6 +172,17 @@ export interface AuditLineageRef {
   tenant_id: string;
 }
 
+export interface BulkImportUsers {
+  app_id: Generated<string>;
+  created_at: Int8;
+  error_msg: string | null;
+  id: string;
+  primary_user_id: string | null;
+  raw_data: string;
+  status: Generated<string | null>;
+  updated_at: Int8;
+}
+
 export interface CanonEquipmentNode {
   asset_code: string;
   asset_id: Generated<string>;
@@ -210,13 +245,33 @@ export interface ConfigRulesetVersion {
 }
 
 export interface ConfigValidationRule {
+  applies_when: Json | null;
   field_id: string;
   is_active: Generated<boolean>;
+  machine_code: string | null;
   params: Json;
+  process_code: string | null;
+  rule_id: Generated<string>;
   rule_type: string;
   severity: string;
   updated_at: Generated<Timestamp | null>;
   updated_by: string | null;
+}
+
+export interface DashboardUsers {
+  app_id: Generated<string>;
+  email: string;
+  password_hash: string;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface DashboardUserSessions {
+  app_id: Generated<string>;
+  expiry: Int8;
+  session_id: string;
+  time_created: Int8;
+  user_id: string;
 }
 
 export interface DprDailyEntry {
@@ -268,6 +323,60 @@ export interface DprTemplate {
   geometry_model: Json;
   id: Generated<string>;
   original_file_blob: Buffer | null;
+}
+
+export interface EmailpasswordPswdResetTokens {
+  app_id: Generated<string>;
+  email: string | null;
+  token: string;
+  token_expiry: Int8;
+  user_id: string;
+}
+
+export interface EmailpasswordUsers {
+  app_id: Generated<string>;
+  email: string;
+  password_hash: string;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface EmailpasswordUserToTenant {
+  app_id: Generated<string>;
+  email: string;
+  tenant_id: Generated<string>;
+  user_id: string;
+}
+
+export interface EmailverificationTokens {
+  app_id: Generated<string>;
+  email: string;
+  tenant_id: Generated<string>;
+  token: string;
+  token_expiry: Int8;
+  user_id: string;
+}
+
+export interface EmailverificationVerifiedEmails {
+  app_id: Generated<string>;
+  email: string;
+  user_id: string;
+}
+
+export interface JwtSigningKeys {
+  algorithm: string;
+  app_id: Generated<string>;
+  created_at: Int8 | null;
+  key_id: string;
+  key_string: string;
+}
+
+export interface KeyValue {
+  app_id: Generated<string>;
+  created_at_time: Int8 | null;
+  name: string;
+  tenant_id: Generated<string>;
+  value: string | null;
 }
 
 export interface MasterCrmSubProcess {
@@ -422,6 +531,77 @@ export interface MasterSurfaceFinish {
   tenant_id: Generated<string>;
 }
 
+export interface OauthClients {
+  app_id: string;
+  client_id: string;
+  client_secret: string | null;
+  enable_refresh_token_rotation: boolean;
+  is_client_credentials_only: boolean;
+}
+
+export interface OauthLogoutChallenges {
+  app_id: Generated<string>;
+  challenge: string;
+  client_id: string;
+  post_logout_redirect_uri: string | null;
+  session_handle: string | null;
+  state: string | null;
+  time_created: Int8;
+}
+
+export interface OauthM2mTokens {
+  app_id: Generated<string>;
+  client_id: string;
+  exp: Int8;
+  iat: Int8;
+}
+
+export interface OauthSessions {
+  app_id: Generated<string | null>;
+  client_id: string;
+  exp: Int8;
+  external_refresh_token: string | null;
+  gid: string;
+  internal_refresh_token: string | null;
+  jti: string;
+  session_handle: string | null;
+}
+
+export interface PasswordlessCodes {
+  app_id: Generated<string>;
+  code_id: string;
+  created_at: Int8;
+  device_id_hash: string;
+  link_code_hash: string;
+  tenant_id: Generated<string>;
+}
+
+export interface PasswordlessDevices {
+  app_id: Generated<string>;
+  device_id_hash: string;
+  email: string | null;
+  failed_attempts: number;
+  link_code_salt: string;
+  phone_number: string | null;
+  tenant_id: Generated<string>;
+}
+
+export interface PasswordlessUsers {
+  app_id: Generated<string>;
+  email: string | null;
+  phone_number: string | null;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface PasswordlessUserToTenant {
+  app_id: Generated<string>;
+  email: string | null;
+  phone_number: string | null;
+  tenant_id: Generated<string>;
+  user_id: string;
+}
+
 export interface Pgmigrations {
   id: Generated<number>;
   name: string;
@@ -562,6 +742,54 @@ export interface PlanningQueueHandoff {
   target_step_no: number;
 }
 
+export interface RolePermissions {
+  app_id: Generated<string>;
+  permission: string;
+  role: string;
+}
+
+export interface Roles {
+  app_id: Generated<string>;
+  role: string;
+}
+
+export interface SamlClaims {
+  app_id: Generated<string>;
+  claims: string;
+  client_id: string;
+  code: string;
+  created_at: Int8;
+  expires_at: Int8;
+  tenant_id: Generated<string>;
+}
+
+export interface SamlClients {
+  allow_idp_initiated_login: Generated<boolean>;
+  app_id: Generated<string>;
+  client_id: string;
+  client_secret: string | null;
+  created_at: Int8;
+  default_redirect_uri: string;
+  enable_request_signing: Generated<boolean>;
+  idp_entity_id: string;
+  idp_signing_certificate: string;
+  redirect_uris: string;
+  sso_login_url: string;
+  tenant_id: Generated<string>;
+  updated_at: Int8;
+}
+
+export interface SamlRelayState {
+  app_id: Generated<string>;
+  client_id: string;
+  created_at: Int8;
+  expires_at: Int8;
+  redirect_uri: string;
+  relay_state: string;
+  state: string | null;
+  tenant_id: Generated<string>;
+}
+
 export interface SecurityAppUser {
   auth_subject: string | null;
   created_at: Generated<Timestamp>;
@@ -641,6 +869,136 @@ export interface SecurityUserRole {
   role_id: number;
   tenant_id: Generated<string>;
   user_id: number;
+}
+
+export interface SessionAccessTokenSigningKeys {
+  app_id: Generated<string>;
+  created_at_time: Int8;
+  value: string | null;
+}
+
+export interface SessionInfo {
+  app_id: Generated<string>;
+  created_at_time: Int8;
+  expires_at: Int8;
+  jwt_user_payload: string | null;
+  refresh_token_hash_2: string;
+  session_data: string | null;
+  session_handle: string;
+  tenant_id: Generated<string>;
+  use_static_key: boolean;
+  user_id: string;
+}
+
+export interface TenantConfigs {
+  app_id: Generated<string>;
+  connection_uri_domain: Generated<string>;
+  core_config: string | null;
+  email_password_enabled: boolean | null;
+  is_first_factors_null: boolean | null;
+  passwordless_enabled: boolean | null;
+  tenant_id: Generated<string>;
+  third_party_enabled: boolean | null;
+}
+
+export interface TenantFirstFactors {
+  app_id: Generated<string>;
+  connection_uri_domain: Generated<string>;
+  factor_id: string;
+  tenant_id: Generated<string>;
+}
+
+export interface TenantRequiredSecondaryFactors {
+  app_id: Generated<string>;
+  connection_uri_domain: Generated<string>;
+  factor_id: string;
+  tenant_id: Generated<string>;
+}
+
+export interface Tenants {
+  app_id: Generated<string>;
+  created_at_time: Int8 | null;
+  tenant_id: Generated<string>;
+}
+
+export interface TenantThirdpartyProviderClients {
+  additional_config: string | null;
+  app_id: Generated<string>;
+  client_id: string;
+  client_secret: string | null;
+  client_type: Generated<string>;
+  connection_uri_domain: Generated<string>;
+  force_pkce: boolean | null;
+  scope: string[] | null;
+  tenant_id: Generated<string>;
+  third_party_id: string;
+}
+
+export interface TenantThirdpartyProviders {
+  app_id: Generated<string>;
+  authorization_endpoint: string | null;
+  authorization_endpoint_query_params: string | null;
+  connection_uri_domain: Generated<string>;
+  jwks_uri: string | null;
+  name: string | null;
+  oidc_discovery_endpoint: string | null;
+  require_email: boolean | null;
+  tenant_id: Generated<string>;
+  third_party_id: string;
+  token_endpoint: string | null;
+  token_endpoint_body_params: string | null;
+  user_info_endpoint: string | null;
+  user_info_endpoint_headers: string | null;
+  user_info_endpoint_query_params: string | null;
+  user_info_map_from_id_token_payload_email: string | null;
+  user_info_map_from_id_token_payload_email_verified: string | null;
+  user_info_map_from_id_token_payload_user_id: string | null;
+  user_info_map_from_user_info_endpoint_email: string | null;
+  user_info_map_from_user_info_endpoint_email_verified: string | null;
+  user_info_map_from_user_info_endpoint_user_id: string | null;
+}
+
+export interface ThirdpartyUsers {
+  app_id: Generated<string>;
+  email: string;
+  third_party_id: string;
+  third_party_user_id: string;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface ThirdpartyUserToTenant {
+  app_id: Generated<string>;
+  tenant_id: Generated<string>;
+  third_party_id: string;
+  third_party_user_id: string;
+  user_id: string;
+}
+
+export interface TotpUsedCodes {
+  app_id: Generated<string>;
+  code: string;
+  created_time_ms: Int8;
+  expiry_time_ms: Int8;
+  is_valid: boolean;
+  tenant_id: Generated<string>;
+  user_id: string;
+}
+
+export interface TotpUserDevices {
+  app_id: Generated<string>;
+  created_at: Int8 | null;
+  device_name: string;
+  period: number;
+  secret_key: string;
+  skew: number;
+  user_id: string;
+  verified: boolean;
+}
+
+export interface TotpUsers {
+  app_id: Generated<string>;
+  user_id: string;
 }
 
 export interface TxnAnnCharge {
@@ -1225,7 +1583,87 @@ export interface TxnValidationOverrides {
   shift_log_id: Int8;
 }
 
+export interface UseridMapping {
+  app_id: Generated<string>;
+  external_user_id: string;
+  external_user_id_info: string | null;
+  supertokens_user_id: string;
+}
+
+export interface UserLastActive {
+  app_id: Generated<string>;
+  last_active_time: Int8 | null;
+  user_id: string;
+}
+
+export interface UserMetadata {
+  app_id: Generated<string>;
+  user_id: string;
+  user_metadata: string;
+}
+
+export interface UserRoles {
+  app_id: Generated<string>;
+  role: string;
+  tenant_id: Generated<string>;
+  user_id: string;
+}
+
+export interface WebauthnAccountRecoveryTokens {
+  app_id: Generated<string>;
+  email: string;
+  expires_at: Int8;
+  tenant_id: Generated<string>;
+  token: string;
+  user_id: string;
+}
+
+export interface WebauthnCredentials {
+  app_id: Generated<string>;
+  counter: Int8;
+  created_at: Int8;
+  id: string;
+  public_key: Buffer;
+  rp_id: string;
+  transports: string;
+  updated_at: Int8;
+  user_id: string | null;
+}
+
+export interface WebauthnGeneratedOptions {
+  app_id: Generated<string>;
+  challenge: string;
+  created_at: Int8;
+  email: string | null;
+  expires_at: Int8;
+  id: string;
+  origin: string;
+  rp_id: string;
+  rp_name: string;
+  tenant_id: Generated<string>;
+  user_presence_required: Generated<boolean>;
+  user_verification: Generated<string>;
+}
+
+export interface WebauthnUsers {
+  app_id: Generated<string>;
+  email: string;
+  rp_id: string;
+  time_joined: Int8;
+  user_id: string;
+}
+
+export interface WebauthnUserToTenant {
+  app_id: Generated<string>;
+  email: string;
+  tenant_id: Generated<string>;
+  user_id: string;
+}
+
 export interface DB {
+  all_auth_recipe_users: AllAuthRecipeUsers;
+  app_id_to_user_id: AppIdToUserId;
+  apps: Apps;
   "archive.prod_crm": ArchiveProdCrm;
   "archive.prod_skp": ArchiveProdSkp;
   "archive.prod_skp_pass": ArchiveProdSkpPass;
@@ -1233,17 +1671,27 @@ export interface DB {
   "audit.dpr_month_lock": AuditDprMonthLock;
   "audit.export_job": AuditExportJob;
   "audit.lineage_ref": AuditLineageRef;
+  bulk_import_users: BulkImportUsers;
   "canon.equipment_node": CanonEquipmentNode;
   "canon.event": CanonEvent;
   "canon.production_count": CanonProductionCount;
   "coil.coil": CoilCoil;
   "config.ruleset_version": ConfigRulesetVersion;
   "config.validation_rule": ConfigValidationRule;
+  dashboard_user_sessions: DashboardUserSessions;
+  dashboard_users: DashboardUsers;
   "dpr.daily_entry": DprDailyEntry;
   "dpr.field_mapping": DprFieldMapping;
   "dpr.month": DprMonth;
   "dpr.source_map": DprSourceMap;
   "dpr.template": DprTemplate;
+  emailpassword_pswd_reset_tokens: EmailpasswordPswdResetTokens;
+  emailpassword_user_to_tenant: EmailpasswordUserToTenant;
+  emailpassword_users: EmailpasswordUsers;
+  emailverification_tokens: EmailverificationTokens;
+  emailverification_verified_emails: EmailverificationVerifiedEmails;
+  jwt_signing_keys: JwtSigningKeys;
+  key_value: KeyValue;
   "master.crm_sub_process": MasterCrmSubProcess;
   "master.customer": MasterCustomer;
   "master.defect_code": MasterDefectCode;
@@ -1261,6 +1709,14 @@ export interface DB {
   "master.stoppage_category": MasterStoppageCategory;
   "master.stoppage_code": MasterStoppageCode;
   "master.surface_finish": MasterSurfaceFinish;
+  oauth_clients: OauthClients;
+  oauth_logout_challenges: OauthLogoutChallenges;
+  oauth_m2m_tokens: OauthM2mTokens;
+  oauth_sessions: OauthSessions;
+  passwordless_codes: PasswordlessCodes;
+  passwordless_devices: PasswordlessDevices;
+  passwordless_user_to_tenant: PasswordlessUserToTenant;
+  passwordless_users: PasswordlessUsers;
   pgmigrations: Pgmigrations;
   pgmigrations_m1: PgmigrationsM1;
   "planning.coil_plan": PlanningCoilPlan;
@@ -1272,6 +1728,11 @@ export interface DB {
   "planning.ppc_rolling_pass_plan": PlanningPpcRollingPassPlan;
   "planning.production_target": PlanningProductionTarget;
   "planning.queue_handoff": PlanningQueueHandoff;
+  role_permissions: RolePermissions;
+  roles: Roles;
+  saml_claims: SamlClaims;
+  saml_clients: SamlClients;
+  saml_relay_state: SamlRelayState;
   "security.app_user": SecurityAppUser;
   "security.device_registration": SecurityDeviceRegistration;
   "security.line_access": SecurityLineAccess;
@@ -1281,6 +1742,19 @@ export interface DB {
   "security.tenant": SecurityTenant;
   "security.tenant_config": SecurityTenantConfig;
   "security.user_role": SecurityUserRole;
+  session_access_token_signing_keys: SessionAccessTokenSigningKeys;
+  session_info: SessionInfo;
+  tenant_configs: TenantConfigs;
+  tenant_first_factors: TenantFirstFactors;
+  tenant_required_secondary_factors: TenantRequiredSecondaryFactors;
+  tenant_thirdparty_provider_clients: TenantThirdpartyProviderClients;
+  tenant_thirdparty_providers: TenantThirdpartyProviders;
+  tenants: Tenants;
+  thirdparty_user_to_tenant: ThirdpartyUserToTenant;
+  thirdparty_users: ThirdpartyUsers;
+  totp_used_codes: TotpUsedCodes;
+  totp_user_devices: TotpUserDevices;
+  totp_users: TotpUsers;
   "txn.ann_charge": TxnAnnCharge;
   "txn.ann_charge_coil": TxnAnnChargeCoil;
   "txn.crm_order": TxnCrmOrder;
@@ -1317,4 +1791,13 @@ export interface DB {
   "txn.shift_override_audit": TxnShiftOverrideAudit;
   "txn.stoppage": TxnStoppage;
   "txn.validation_overrides": TxnValidationOverrides;
+  user_last_active: UserLastActive;
+  user_metadata: UserMetadata;
+  user_roles: UserRoles;
+  userid_mapping: UseridMapping;
+  webauthn_account_recovery_tokens: WebauthnAccountRecoveryTokens;
+  webauthn_credentials: WebauthnCredentials;
+  webauthn_generated_options: WebauthnGeneratedOptions;
+  webauthn_user_to_tenant: WebauthnUserToTenant;
+  webauthn_users: WebauthnUsers;
 }
