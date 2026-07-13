@@ -16,8 +16,17 @@ if [ ! -f "${ENV_FILE}" ]; then
   exit 1
 fi
 
-# shellcheck disable=SC1090
-source "${ENV_FILE}"
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    key="$(echo -n "$key" | xargs)"
+    key="${key#export }"
+    if [[ -z "$key" ]] || [[ "$key" == \#* ]]; then continue; fi
+    value="${value%$'\r'}"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    export "$key=$value"
+  done < "${ENV_FILE}"
 
 DB_USER="${DB_USER:?DB_USER not set in deploy/.env}"
 DB_NAME="${DB_NAME:?DB_NAME not set in deploy/.env}"

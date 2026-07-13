@@ -22,8 +22,17 @@ ENV_FILE="${REPO_ROOT}/deploy/.env"
 SEED_MODE="${SEED_MODE:-profiles}"
 SEED_PIN="${SEED_PIN:-1234}"
 
-# shellcheck disable=SC1090
-source "${ENV_FILE}"
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    key="$(echo -n "$key" | xargs)"
+    key="${key#export }"
+    if [[ -z "$key" ]] || [[ "$key" == \#* ]]; then continue; fi
+    value="${value%$'\r'}"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    export "$key=$value"
+  done < "${ENV_FILE}"
 HTTP_PORT="${HTTP_PORT:-80}"
 
 echo "==> Health check…"
@@ -50,7 +59,17 @@ esac
 
 PUBLIC_IP="$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)"
 # shellcheck disable=SC1090
-source "${ENV_FILE}" 2>/dev/null || true
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    key="$(echo -n "$key" | xargs)"
+    key="${key#export }"
+    if [[ -z "$key" ]] || [[ "$key" == \#* ]]; then continue; fi
+    value="${value%$'\r'}"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    export "$key=$value"
+  done < "${ENV_FILE}" 2>/dev/null || true
 PUBLIC_URL="${PUBLIC_URL:-}"
 if [ -z "${PUBLIC_URL}" ] && [ -n "${PUBLIC_DOMAIN:-}" ]; then
   PUBLIC_URL="https://${PUBLIC_DOMAIN}"

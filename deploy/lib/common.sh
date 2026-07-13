@@ -141,10 +141,20 @@ validate_env_file() {
   [ -n "${ENV_FILE:-}" ] || die "ENV_FILE is unset (internal deploy bug — REPO_ROOT was empty)."
   [ -f "${ENV_FILE}" ] || die "Missing ${ENV_FILE}. On the server: cp deploy/.env.production.example deploy/.env && edit secrets (never commit .env)."
 
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    key="$(echo -n "$key" | xargs)"
+    key="${key#export }"
+    if [[ -z "$key" ]] || [[ "$key" == \#* ]]; then
+      continue
+    fi
+    value="${value%$'\r'}"
+    # Strip surrounding quotes if present
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    export "$key=$value"
+  done < "${ENV_FILE}"
 
   local missing=()
   for key in JWT_SECRET DB_PASSWORD DB_USER DB_NAME TENANT_ID; do
