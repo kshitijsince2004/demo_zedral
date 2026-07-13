@@ -144,8 +144,6 @@ jobs:
           APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           set -euo pipefail
-          # Take ownership of the directory to prevent Permission Denied from legacy root-owned files
-          sudo chown -R $(whoami):$(whoami) "${APP_DIR}" || true
           mkdir -p "${APP_DIR}/deploy"
           rsync -az --no-o --no-g --delete \
             --exclude '.env' \
