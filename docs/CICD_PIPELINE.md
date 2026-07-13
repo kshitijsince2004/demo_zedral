@@ -107,6 +107,15 @@ Actions → Deploy Production → `image_tag=<old-sha-or-vX.Y.Z>` → Run workfl
 
 Pull-only — no `build:` keys. Full image refs written to `deploy/.env` as `BACKEND_IMAGE` / `NGINX_IMAGE`.
 
+Deploy workflows rsync **only** `deploy/` to the host (never the full monorepo). `.env` and image checkpoints are excluded.
+
+CI uses **Node 20** + `npm ci` (same major as the Dockerfile). Images are stamped with
+`org.opencontainers.image.revision` so Factory/QA can check out the matching commit when
+deploying `latest-main` or a SemVer tag.
+
+Remote GHCR auth uses `deploy/scripts/remote-ghcr-login.sh` (token piped over SSH stdin —
+never interpolated into the remote command string).
+
 ## Server secrets
 
 `deploy/.env` on each host (never in GitHub). See `deploy/.env.production.example`.

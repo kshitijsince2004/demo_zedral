@@ -6,8 +6,14 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -57,10 +63,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
+          cache: npm
 
       - name: Install dependencies
-        run: rm -rf package-lock.json node_modules && npm install
+        run: npm ci
 
       - name: ESLint
         run: npm run lint
@@ -87,9 +94,21 @@ jobs:
       - name: Architecture check
         run: npm run arch:check
 
-      - name: npm audit (high+)
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      - name: npm audit (prod critical — blocking)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: npm audit (high+ report)
+        run: |
+          npm audit --audit-level=high 2>&1 | tee audit-high.txt || true
+          {
+            echo "## npm audit (high+)"
+            echo ""
+            echo '```'
+            tail -n 40 audit-high.txt
+            echo '```'
+            echo ""
+            echo "Blocking gate is prod **critical** only (xlsx/high have no clean fix yet)."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   docker-build-push:
     name: Docker build · Trivy · Push GHCR
@@ -127,6 +146,9 @@ jobs:
           push: false
           load: true
           tags: zedral-backend:ci
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -138,6 +160,9 @@ jobs:
           push: false
           load: true
           tags: zedral-nginx:ci
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

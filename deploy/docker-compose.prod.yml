@@ -24,14 +24,13 @@ services:
       - zedral
 
   # ponytail: ST core required for staff EmailPassword + badge sessions; pin major for compose stability
+  # No host port — keep SuperTokens on the internal compose network only.
   supertokens:
     image: registry.supertokens.io/supertokens/supertokens-postgresql:9.2
     container_name: zedral-supertokens
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "3567:3567"
     environment:
       POSTGRESQL_CONNECTION_URI: "postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
       API_KEYS: ${SUPERTOKENS_API_KEY}

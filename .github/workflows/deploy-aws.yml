@@ -50,8 +50,19 @@ jobs:
       backend_image: ${{ steps.meta.outputs.backend }}
       nginx_image: ${{ steps.meta.outputs.nginx }}
       commit_sha: ${{ steps.meta.outputs.sha }}
+    permissions:
+      contents: read
+      packages: read
 
     steps:
+      - name: Login to GHCR (for OCI revision on non-SHA tags)
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: Resolve tag from CI or dispatch
         id: meta
         run: |
@@ -61,16 +72,31 @@ jobs:
             SHA="${TAG}"
           elif [ -n "${{ github.event.inputs.image_tag }}" ]; then
             TAG="${{ github.event.inputs.image_tag }}"
-            SHA="${TAG}"
+            if [[ "${TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+              SHA="${TAG}"
+            else
+              SHA="$(docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${TAG}" 2>/dev/null \
+                | sed -n 's/.*org\.opencontainers\.image\.revision: *\([0-9a-f]\{40\}\).*/\1/p' \
+                | head -1 || true)"
+              if [ -z "${SHA}" ]; then
+                SHA="${{ github.sha }}"
+                echo "::warning::No OCI revision on tag=${TAG}; using workflow SHA ${SHA}"
+              fi
+            fi
           else
             TAG="latest-main"
-            SHA="${{ github.sha }}"
+            SHA="$(docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:latest-main" 2>/dev/null \
+              | sed -n 's/.*org\.opencontainers\.image\.revision: *\([0-9a-f]\{40\}\).*/\1/p' \
+              | head -1 || true)"
+            if [ -z "${SHA}" ]; then
+              SHA="${{ github.sha }}"
+            fi
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
           echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Deploying backend=${IMAGE_PREFIX}/backend:${TAG}"
+          echo "Deploying backend=${IMAGE_PREFIX}/backend:${TAG} (checkout ${SHA})"
 
   deploy:
     name: Deploy to AWS QA
@@ -124,7 +150,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
 
-      - name: Sync deploy scripts + compose (preserve remote .env)
+      - name: Sync deploy/ only (preserve remote .env + checkpoints)
         env:
           AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
           AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
@@ -134,11 +160,20 @@ jobs:
           if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
             APP_DIR="/opt/zedralv2"
           fi
+          ssh "${AWS_USER}@${AWS_HOST}" "mkdir -p '${APP_DIR}/deploy'"
           rsync -az --delete \
-            --exclude 'deploy/.env' \
-            --exclude 'deploy/.last-good-*' \
-            --exclude 'deploy/.previous-good-*' \
-            ./ "${AWS_USER}@${AWS_HOST}:${APP_DIR}/"
+            --exclude '.env' \
+            --exclude '.last-good-*' \
+            --exclude '.previous-good-*' \
+            ./deploy/ "${AWS_USER}@${AWS_HOST}:${APP_DIR}/deploy/"
+
+      - name: GHCR login on remote (token via stdin, not SSH argv)
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}"
 
       - name: Pull GHCR images · compose up · health
         id: deploy
@@ -149,8 +184,6 @@ jobs:
           BACKEND_IMAGE: ${{ needs.resolve.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.resolve.outputs.nginx_image }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
           if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
@@ -158,8 +191,7 @@ jobs:
           fi
           ssh "${AWS_USER}@${AWS_HOST}" \
             "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
-             SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \
-             APP_BASE='${APP_DIR}' RUN_BACKUP=false; \
+             SKIP_MIGRATE='${SKIP_MIGRATE}' APP_BASE='${APP_DIR}' RUN_BACKUP=false; \
              bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
 
       - name: Local health check (curl /health)
@@ -216,8 +248,9 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}" || true
           ssh "${AWS_USER}@${AWS_HOST}" \
-            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+            "export APP_BASE='${APP_DIR}'; \
              bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
           bash deploy/scripts/notify-deploy.sh rollback \
             "AWS QA auto-rollback after deploy failure (${{ needs.resolve.outputs.image_tag }})"
@@ -239,13 +272,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
       - name: Install e2e deps
         working-directory: e2e
-        run: rm -rf package-lock.json node_modules && npm install
+        run: npm ci
 
       - name: Install Playwright browsers
         working-directory: e2e
@@ -291,8 +324,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}" || true
           ssh "${AWS_USER}@${AWS_HOST}" \
-            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+            "export APP_BASE='${APP_DIR}'; \
              bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
           bash deploy/scripts/notify-deploy.sh rollback \
             "AWS QA rolled back after smoke failure (${{ needs.resolve.outputs.image_tag }})"
@@ -321,7 +355,7 @@ jobs:
             echo "- Smoke: \`${{ needs.smoke.result }}\`"
             echo "- Time: $(date -u -Is)"
             echo ""
-            echo "Ready for manual QA. When satisfied, publish a GitHub Release (vX.Y.Z) to promote the **same** images to Factory."
+            echo "Ready for manual QA. When satisfied, open **Actions → Deploy Production (Factory) → Run workflow** with the same SHA (or \`latest-main\` / \`vX.Y.Z\`)."
           } > artifacts/qa-report.md
           cat artifacts/qa-report.md
 

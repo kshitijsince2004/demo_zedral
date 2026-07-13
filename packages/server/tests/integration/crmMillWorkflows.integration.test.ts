@@ -6,6 +6,7 @@ import { UserRole } from '@m1/shared-validation';
 import sixHiRoutes from '../../src/routes/sixHiRoutes';
 import importRoutes from '../../src/routes/importRoutes';
 import shiftLogRoutes from '../../src/routes/shiftLogRoutes';
+import { getIntegrationTestUserId } from '../helpers/integrationFixtures';
 
 // Mock authentication middleware
 let currentUser: any = null;
@@ -101,9 +102,10 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
   });
 
   it('should run a complete 4HI production flow', async () => {
-    // 1. Setup user as 4HI OPERATOR
+    // 1. Setup user as 4HI OPERATOR (must be a real app_user — crm_order.logged_in_user_id FK)
+    const userId = getIntegrationTestUserId();
     currentUser = {
-      id: 2,
+      id: userId,
       roles: [UserRole.OPERATOR],
       username: 'op_4hi',
       lineScopes: [{ code: '4HI', accessLevel: 'WRITE' }],
@@ -164,9 +166,10 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
   });
 
   it('should run a complete 2HI production flow (Skin pass only)', async () => {
-    // 1. Setup user as 2HI OPERATOR
+    // 1. Setup user as 2HI OPERATOR (must be a real app_user — crm_order.logged_in_user_id FK)
+    const userId = getIntegrationTestUserId();
     currentUser = {
-      id: 5,
+      id: userId,
       roles: [UserRole.OPERATOR],
       username: 'op_2hi',
       lineScopes: [{ code: '2HI', accessLevel: 'WRITE' }],

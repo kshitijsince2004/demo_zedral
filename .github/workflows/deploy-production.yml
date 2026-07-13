@@ -48,6 +48,7 @@ jobs:
       backend_image: ${{ steps.meta.outputs.backend }}
       nginx_image: ${{ steps.meta.outputs.nginx }}
       image_tag: ${{ steps.meta.outputs.tag }}
+      checkout_ref: ${{ steps.meta.outputs.checkout }}
 
     steps:
       - name: Checkout
@@ -87,10 +88,25 @@ jobs:
             DEPLOY_TAG="${PROMOTE}"
           fi
 
+          # Prefer exact SHA tag, else OCI revision label from CI, else workflow SHA
+          CHECKOUT=""
+          if [[ "${SRC}" =~ ^[0-9a-f]{40}$ ]]; then
+            CHECKOUT="${SRC}"
+          else
+            CHECKOUT="$(docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${SRC}" 2>/dev/null \
+              | sed -n 's/.*org\.opencontainers\.image\.revision: *\([0-9a-f]\{40\}\).*/\1/p' \
+              | head -1 || true)"
+            if [ -z "${CHECKOUT}" ]; then
+              CHECKOUT="${{ github.sha }}"
+              echo "::warning::No OCI revision on tag=${SRC}; checking out workflow SHA ${CHECKOUT}"
+            fi
+          fi
+
           echo "tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "checkout=${CHECKOUT}" >> "$GITHUB_OUTPUT"
           echo "backend=${IMAGE_PREFIX}/backend:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
           echo "nginx=${IMAGE_PREFIX}/nginx:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
-          echo "Factory will pull tag=${DEPLOY_TAG}"
+          echo "Factory will pull tag=${DEPLOY_TAG} (checkout ${CHECKOUT})"
 
       - name: Notify started
         env:
@@ -113,6 +129,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-images.outputs.checkout_ref }}
 
       - name: Preflight production secrets
         env:
@@ -142,7 +160,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.FACTORY_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Sync deploy scripts (preserve .env + image checkpoints)
+      - name: Sync deploy/ only (preserve .env + image checkpoints)
         env:
           HOST: ${{ secrets.FACTORY_HOST }}
           USER: ${{ secrets.FACTORY_USER }}
@@ -150,11 +168,20 @@ jobs:
         run: |
           set -euo pipefail
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          ssh "${USER}@${HOST}" "mkdir -p '${APP_DIR}/deploy'"
           rsync -az --delete \
-            --exclude 'deploy/.env' \
-            --exclude 'deploy/.last-good-*' \
-            --exclude 'deploy/.previous-good-*' \
-            ./ "${USER}@${HOST}:${APP_DIR}/"
+            --exclude '.env' \
+            --exclude '.last-good-*' \
+            --exclude '.previous-good-*' \
+            ./deploy/ "${USER}@${HOST}:${APP_DIR}/deploy/"
+
+      - name: GHCR login on remote (token via stdin, not SSH argv)
+        env:
+          HOST: ${{ secrets.FACTORY_HOST }}
+          USER: ${{ secrets.FACTORY_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: bash deploy/scripts/remote-ghcr-login.sh "${USER}@${HOST}"
 
       - name: Backup DB · verify · pull images · deploy
         id: deploy
@@ -165,15 +192,12 @@ jobs:
           BACKEND_IMAGE: ${{ needs.resolve-images.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.resolve-images.outputs.nginx_image }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
           ssh "${USER}@${HOST}" \
             "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
-             SKIP_MIGRATE='${SKIP_MIGRATE}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}' \
-             APP_BASE='${APP_DIR}' RUN_BACKUP=true VERIFY_BACKUP=true; \
+             SKIP_MIGRATE='${SKIP_MIGRATE}' APP_BASE='${APP_DIR}' RUN_BACKUP=true VERIFY_BACKUP=true; \
              bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
 
       - name: Health check (curl /health)
@@ -233,8 +257,9 @@ jobs:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          bash deploy/scripts/remote-ghcr-login.sh "${USER}@${HOST}" || true
           ssh "${USER}@${HOST}" \
-            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+            "export APP_BASE='${APP_DIR}'; \
              bash '${APP_DIR}/deploy/scripts/rollback-images.sh'"
           bash deploy/scripts/notify-deploy.sh rollback \
             "Factory auto-rollback after failed deploy (${{ needs.resolve-images.outputs.image_tag }})"
@@ -266,17 +291,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-images.outputs.checkout_ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
       - name: Install e2e deps
         working-directory: e2e
-        run: rm -rf package-lock.json node_modules && npm install
+        run: npm ci
 
       - name: Install Playwright browsers
         working-directory: e2e
@@ -322,8 +349,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${HOST}" >> ~/.ssh/known_hosts
           APP_DIR="${APP_DIR:-/opt/zedralv2}"
+          bash deploy/scripts/remote-ghcr-login.sh "${USER}@${HOST}" || true
           ssh "${USER}@${HOST}" \
-            "export APP_BASE='${APP_DIR}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_USER='${GHCR_USER}'; \
+            "export APP_BASE='${APP_DIR}'; \
              bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
           bash deploy/scripts/notify-deploy.sh rollback \
             "Factory rolled back after smoke failure (${{ needs.resolve-images.outputs.image_tag }})"

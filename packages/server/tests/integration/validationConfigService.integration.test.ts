@@ -1,23 +1,23 @@
-import { describe, it, expect, beforeEach, afterAll, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import validationRulesRoutes from '../../src/routes/validationRulesRoutes';
 import { db } from '../../src/db';
-import { UserRole, FIELD_REGISTRY } from '@m1/shared-validation';
+import { FIELD_REGISTRY } from '@m1/shared-validation';
 import { ValidationConfigService } from '../../src/services/ValidationConfigService';
 
-// Mock authentication middleware
+// Mock authentication middleware — AuthUser uses roles[] (not singular role)
 vi.mock('../../src/middleware/authMiddleware', () => ({
   requireAuth: (req: any, res: any, next: any) => {
-    // Default to an ADMIN user for tests unless explicitly set
     if (!req.user) {
-      req.user = { userId: 1, role: UserRole.ADMIN, username: 'test_admin' };
+      req.user = { id: 1, roles: ['ADMIN'], username: 'test_admin' };
     }
     next();
   },
-  requireRole: (roles: UserRole[]) => {
+  requireRole: (roles: string[]) => {
     return (req: any, res: any, next: any) => {
-      if (!req.user || !roles.includes(req.user.role)) {
+      const userRoles: string[] = req.user?.roles ?? [];
+      if (!req.user || (!userRoles.some((r) => roles.includes(r)) && !userRoles.includes('ADMIN'))) {
         return res.status(403).json({ error: 'Forbidden' });
       }
       next();
@@ -34,11 +34,12 @@ describe('ValidationConfigService Integration Tests', () => {
     app.use(express.json());
     // Inject mock user middleware before routes
     app.use((req: any, res: any, next: any) => {
-      if (req.headers['x-mock-role']) {
-        req.user = { 
-          userId: 2, 
-          role: req.headers['x-mock-role'] as UserRole,
-          username: `test_${req.headers['x-mock-role']}`
+      const role = req.headers['x-mock-role'];
+      if (typeof role === 'string' && role.length > 0) {
+        req.user = {
+          id: 2,
+          roles: [role],
+          username: `test_${role}`,
         };
       }
       next();
@@ -103,28 +104,28 @@ describe('ValidationConfigService Integration Tests', () => {
     // 1. Operator should be forbidden
     const resOperator = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.OPERATOR)
+      .set('x-mock-role', 'OPERATOR')
       .send({ fieldId, ...ruleData });
     expect(resOperator.status).toBe(403);
 
     // 2. MachineHead should be forbidden
     const resMachineHead = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.MACHINE_HEAD)
+      .set('x-mock-role', 'MACHINE_HEAD')
       .send({ fieldId, ...ruleData });
     expect(resMachineHead.status).toBe(403);
     
     // 3. Plant Head should be forbidden (only ADMIN allowed by route definition)
     const resPlantHead = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.PLANT_HEAD)
+      .set('x-mock-role', 'PLANT_HEAD')
       .send({ fieldId, ...ruleData });
     expect(resPlantHead.status).toBe(403);
 
     // 4. Admin should succeed
     const resAdmin = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.ADMIN)
+      .set('x-mock-role', 'ADMIN')
       .send({ fieldId, ...ruleData });
     expect(resAdmin.status).toBe(200);
   });
@@ -138,7 +139,7 @@ describe('ValidationConfigService Integration Tests', () => {
 
     const res = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.ADMIN)
+      .set('x-mock-role', 'ADMIN')
       .send({ fieldId, ...ruleData });
       
     expect(res.status).toBe(200);
