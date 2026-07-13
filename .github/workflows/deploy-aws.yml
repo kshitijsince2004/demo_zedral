@@ -99,11 +99,12 @@ jobs:
           echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying backend=${IMAGE_PREFIX}/backend:${TAG} (checkout ${SHA})"
 
-  # ── Deploy runs ON the AWS QA box (self-hosted runner, label: aws-qa) ─────────
+  # ── Deploy runs ON the AWS QA box (self-hosted runner, label: zedral) ─────────
+  # Matches runner "zedral-ec2" (labels: self-hosted, Linux, X64, zedral).
   deploy:
     name: Deploy to AWS QA (self-hosted)
     needs: resolve
-    runs-on: [self-hosted, linux, aws-qa]
+    runs-on: [self-hosted, linux, zedral]
     timeout-minutes: 30
     environment: staging
     permissions:
@@ -218,12 +219,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
+    outputs:
+      rollback_safe: ${{ steps.probe.outputs.rollback_safe }}
+      failure_kind: ${{ steps.probe.outputs.failure_kind }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.commit_sha }}
+
+      - name: Wait for public /health (retry through CDN)
+        id: probe
+        env:
+          BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
+          ATTEMPTS: '18'
+          SLEEP_SECS: '10'
+        run: |
+          if [ -z "${BASE_URL}" ]; then
+            echo "::error::AWS_PUBLIC_URL secret required for Playwright smoke"
+            exit 1
+          fi
+          bash deploy/scripts/wait-public-health.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -246,12 +263,7 @@ jobs:
           BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
-        run: |
-          if [ -z "${BASE_URL}" ]; then
-            echo "::error::AWS_PUBLIC_URL secret required for Playwright smoke"
-            exit 1
-          fi
-          npx playwright test --reporter=list,html,json
+        run: npx playwright test --reporter=list,html,json
 
       - name: Upload Playwright report
         if: always()
@@ -262,11 +274,12 @@ jobs:
           if-no-files-found: ignore
 
   # ── Rollback on smoke failure runs ON the box (self-hosted; no SSH needed) ────
+  # Skip when failure is Cloudflare 52x (origin path) — local deploy already healthy.
   rollback-on-smoke-failure:
     name: Rollback QA on smoke failure
     needs: [resolve, deploy, smoke]
-    if: ${{ failure() && needs.deploy.result == 'success' }}
-    runs-on: [self-hosted, linux, aws-qa]
+    if: ${{ failure() && needs.deploy.result == 'success' && needs.smoke.outputs.rollback_safe != 'false' }}
+    runs-on: [self-hosted, linux, zedral]
     environment: staging
     steps:
       - name: Checkout

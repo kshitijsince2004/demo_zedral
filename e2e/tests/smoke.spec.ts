@@ -3,10 +3,23 @@ import { test, expect, type Page } from '@playwright/test';
 const badge = process.env.SMOKE_BADGE_ID || '1001';
 const pin = process.env.SMOKE_PIN || '1234';
 
+function cdnHint(status: number): string {
+  if (status >= 521 && status <= 524) {
+    return (
+      ` Cloudflare ${status}: CDN cannot reach origin. ` +
+      `Local deploy /health may still be OK — check AWS SG (80/443), DNS A→EIP, Cloudflare SSL. ` +
+      `Do not treat this as a bad image.`
+    );
+  }
+  return '';
+}
+
 async function login(page: Page) {
   const res = await page.goto('/login');
   if (res && !res.ok()) {
-    throw new Error(`Failed to load /login. Status: ${res.status()} ${res.statusText()}`);
+    throw new Error(
+      `Failed to load /login. Status: ${res.status()} ${res.statusText()}.${cdnHint(res.status())}`,
+    );
   }
   await expect(page.getByPlaceholder(/badge/i)).toBeVisible();
   await page.getByPlaceholder(/badge/i).fill(badge);
@@ -20,7 +33,9 @@ test.describe('Staging smoke', () => {
     const res = await request.get('/health');
     if (!res.ok()) {
       const text = await res.text();
-      throw new Error(`Health check failed with status ${res.status()}: ${text.slice(0, 200)}`);
+      throw new Error(
+        `Health check failed with status ${res.status()}: ${text.slice(0, 200)}.${cdnHint(res.status())}`,
+      );
     }
     expect(res.status()).toBe(200);
     const body = await res.json();

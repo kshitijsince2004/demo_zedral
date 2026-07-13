@@ -120,11 +120,12 @@ jobs:
           bash deploy/scripts/notify-deploy.sh started \
             "Production (manual) tag=${{ steps.meta.outputs.tag }} → Factory"
 
-  # ── Deploy runs ON the Factory box (self-hosted runner, label: factory) ───────
+  # ── Deploy runs ON the Factory box (self-hosted runner, label: hsl) ───────────
+  # Matches runner "hslsmed" (labels: self-hosted, Linux, X64, hsl).
   deploy-factory:
     name: Deploy to Factory (self-hosted)
     needs: resolve-images
-    runs-on: [self-hosted, linux, factory]
+    runs-on: [self-hosted, linux, hsl]
     timeout-minutes: 45
     environment: production
     permissions:
@@ -247,12 +248,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
+    outputs:
+      rollback_safe: ${{ steps.probe.outputs.rollback_safe }}
+      failure_kind: ${{ steps.probe.outputs.failure_kind }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve-images.outputs.checkout_ref }}
+
+      - name: Wait for public /health (retry through CDN)
+        id: probe
+        env:
+          BASE_URL: ${{ secrets.FACTORY_PUBLIC_URL }}
+          ATTEMPTS: '18'
+          SLEEP_SECS: '10'
+        run: |
+          if [ -z "${BASE_URL}" ]; then
+            echo "::error::FACTORY_PUBLIC_URL required when skip_smoke=false"
+            exit 1
+          fi
+          bash deploy/scripts/wait-public-health.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -275,12 +292,7 @@ jobs:
           BASE_URL: ${{ secrets.FACTORY_PUBLIC_URL }}
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
-        run: |
-          if [ -z "${BASE_URL}" ]; then
-            echo "::error::FACTORY_PUBLIC_URL required when skip_smoke=false"
-            exit 1
-          fi
-          npx playwright test --reporter=list,html,json
+        run: npx playwright test --reporter=list,html,json
 
       - name: Upload Playwright report
         if: always()
@@ -291,11 +303,12 @@ jobs:
           if-no-files-found: ignore
 
   # ── Rollback on smoke failure runs ON the box (self-hosted; no SSH needed) ────
+  # Skip when failure is Cloudflare 52x (origin path) — local deploy already healthy.
   rollback-on-smoke-failure:
     name: Rollback Factory on smoke failure
     needs: [resolve-images, deploy-factory, smoke]
-    if: ${{ failure() && needs.deploy-factory.result == 'success' }}
-    runs-on: [self-hosted, linux, factory]
+    if: ${{ failure() && needs.deploy-factory.result == 'success' && needs.smoke.outputs.rollback_safe != 'false' }}
+    runs-on: [self-hosted, linux, hsl]
     environment: production
     steps:
       - name: Checkout
