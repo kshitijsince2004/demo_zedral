@@ -110,7 +110,7 @@ describe('ValidationConfigService Integration Tests', () => {
     // 2. MachineHead should be forbidden
     const resMachineHead = await request(app)
       .post('/validation-rules')
-      .set('x-mock-role', UserRole.MachineHead)
+      .set('x-mock-role', UserRole.MACHINE_HEAD)
       .send({ fieldId, ...ruleData });
     expect(resMachineHead.status).toBe(403);
     

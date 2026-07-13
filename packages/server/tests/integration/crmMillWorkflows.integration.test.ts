@@ -133,6 +133,7 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
 
     // 4. Start order
     res = await request(app).post(`/6hi/orders/${batchNo}/start?machine=4HI`).send({});
+    if (res.status !== 200) console.error('START PRODUCTION 4HI FAILED:', res.body);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('IN_PROGRESS');
 
@@ -193,6 +194,7 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
 
     // 4. Start order
     res = await request(app).post(`/6hi/orders/${batchNo}/start?machine=2HI`).send({});
+    if (res.status !== 200) console.error('START PRODUCTION 2HI FAILED:', res.body);
     expect(res.status).toBe(200);
     
     // 5. 2HI does NOT do rolling passes. Just skin pass.
