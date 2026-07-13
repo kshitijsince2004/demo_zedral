@@ -102,8 +102,12 @@ jobs:
       - name: Architecture check
         run: npm run arch:check
 
-      - name: npm audit (prod critical — report)
-        run: npm audit --omit=dev --audit-level=critical || echo "::warning::prod-critical advisory present, review"
+      - name: npm audit (prod critical — report, non-blocking)
+        run: |
+          npm audit --omit=dev --audit-level=critical 2>&1 | tee audit-critical.txt || true
+          if grep -q 'critical' audit-critical.txt; then
+            echo "::warning::Prod-critical advisory present — review audit-critical.txt (not blocking the build)."
+          fi
 
       - name: npm audit (high+ report)
         run: |

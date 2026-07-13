@@ -27,7 +27,7 @@ on:
       skip_smoke:
         description: Skip Playwright smoke (needs FACTORY_PUBLIC_URL)
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options: ['false', 'true']
 
@@ -61,7 +61,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve / optional promote
         id: meta
@@ -74,9 +74,10 @@ jobs:
             exit 1
           fi
 
+          # D2: clear, actionable error if the tag was never pushed by CI
           echo "Inspecting source images for tag=${SRC}"
           if ! docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${SRC}" >/dev/null 2>&1; then
-            echo "::error::${IMAGE_PREFIX}/backend:${SRC} not found in GHCR. Has CI pushed this tag yet? (merge to main first)"
+            echo "::error::${IMAGE_PREFIX}/backend:${SRC} not found in GHCR. Has CI pushed this tag yet? Merge to main (CI pushes SHA + latest-main) before deploying."
             exit 1
           fi
           docker buildx imagetools inspect "${IMAGE_PREFIX}/nginx:${SRC}" >/dev/null
@@ -93,7 +94,6 @@ jobs:
             DEPLOY_TAG="${PROMOTE}"
           fi
 
-          # Prefer exact SHA tag, else OCI revision label from CI, else workflow SHA
           CHECKOUT=""
           if [[ "${SRC}" =~ ^[0-9a-f]{40}$ ]]; then
             CHECKOUT="${SRC}"
@@ -120,14 +120,12 @@ jobs:
           bash deploy/scripts/notify-deploy.sh started \
             "Production (manual) tag=${{ steps.meta.outputs.tag }} → Factory"
 
-  # ── Deploy runs ON the Factory box (self-hosted runner, label: hsl) ───────────
-  # Matches runner "hslsmed" (labels: self-hosted, Linux, X64, hsl).
+  # ── Deploy runs ON the Factory box (self-hosted runner, label: factory) ───────
   deploy-factory:
     name: Deploy to Factory (self-hosted)
     needs: resolve-images
-    runs-on: [self-hosted, linux, hsl]
+    runs-on: [self-hosted, linux, factory]
     timeout-minutes: 45
-    # Environment used only to group secrets (no required reviewers — GitHub Free).
     environment: production
     permissions:
       contents: read
@@ -153,7 +151,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync deploy/ into APP_DIR (preserve .env + image checkpoints)
         env:
@@ -297,7 +295,7 @@ jobs:
     name: Rollback Factory on smoke failure
     needs: [resolve-images, deploy-factory, smoke]
     if: ${{ failure() && needs.deploy-factory.result == 'success' }}
-    runs-on: [self-hosted, linux, hsl]
+    runs-on: [self-hosted, linux, factory]
     environment: production
     steps:
       - name: Checkout

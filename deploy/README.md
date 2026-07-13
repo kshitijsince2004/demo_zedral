@@ -32,20 +32,18 @@ Push / merge to `main` → workflow **CI** (GitHub-hosted):
 
 | Server | Runner name | Label | Workflow `runs-on` |
 |--------|-------------|-------|--------------------|
-| AWS QA (staging) | `zedral-ec2` | `zedral` | `[self-hosted, linux, zedral]` |
-| Factory (production) | `hslsmed` | `hsl` | `[self-hosted, linux, hsl]` |
+| AWS QA (staging) | `zedral-aws-qa` | `aws-qa` | `[self-hosted, linux, aws-qa]` |
+| Factory (production) | `zedral-factory` | `factory` | `[self-hosted, linux, factory]` |
 
 ```bash
 # On AWS QA box (if re-registering)
 export RUNNER_TOKEN='…'
-export RUNNER_ENV=zedral
-export RUNNER_NAME=zedral-ec2
+export RUNNER_ENV=aws-qa
 bash /opt/zedralv2/deploy/setup-github-runner.sh
 
 # On Factory box (if re-registering)
 export RUNNER_TOKEN='…'
-export RUNNER_ENV=hsl
-export RUNNER_NAME=hslsmed
+export RUNNER_ENV=factory
 bash /opt/zedralv2/deploy/setup-github-runner.sh
 ```
 

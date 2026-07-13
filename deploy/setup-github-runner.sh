@@ -5,16 +5,16 @@
 #
 # Run this ONCE PER SERVER, giving each its own environment label:
 #
-#   AWS QA (staging) box — matches runner "zedral-ec2":
+#   AWS QA (staging) box:
 #     export RUNNER_TOKEN='XXXX'
-#     export RUNNER_ENV=zedral           # → labels: self-hosted,linux,x64,zedral
-#     export RUNNER_NAME=zedral-ec2
+#     export RUNNER_ENV=aws-qa            # → labels: self-hosted,linux,x64,aws-qa
+#     export RUNNER_NAME=zedral-aws-qa
 #     bash /opt/zedralv2/deploy/setup-github-runner.sh
 #
-#   Factory (production) box — matches runner "hslsmed":
+#   Factory (production) box:
 #     export RUNNER_TOKEN='YYYY'
-#     export RUNNER_ENV=hsl              # → labels: self-hosted,linux,x64,hsl
-#     export RUNNER_NAME=hslsmed
+#     export RUNNER_ENV=factory           # → labels: self-hosted,linux,x64,factory
+#     export RUNNER_NAME=zedral-factory
 #     bash /opt/zedralv2/deploy/setup-github-runner.sh
 #
 # Get RUNNER_TOKEN from: GitHub → repo → Settings → Actions → Runners → New self-hosted runner
@@ -29,12 +29,9 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/hsl_zedral}"
 RUNNER_DIR="${RUNNER_DIR:-/home/ubuntu/actions-runner}"
 
-# RUNNER_ENV picks the environment label the deploy workflow targets.
-#   deploy-aws.yml        → runs-on: [self-hosted, linux, zedral]
-#   deploy-production.yml → runs-on: [self-hosted, linux, hsl]
 RUNNER_ENV="${RUNNER_ENV:-}"
 if [ -z "${RUNNER_ENV}" ] && [ -z "${RUNNER_LABELS:-}" ]; then
-  echo "ERROR: set RUNNER_ENV=zedral (AWS QA) or RUNNER_ENV=hsl (Factory)."
+  echo "ERROR: set RUNNER_ENV=aws-qa (staging) or RUNNER_ENV=factory (production)."
   echo "       This becomes the runner label the deploy workflow matches on."
   exit 1
 fi
@@ -99,6 +96,6 @@ sudo ./svc.sh status
 
 echo ""
 echo "Runner online with labels: ${RUNNER_LABELS}"
-echo "  zedral → matched by deploy-aws.yml        (runs-on: [self-hosted, linux, zedral])"
-echo "  hsl    → matched by deploy-production.yml (runs-on: [self-hosted, linux, hsl])"
+echo "  aws-qa  → matched by deploy-aws.yml        (runs-on: [self-hosted, linux, aws-qa])"
+echo "  factory → matched by deploy-production.yml (runs-on: [self-hosted, linux, factory])"
 echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."

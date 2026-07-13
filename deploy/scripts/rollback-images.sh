@@ -24,8 +24,8 @@ validate_env_file
 
 PREV="${REPO_ROOT}/deploy/.previous-good-images"
 if [ ! -f "${PREV}" ]; then
-  log "No previous image checkpoint at ${PREV}."
-  log "This is expected on the first deploy — there is nothing to roll back to."
+  log "No previous image checkpoint at ${PREV} — nothing to roll back to."
+  log "This is expected on the FIRST deploy (no known-good release yet). Skipping rollback."
   exit 0
 fi
 
