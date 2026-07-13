@@ -1,7 +1,8 @@
 # ZedralV2 — AWS QA / Factory Deployment
 
 > **CI/CD:** [docs/CICD_PIPELINE.md](../docs/CICD_PIPELINE.md)  
-> **Build Once → Deploy Many** · **GitHub Free** (manual production via Actions Run workflow)
+> **Build Once → Deploy Many** · **GitHub Free** (manual production via Actions Run workflow)  
+> **Self-hosted runners** live on each server — deploy runs docker/compose locally (no SSH from GitHub).
 
 ## Architecture
 
@@ -21,20 +22,43 @@ Hosts **never** `docker compose build`. CI builds once; QA and Factory only pull
 
 ## How CI works
 
-Push / merge to `main` → workflow **CI**:
+Push / merge to `main` → workflow **CI** (GitHub-hosted):
 
 1. Install, build, test, `arch:check`
 2. Build backend + nginx images, Trivy scan
 3. Push `:<sha>` and `:latest-main` to GHCR
 
+## Self-hosted runners (one per server)
+
+| Server | Runner name | Label | Workflow `runs-on` |
+|--------|-------------|-------|--------------------|
+| AWS QA (staging) | `zedral-ec2` | `zedral` | `[self-hosted, linux, zedral]` |
+| Factory (production) | `hslsmed` | `hsl` | `[self-hosted, linux, hsl]` |
+
+```bash
+# On AWS QA box (if re-registering)
+export RUNNER_TOKEN='…'
+export RUNNER_ENV=zedral
+export RUNNER_NAME=zedral-ec2
+bash /opt/zedralv2/deploy/setup-github-runner.sh
+
+# On Factory box (if re-registering)
+export RUNNER_TOKEN='…'
+export RUNNER_ENV=hsl
+export RUNNER_NAME=hslsmed
+bash /opt/zedralv2/deploy/setup-github-runner.sh
+```
+
+Prerequisites on each box: runner user owns `APP_DIR` (default `/opt/zedralv2`), is in the `docker` group, has `rsync`/`curl`/`jq`, and `deploy/.env` already exists.
+
 ## How AWS QA works
 
-Workflow **Deploy AWS QA** runs automatically after CI succeeds:
+Workflow **Deploy AWS QA** runs automatically after CI succeeds (also manual):
 
-1. SSH to AWS
-2. `docker compose pull` + `up -d --no-build` (CI SHA images)
-3. Migrations (entrypoint), `/health`, Playwright
-4. Fail → auto image rollback
+1. Resolve job on `ubuntu-latest` picks the GHCR SHA tag
+2. Self-hosted `zedral` runner (`zedral-ec2`): GHCR login → local `rsync` of `deploy/` (preserves `.env`) → `remote-ghcr-deploy.sh` → `/health`
+3. Playwright smoke on `ubuntu-latest` against `AWS_PUBLIC_URL`
+4. Fail → auto image rollback on the box (separate self-hosted job after smoke failure)
 
 Manual re-run: Actions → Deploy AWS QA → optional `image_tag`.
 
@@ -46,7 +70,7 @@ Manual re-run: Actions → Deploy AWS QA → optional `image_tag`.
 2. Actions → **Deploy Production (Factory)** → **Run workflow**.
 3. `image_tag`: `latest-main` | full SHA | `v1.3.0`
 4. Optional `promote_as: v1.3.0` to SemVer-tag the same digest, then deploy it.
-5. Factory: backup DB → verify → pull → up → health; rollback on failure.
+5. Factory self-hosted runner: backup DB → verify → pull → up → health; rollback on failure.
 
 ### Redeploy / roll forward to a previous version
 
@@ -60,7 +84,7 @@ Run Production again with an older tag:
 
 | Method | How |
 |--------|-----|
-| Auto | Failed health/smoke → `rollback-images.sh` |
+| Auto | Failed health/smoke → `rollback-images.sh` (local on the box) |
 | Manual server | `bash deploy/scripts/rollback-images.sh` |
 | Manual Actions | Re-run Production with previous `image_tag` |
 
@@ -73,6 +97,7 @@ Run Production again with an older tag:
 | `deploy/scripts/backup-db.sh` | `pg_dump` (auto before Factory) |
 | `deploy/scripts/verify-backup.sh` | Backup integrity |
 | `deploy/lib/common.sh` | Shared pull-only helpers |
+| `deploy/setup-github-runner.sh` | Register self-hosted runner (`RUNNER_ENV=zedral\|hsl`) |
 
 ## Manual ops (emergency)
 
@@ -88,7 +113,7 @@ bash deploy/scripts/remote-ghcr-deploy.sh
 ## Environment file
 
 Copy `deploy/.env.production.example` → `deploy/.env` (never commit).  
-CI overwrites `BACKEND_IMAGE` / `NGINX_IMAGE` each deploy.
+CI overwrites `BACKEND_IMAGE` / `NGINX_IMAGE` each deploy. Local rsync never overwrites `.env`.
 
 ## Troubleshooting
 

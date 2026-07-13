@@ -17,7 +17,7 @@ COPY packages/shared-validation/package.json packages/shared-validation/
 COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 
 # npm <11.3 can skip cross-OS optional natives from a Windows-generated lockfile.
-RUN npm install -g npm@11 \
+RUN npm install -g npm@11.4.2 \
   && npm ci \
   && node scripts/ensure-native-bindings.mjs
 
@@ -49,7 +49,7 @@ COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
-RUN npm install -g npm@11 && npm ci --omit=dev \
+RUN npm install -g npm@11.4.2 && npm ci --omit=dev \
   && rm -rf node_modules/esbuild node_modules/@esbuild \
   && find node_modules -type d -name esbuild -prune -exec rm -rf {} + 2>/dev/null || true \
   && find node_modules -type d -name '@esbuild' -prune -exec rm -rf {} + 2>/dev/null || true \

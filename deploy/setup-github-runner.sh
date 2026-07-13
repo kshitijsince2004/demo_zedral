@@ -1,24 +1,45 @@
 #!/usr/bin/env bash
-# One-time GitHub Actions self-hosted runner on the EC2 deploy VM.
-# Avoids inbound SSH from GitHub-hosted runners (Security Group can stay locked down).
+# One-time GitHub Actions self-hosted runner installer for a Zedral deploy VM.
+# The runner lives ON the target server; deploy jobs then run docker/compose LOCALLY
+# (no inbound SSH from GitHub). Keep the Security Group locked down (port 22 → ops IP only).
 #
-# Usage:
-#   1. GitHub → repo → Settings → Actions → Runners → New self-hosted runner
-#   2. Copy the registration token (valid ~1 hour)
-#   3. On EC2:
-#        export RUNNER_TOKEN='XXXXXXXX'
-#        bash /opt/zedralv2/deploy/setup-github-runner.sh
+# Run this ONCE PER SERVER, giving each its own environment label:
+#
+#   AWS QA (staging) box — matches runner "zedral-ec2":
+#     export RUNNER_TOKEN='XXXX'
+#     export RUNNER_ENV=zedral           # → labels: self-hosted,linux,x64,zedral
+#     export RUNNER_NAME=zedral-ec2
+#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#
+#   Factory (production) box — matches runner "hslsmed":
+#     export RUNNER_TOKEN='YYYY'
+#     export RUNNER_ENV=hsl              # → labels: self-hosted,linux,x64,hsl
+#     export RUNNER_NAME=hslsmed
+#     bash /opt/zedralv2/deploy/setup-github-runner.sh
+#
+# Get RUNNER_TOKEN from: GitHub → repo → Settings → Actions → Runners → New self-hosted runner
+# (token is valid ~1 hour; generate a fresh one per box).
 #
 # Optional env:
-#   RUNNER_NAME   (default: zedral-ec2)
 #   RUNNER_DIR    (default: /home/ubuntu/actions-runner)
 #   REPO_URL      (default: https://github.com/kshitijsince2004/hsl_zedral)
+#   RUNNER_LABELS (default: self-hosted,linux,x64,${RUNNER_ENV}) — override to fully control labels
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/kshitijsince2004/hsl_zedral}"
-RUNNER_NAME="${RUNNER_NAME:-zedral-ec2}"
 RUNNER_DIR="${RUNNER_DIR:-/home/ubuntu/actions-runner}"
-RUNNER_LABELS="self-hosted,linux,x64,zedral"
+
+# RUNNER_ENV picks the environment label the deploy workflow targets.
+#   deploy-aws.yml        → runs-on: [self-hosted, linux, zedral]
+#   deploy-production.yml → runs-on: [self-hosted, linux, hsl]
+RUNNER_ENV="${RUNNER_ENV:-}"
+if [ -z "${RUNNER_ENV}" ] && [ -z "${RUNNER_LABELS:-}" ]; then
+  echo "ERROR: set RUNNER_ENV=zedral (AWS QA) or RUNNER_ENV=hsl (Factory)."
+  echo "       This becomes the runner label the deploy workflow matches on."
+  exit 1
+fi
+RUNNER_NAME="${RUNNER_NAME:-zedral-${RUNNER_ENV:-runner}}"
+RUNNER_LABELS="${RUNNER_LABELS:-self-hosted,linux,x64,${RUNNER_ENV}}"
 
 if [ -z "${RUNNER_TOKEN:-}" ]; then
   echo "ERROR: RUNNER_TOKEN is required."
@@ -30,9 +51,16 @@ if [ "$(id -un)" != "ubuntu" ]; then
   echo "WARN: run as ubuntu (current: $(id -un))"
 fi
 
+# The runner user must own APP_DIR and be able to run docker (add to the docker group):
+#   sudo usermod -aG docker ubuntu   # then re-login / restart the runner service
+if ! docker info >/dev/null 2>&1; then
+  echo "WARN: docker not reachable as $(id -un). The deploy job runs docker LOCALLY —"
+  echo "      add this user to the docker group: sudo usermod -aG docker $(id -un)"
+fi
+
 echo "==> Installing runner dependencies…"
 sudo apt-get update -qq
-sudo apt-get install -y curl jq libicu-dev
+sudo apt-get install -y curl jq libicu-dev rsync
 
 echo "==> Downloading latest GitHub Actions runner…"
 VERSION="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
@@ -55,7 +83,7 @@ if [ -f "./.runner" ]; then
   exit 0
 fi
 
-echo "==> Registering runner ${RUNNER_NAME} for ${REPO_URL}…"
+echo "==> Registering runner ${RUNNER_NAME} (labels: ${RUNNER_LABELS}) for ${REPO_URL}…"
 ./config.sh \
   --url "${REPO_URL}" \
   --token "${RUNNER_TOKEN}" \
@@ -70,5 +98,7 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 
 echo ""
-echo "Runner online. Workflow deploy-aws.yml uses: runs-on: [self-hosted, linux, zedral]"
+echo "Runner online with labels: ${RUNNER_LABELS}"
+echo "  zedral → matched by deploy-aws.yml        (runs-on: [self-hosted, linux, zedral])"
+echo "  hsl    → matched by deploy-production.yml (runs-on: [self-hosted, linux, hsl])"
 echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."

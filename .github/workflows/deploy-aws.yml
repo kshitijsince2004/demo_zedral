@@ -1,8 +1,8 @@
 name: Deploy AWS QA
 
-# Pull-only QA deploy after CI succeeds on main.
-# Never builds source or Docker images on the server.
-# Uses the SAME commit SHA images CI pushed to GHCR.
+# Self-hosted runner model: the runner lives ON the AWS QA server.
+# Deploy runs docker/compose LOCALLY on that box — no SSH, ssh-agent, keyscan, or rsync-over-SSH.
+# Still pull-only: uses the SAME commit SHA images CI pushed to GHCR. Never builds source.
 
 on:
   workflow_run:
@@ -37,6 +37,7 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
+  # ── Resolve which GHCR tag to deploy (GitHub-hosted; only needs GHCR API) ─────
   resolve:
     name: Resolve CI image tag
     runs-on: ubuntu-latest
@@ -98,10 +99,12 @@ jobs:
           echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
           echo "Deploying backend=${IMAGE_PREFIX}/backend:${TAG} (checkout ${SHA})"
 
+  # ── Deploy runs ON the AWS QA box (self-hosted runner, label: zedral) ─────────
+  # Matches runner "zedral-ec2" (labels: self-hosted, Linux, X64, zedral).
   deploy:
-    name: Deploy to AWS QA
+    name: Deploy to AWS QA (self-hosted)
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, zedral]
     timeout-minutes: 30
     environment: staging
     permissions:
@@ -114,6 +117,15 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.commit_sha }}
 
+      - name: Resolve APP_DIR
+        id: appdir
+        env:
+          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+        run: |
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          echo "dir=${APP_DIR}" >> "$GITHUB_OUTPUT"
+          echo "APP_DIR=${APP_DIR}"
+
       - name: Notify started
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
@@ -121,112 +133,63 @@ jobs:
           bash deploy/scripts/notify-deploy.sh started \
             "AWS QA deploy tag=${{ needs.resolve.outputs.image_tag }}"
 
-      - name: Preflight staging secrets
-        env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          missing=()
-          [ -n "${AWS_HOST:-}" ] || missing+=("AWS_HOST (or AWS_EC2_HOST)")
-          [ -n "${AWS_USER:-}" ] || missing+=("AWS_USER (or AWS_EC2_USER)")
-          [ -n "${AWS_SSH_KEY:-}" ] || missing+=("AWS_SSH_KEY (or AWS_EC2_SSH_KEY)")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing secrets for environment 'staging': ${missing[*]}"
-            exit 1
-          fi
-          echo "QA SSH target ${AWS_USER}@${AWS_HOST}"
-
-      - name: Configure SSH
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Login to GHCR (local docker daemon)
+        uses: docker/login-action@v3
         with:
-          ssh-private-key: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Add AWS host key
+      - name: Sync deploy/ into APP_DIR (preserve remote .env + checkpoints)
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
-
-      - name: Sync deploy/ only (preserve remote .env + checkpoints)
-        env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
-            APP_DIR="/opt/zedralv2"
-          fi
-          ssh "${AWS_USER}@${AWS_HOST}" "mkdir -p '${APP_DIR}/deploy'"
+          mkdir -p "${APP_DIR}/deploy"
           rsync -az --delete \
             --exclude '.env' \
             --exclude '.last-good-*' \
             --exclude '.previous-good-*' \
-            ./deploy/ "${AWS_USER}@${AWS_HOST}:${APP_DIR}/deploy/"
+            ./deploy/ "${APP_DIR}/deploy/"
 
-      - name: GHCR login on remote (token via stdin, not SSH argv)
-        env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-        run: bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}"
-
-      - name: Pull GHCR images · compose up · health
+      - name: Pull GHCR images · compose up · migrate
         id: deploy
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          APP_DIR: ${{ steps.appdir.outputs.dir }}
           BACKEND_IMAGE: ${{ needs.resolve.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.resolve.outputs.nginx_image }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
-            APP_DIR="/opt/zedralv2"
-          fi
-          ssh "${AWS_USER}@${AWS_HOST}" \
-            "export BACKEND_IMAGE='${BACKEND_IMAGE}' NGINX_IMAGE='${NGINX_IMAGE}' \
-             SKIP_MIGRATE='${SKIP_MIGRATE}' APP_BASE='${APP_DIR}' RUN_BACKUP=false; \
-             bash '${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh'"
+          export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE \
+                 APP_BASE="${APP_DIR}" RUN_BACKUP=false
+          bash "${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh"
 
       - name: Local health check (curl /health)
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then
-            APP_DIR="/opt/zedralv2"
-          fi
-          ssh "${AWS_USER}@${AWS_HOST}" \
-            "for attempt in 1 2 3 4 5 6; do
-               if curl -fsS http://127.0.0.1/health | head -c 200; then
-                 echo ''; echo 'Health check passed'; exit 0
-               fi
-               echo \"Attempt \${attempt}/6 failed — retrying in 10s…\"
-               sleep 10
-             done
-             echo 'Health check failed'
-             docker compose -f ${APP_DIR}/deploy/docker-compose.prod.yml --env-file ${APP_DIR}/deploy/.env logs --tail 80 backend nginx || true
-             exit 1"
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS http://127.0.0.1/health | head -c 200; then
+              echo ''; echo 'Health check passed'; exit 0
+            fi
+            echo "Attempt ${attempt}/6 failed — retrying in 10s…"
+            sleep 10
+          done
+          echo 'Health check failed'
+          docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
+            --env-file "${APP_DIR}/deploy/.env" logs --tail 80 backend nginx || true
+          exit 1
 
-      - name: Collect remote logs on failure
+      - name: Collect logs on failure
         if: failure()
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          APP_DIR: ${{ secrets.AWS_APP_DIR }}
+          APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           mkdir -p artifacts
-          APP_DIR="${APP_DIR:-/opt/zedralv2}"
-          ssh "${AWS_USER}@${AWS_HOST}" \
-            "docker compose -f ${APP_DIR}/deploy/docker-compose.prod.yml --env-file ${APP_DIR}/deploy/.env logs --tail 200 backend nginx db" \
+          docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
+            --env-file "${APP_DIR}/deploy/.env" logs --tail 200 backend nginx db \
             > artifacts/docker-logs.txt || true
 
       - name: Upload failure logs
@@ -240,21 +203,15 @@ jobs:
       - name: Auto rollback images on deploy failure
         if: failure()
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
-          APP_DIR: ${{ secrets.AWS_APP_DIR }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
+          APP_DIR: ${{ steps.appdir.outputs.dir }}
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
-          APP_DIR="${APP_DIR:-/opt/zedralv2}"
-          bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}" || true
-          ssh "${AWS_USER}@${AWS_HOST}" \
-            "export APP_BASE='${APP_DIR}'; \
-             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
+          export APP_BASE="${APP_DIR}"
+          bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
             "AWS QA auto-rollback after deploy failure (${{ needs.resolve.outputs.image_tag }})"
 
+  # ── Smoke stays GitHub-hosted: only needs network to the public URL ──────────
   smoke:
     name: Playwright smoke tests
     needs: [resolve, deploy]
@@ -305,32 +262,32 @@ jobs:
           path: e2e/playwright-report/
           if-no-files-found: ignore
 
-      - name: Configure SSH (for rollback)
-        if: failure()
-        uses: webfactory/ssh-agent@v0.9.0
+  # ── Rollback on smoke failure runs ON the box (self-hosted; no SSH needed) ────
+  rollback-on-smoke-failure:
+    name: Rollback QA on smoke failure
+    needs: [resolve, deploy, smoke]
+    if: ${{ failure() && needs.deploy.result == 'success' }}
+    runs-on: [self-hosted, linux, zedral]
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          ssh-private-key: ${{ secrets.AWS_SSH_KEY || secrets.AWS_EC2_SSH_KEY }}
+          ref: ${{ needs.resolve.outputs.commit_sha }}
 
-      - name: Rollback QA on smoke failure
-        if: failure()
+      - name: Roll back to previous images (local)
         env:
-          AWS_HOST: ${{ secrets.AWS_HOST || secrets.AWS_EC2_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER || secrets.AWS_EC2_USER }}
           APP_DIR: ${{ secrets.AWS_APP_DIR }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "${AWS_HOST}" >> ~/.ssh/known_hosts
-          APP_DIR="${APP_DIR:-/opt/zedralv2}"
-          bash deploy/scripts/remote-ghcr-login.sh "${AWS_USER}@${AWS_HOST}" || true
-          ssh "${AWS_USER}@${AWS_HOST}" \
-            "export APP_BASE='${APP_DIR}'; \
-             bash '${APP_DIR}/deploy/scripts/rollback-images.sh'" || true
+          set -euo pipefail
+          if [ -z "${APP_DIR:-}" ] || [ "${APP_DIR}" = "/" ]; then APP_DIR="/opt/zedralv2"; fi
+          export APP_BASE="${APP_DIR}"
+          bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
             "AWS QA rolled back after smoke failure (${{ needs.resolve.outputs.image_tag }})"
 
+  # ── Report (GitHub-hosted) ───────────────────────────────────────────────────
   report:
     name: QA deployment report
     needs: [resolve, deploy, smoke]
