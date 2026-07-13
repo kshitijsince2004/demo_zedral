@@ -276,7 +276,7 @@ jobs:
 
       - name: Install e2e deps
         working-directory: e2e
-        run: npm ci
+        run: rm -rf package-lock.json node_modules && npm install
 
       - name: Install Playwright browsers
         working-directory: e2e
