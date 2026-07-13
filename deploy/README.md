@@ -32,18 +32,20 @@ Push / merge to `main` → workflow **CI** (GitHub-hosted):
 
 | Server | Runner name | Label | Workflow `runs-on` |
 |--------|-------------|-------|--------------------|
-| AWS QA (staging) | `zedral-aws-qa` | `aws-qa` | `[self-hosted, linux, aws-qa]` |
-| Factory (production) | `zedral-factory` | `factory` | `[self-hosted, linux, factory]` |
+| AWS QA (staging) | `zedral-aws-qa` | `zedral-aws-qa` | `[self-hosted, linux, zedral-aws-qa]` |
+| Factory (production) | `hslsmed` | `hslsmed` | `[self-hosted, linux, hslsmed]` |
 
 ```bash
 # On AWS QA box (if re-registering)
 export RUNNER_TOKEN='…'
-export RUNNER_ENV=aws-qa
+export RUNNER_ENV=zedral-aws-qa
+export RUNNER_NAME=zedral-aws-qa
 bash /opt/zedralv2/deploy/setup-github-runner.sh
 
 # On Factory box (if re-registering)
 export RUNNER_TOKEN='…'
-export RUNNER_ENV=factory
+export RUNNER_ENV=hslsmed
+export RUNNER_NAME=hslsmed
 bash /opt/zedralv2/deploy/setup-github-runner.sh
 ```
 
@@ -54,7 +56,7 @@ Prerequisites on each box: runner user owns `APP_DIR` (default `/opt/zedralv2`),
 Workflow **Deploy AWS QA** runs automatically after CI succeeds (also manual):
 
 1. Resolve job on `ubuntu-latest` picks the GHCR SHA tag
-2. Self-hosted `zedral` runner (`zedral-ec2`): GHCR login → local `rsync` of `deploy/` (preserves `.env`) → `remote-ghcr-deploy.sh` → `/health`
+2. Self-hosted `aws-qa` runner (`zedral-aws-qa`): GHCR login → local `rsync` of `deploy/` (preserves `.env`) → `remote-ghcr-deploy.sh` → `/health`
 3. Playwright smoke on `ubuntu-latest` against `AWS_PUBLIC_URL`
 4. Fail → auto image rollback on the box (separate self-hosted job after smoke failure)
 
@@ -95,7 +97,7 @@ Run Production again with an older tag:
 | `deploy/scripts/backup-db.sh` | `pg_dump` (auto before Factory) |
 | `deploy/scripts/verify-backup.sh` | Backup integrity |
 | `deploy/lib/common.sh` | Shared pull-only helpers |
-| `deploy/setup-github-runner.sh` | Register self-hosted runner (`RUNNER_ENV=zedral\|hsl`) |
+| `deploy/setup-github-runner.sh` | Register self-hosted runner (`RUNNER_ENV=zedral-aws-qa\|hslsmed`) |
 
 ## Manual ops (emergency)
 

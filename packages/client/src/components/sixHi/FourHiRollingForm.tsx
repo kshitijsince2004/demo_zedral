@@ -4,7 +4,6 @@ import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { PassTracker } from './PassTracker';
-import { ThicknessSpecs } from './ThicknessSpecs';
 
 interface RollingWorkspaceProps {
   order: SixHiOrderDetail;
@@ -142,7 +141,6 @@ export function FourHiRollingForm({
                 Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
               </p>
             )}
-            <ThicknessSpecs order={order} compact />
             <FieldWrapper
               label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}
               prominent
@@ -234,9 +232,6 @@ export function FourHiRollingForm({
             Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
           </p>
         )}
-      </div>
-      <div className="bg-white border border-border rounded-2xl p-4">
-        <ThicknessSpecs order={order} />
       </div>
       <div className="bg-white border border-border rounded-2xl p-4">
         <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>

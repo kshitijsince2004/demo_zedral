@@ -1,0 +1,16 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: zedral-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?Set TUNNEL_TOKEN in deploy/.env}
+    networks:
+      - zedral
+    depends_on:
+      - nginx
+networks:
+  zedral:
+    external: true
+    name: zedral

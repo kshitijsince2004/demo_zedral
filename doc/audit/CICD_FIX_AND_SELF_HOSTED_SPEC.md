@@ -16,7 +16,7 @@ Apply everything below exactly. Only workflow files, `deploy/setup-github-runner
 - **Deploy runs locally on a self-hosted runner that lives on each server.** Remove all SSH (`webfactory/ssh-agent`, `ssh-keyscan`, `ssh user@host`, rsync-over-SSH). `rsync` becomes a local copy into `APP_DIR`.
 - **Two runners**, one per server, by label: AWS QA → `aws-qa`; Factory → `factory`.
 - **GHCR auth = `GITHUB_TOKEN`** with job `permissions.packages` (read for pull, write for push). Drop the `GHCR_TOKEN` PAT fallback — a set-but-invalid PAT silently wins over `GITHUB_TOKEN` (audit D1). Use a PAT only for a cross-org registry (documented at the end).
-- Smoke tests stay GitHub-hosted; a separate self-hosted job rolls back on smoke failure.
+- **QA** smoke stays GitHub-hosted (hits `https://qa.zedral.com` via Cloudflare). **Factory** is **LAN-only**, so its smoke runs on the self-hosted Factory runner against `http://127.0.0.1` — no internet exposure, no Cloudflare. A separate self-hosted job rolls back on smoke failure in both.
 
 ---
 
@@ -688,12 +688,12 @@ jobs:
           bash deploy/scripts/notify-deploy.sh failed \
             "Factory production FAILED tag=${{ needs.resolve-images.outputs.image_tag }}"
 
-  # ── Smoke stays GitHub-hosted: only needs network to the public URL ──────────
+  # ── Factory is LAN-only: run smoke ON the box against localhost (no internet) ──
   smoke:
     name: Playwright smoke (Factory)
     needs: [resolve-images, deploy-factory]
     if: ${{ github.event.inputs.skip_smoke != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, factory]
     timeout-minutes: 25
     environment: production
 
@@ -714,22 +714,19 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      # One-time on the Factory box this needs sudo/apt. If the runner user cannot
+      # sudo, pre-install chromium once manually and delete this step.
       - name: Install Playwright browsers
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run smoke suite
+      - name: Run smoke suite (against local nginx)
         working-directory: e2e
         env:
-          BASE_URL: ${{ secrets.FACTORY_PUBLIC_URL }}
+          BASE_URL: http://127.0.0.1
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
-        run: |
-          if [ -z "${BASE_URL}" ]; then
-            echo "::error::FACTORY_PUBLIC_URL required when skip_smoke=false"
-            exit 1
-          fi
-          npx playwright test --reporter=list,html,json
+        run: npx playwright test --reporter=list,html,json
 
       - name: Upload Playwright report
         if: always()
@@ -917,7 +914,7 @@ echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."
 1. **Environments** (Settings → Environments) — create `staging` and `production`. No required reviewers (GitHub Free).
 2. **Secrets per environment** (SSH secrets are no longer needed — E3):
    - `staging`: `AWS_APP_DIR` (optional, default `/opt/zedralv2`), `AWS_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
-   - `production`: `FACTORY_APP_DIR` (optional), `FACTORY_PUBLIC_URL`, `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`.
+   - `production`: `FACTORY_APP_DIR` (optional), `SMOKE_BADGE_ID`, `SMOKE_PIN`, `DEPLOY_WEBHOOK_URL`. **`FACTORY_PUBLIC_URL` is NOT needed** — Factory is LAN-only and its smoke job hits `http://127.0.0.1` on the box directly. Do **not** set it to the private IP `http://10.255.92.33` (a private IP over HTTP can't be a smoke target).
    - You may delete: `AWS_HOST`/`AWS_EC2_HOST`, `AWS_USER`, `AWS_SSH_KEY`, `FACTORY_HOST`, `FACTORY_USER`, `FACTORY_SSH_KEY` (no longer referenced).
 3. **Runners** — register one per box with Part 5 (`RUNNER_ENV=aws-qa`, then `RUNNER_ENV=factory`).
 4. **Runner host prep** (each box): runner user owns `APP_DIR`, is in the `docker` group, has `rsync`/`curl`/`jq`, and a valid `${APP_DIR}/deploy/.env` present.
@@ -939,7 +936,8 @@ echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."
 | 8 | `rollback-images.sh` exits 0 with a clear message when no checkpoint exists | E2 |
 | 9 | Deploy secrets live in `staging`/`production` environments; SSH secrets removed | E3 |
 | 10 | `deploy`/`deploy-factory`/`rollback-on-smoke-failure` use `runs-on: [self-hosted, linux, <label>]` | self-hosted |
-| 11 | `resolve`, `resolve-images`, `smoke`, `report` remain on `ubuntu-latest` | — |
+| 11 | `resolve`, `resolve-images`, `report`, and **QA** `smoke` remain on `ubuntu-latest`; **Factory `smoke` runs on `[self-hosted, linux, factory]`** against `http://127.0.0.1` (LAN-only) | — |
+| 15 | Factory box has Playwright Chromium + system libs installed (one-time `npx playwright install --with-deps chromium`) | — |
 | 12 | `deploy/.env` on each server is never overwritten (`rsync --exclude '.env'`) | — |
 | 13 | `deploy-staging.yml` left untouched (retired stub) | E6 |
 | 14 | `actionlint` passes on all workflows | — |
