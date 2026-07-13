@@ -12,7 +12,8 @@ fi
 
 echo "Verifying ${LATEST} …"
 gzip -t "${LATEST}"
-LINES="$(zcat "${LATEST}" | head -n 20 | wc -l)"
+# Ignore SIGPIPE from zcat when head closes the pipe early
+LINES="$(zcat "${LATEST}" 2>/dev/null | head -n 20 | wc -l || true)"
 if [ "${LINES}" -lt 5 ]; then
   echo "ERROR: Backup appears empty or corrupt" >&2
   exit 1
