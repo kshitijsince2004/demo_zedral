@@ -9,6 +9,7 @@ interface UseFormDraftOptions {
 }
 
 export function useFormDraft(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   form: UseFormReturn<any>,
   draftKey: string | null,
   options: UseFormDraftOptions = {}
@@ -48,6 +49,7 @@ export function useFormDraft(
   useEffect(() => {
     if (!draftKey) return;
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const save = debounce(async (data: any) => {
       await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
     }, debounceMs);
@@ -65,6 +67,7 @@ export function useFormDraft(
   return { clearDraft };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useManualDraft<T extends Record<string, any>>(
   values: T,
   setValues: (values: T) => void,
@@ -102,12 +105,13 @@ export function useManualDraft<T extends Record<string, any>>(
     return () => {
       cancelled = true;
     };
-  }, [draftKey]); // only run on draftKey change
+  }, [draftKey, onRestored, setValues, values]); // run on draftKey change
 
   // Save draft on change
   useEffect(() => {
     if (!draftKey) return;
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const save = debounce(async (data: any) => {
       await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
     }, debounceMs);

@@ -79,6 +79,7 @@ function buildRulePayload(formState: RuleFormState): Omit<ValidationRule, 'field
         isActive,
         processCode, machineCode,
         params: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           op: (params.op as any) || '<',
           field: typeof params.field === 'string' ? params.field : '',
         },

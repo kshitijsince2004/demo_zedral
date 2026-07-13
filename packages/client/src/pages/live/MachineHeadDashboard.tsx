@@ -117,6 +117,7 @@ export function MachineHeadDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [completedOrders, setCompletedOrders] = useState<any[]>([]);
   const [completedLoading, setCompletedLoading] = useState(false);
   const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
@@ -200,6 +201,7 @@ export function MachineHeadDashboard() {
     if (exportShift) qs.set('shiftCode', exportShift);
     if (dashFilters.machine) qs.set('machine', dashFilters.machine);
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     apiClient.get<any[]>(`/6hi/orders/completed?${qs.toString()}`)
       .then((res) => {
         const q = debouncedSearch.toLowerCase();

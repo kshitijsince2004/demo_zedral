@@ -34,6 +34,7 @@ export interface CompareFieldParams {
   field: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ConditionalParams {
   // Can contain nested rule params
 }

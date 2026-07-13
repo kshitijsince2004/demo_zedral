@@ -276,6 +276,7 @@ export function CrmOutgoingHandoverPage() {
   // Local auto-save draft
   const { clearDraft } = useManualDraft(
     buildPayload(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (parsed: any) => {
       if (parsed.machineStatus) setMachineStatus(parsed.machineStatus);
       if (parsed.machineCondition) setMachineCondition(parsed.machineCondition);

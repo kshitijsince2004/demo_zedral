@@ -48,7 +48,7 @@ export function PlantShiftReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [machineAccess, role]);
 
   useEffect(() => {
     void load();
