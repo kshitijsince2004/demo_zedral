@@ -31,6 +31,12 @@ fi
 DB_USER="${DB_USER:?DB_USER not set in deploy/.env}"
 DB_NAME="${DB_NAME:?DB_NAME not set in deploy/.env}"
 
+if [ ! -w "${BACKUP_DIR}" ]; then
+  # If we don't have write access (e.g. self-hosted runner trying to write to /var/backups),
+  # attempt to create it and take ownership via sudo.
+  sudo mkdir -p "${BACKUP_DIR}" 2>/dev/null || true
+  sudo chown -R "$(whoami)":"$(whoami)" "${BACKUP_DIR}" 2>/dev/null || true
+fi
 mkdir -p "${BACKUP_DIR}"
 TIMESTAMP="$(date +%F_%H%M%S)"
 OUTPUT="${BACKUP_DIR}/zedral_${DB_NAME}_${TIMESTAMP}.sql"
