@@ -29,9 +29,9 @@ vi.mock('../../src/middleware/authMiddleware', () => ({
         username: 'test_admin',
         lineScopes: [
           { code: '4HI', accessLevel: 'WRITE' },
-          { code: '2HI', accessLevel: 'WRITE' },
           { code: '6HI', accessLevel: 'WRITE' }
-        ]
+        ],
+        machineAccess: ['4HI', '2HI', '6HI']
       };
     }
     next();
@@ -103,7 +103,8 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
       id: 2,
       roles: [UserRole.OPERATOR],
       username: 'op_4hi',
-      lineScopes: [{ code: '4HI', accessLevel: 'WRITE' }]
+      lineScopes: [{ code: '4HI', accessLevel: 'WRITE' }],
+      machineAccess: ['4HI']
     };
 
     // 2. We skip actual PPC file upload for brevity and instead seed an order in DB to act as queue
@@ -164,7 +165,8 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
       id: 5,
       roles: [UserRole.OPERATOR],
       username: 'op_2hi',
-      lineScopes: [{ code: '2HI', accessLevel: 'WRITE' }]
+      lineScopes: [{ code: '2HI', accessLevel: 'WRITE' }],
+      machineAccess: ['2HI']
     };
 
     const batchNo = '2HI-BATCH-001';

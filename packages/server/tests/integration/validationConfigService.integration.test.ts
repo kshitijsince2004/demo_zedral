@@ -102,30 +102,30 @@ describe('ValidationConfigService Integration Tests', () => {
 
     // 1. Operator should be forbidden
     const resOperator = await request(app)
-      .post(`/validation-rules/${fieldId}`)
+      .post('/validation-rules')
       .set('x-mock-role', UserRole.OPERATOR)
-      .send(ruleData);
+      .send({ fieldId, ...ruleData });
     expect(resOperator.status).toBe(403);
 
     // 2. MachineHead should be forbidden
     const resMachineHead = await request(app)
-      .post(`/validation-rules/${fieldId}`)
+      .post('/validation-rules')
       .set('x-mock-role', UserRole.MachineHead)
-      .send(ruleData);
+      .send({ fieldId, ...ruleData });
     expect(resMachineHead.status).toBe(403);
     
     // 3. Plant Head should be forbidden (only ADMIN allowed by route definition)
     const resPlantHead = await request(app)
-      .post(`/validation-rules/${fieldId}`)
+      .post('/validation-rules')
       .set('x-mock-role', UserRole.PLANT_HEAD)
-      .send(ruleData);
+      .send({ fieldId, ...ruleData });
     expect(resPlantHead.status).toBe(403);
 
     // 4. Admin should succeed
     const resAdmin = await request(app)
-      .post(`/validation-rules/${fieldId}`)
+      .post('/validation-rules')
       .set('x-mock-role', UserRole.ADMIN)
-      .send(ruleData);
+      .send({ fieldId, ...ruleData });
     expect(resAdmin.status).toBe(200);
   });
 
@@ -137,9 +137,9 @@ describe('ValidationConfigService Integration Tests', () => {
     const beforeCount = initialHistory.length;
 
     const res = await request(app)
-      .post(`/validation-rules/${fieldId}`)
+      .post('/validation-rules')
       .set('x-mock-role', UserRole.ADMIN)
-      .send(ruleData);
+      .send({ fieldId, ...ruleData });
       
     expect(res.status).toBe(200);
 

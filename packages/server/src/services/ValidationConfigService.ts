@@ -150,6 +150,33 @@ export class ValidationConfigService {
     // Invalidate cache
     this.cache.flushAll();
   }
+
+  async getFieldHistory(fieldId: string): Promise<any[]> {
+    const history = await this.db
+      .selectFrom('audit.audit_log')
+      .selectAll()
+      .where('table_name', '=', 'config.validation_rule')
+      .orderBy('ts', 'desc')
+      .execute();
+      
+    return history.filter(h => {
+      try {
+        if (h.new_value) {
+          const p = JSON.parse(h.new_value);
+          if (p.field_id === fieldId) return true;
+        }
+        if (h.old_value) {
+          const p = JSON.parse(h.old_value);
+          if (p.field_id === fieldId) return true;
+        }
+      } catch (e) {}
+      return false;
+    });
+  }
+
+  async updateRule(fieldId: string, ruleData: Omit<ValidationRule, 'fieldId' | 'origin' | 'ruleId'>, username: string): Promise<void> {
+    return this.upsertRule(undefined, fieldId, ruleData, username);
+  }
   /**
    * Deactivate a configuration rule
    */
