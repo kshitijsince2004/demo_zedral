@@ -15,7 +15,8 @@ COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
-RUN npm ci
+# npm <11.3 can skip cross-OS optional natives (rolldown) from a Windows-generated lockfile.
+RUN npm install -g npm@11 && npm ci
 
 COPY packages/shared-validation packages/shared-validation
 COPY packages/platform packages/platform
@@ -45,7 +46,7 @@ COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
-RUN npm ci --omit=dev \
+RUN npm install -g npm@11 && npm ci --omit=dev \
   && rm -rf node_modules/esbuild node_modules/@esbuild \
   && find node_modules -type d -name esbuild -prune -exec rm -rf {} + 2>/dev/null || true \
   && find node_modules -type d -name '@esbuild' -prune -exec rm -rf {} + 2>/dev/null || true \

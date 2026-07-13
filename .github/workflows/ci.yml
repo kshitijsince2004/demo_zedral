@@ -66,8 +66,18 @@ jobs:
           node-version: 20
           cache: npm
 
+      # npm <11.3 skips cross-platform optional natives in the lockfile (rolldown/vite 8).
+      - name: Upgrade npm (optional-deps fix)
+        run: npm install -g npm@11
+
       - name: Install dependencies
         run: npm ci
+
+      # Belt-and-suspenders if lockfile still omits the Ubuntu binding.
+      - name: Ensure Rolldown Linux binding
+        run: |
+          node -e "require('@rolldown/binding-linux-x64-gnu')" 2>/dev/null \
+            || npm install --no-save --no-package-lock @rolldown/binding-linux-x64-gnu@1.0.2
 
       - name: ESLint
         run: npm run lint

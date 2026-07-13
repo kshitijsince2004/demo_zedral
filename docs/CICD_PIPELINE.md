@@ -113,6 +113,11 @@ CI uses **Node 20** + `npm ci` (same major as the Dockerfile). Images are stampe
 `org.opencontainers.image.revision` so Factory/QA can check out the matching commit when
 deploying `latest-main` or a SemVer tag.
 
+CI upgrades to **npm 11** before `npm ci` so cross-platform optional natives (Vite 8 /
+Rolldown Linux bindings) install correctly from a Windows-generated lockfile. Root
+`optionalDependencies` also pin `@rolldown/binding-linux-x64-{gnu,musl}` for Ubuntu CI
+and Alpine Docker.
+
 Remote GHCR auth uses `deploy/scripts/remote-ghcr-login.sh` (token piped over SSH stdin —
 never interpolated into the remote command string).
 

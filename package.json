@@ -31,5 +31,10 @@
   "devDependencies": {
     "dependency-cruiser": "^18.0.0",
     "typescript": "^5.5.0"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "1.0.2",
+    "@rolldown/binding-linux-x64-musl": "1.0.2",
+    "@rolldown/binding-win32-x64-msvc": "1.0.2"
   }
 }
