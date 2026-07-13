@@ -90,11 +90,14 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     await db.deleteFrom('txn.crm_skinpass').execute();
     await db.deleteFrom('txn.crm_shift_summary').execute();
     await db.deleteFrom('txn.crm_order').execute();
+    await db.deleteFrom('txn.machine_shift_session').execute();
+    await db.deleteFrom('txn.machine_handover').execute();
     await db.deleteFrom('txn.shift_log').execute();
     await db.deleteFrom('planning.queue_handoff').execute();
     await db.deleteFrom('planning.order_journey_step').execute();
     await db.deleteFrom('planning.order_journey').execute();
     await db.deleteFrom('planning.ppc_batch').execute();
+    await db.deleteFrom('coil.coil').execute();
   });
 
   it('should run a complete 4HI production flow', async () => {
