@@ -14,9 +14,12 @@ COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
 COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
+COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 
-# npm <11.3 can skip cross-OS optional natives (rolldown) from a Windows-generated lockfile.
-RUN npm install -g npm@11 && npm ci
+# npm <11.3 can skip cross-OS optional natives from a Windows-generated lockfile.
+RUN npm install -g npm@11 \
+  && npm ci \
+  && node scripts/ensure-native-bindings.mjs
 
 COPY packages/shared-validation packages/shared-validation
 COPY packages/platform packages/platform
