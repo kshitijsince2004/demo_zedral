@@ -34,7 +34,8 @@ RUN npm run build
 # ── Backend runtime ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS backend
 
-RUN apk add --no-cache curl
+RUN apk upgrade --no-cache && \
+    apk add --no-cache curl
 
 WORKDIR /app
 
@@ -79,6 +80,8 @@ CMD ["node", "dist/index.js"]
 
 # ── Nginx (SPA + /api proxy) ────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS nginx
+
+RUN apk upgrade --no-cache
 
 COPY deploy/nginx.prod.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/packages/client/dist /usr/share/nginx/html
