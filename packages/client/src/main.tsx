@@ -31,7 +31,7 @@ SuperTokens.init({
         appName: 'Zedral M1',
         apiDomain: host || window.location.origin,
         websiteDomain: window.location.origin,
-        apiBasePath: '/api/auth',
+        apiBasePath: '/auth',
         websiteBasePath: '/login'
     },
     recipeList: [
