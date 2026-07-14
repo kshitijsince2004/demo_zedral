@@ -16,7 +16,17 @@ export class DefaultRuleSeeder {
     // Use a single transaction to insert all missing fields as inactive MANDATORY rules (just as a placeholder).
     // Or we could infer a better default from the schema if possible, but MANDATORY { mandatory: false } is safe.
     
-    const values = FIELD_REGISTRY.map(field => ({
+    // Fetch existing fields that already have at least one rule
+    const existingRules = await this.db
+      .selectFrom('config.validation_rule')
+      .select('field_id')
+      .execute();
+    const existingFieldIds = new Set(existingRules.map(r => r.field_id));
+
+    const missingFields = FIELD_REGISTRY.filter(f => !existingFieldIds.has(f.fieldId));
+    if (missingFields.length === 0) return;
+
+    const values = missingFields.map(field => ({
       field_id: field.fieldId,
       rule_type: 'MANDATORY',
       severity: 'WARN',
@@ -31,7 +41,6 @@ export class DefaultRuleSeeder {
       await trx
         .insertInto('config.validation_rule')
         .values(values)
-        .onConflict((oc) => oc.column('field_id').doNothing())
         .execute();
     });
   }
