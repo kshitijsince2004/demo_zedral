@@ -5,8 +5,22 @@ import {
   formatPlantDate,
   postgresDateOnly,
   resolveShiftFromClock,
+  currentPlantDate,
+  addPlantDays,
+  parsePlantDateOnly,
   type PlantShiftWindow,
 } from '@m1/shared-validation';
+
+/**
+ * A session is "live" only if its prod_date is the current plant day, or the
+ * immediately-previous plant day (legitimate overnight C-shift continuation
+ * still awaiting handover). Anything older is an orphan that was never closed.
+ * Widen the -1 if a continuation can legitimately span more than one plant day.
+ */
+function isSessionDateLive(prodDate: Date | string): boolean {
+  const earliestLive = addPlantDays(currentPlantDate(), -1); // 'YYYY-MM-DD'
+  return formatPlantDate(prodDate) >= earliestLive;
+}
 
 export type ShiftOverrideReason =
   | 'OVERTIME'
@@ -156,6 +170,7 @@ async function findActiveSession(
       ])
       .where('s.machine_code', '=', machineCode)
       .where('s.status', '=', 'ACTIVE')
+      .where('s.prod_date', '>=', parsePlantDateOnly(addPlantDays(currentPlantDate(), -1)))
       .orderBy('s.started_at', 'desc');
 
   if (userId) {
@@ -170,6 +185,7 @@ async function findActiveSession(
 }
 
 export class ShiftDetectionService {
+  static isSessionDateLive = isSessionDateLive;
   static sessionMatchesOperational = sessionMatchesOperational;
 
   /**

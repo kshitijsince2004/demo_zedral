@@ -955,7 +955,18 @@ export class MachineHandoverService {
       .executeTakeFirst();
 
     if (existing) {
-      return { session: existing, pendingHandover: null };
+      if (ShiftDetectionService.isSessionDateLive(existing.prod_date)) {
+        return { session: existing, pendingHandover: null };   // live reuse (incl. overtime)
+      }
+      // Orphan from a prior plant day -> close it (and any siblings) before starting fresh.
+      const clock = await ShiftDetectionService.getCurrentShift({ machineCode }); // clock/override only
+      await ShiftDetectionService.closeStaleOperatorSessions(
+        machineCode,
+        operatorUserId,
+        clock.prodDate,
+        clock.shiftCode,
+      );
+      // fall through to create a fresh session for the current shift
     }
 
     const otherActive = await db
