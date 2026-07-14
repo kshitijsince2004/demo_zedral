@@ -42,7 +42,7 @@ services:
       - backend
 
   supertokens:
-    image: registry.supertokens.io/supertokens/supertokens-postgresql
+    image: registry.supertokens.io/supertokens/supertokens-postgresql:11.4.5
     depends_on:
       - db-primary
     ports:
