@@ -23,12 +23,15 @@ const updateSW = registerSW({
   },
 })
 
+// Web: empty host. APK/native: VITE_API_URL host.
+const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
 SuperTokens.init({
     appInfo: {
         appName: 'Zedral M1',
-        apiDomain: import.meta.env.VITE_API_URL || 'http://localhost:3005',
+        apiDomain: host || window.location.origin,
         websiteDomain: window.location.origin,
-        apiBasePath: '/auth',
+        apiBasePath: '/api/auth',
         websiteBasePath: '/login'
     },
     recipeList: [
