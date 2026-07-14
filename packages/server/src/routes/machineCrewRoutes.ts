@@ -6,7 +6,6 @@ import { LiveDashboardService } from '../services/live';
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD]));
 
 function isMissingTableError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -28,13 +27,14 @@ function routeErrorMessage(error: unknown, fallback: string): string {
 }
 
 async function assertMachineScope(userId: number, roles: string[], machineCode: string) {
+  if (roles.includes(UserRole.OPERATOR)) return;
   const scope = await LiveDashboardService.getMachineScope(userId, roles);
   if (scope !== null && !scope.includes(machineCode)) {
     throw new Error('Machine not in your scope');
   }
 }
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole([UserRole.OPERATOR, UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     const machineCode = typeof req.query.machineCode === 'string' ? req.query.machineCode.trim() : '';
     if (!machineCode) return res.status(400).json({ error: 'machineCode is required' });
@@ -47,7 +47,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     const machineCode = String(req.body?.machineCode ?? '').trim();
     const memberName = String(req.body?.memberName ?? '').trim();
@@ -64,7 +64,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:crewId', async (req, res) => {
+router.put('/:crewId', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     const crewId = req.params.crewId;
     const machineCode = req.body?.machineCode;
@@ -82,7 +82,7 @@ router.put('/:crewId', async (req, res) => {
   }
 });
 
-router.delete('/:crewId', async (req, res) => {
+router.delete('/:crewId', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     const machineCode = typeof req.query.machineCode === 'string' ? req.query.machineCode.trim() : '';
     if (!machineCode) return res.status(400).json({ error: 'machineCode query is required' });

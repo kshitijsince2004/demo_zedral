@@ -73,6 +73,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
     recipeList: [
       EmailPassword.init(),
       Session.init({
+        getTokenTransferMethod: () => 'header',
         override: {
           functions: (originalImplementation) => {
             return {
@@ -109,7 +110,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       // Fallback: echo the request origin (safe for dev, never sends '*' with credentials)
       : (origin, callback) => callback(null, origin || true),
     credentials: true,
-    allowedHeaders: ['content-type', ...supertokens.getAllCORSHeaders()],
+    allowedHeaders: ['content-type', 'x-app-version', ...supertokens.getAllCORSHeaders()],
   }));
   app.use(express.json());
 

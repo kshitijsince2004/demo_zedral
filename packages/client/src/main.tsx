@@ -36,7 +36,7 @@ SuperTokens.init({
     },
     recipeList: [
         EmailPassword.init(),
-        Session.init()
+        Session.init({ tokenTransferMethod: 'header' })
     ]
 });
 
