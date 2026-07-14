@@ -110,7 +110,7 @@ export class ValidationConfigService {
           .where('rule_id', '=', ruleId)
           .execute();
       } else {
-        // Insert new rule
+        // Upsert rule (insert new or update if logical duplicate)
         await trx
           .insertInto('config.validation_rule')
           .values({
@@ -125,6 +125,17 @@ export class ValidationConfigService {
             updated_by: username,
             updated_at: new Date()
           })
+          .onConflict((oc) => oc
+            .columns(['field_id', 'rule_type', 'process_code', 'machine_code'])
+            .doUpdateSet({
+              severity: ruleData.severity,
+              is_active: ruleData.isActive,
+              params: JSON.stringify(ruleData.params),
+              applies_when: ruleData.appliesWhen ? JSON.stringify(ruleData.appliesWhen) : null,
+              updated_by: username,
+              updated_at: new Date()
+            })
+          )
           .execute();
       }
 
