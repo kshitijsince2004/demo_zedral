@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
 import { Preferences } from '@capacitor/preferences';
 import debounce from 'lodash/debounce';
@@ -48,6 +48,7 @@ export function useFormDraft(
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const save = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     debounce(async (data: any) => {
       if (!draftKey) return;
       await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
@@ -119,6 +120,7 @@ export function useManualDraft<T extends Record<string, any>>(
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const save = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     debounce(async (data: any) => {
       if (!draftKey) return;
       await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });

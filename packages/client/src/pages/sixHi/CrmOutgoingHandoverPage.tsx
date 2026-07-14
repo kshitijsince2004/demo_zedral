@@ -260,8 +260,9 @@ export function CrmOutgoingHandoverPage() {
       setDraftId(saved.handover_id);
       setDraftSaved(true);
       setTimeout(() => setDraftSaved(false), 3000);
-    } catch (e: any) {
-      if (e?.status === 403) {
+    } catch (e: unknown) {
+      const err = e as { status?: number };
+      if (err?.status === 403) {
         setDraftError('Access Denied: Please re-login to refresh permissions');
       } else {
         setDraftError('Draft failed to save on server');
