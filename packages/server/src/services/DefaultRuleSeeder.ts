@@ -41,6 +41,7 @@ export class DefaultRuleSeeder {
       await trx
         .insertInto('config.validation_rule')
         .values(values)
+        .onConflict((oc) => oc.columns(['field_id', 'rule_type', 'process_code', 'machine_code']).doNothing())
         .execute();
     });
   }

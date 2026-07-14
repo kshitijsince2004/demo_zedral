@@ -23,6 +23,7 @@ describe('DefaultRuleSeeder', () => {
       values: vi.fn().mockReturnThis(),
       onConflict: vi.fn().mockReturnThis(),
       column: vi.fn().mockReturnThis(),
+      columns: vi.fn().mockReturnThis(),
       doNothing: vi.fn().mockReturnThis(),
       execute: vi.fn().mockImplementation(async function() {
         // @ts-ignore
@@ -31,6 +32,11 @@ describe('DefaultRuleSeeder', () => {
     };
     
     mockDb = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          execute: vi.fn().mockResolvedValue([])
+        })
+      }),
       transaction: vi.fn().mockReturnValue({
         execute: async (cb: any) => {
           await cb({
