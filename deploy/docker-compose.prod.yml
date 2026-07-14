@@ -26,7 +26,7 @@ services:
   # ponytail: ST core required for staff EmailPassword + badge sessions; pin major for compose stability
   # No host port — keep SuperTokens on the internal compose network only.
   supertokens:
-    image: registry.supertokens.io/supertokens/supertokens-postgresql:9.2
+    image: registry.supertokens.io/supertokens/supertokens-postgresql:latest
     container_name: zedral-supertokens
     depends_on:
       db:
