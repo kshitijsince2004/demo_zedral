@@ -45,6 +45,13 @@ auto_heal_env_file() {
   if ! grep -q "^API_DOMAIN=" "${ENV_FILE}" || ! grep -q "^WEBSITE_DOMAIN=" "${ENV_FILE}"; then
     local public_ip
     public_ip="$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)"
+    
+    if [ -z "${public_ip}" ]; then
+      log "Could not auto-fill from EC2 metadata (not an EC2 instance or metadata unreachable)."
+      log "Falling back to primary local IP address..."
+      public_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || ip route get 1 2>/dev/null | awk '{print $(NF-2);exit}' || true)"
+    fi
+
     if [ -n "${public_ip}" ]; then
       if ! grep -q "^API_DOMAIN=" "${ENV_FILE}"; then
         printf 'API_DOMAIN=http://%s\n' "${public_ip}" >> "${ENV_FILE}"
@@ -55,7 +62,7 @@ auto_heal_env_file() {
         log "Auto-filled WEBSITE_DOMAIN=http://${public_ip} in .env"
       fi
     else
-      log "Could not auto-fill API_DOMAIN/WEBSITE_DOMAIN (not an EC2 instance or metadata unreachable)."
+      log "Could not determine any IP address for API_DOMAIN/WEBSITE_DOMAIN auto-fill."
     fi
   fi
 }
