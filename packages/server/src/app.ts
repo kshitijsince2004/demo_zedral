@@ -52,7 +52,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
     ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
     : [];
   // Capacitor operator APK WebView origin (always allow when CORS is restricted).
-  const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'http://localhost'];
+  const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'ionic://localhost', 'http://localhost'];
   const corsOrigins =
     configured.length > 0 ? [...new Set([...configured, ...capacitorOrigins])] : capacitorOrigins;
   
@@ -104,13 +104,28 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   });
 
   app.use(cors({
-    origin: corsOrigins
-      // Explicit allow-list when CORS_ORIGIN is configured
-      ? corsOrigins
-      // Fallback: echo the request origin (safe for dev, never sends '*' with credentials)
-      : (origin, callback) => callback(null, origin || true),
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (configured.length === 0) return callback(null, origin || true);
+      if (configured.includes(origin) || capacitorOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS policy'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['content-type', 'x-app-version', ...supertokens.getAllCORSHeaders()],
+    allowedHeaders: [
+      'Authorization', 
+      'Content-Type', 
+      'Accept', 
+      'X-App-Version', 
+      'x-app-version', 
+      'X-Requested-With', 
+      'Origin', 
+      ...supertokens.getAllCORSHeaders()
+    ],
+    optionsSuccessStatus: 204
   }));
   app.use(express.json());
 

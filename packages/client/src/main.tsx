@@ -26,6 +26,8 @@ const updateSW = registerSW({
 // Web: empty host. APK/native: VITE_API_URL host.
 const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
+console.info(`[Main] Initializing SuperTokens. API Host: ${host || 'localhost'}, Origin: ${window.location.origin}`);
+
 SuperTokens.init({
     appInfo: {
         appName: 'Zedral M1',

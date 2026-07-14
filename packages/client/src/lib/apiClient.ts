@@ -135,7 +135,15 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
       credentials: 'include',
     });
   } catch (networkErr) {
-    throw new ApiError('Network unavailable', 0, networkErr, true);
+    let msg = 'Network unavailable or request blocked by CORS';
+    if (networkErr instanceof Error) {
+      if (networkErr.name === 'AbortError') msg = 'Request aborted';
+      else if (networkErr.message) msg = `Network error: ${networkErr.message}`;
+    }
+    const apiErr = new ApiError(msg, 0, networkErr, true);
+    // Attach flag to hint SWR or other fetchers to avoid endless retries on hard network failures
+    Object.assign(apiErr, { preventRetry: true });
+    throw apiErr;
   }
 
   // ST fetch interceptor refreshes the session; a remaining 401 means the session is dead.

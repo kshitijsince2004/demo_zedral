@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/authStore';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
@@ -169,6 +169,7 @@ export function CrmOutgoingHandoverPage() {
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
 
   const autoSaveRef = useRef<ReturnType<typeof setTimeout>>();
@@ -253,13 +254,18 @@ export function CrmOutgoingHandoverPage() {
   const saveDraft = useCallback(async () => {
     if (!preview) return;
     setSaving(true);
+    setDraftError(null);
     try {
       const saved = await machineHandoverService.saveDraft(machineCode, buildPayload());
       setDraftId(saved.handover_id);
       setDraftSaved(true);
       setTimeout(() => setDraftSaved(false), 3000);
-    } catch {
-      // Non-fatal
+    } catch (e: any) {
+      if (e?.status === 403) {
+        setDraftError('Access Denied: Please re-login to refresh permissions');
+      } else {
+        setDraftError('Draft failed to save on server');
+      }
     } finally {
       setSaving(false);
     }
@@ -273,11 +279,13 @@ export function CrmOutgoingHandoverPage() {
     return () => clearTimeout(autoSaveRef.current);
   }, [saveDraft, preview]);
 
+  const draftValues = useMemo(() => buildPayload(), [buildPayload]);
+
   // Local auto-save draft
   const { clearDraft } = useManualDraft(
-    buildPayload(),
+    draftValues,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (parsed: any) => {
+    useCallback((parsed: any) => {
       if (parsed.machineStatus) setMachineStatus(parsed.machineStatus);
       if (parsed.machineCondition) setMachineCondition(parsed.machineCondition);
       if (parsed.machineConditionRemarks) setConditionRemarks(parsed.machineConditionRemarks);
@@ -290,7 +298,7 @@ export function CrmOutgoingHandoverPage() {
       if (parsed.orderSnapshot) setOrderSnapshot(parsed.orderSnapshot);
       if (parsed.crewNotes) setCrewNotes(parsed.crewNotes);
       if (parsed.selectedCrewIds) setSelectedRosterIds(new Set(parsed.selectedCrewIds));
-    },
+    }, []),
     `handover_${machineCode}`
   );
 
@@ -386,6 +394,12 @@ export function CrmOutgoingHandoverPage() {
                 <div className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Draft saved
+                </div>
+              )}
+              {draftError && (
+                <div className="flex items-center gap-1 text-xs text-destructive font-medium bg-destructive/10 px-2 py-1 rounded-md">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {draftError}
                 </div>
               )}
             </div>

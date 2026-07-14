@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useSessionContext } from 'supertokens-auth-react/recipe/session';
+import { useAuthStore } from '../lib/authStore';
 import { Login } from '../pages/Login';
 import { RoleHomeRedirect } from '../components/RoleHomeRedirect';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -12,9 +15,36 @@ import { SixHiShiftSummaryPage } from '../pages/sixHi/SixHiShiftSummaryPage';
 import { SixHiQueuePage } from '../pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from '../pages/sixHi/SixHiOrderPage';
 
+function SuperTokensSync() {
+  const session = useSessionContext();
+  const { login, logout, token } = useAuthStore();
+
+  useEffect(() => {
+    if (session.loading) return;
+
+    if (session.doesSessionExist) {
+      const payload = session.accessTokenPayload;
+      if (token !== 'st-session') {
+        const role = payload.roles?.[0] ?? 'OPERATOR';
+        const lines = payload.lineAccess || [];
+        const username = payload.username as string | undefined;
+        login('st-session', role, lines, undefined, payload.machineAccess || [], username);
+      }
+    } else {
+      const existingLegacy = sessionStorage.getItem('mock_jwt');
+      if (!existingLegacy && token) {
+        logout();
+      }
+    }
+  }, [session, login, logout, token]);
+
+  return null;
+}
+
 function OperatorApp() {
   return (
     <BrowserRouter>
+      <SuperTokensSync />
       <Routes>
         <Route path="/login" element={<Login />} />
 

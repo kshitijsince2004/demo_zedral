@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import Session from 'supertokens-node/recipe/session';
 import { UserRole } from '@m1/shared-validation';
-import { AuthUser, LineAccessLevel } from '../services/authService';
+import { AuthUser, LineAccessLevel, getAuthUserBySuperTokensId } from '../services/authService';
 import { assertLineOperation, ensureLineScopes } from '../auth/lineAccessPolicy';
 import { requestContext } from '../context';
 
@@ -22,7 +22,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     }
 
     const payload = session.getAccessTokenPayload();
-    const user = ensureLineScopes({
+    let user = ensureLineScopes({
       id: payload.id || parseInt(session.getUserId(), 10),
       username: payload.username || 'unknown',
       roles: payload.roles || [],
@@ -30,6 +30,17 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
       lineScopes: payload.lineScopes || [],
       machineAccess: payload.machineAccess || [],
     });
+
+    const stUserId = session.getUserId();
+    const liveUser = await getAuthUserBySuperTokensId(stUserId);
+    if (liveUser) {
+      user = ensureLineScopes({
+        ...user,
+        roles: liveUser.roles,
+        lineAccess: liveUser.lineAccess,
+        machineAccess: liveUser.machineAccess,
+      });
+    }
 
     req.user = user;
     const store = requestContext.getStore();

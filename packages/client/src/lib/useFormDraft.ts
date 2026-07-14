@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
 import { Preferences } from '@capacitor/preferences';
 import debounce from 'lodash/debounce';
@@ -46,23 +46,29 @@ export function useFormDraft(
     };
   }, [draftKey, form, onRestored]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const save = useCallback(
+    debounce(async (data: any) => {
+      if (!draftKey) return;
+      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
+    }, debounceMs),
+    [draftKey, debounceMs]
+  );
+
   useEffect(() => {
     if (!draftKey) return;
-    
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const save = debounce(async (data: any) => {
-      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
-    }, debounceMs);
-
     const subscription = form.watch((value) => {
       save(value);
     });
 
     return () => {
       subscription.unsubscribe();
-      save.cancel();
     };
-  }, [draftKey, form, debounceMs]);
+  }, [draftKey, form, save]);
+
+  useEffect(() => {
+    return () => save.cancel();
+  }, [save]);
 
   return { clearDraft };
 }
@@ -81,9 +87,11 @@ export function useManualDraft<T extends Record<string, any>>(
     await Preferences.remove({ key: `draft_${draftKey}` });
   }, [draftKey]);
 
+  const hasLoaded = useRef(false);
+
   // Load draft on mount
   useEffect(() => {
-    if (!draftKey) return;
+    if (!draftKey || hasLoaded.current) return;
     let cancelled = false;
 
     async function load() {
@@ -93,7 +101,8 @@ export function useManualDraft<T extends Record<string, any>>(
       try {
         const parsed = JSON.parse(res.value);
         if (Object.keys(parsed).length > 0) {
-          setValues({ ...values, ...parsed });
+          hasLoaded.current = true;
+          setValues(parsed);
           onRestored?.();
         }
       } catch (err) {
@@ -105,23 +114,27 @@ export function useManualDraft<T extends Record<string, any>>(
     return () => {
       cancelled = true;
     };
-  }, [draftKey, onRestored, setValues, values]); // run on draftKey change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]); // run on draftKey change only
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const save = useCallback(
+    debounce(async (data: any) => {
+      if (!draftKey) return;
+      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
+    }, debounceMs),
+    [draftKey, debounceMs]
+  );
 
   // Save draft on change
   useEffect(() => {
     if (!draftKey) return;
-    
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const save = debounce(async (data: any) => {
-      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
-    }, debounceMs);
-
     save(values);
+  }, [draftKey, values, save]);
 
-    return () => {
-      save.cancel();
-    };
-  }, [draftKey, values, debounceMs]);
+  useEffect(() => {
+    return () => save.cancel();
+  }, [save]);
 
   return { clearDraft };
 }

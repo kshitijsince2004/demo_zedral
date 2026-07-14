@@ -4,7 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.zedral.m1operator',
   appName: 'Zedral Operator',
   webDir: 'dist-operator',
-  server: { androidScheme: 'https' },
+  server: { androidScheme: 'http', cleartext: true },
   android: { allowMixedContent: true },
   plugins: {
     SplashScreen: { launchShowDuration: 800, backgroundColor: '#163328' },

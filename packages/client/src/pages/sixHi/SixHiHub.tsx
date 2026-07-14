@@ -139,7 +139,7 @@ export function SixHiHub() {
       });
       if (shift) params.set('shift', shift);
       // Completed + Order Hold are scoped exclusively by active shift_log_id (date+shift).
-      if (shiftLogId) params.set('shiftLogId', shiftLogId);
+      if (shiftLogId && date === currentPlantDate()) params.set('shiftLogId', shiftLogId);
       const res = await apiClient.get(`/6hi/queue?${params.toString()}`);
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);

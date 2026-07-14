@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound } from 'lucide-react';
-import { signIn } from 'supertokens-web-js/recipe/emailpassword';
+import { signIn } from 'supertokens-auth-react/recipe/emailpassword';
 import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
@@ -94,10 +94,13 @@ export function Login() {
   const handleOperatorLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    console.info(`[Login] Attempting operator login for badge: ${badgeId}`);
     try {
-      await apiClient.post('/auth/badge-pin', { badgeId, pin });
+      const res = await apiClient.post('/auth/badge-pin', { badgeId, pin });
+      console.info('[Login] Operator login successful', res);
       window.location.href = '/'; // ST cookie set → SuperTokensSync hydrates on reload
     } catch (err: unknown) {
+      console.error('[Login] Operator login failed', err);
       const apiErr = err as { status?: number; message?: string; body?: { error?: string } };
       setError(apiErr.body?.error || apiErr.message || 'Invalid badge or PIN');
     }
