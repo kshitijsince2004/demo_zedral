@@ -77,7 +77,12 @@ validate_env_file() {
     value="${value%\"}"
     value="${value#\'}"
     value="${value%\'}"
-    export "$key=$value"
+    
+    # Only export if not already populated in the environment.
+    # This prevents stale .env files from overriding fresh tags from CI/CD runner.
+    if [ -z "${!key:-}" ]; then
+      export "$key=$value"
+    fi
   done < "${ENV_FILE}"
 
   local missing=()
