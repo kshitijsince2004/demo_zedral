@@ -32,6 +32,7 @@
         <domain includeSubdomains="true">headwind.local</domain>
         <domain includeSubdomains="true">10.149.217.114</domain>
         <domain includeSubdomains="true">192.168.168.1</domain>
+        <domain includeSubdomains="true">10.255.92.33</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
     </domain-config>
