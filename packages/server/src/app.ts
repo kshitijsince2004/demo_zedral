@@ -54,7 +54,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   // Capacitor operator APK WebView origin (always allow when CORS is restricted).
   const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'http://localhost'];
   const corsOrigins =
-    configured.length > 0 ? [...new Set([...configured, ...capacitorOrigins])] : undefined;
+    configured.length > 0 ? [...new Set([...configured, ...capacitorOrigins])] : capacitorOrigins;
   
   const stConfig = getSuperTokensConfig();
   supertokens.init({
