@@ -50,7 +50,7 @@ COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
-RUN npm install -g npm@11.4.2 && npm ci --omit=dev \
+RUN npm install -g npm@11.4.2 && npm ci --omit=dev --workspace=packages/server --include-workspace-root \
   && rm -rf node_modules/esbuild node_modules/@esbuild \
   && find node_modules -type d -name esbuild -prune -exec rm -rf {} + 2>/dev/null || true \
   && find node_modules -type d -name '@esbuild' -prune -exec rm -rf {} + 2>/dev/null || true \
