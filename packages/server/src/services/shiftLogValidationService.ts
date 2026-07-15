@@ -63,6 +63,59 @@ export class ShiftLogValidationService {
 
     if (!table) return [];
 
+    if (table === 'txn.crm_order' && (processCode === 'CRM' || processCode === 'SKP')) {
+      const subProcess = processCode === 'CRM' ? 'ROLLING' : 'SKINPASS';
+      const rows = await db
+        .selectFrom('txn.crm_order as o')
+        .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
+        .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
+        .selectAll('o')
+        .select([
+          'r.actual_weight_mt as rolling_weight_mt',
+          'r.final_thk_mm as rolling_final_thk_mm',
+          's.actual_weight_mt as skinpass_weight_mt',
+          's.output_thk_mm as skinpass_output_thk_mm',
+          's.rw_tension_1 as skinpass_rw_tension',
+        ])
+        .where('o.shift_log_id', '=', shiftLogId)
+        .where('o.sub_process', '=', subProcess)
+        .execute();
+
+      if (processCode === 'CRM') {
+        return rows.map((row: any) =>
+          mapCrmEntry(
+            {
+              entry_id: row.order_id,
+              coil_no: row.coil_no,
+              width_mm: row.width_mm,
+              input_thk_mm: row.ppc_thk_mm,
+              output_thk_mm: row.rolling_final_thk_mm,
+              weight_mt: row.rolling_weight_mt ?? row.ppc_weight_mt,
+              remarks: row.remarks,
+            },
+            shiftLogId,
+          ),
+        );
+      }
+
+      return rows.map((row: any) =>
+        mapSkpEntry(
+          {
+            entry_id: row.order_id,
+            coil_no: row.coil_no,
+            width_mm: row.width_mm,
+            thk_mm: row.ppc_thk_mm,
+            final_thk_mm: row.skinpass_output_thk_mm,
+            weight_mt: row.skinpass_weight_mt ?? row.ppc_weight_mt,
+            rw_tension_kg: row.skinpass_rw_tension,
+            remarks: row.remarks,
+          },
+          shiftLogId,
+          [],
+        ),
+      );
+    }
+
     const rows = await db
       .selectFrom(table as any)
       .selectAll()
@@ -99,16 +152,16 @@ export class ShiftLogValidationService {
         const passes =
           entryIds.length > 0
             ? await db
-                .selectFrom('archive.prod_skp_pass' as any)
+                .selectFrom('txn.crm_rolling_pass' as any)
                 .selectAll()
-                .where('entry_id', 'in', entryIds)
+                .where('order_id', 'in', entryIds)
                 .execute()
             : [];
         return rows.map((row: any) =>
           mapSkpEntry(
             row,
             shiftLogId,
-            passes.filter((p) => String(p.entry_id) === String(row.entry_id))
+            passes.filter((p) => String(p.order_id) === String(row.entry_id) || String(p.entry_id) === String(row.entry_id))
           )
         );
       }

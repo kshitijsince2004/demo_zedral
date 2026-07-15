@@ -25,26 +25,23 @@ const mockListJobs = vi.fn();
 vi.mock('../src/export/jobs/ExportJobService', () => ({
   ExportJobService: {
     listJobs: (...args: unknown[]) => mockListJobs(...args),
+    createAndRun: (...args: unknown[]) => mockCreateFromRequest(...args),
+    getJob: (...args: unknown[]) => mockGetJobView(...args),
+    resolveDownload: vi.fn(),
+    listRecentCompletions: vi.fn().mockResolvedValue([]),
   },
   parseExportRequest: (body: Record<string, unknown>) => body,
-}));
-
-vi.mock('../src/services/ExportService', () => ({
-  ExportService: {
-    createFromRequest: (...args: unknown[]) => mockCreateFromRequest(...args),
-    getJobView: (...args: unknown[]) => mockGetJobView(...args),
-    parseQueryParams: (query: Record<string, unknown>) => ({
-      scope: {
-        processId: query.process ? String(query.process) : undefined,
-        dateFrom: query.date_from ? String(query.date_from) : undefined,
-        dateTo: query.date_to ? String(query.date_to) : undefined,
-        shiftCode: query.shift ? String(query.shift) : undefined,
-        coilNo: query.coil_no ? String(query.coil_no) : undefined,
-      },
-      format: String(query.format || 'csv').toUpperCase() === 'XLSX' ? 'XLSX' : 'CSV',
-    }),
-    resolveDownload: vi.fn(),
-  },
+  parseQueryParams: (query: Record<string, unknown>) => ({
+    type: 'RAW' as const,
+    format: String(query.format || 'csv').toUpperCase() === 'XLSX' ? 'XLSX' : 'CSV',
+    scope: {
+      processId: query.process ? String(query.process) : undefined,
+      dateFrom: query.date_from ? String(query.date_from) : undefined,
+      dateTo: query.date_to ? String(query.date_to) : undefined,
+      shiftCode: query.shift ? String(query.shift) : undefined,
+      coilNo: query.coil_no ? String(query.coil_no) : undefined,
+    },
+  }),
 }));
 
 import exportRoutes from '../src/routes/exportRoutes';

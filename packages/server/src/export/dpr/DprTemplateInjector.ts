@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import ExcelJS from 'exceljs';
-import { BLOCK_STRIDE, titleRow } from '../../dpr/geometry/blockGeometry';
-import { dateString, dprFilename as legacyDprFilename } from '../../dpr/geometry/monthCalendar';
+import { BLOCK_STRIDE, titleRow, dateString, dprFilename as legacyDprFilename } from './geometry';
 import type { DprAreaDayBlock, DprRdm, DelayLogEntry } from '../types/rdm';
 import { areaRow, AREA_TITLE_OFFSET } from './areaGeometry';
 import { zeroAllTemplateInputs, zeroDelaySheetInputs } from './blankDprWorkbook';

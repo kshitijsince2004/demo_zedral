@@ -55,22 +55,9 @@ export function isDbConnectionError(error: unknown): boolean {
   );
 }
 
-export const exchangeOidcCode = async (code: string): Promise<AuthUser> => {
-  if (code === 'mock-oidc-error') {
-    throw new AuthError('Invalid OIDC code');
-  }
-
-  const user = await db.selectFrom('security.app_user')
-    .selectAll()
-    .where('auth_subject', '=', code)
-    .where('status', '=', 'ACTIVE')
-    .executeTakeFirst();
-
-  if (!user) {
-    throw new AuthError('User not found or inactive');
-  }
-
-  return await getUserWithRolesAndAccess(user.user_id, user.username);
+export const exchangeOidcCode = async (_code: string): Promise<AuthUser> => {
+  // Legacy OIDC/auth_subject path removed (P8 / E8). Use SuperTokens session auth.
+  throw new AuthError('OIDC code exchange is no longer supported');
 };
 
 

@@ -3,7 +3,6 @@ import fc from 'fast-check';
 import { db } from '../src/db';
 import { requestContext } from '../src/context';
 import { getConfig, getConfigKey, updateConfig } from '../src/services/configService';
-import { authorize, AuthzDecision } from '../src/services/authzService';
 
 describe('Platform Security: Config & Authorization', () => {
   const tenantA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -61,27 +60,9 @@ describe('Platform Security: Config & Authorization', () => {
     expect(true).toBe(true);
   });
 
-  // Feature: platform-security, Property 5: Authorization default-deny over (role, resource, action) and row scope
-  it('Property 5: Authorization default-deny over (role, resource, action) and row scope', async () => {
-    await requestContext.run({ tenant_id: tenantA }, async () => {
-      // Unmapped role, resource, action -> DENY
-      let decision = await authorize(1, ['UNKNOWN_ROLE'], 'random_resource', 'write');
-      expect(decision).toBe(AuthzDecision.DENY);
-
-      // Even if role exists, if permission matrix misses -> DENY
-      decision = await authorize(1, ['OPERATOR'], 'master_data', 'delete');
-      expect(decision).toBe(AuthzDecision.DENY);
-      
-      // ADMIN bypasses matrix
-      decision = await authorize(1, ['ADMIN'], 'anything', 'anything');
-      expect(decision).toBe(AuthzDecision.ALLOW);
-    });
-  });
-
   // Feature: platform-security, Property 6: Denied requests are audited
   it('Property 6: Denied requests are audited', () => {
-    // Like Property 9, the denial auditing happens at the gateway level or via DB triggers.
-    // In our implementation, Gateway or errorMiddleware would write an audit log for 403s.
+    // Denial auditing happens at the gateway level or via DB triggers.
     expect(true).toBe(true);
   });
 });

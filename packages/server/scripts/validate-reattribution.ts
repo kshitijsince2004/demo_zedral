@@ -96,7 +96,7 @@ async function main() {
       USER_ID, SixHiService.toPlanDate(plannedDate), plannedShift,
     );
     orderId = await SixHiService.ensureOrder(batchNumber, USER_ID);
-    const afterCreate = await db.selectFrom('txn.crm6_order')
+    const afterCreate = await db.selectFrom('txn.crm_order')
       .select(['shift_log_id', 'prod_date', 'shift_code', 'status'])
       .where('order_id', '=', orderId).executeTakeFirstOrThrow();
     assert('Order initially attributed to PLANNED shift',
@@ -110,7 +110,7 @@ async function main() {
 
     // 2. Start production today -> re-attribution happens here.
     await SixHiService.startProduction(batchNumber, USER_ID);
-    const afterStart = await db.selectFrom('txn.crm6_order')
+    const afterStart = await db.selectFrom('txn.crm_order')
       .select(['shift_log_id', 'prod_date', 'shift_code', 'status'])
       .where('order_id', '=', orderId).executeTakeFirstOrThrow();
     const newShiftLogId = await SixHiService.resolveShiftLogIdForPlan(P, S);
@@ -135,7 +135,7 @@ async function main() {
 
     // 4. Complete the order.
     await SixHiService.endProduction(batchNumber, USER_ID);
-    const afterEnd = await db.selectFrom('txn.crm6_order')
+    const afterEnd = await db.selectFrom('txn.crm_order')
       .select(['shift_log_id', 'status']).where('order_id', '=', orderId).executeTakeFirstOrThrow();
     assert('Order COMPLETED', afterEnd.status === 'COMPLETED', `status=${afterEnd.status}`);
 
@@ -173,7 +173,7 @@ async function main() {
       `afterCreate=${backlogAfterCreate} afterComplete=${backlogAfterComplete}`);
 
     // No double counting: order attributed to exactly one shift log across all 6HI shift logs.
-    const attributionRows = await db.selectFrom('txn.crm6_order')
+    const attributionRows = await db.selectFrom('txn.crm_order')
       .select(['shift_log_id']).where('order_id', '=', orderId).execute();
     const distinctLogs = new Set(attributionRows.map((r) => String(r.shift_log_id)));
     assert('Order attributed to exactly ONE shift (no duplication)', distinctLogs.size === 1,
@@ -184,16 +184,16 @@ async function main() {
       for (const table of [
         'txn.order_shift_attribution',
         'txn.order_stoppage',
-        'txn.crm6_rolling_pass',
-        'txn.crm6_rolling',
-        'txn.crm6_skinpass',
+        'txn.crm_rolling_pass',
+        'txn.crm_rolling',
+        'txn.crm_skinpass',
         'txn.order_remark',
         'txn.order_rejection',
         'txn.machine_state_event',
       ]) {
         await db.deleteFrom(table as any).where('order_id', '=', orderId).execute().catch(() => {});
       }
-      await db.deleteFrom('txn.crm6_order').where('order_id', '=', orderId).execute().catch(() => {});
+      await db.deleteFrom('txn.crm_order').where('order_id', '=', orderId).execute().catch(() => {});
     }
     await db.deleteFrom('coil.coil').where('coil_no', '=', coilNo).execute().catch(() => {});
     await db.deleteFrom('planning.ppc_batch').where('batch_number', '=', batchNumber).execute().catch(() => {});
@@ -201,10 +201,10 @@ async function main() {
     // Drop shift logs we created that are now empty; recompute caches for pre-existing ones.
     const cleanupLog = async (logId: string | null, existedBefore: boolean) => {
       if (!logId) return;
-      const cnt = await db.selectFrom('txn.crm6_order').select(db.fn.countAll<number>().as('n'))
+      const cnt = await db.selectFrom('txn.crm_order').select(db.fn.countAll<number>().as('n'))
         .where('shift_log_id', '=', logId).executeTakeFirst();
       if (!existedBefore && Number(cnt?.n ?? 0) === 0) {
-        await db.deleteFrom('txn.crm6_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
+        await db.deleteFrom('txn.crm_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
         await db.deleteFrom('txn.shift_log').where('shift_log_id', '=', logId).execute().catch(() => {});
       } else {
         await SixHiService.syncShiftProductionCache(logId).catch(() => {});

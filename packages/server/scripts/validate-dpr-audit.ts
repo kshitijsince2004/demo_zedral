@@ -243,23 +243,23 @@ async function main() {
   } finally {
     if (orderId) {
       for (const t of [
-        'txn.order_shift_attribution', 'txn.order_stoppage', 'txn.crm6_rolling_pass',
-        'txn.crm6_rolling', 'txn.crm6_skinpass', 'txn.order_remark',
+        'txn.order_shift_attribution', 'txn.order_stoppage', 'txn.crm_rolling_pass',
+        'txn.crm_rolling', 'txn.crm_skinpass', 'txn.order_remark',
         'txn.order_rejection', 'txn.machine_state_event',
       ]) {
         await db.deleteFrom(t as any).where('order_id', '=', orderId).execute().catch(() => {});
       }
-      await db.deleteFrom('txn.crm6_order').where('order_id', '=', orderId).execute().catch(() => {});
+      await db.deleteFrom('txn.crm_order').where('order_id', '=', orderId).execute().catch(() => {});
     }
     await db.deleteFrom('coil.coil').where('coil_no', '=', coilNo).execute().catch(() => {});
     await db.deleteFrom('planning.ppc_batch').where('batch_number', '=', batchNumber).execute().catch(() => {});
 
     const cleanupLog = async (logId: string | null, existedBefore: boolean) => {
       if (!logId) return;
-      const cnt = await db.selectFrom('txn.crm6_order').select(db.fn.countAll<number>().as('n'))
+      const cnt = await db.selectFrom('txn.crm_order').select(db.fn.countAll<number>().as('n'))
         .where('shift_log_id', '=', logId).executeTakeFirst();
       if (!existedBefore && Number(cnt?.n ?? 0) === 0) {
-        await db.deleteFrom('txn.crm6_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
+        await db.deleteFrom('txn.crm_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
         await db.deleteFrom('txn.shift_log').where('shift_log_id', '=', logId).execute().catch(() => {});
       } else {
         await SixHiService.syncShiftProductionCache(logId).catch(() => {});

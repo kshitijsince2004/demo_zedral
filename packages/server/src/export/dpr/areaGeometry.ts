@@ -1,6 +1,6 @@
 /** DPR template row geometry — matches Kiro spec (46-row blocks, title row 2). */
 
-import { titleRow } from '../../dpr/geometry/blockGeometry';
+import { titleRow } from './geometry';
 
 /** Area code → offset from day title row (col A label row). */
 export const AREA_TITLE_OFFSET: Record<string, number> = {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound } from 'lucide-react';
-import { signIn } from 'supertokens-auth-react/recipe/emailpassword';
+import { signIn } from 'supertokens-web-js/recipe/emailpassword';
 import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
@@ -94,13 +94,10 @@ export function Login() {
   const handleOperatorLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    console.info(`[Login] Attempting operator login for badge: ${badgeId}`);
     try {
-      const res = await apiClient.post('/auth/badge-pin', { badgeId, pin });
-      console.info('[Login] Operator login successful', res);
+      await apiClient.post('/auth/badge-pin', { badgeId, pin });
       window.location.href = '/'; // ST cookie set → SuperTokensSync hydrates on reload
     } catch (err: unknown) {
-      console.error('[Login] Operator login failed', err);
       const apiErr = err as { status?: number; message?: string; body?: { error?: string } };
       setError(apiErr.body?.error || apiErr.message || 'Invalid badge or PIN');
     }
@@ -215,9 +212,10 @@ export function Login() {
             </div>
           )}
 
-          <p className="text-center text-[10px] text-muted-foreground mt-2 tracking-wide">
-            Hero Steel · MES data collection terminal
-          </p>
+          <div className="mt-4 flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground font-medium tracking-wider uppercase text-center">
+            <span>Hero Steel · MES Console</span>
+            <span className="font-mono text-primary/70 bg-secondary px-1.5 py-0.5 rounded border border-border/50">v{import.meta.env.VITE_APP_VERSION}</span>
+          </div>
         </div>
       </main>
     </div>

@@ -180,79 +180,65 @@ export class ProductionService {
   }
 
   static async saveSkp(entry: M1SKPForm): Promise<string> {
-    const row = await db.transaction().execute(async (trx) => {
-      const created = await trx
-        .insertInto('archive.prod_skp' as any)
+    const orderId = await db.transaction().execute(async (trx) => {
+      let batch = await trx
+        .selectFrom('planning.ppc_batch')
+        .select('batch_id')
+        .where('batch_number', '=', 'ARCHIVE-LEGACY')
+        .executeTakeFirst();
+      if (!batch) {
+        batch = await trx
+          .insertInto('planning.ppc_batch')
+          .values({
+            batch_number: 'ARCHIVE-LEGACY',
+            plan_date: new Date(),
+            shift_code: 'A',
+            machine_code: '6HI',
+            sub_process: 'ROLLING',
+            queue_seq: 9999,
+            width_mm: 0,
+            ppc_thk_mm: 0,
+            ppc_weight_mt: 0,
+            grade_code: 'ARCHIVE',
+            customer_name: 'ARCHIVE',
+            coil_no: 'ARCHIVE-COIL',
+            input_thk_mm: 0,
+          })
+          .returning('batch_id')
+          .executeTakeFirstOrThrow();
+      }
+      const order = await trx
+        .insertInto('txn.crm_order')
         .values({
           shift_log_id: entry.shiftLogId,
-          sl_no: entry.slNo ?? null,
+          batch_id: batch.batch_id,
+          batch_number: 'ARCHIVE-LEGACY',
           coil_no: entry.coilNo,
-          width_mm: entry.widthMm ?? null,
-          thk_mm: entry.thkMm ?? null,
-          final_thk_mm: entry.finalThkMm ?? null,
-          total_passes: entry.totalPasses ?? null,
-          weight_mt: entry.weightMt ?? null,
-          rw_tension_kg: entry.rwTensionKg ?? null,
-          surface_finish: emptyToNull(entry.surfaceFinish),
-          re_rolling: entry.reRolling ?? false,
-          hold_mt: entry.holdMt ?? null,
-          rejection_mt: entry.rejectionMt ?? null,
-          wt_rolling_mt: entry.wtRollingMt ?? null,
-          wt_reroll_mt: entry.wtRerollMt ?? null,
-          wt_skinpass_mt: entry.wtSkinpassMt ?? null,
-          wt_scrap_mt: entry.wtScrapMt ?? null,
-          rolls_in: emptyToNull(entry.rollsIn),
-          rolls_out: emptyToNull(entry.rollsOut),
-          coolant_temp_degc: entry.coolantTempDegc ?? null,
-          coolant_press_kgcm2: entry.coolantPressKgcm2 ?? null,
-          remarks: emptyToNull(entry.remarks),
+          customer_name: 'ARCHIVE',
+          grade_code: 'ARCHIVE',
+          width_mm: entry.widthMm ?? 0,
+          ppc_thk_mm: entry.thkMm ?? 0,
+          ppc_weight_mt: entry.weightMt ?? 0,
+          sub_process: 'SKINPASS',
+          status: 'COMPLETED',
+          prod_duration_min: 0,
+          production_day: new Date(),
         })
-        .returning('entry_id')
+        .returning('order_id')
         .executeTakeFirstOrThrow();
-
-      if (entry.passes?.length) {
-        await trx.insertInto('archive.prod_skp_pass' as any).values(
-          entry.passes.map((pass) => ({
-            entry_id: created.entry_id,
-            pass_no: pass.passNo,
-            thickness_mm: pass.thicknessMm ?? null,
-          })),
-        ).execute();
-      }
-
-      // Dual write to Model B (crm6_order, crm6_skinpass) to support queue draining gracefully
-      let batch = await trx.selectFrom('planning.ppc_batch').select('batch_id').where('batch_number', '=', 'ARCHIVE-LEGACY').executeTakeFirst();
-      if (!batch) {
-        batch = await trx.insertInto('planning.ppc_batch').values({
-          batch_number: 'ARCHIVE-LEGACY', plan_date: new Date(), shift_code: 'A', machine_code: '6HI', sub_process: 'ROLLING', queue_seq: 9999, width_mm: 0, ppc_thk_mm: 0, ppc_weight_mt: 0, grade_code: 'ARCHIVE', customer_name: 'ARCHIVE', coil_no: 'ARCHIVE-COIL', input_thk_mm: 0
-        }).returning('batch_id').executeTakeFirstOrThrow();
-      }
-      const order = await trx.insertInto('txn.crm_order').values({
-        shift_log_id: entry.shiftLogId,
-        batch_id: batch.batch_id,
-        batch_number: 'ARCHIVE-LEGACY',
-        coil_no: entry.coilNo,
-        customer_name: 'ARCHIVE',
-        grade_code: 'ARCHIVE',
-        width_mm: entry.widthMm ?? 0,
-        ppc_thk_mm: entry.thkMm ?? 0,
-        ppc_weight_mt: entry.weightMt ?? 0,
-        sub_process: 'SKINPASS',
-        status: 'COMPLETED',
-        prod_duration_min: 0,
-        production_day: new Date()
-      }).returning('order_id').executeTakeFirstOrThrow();
-      await trx.insertInto('txn.crm_skinpass').values({
-        order_id: order.order_id,
-        actual_weight_mt: entry.wtSkinpassMt ?? null,
-        output_thk_mm: entry.finalThkMm ?? null,
-        rw_tension_1: entry.rwTensionKg ?? null
-      }).execute();
-      
-      return created;
+      await trx
+        .insertInto('txn.crm_skinpass')
+        .values({
+          order_id: order.order_id,
+          actual_weight_mt: entry.wtSkinpassMt ?? entry.weightMt ?? null,
+          output_thk_mm: entry.finalThkMm ?? null,
+          rw_tension_1: entry.rwTensionKg ?? null,
+        })
+        .execute();
+      return order.order_id;
     });
 
-    const id = String(row.entry_id);
+    const id = String(orderId);
     await emitCaptured('SKP', entry.shiftLogId, id, entry.coilNo);
     return id;
   }

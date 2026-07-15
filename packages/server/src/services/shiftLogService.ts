@@ -218,13 +218,12 @@ export class ShiftLogService {
     const map: Record<number, string> = {
       1: 'txn.prod_hrs',
       2: 'txn.prod_pkl',
-      3: 'archive.prod_crm',
+      3: 'txn.crm_order',
       4: 'txn.ann_charge',
-      5: 'archive.prod_skp',
+      5: 'txn.crm_order',
       6: 'txn.prod_rwd',
       7: 'txn.prod_crs',
       8: 'txn.prod_ctl',
-      9: 'txn.prod_glv',
       31: 'txn.crm_order',
     };
     return map[processId] || null;
@@ -292,6 +291,16 @@ export class ShiftLogService {
         .where('status', '=', 'IN_PROCESS')
         .execute();
       return rows.map((r) => r.charge_no);
+    }
+
+    if (processTable === 'txn.crm_order') {
+      const rows = await db
+        .selectFrom('txn.crm_order')
+        .select('coil_no')
+        .where('shift_log_id', '=', shiftLogId)
+        .where('status', 'in', ['QUEUED', 'IN_PROGRESS', 'ACTIVE'])
+        .execute();
+      return rows.map((r) => r.coil_no);
     }
 
     const rows = await db

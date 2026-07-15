@@ -34,8 +34,11 @@ describe('ShiftLogService handover helpers', () => {
   describe('getProcessTable', () => {
     it('maps all documented process IDs', () => {
       expect(ShiftLogService.getProcessTable(1)).toBe('txn.prod_hrs');
+      expect(ShiftLogService.getProcessTable(3)).toBe('txn.crm_order');
       expect(ShiftLogService.getProcessTable(4)).toBe('txn.ann_charge');
-      expect(ShiftLogService.getProcessTable(9)).toBe('txn.prod_glv');
+      expect(ShiftLogService.getProcessTable(5)).toBe('txn.crm_order');
+      expect(ShiftLogService.getProcessTable(31)).toBe('txn.crm_order');
+      expect(ShiftLogService.getProcessTable(9)).toBeNull(); // prod_glv dropped (1918)
       expect(ShiftLogService.getProcessTable(99)).toBeNull();
     });
   });

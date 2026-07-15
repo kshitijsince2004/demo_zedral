@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { titleRow } from '../../dpr/geometry/blockGeometry';
+import { titleRow } from './geometry';
 import { AREA_TITLE_OFFSET } from './areaGeometry';
 
 /** All daily INPUT columns on machine rows (1-indexed). Never write formula columns. */

@@ -58,7 +58,7 @@ async function main() {
       () => SixHiService.addStoppage(batchNumber, '12', undefined, 'x', USER_ID));
 
     await SixHiService.startProduction(batchNumber, USER_ID);
-    const sl = await db.selectFrom('txn.crm6_order').select('shift_log_id')
+    const sl = await db.selectFrom('txn.crm_order').select('shift_log_id')
       .where('order_id', '=', orderId).executeTakeFirstOrThrow();
     if (sl.shift_log_id) createdLogs.push(String(sl.shift_log_id));
 
@@ -91,19 +91,19 @@ async function main() {
       () => SixHiService.addStoppage(batchNumber, '12', undefined, 'late', USER_ID));
   } finally {
     if (orderId) {
-      for (const t of ['txn.order_shift_attribution', 'txn.order_stoppage', 'txn.crm6_rolling_pass',
-        'txn.crm6_rolling', 'txn.crm6_skinpass', 'txn.order_remark', 'txn.order_rejection', 'txn.machine_state_event']) {
+      for (const t of ['txn.order_shift_attribution', 'txn.order_stoppage', 'txn.crm_rolling_pass',
+        'txn.crm_rolling', 'txn.crm_skinpass', 'txn.order_remark', 'txn.order_rejection', 'txn.machine_state_event']) {
         await db.deleteFrom(t as any).where('order_id', '=', orderId).execute().catch(() => {});
       }
-      await db.deleteFrom('txn.crm6_order').where('order_id', '=', orderId).execute().catch(() => {});
+      await db.deleteFrom('txn.crm_order').where('order_id', '=', orderId).execute().catch(() => {});
     }
     await db.deleteFrom('coil.coil').where('coil_no', '=', coilNo).execute().catch(() => {});
     await db.deleteFrom('planning.ppc_batch').where('batch_number', '=', batchNumber).execute().catch(() => {});
     for (const logId of createdLogs) {
-      const cnt = await db.selectFrom('txn.crm6_order').select(db.fn.countAll<number>().as('n'))
+      const cnt = await db.selectFrom('txn.crm_order').select(db.fn.countAll<number>().as('n'))
         .where('shift_log_id', '=', logId).executeTakeFirst();
       if (Number(cnt?.n ?? 0) === 0) {
-        await db.deleteFrom('txn.crm6_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
+        await db.deleteFrom('txn.crm_shift_summary').where('shift_log_id', '=', logId).execute().catch(() => {});
         await db.deleteFrom('txn.shift_log').where('shift_log_id', '=', logId).execute().catch(() => {});
       } else {
         await SixHiService.syncShiftProductionCache(logId).catch(() => {});

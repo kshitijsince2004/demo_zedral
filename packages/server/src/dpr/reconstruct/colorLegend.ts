@@ -1,8 +1,0 @@
-export const ColorLegend = {
-  YELLOW: 'FFFFFF00',
-  CYAN: 'FF00FFFF',
-  SILVER: 'FFC0C0C0',
-  ATTN: 'FFFF0000',
-  WHITE: 'FFFFFFFF',
-  BLACK: 'FF000000'
-};

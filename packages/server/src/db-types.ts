@@ -51,78 +51,9 @@ export interface Apps {
   created_at_time: Int8 | null;
 }
 
-export interface ArchiveProdCrm {
-  ann_hardness: Numeric | null;
-  coil_no: string;
-  elongation_pct: Numeric | null;
-  entry_id: Generated<Int8>;
-  hardness_hrb: Numeric | null;
-  hardness_vpn: Numeric | null;
-  input_thk_mm: Numeric | null;
-  loss_pct: Numeric | null;
-  oil_consumption: Numeric | null;
-  oil_level_final: Numeric | null;
-  oil_level_initial: Numeric | null;
-  output_thk_mm: Numeric | null;
-  prod_date: Timestamp | null;
-  remarks: string | null;
-  roll_in: string | null;
-  roll_out: string | null;
-  rw_tension_kg: Numeric | null;
-  scrap_mt: Numeric | null;
-  shift_code: string | null;
-  shift_log_id: Int8;
-  sl_no: number | null;
-  stretch_pct: Numeric | null;
-  tenant_id: Generated<string>;
-  time_from: string | null;
-  time_to: string | null;
-  tkg_weight_mt: Numeric | null;
-  weight_mt: Numeric | null;
-  width_mm: Numeric | null;
-}
-
-export interface ArchiveProdSkp {
-  coil_no: string;
-  coolant_press_kgcm2: Numeric | null;
-  coolant_temp_degc: Numeric | null;
-  entry_id: Generated<Int8>;
-  final_thk_mm: Numeric | null;
-  hold_mt: Numeric | null;
-  prod_date: Timestamp | null;
-  re_rolling: Generated<boolean | null>;
-  rejection_mt: Numeric | null;
-  remarks: string | null;
-  rolls_in: string | null;
-  rolls_out: string | null;
-  rw_tension_kg: Numeric | null;
-  shift_code: string | null;
-  shift_log_id: Int8;
-  sl_no: number | null;
-  surface_finish: string | null;
-  tenant_id: Generated<string>;
-  thk_mm: Numeric | null;
-  total_passes: number | null;
-  weight_mt: Numeric | null;
-  width_mm: Numeric | null;
-  wt_reroll_mt: Numeric | null;
-  wt_rolling_mt: Numeric | null;
-  wt_scrap_mt: Numeric | null;
-  wt_skinpass_mt: Numeric | null;
-}
-
-export interface ArchiveProdSkpPass {
-  entry_id: Int8;
-  pass_id: Generated<Int8>;
-  pass_no: number;
-  tenant_id: Generated<string>;
-  thickness_mm: Numeric | null;
-}
-
 export interface AuditAuditLog {
   action: string;
-  audit_id: Generated<Int8>;
-  change_request_id: Int8 | null;
+  audit_id: Generated<Int8>;
   column_name: string | null;
   new_value: string | null;
   old_value: string | null;
@@ -272,57 +203,6 @@ export interface DashboardUserSessions {
   session_id: string;
   time_created: Int8;
   user_id: string;
-}
-
-export interface DprDailyEntry {
-  created_at: Generated<Timestamp>;
-  day_number: number;
-  delay_data: Generated<Json>;
-  field_provenance: Generated<Json>;
-  id: Generated<string>;
-  month_id: string;
-  status: Generated<string>;
-  updated_at: Generated<Timestamp>;
-  values: Generated<Json>;
-}
-
-export interface DprFieldMapping {
-  adapter: string;
-  config: Generated<Json>;
-  created_at: Generated<Timestamp>;
-  field_id: string;
-  id: Generated<string>;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface DprMonth {
-  config_overrides: Generated<Json>;
-  created_at: Generated<Timestamp>;
-  days_in_month: number;
-  id: Generated<string>;
-  month: number;
-  sheet_code: string;
-  status: Generated<string>;
-  template_id: string;
-  year: number;
-}
-
-export interface DprSourceMap {
-  created_at: Generated<Timestamp>;
-  field_id: string;
-  id: Generated<string>;
-  resolution_data: Generated<Json>;
-  status: string;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface DprTemplate {
-  blank_master_blob: Buffer;
-  created_at: Generated<Timestamp>;
-  created_by: string | null;
-  geometry_model: Json;
-  id: Generated<string>;
-  original_file_blob: Buffer | null;
 }
 
 export interface EmailpasswordPswdResetTokens {
@@ -790,8 +670,7 @@ export interface SamlRelayState {
   tenant_id: Generated<string>;
 }
 
-export interface SecurityAppUser {
-  auth_subject: string | null;
+export interface SecurityAppUser {
   created_at: Generated<Timestamp>;
   email: string | null;
   emp_code: string | null;
@@ -827,14 +706,6 @@ export interface SecurityMachineAccess {
   assigned_by: Int8 | null;
   machine_code: string;
   user_id: Int8;
-}
-
-export interface SecurityPermission {
-  action: string;
-  permission_id: Generated<Int8>;
-  resource: string;
-  role: string;
-  tenant_id: string;
 }
 
 export interface SecurityRole {
@@ -1030,86 +901,6 @@ export interface TxnAnnChargeCoil {
   coil_no: string;
   seq_no: number | null;
   tenant_id: Generated<string>;
-}
-
-export interface TxnCrm6Order {
-  batch_id: Int8 | null;
-  batch_number: string | null;
-  coil_no: string | null;
-  created_at: Timestamp | null;
-  customer_name: string | null;
-  grade_code: string | null;
-  input_thk_mm: Numeric | null;
-  logged_in_user_id: number | null;
-  order_id: Generated<Int8 | null>;
-  ppc_thk_mm: Numeric | null;
-  ppc_weight_mt: Numeric | null;
-  prod_date: Timestamp | null;
-  prod_duration_min: number | null;
-  prod_end_at: Timestamp | null;
-  prod_start_at: Timestamp | null;
-  production_day: Timestamp | null;
-  shift_code: string | null;
-  shift_log_id: Int8 | null;
-  slit_id: string | null;
-  status: string | null;
-  sub_process: string | null;
-  updated_at: Timestamp | null;
-  width_mm: Numeric | null;
-}
-
-export interface TxnCrm6Rolling {
-  actual_weight_mt: Numeric | null;
-  associate_rw: string | null;
-  destination: string | null;
-  destination_override: boolean | null;
-  dtr: Numeric | null;
-  etr: Numeric | null;
-  final_thk_mm: Numeric | null;
-  order_id: Int8 | null;
-  prod_date: Timestamp | null;
-  rerolling: boolean | null;
-  roll_finish: string | null;
-  roll_in_code: string | null;
-  roll_in_no: string | null;
-  roll_out_code: string | null;
-  roll_out_no: string | null;
-  shift_code: string | null;
-  total_passes: number | null;
-}
-
-export interface TxnCrm6RollingPass {
-  order_id: Int8 | null;
-  pass_id: Generated<Int8 | null>;
-  pass_no: number | null;
-  thickness_mm: Numeric | null;
-}
-
-export interface TxnCrm6ShiftSummary {
-  coolant_press_kgcm2: Numeric | null;
-  coolant_temp_degc: Numeric | null;
-  scrap_kg: Numeric | null;
-  shift_log_id: Int8 | null;
-  submitted_at: Timestamp | null;
-  submitted_by: number | null;
-  summary_id: Generated<Int8 | null>;
-  total_prod_mt: Numeric | null;
-  total_reroll_mt: Numeric | null;
-  total_rolling_mt: Numeric | null;
-  total_skinpass_mt: Numeric | null;
-}
-
-export interface TxnCrm6Skinpass {
-  actual_weight_mt: Numeric | null;
-  ann_hard: Numeric | null;
-  load_max_t: Numeric | null;
-  load_min_t: Numeric | null;
-  operating_mode: string | null;
-  order_id: Int8 | null;
-  output_thk_mm: Numeric | null;
-  rw_tension_1: Numeric | null;
-  rw_tension_2: Numeric | null;
-  stretch_pct: Numeric | null;
 }
 
 export interface TxnCrmOrder {
@@ -1664,9 +1455,6 @@ export interface DB {
   all_auth_recipe_users: AllAuthRecipeUsers;
   app_id_to_user_id: AppIdToUserId;
   apps: Apps;
-  "archive.prod_crm": ArchiveProdCrm;
-  "archive.prod_skp": ArchiveProdSkp;
-  "archive.prod_skp_pass": ArchiveProdSkpPass;
   "audit.audit_log": AuditAuditLog;
   "audit.dpr_month_lock": AuditDprMonthLock;
   "audit.export_job": AuditExportJob;
@@ -1680,11 +1468,6 @@ export interface DB {
   "config.validation_rule": ConfigValidationRule;
   dashboard_user_sessions: DashboardUserSessions;
   dashboard_users: DashboardUsers;
-  "dpr.daily_entry": DprDailyEntry;
-  "dpr.field_mapping": DprFieldMapping;
-  "dpr.month": DprMonth;
-  "dpr.source_map": DprSourceMap;
-  "dpr.template": DprTemplate;
   emailpassword_pswd_reset_tokens: EmailpasswordPswdResetTokens;
   emailpassword_user_to_tenant: EmailpasswordUserToTenant;
   emailpassword_users: EmailpasswordUsers;
@@ -1737,7 +1520,6 @@ export interface DB {
   "security.device_registration": SecurityDeviceRegistration;
   "security.line_access": SecurityLineAccess;
   "security.machine_access": SecurityMachineAccess;
-  "security.permission": SecurityPermission;
   "security.role": SecurityRole;
   "security.tenant": SecurityTenant;
   "security.tenant_config": SecurityTenantConfig;
@@ -1763,11 +1545,6 @@ export interface DB {
   "txn.crm_rolling_pass": TxnCrmRollingPass;
   "txn.crm_shift_summary": TxnCrmShiftSummary;
   "txn.crm_skinpass": TxnCrmSkinpass;
-  "txn.crm6_order": TxnCrm6Order;
-  "txn.crm6_rolling": TxnCrm6Rolling;
-  "txn.crm6_rolling_pass": TxnCrm6RollingPass;
-  "txn.crm6_shift_summary": TxnCrm6ShiftSummary;
-  "txn.crm6_skinpass": TxnCrm6Skinpass;
   "txn.defect_entry": TxnDefectEntry;
   "txn.idempotency_key": TxnIdempotencyKey;
   "txn.machine_handover": TxnMachineHandover;

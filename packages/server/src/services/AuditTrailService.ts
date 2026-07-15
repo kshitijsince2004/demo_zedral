@@ -11,7 +11,6 @@ export interface AuditLogEntry {
   old_value: string | null;
   new_value: string | null;
   user_id: number | null;
-  change_request_id: number | null;
 }
 
 function serializeValue(value: unknown): string | null {
@@ -105,10 +104,9 @@ export class AuditTrailService {
     oldValues: Record<string, unknown> | null,
     newValues: Record<string, unknown> | null,
     userId: number,
-    changeRequestId?: number,
+    _changeRequestId?: number,
   ): AuditLogEntry[] {
     const changes: AuditLogEntry[] = [];
-    const crId = changeRequestId ?? null;
 
     if (action === 'UPDATE' && oldValues && newValues) {
       const keys = new Set([...Object.keys(oldValues), ...Object.keys(newValues)]);
@@ -123,7 +121,6 @@ export class AuditTrailService {
             column_name: key,
             old_value: oldVal,
             new_value: newVal,
-            change_request_id: crId,
             user_id: userId,
           });
         }
@@ -138,7 +135,6 @@ export class AuditTrailService {
       column_name: null,
       old_value: oldValues ? JSON.stringify(oldValues) : null,
       new_value: newValues ? JSON.stringify(newValues) : null,
-      change_request_id: crId,
       user_id: userId,
     });
     return changes;

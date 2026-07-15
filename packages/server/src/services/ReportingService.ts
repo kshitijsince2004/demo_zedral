@@ -335,19 +335,17 @@ function sumShiftProduction(shifts: ShiftRow[]): number {
 const PROD_ENTRY_TABLES = [
   'txn.prod_hrs',
   'txn.prod_pkl',
-  'archive.prod_crm' as any,
   'txn.prod_crs',
   'txn.prod_ctl',
   'txn.prod_rwd',
-  'archive.prod_skp' as any,
 ] as const;
 
 async function fetchEntryIdsForShifts(shiftIds: string[]): Promise<string[]> {
   if (shiftIds.length === 0) return [];
 
   const ids = new Set<string>();
-  await Promise.all(
-    PROD_ENTRY_TABLES.map(async (table) => {
+  await Promise.all([
+    ...PROD_ENTRY_TABLES.map(async (table) => {
       const rows = await reportingDb
         .selectFrom(table)
         .select('entry_id')
@@ -357,7 +355,17 @@ async function fetchEntryIdsForShifts(shiftIds: string[]): Promise<string[]> {
         ids.add(String(row.entry_id));
       }
     }),
-  );
+    (async () => {
+      const rows = await reportingDb
+        .selectFrom('txn.crm_order')
+        .select('order_id')
+        .where('shift_log_id', 'in', shiftIds)
+        .execute();
+      for (const row of rows) {
+        ids.add(String(row.order_id));
+      }
+    })(),
+  ]);
   return [...ids];
 }
 

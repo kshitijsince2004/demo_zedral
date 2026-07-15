@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
-import { ExportService } from '../services/ExportService';
 import { finalizeDprMonth } from '../export/jobs/DprMonthLock';
-import { ExportJobService, parseExportRequest } from '../export/jobs/ExportJobService';
+import { ExportJobService, parseExportRequest, parseQueryParams } from '../export/jobs/ExportJobService';
 import type { ExportType } from '../export/types';
 
 const router = Router();
@@ -19,7 +18,7 @@ function httpStatusForJob(status: string): number {
 
 async function runExport(req: any, res: any, body: Record<string, unknown>) {
   try {
-    const view = await ExportService.createFromRequest(body, req.user!);
+    const view = await ExportJobService.createAndRun(parseExportRequest(body), req.user!);
     const code = httpStatusForJob(view.status);
     if (code === 500) {
       return res.status(500).json({ error: view.error || 'Export failed', ...view });
@@ -34,7 +33,7 @@ async function runExport(req: any, res: any, body: Record<string, unknown>) {
 
 router.get('/download/:jobId', async (req, res) => {
   try {
-    const resolved = await ExportService.resolveDownload(req.params.jobId, req.user!);
+    const resolved = await ExportJobService.resolveDownload(req.params.jobId, req.user!);
     if (resolved.redirectUrl) {
       return res.redirect(resolved.redirectUrl);
     }
@@ -119,13 +118,17 @@ router.get('/', async (req, res) => {
     }
   }
 
-  const { scope, format } = ExportService.parseQueryParams(q);
-  await runExport(req, res, parseExportRequest({ type: 'RAW', format, scope }) as unknown as Record<string, unknown>);
+  const reqParsed = parseQueryParams(q);
+  await runExport(
+    req,
+    res,
+    parseExportRequest({ type: 'RAW', format: reqParsed.format, scope: reqParsed.scope }) as unknown as Record<string, unknown>,
+  );
 });
 
 router.get(['/:jobId', '/status/:jobId'], async (req, res) => {
   try {
-    const job = await ExportService.getJobView(req.params.jobId, req.user!);
+    const job = await ExportJobService.getJob(req.params.jobId, req.user!);
     if (!job) return res.status(404).json({ error: 'Export job not found' });
     res.json(job);
   } catch (error: unknown) {
