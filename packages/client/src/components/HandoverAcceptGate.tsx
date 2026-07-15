@@ -25,13 +25,18 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
 
   const checkPending = useCallback(async () => {
     setLoadError(null);
-    setPending(undefined);
+    // Don't reset pending→undefined on refresh — that flashes a z-200 overlay and blocks Logout.
     try {
       if (!machineAccess.includes(machineCode)) {
         setPending(null);
         return;
       }
-      const { pending: p } = await machineHandoverService.getPending(machineCode);
+      const { pending: p } = await Promise.race([
+        machineHandoverService.getPending(machineCode),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('Handover check timed out')), 15_000);
+        }),
+      ]);
       setPending(p);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -40,6 +45,7 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
         return;
       }
       setLoadError(err instanceof Error ? err.message : 'Failed to check handover status');
+      setPending((prev) => (prev === undefined ? null : prev));
     }
   }, [machineCode, machineAccess, logout, navigate]);
 
@@ -69,9 +75,14 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
       {loadError && (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-secondary gap-4 p-6">
           <p className="text-sm text-destructive text-center max-w-md">{loadError}</p>
-          <ZButton variant="secondary" onClick={() => void checkPending()}>
-            Retry
-          </ZButton>
+          <div className="flex gap-3">
+            <ZButton variant="secondary" onClick={() => void checkPending()}>
+              Retry
+            </ZButton>
+            <ZButton variant="danger" onClick={() => logout()}>
+              Logout
+            </ZButton>
+          </div>
         </div>
       )}
 

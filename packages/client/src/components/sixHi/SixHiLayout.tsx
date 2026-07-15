@@ -221,8 +221,8 @@ export function SixHiLayout() {
     : null;
 
   return (
-    <HandoverAcceptGate machineCode={pathMill}>
-      <OperatorShell processCode={pathMill} onManualStoppage={() => setManualStoppageOpen(true)}>
+    <OperatorShell processCode={pathMill} onManualStoppage={() => setManualStoppageOpen(true)}>
+      <HandoverAcceptGate machineCode={pathMill}>
         <div className={[
           'flex flex-1 flex-col min-h-0',
           showPanel && !workspaceOpen ? 'pr-[6.5rem]' : '',
@@ -494,7 +494,7 @@ export function SixHiLayout() {
           }}
         />
       )}
-      </OperatorShell>
-    </HandoverAcceptGate>
+      </HandoverAcceptGate>
+    </OperatorShell>
   );
 }

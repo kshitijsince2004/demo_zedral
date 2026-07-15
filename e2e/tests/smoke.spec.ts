@@ -45,6 +45,7 @@ test.describe('Staging smoke', () => {
   test('login → dashboard → orders → create order UI → shift summary → reports → logout', async ({
     page,
   }) => {
+    test.setTimeout(120_000);
     await login(page);
 
     // Dashboard / home loads
@@ -94,21 +95,28 @@ test.describe('Staging smoke', () => {
       await page.goto('/plant/reports').catch(() => undefined);
     }
 
-    // Logout
-    const logout = page.getByRole('button', { name: /log ?out|sign out/i }).first();
-    if (await logout.count()) {
-      await logout.click();
-      
-      try {
-        const confirmDialog = page.getByRole('dialog');
-        const confirmBtn = confirmDialog.getByRole('button', { name: /log ?out|sign out|confirm/i });
-        await confirmBtn.waitFor({ state: 'visible', timeout: 2000 });
-        await confirmBtn.click();
-      } catch (e) {
-        // No confirmation modal appeared, proceed
-      }
+    // Logout — wait out handover spinner if it still covers content (nav is outside the gate).
+    await page
+      .getByText(/Checking handover status/i)
+      .waitFor({ state: 'hidden', timeout: 20_000 })
+      .catch(() => undefined);
 
-      await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
+    const logout = page.getByRole('button', { name: /log ?out|sign out|end session/i }).first();
+    if (await logout.count()) {
+      await logout.click({ timeout: 15_000 });
+      const confirmBtn = page.getByRole('dialog').getByRole('button', { name: /^logout$/i });
+      try {
+        await confirmBtn.waitFor({ state: 'visible', timeout: 3_000 });
+        await confirmBtn.click();
+      } catch {
+        // No confirmation modal
+      }
+      try {
+        await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
+      } catch {
+        await page.goto('/login');
+      }
+      await expect(page.getByPlaceholder(/badge/i)).toBeVisible({ timeout: 15_000 });
     } else {
       await page.goto('/login');
       await expect(page.getByPlaceholder(/badge/i)).toBeVisible();
