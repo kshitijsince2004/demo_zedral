@@ -182,6 +182,9 @@ export interface LiveOrderRow {
   destination?: SixHiDestination;
   subProcess?: SixHiSubProcess;
   coilNo: string;
+  /** Mother coil ID — same as coilNo when sourced from CRM/PPC. */
+  motherCoil?: string;
+  slitId?: string;
   shiftCode?: string;
   nextProcess?: string;
   completionPct?: number;
@@ -217,6 +220,8 @@ export interface MachineStatusCard {
   activeOrders?: Array<{
     batchNumber: string;
     coilNo?: string;
+    motherCoil?: string;
+    slitId?: string;
     status: string;
     customer?: string;
     weightMt?: number;
@@ -231,6 +236,9 @@ export interface MachineHeadStoppageRow {
   startAt: string;
   subProcess?: string;
   remarks?: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
 }
 
 export interface MachineHeadOperatorRow {
@@ -239,6 +247,9 @@ export interface MachineHeadOperatorRow {
   machineCode: string;
   status: string;
   subProcess?: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
 }
 
 export interface MachineHeadProductionRow {
@@ -247,6 +258,9 @@ export interface MachineHeadProductionRow {
   completedAt: string;
   weightMt: number;
   subProcess?: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
 }
 
 export interface HandoverOverviewRow {
@@ -269,6 +283,9 @@ export interface HandoverOverviewRow {
   incomingUsername?: string;
   createdByBoundary?: boolean;
   subProcess?: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
 }
 
 export interface MachineHeadDashboardData {
@@ -308,6 +325,9 @@ export interface MachineHeadDashboardData {
     shiftCode?: string;
     planDate?: string;
     subProcess?: string;
+    motherCoil?: string;
+    coilNo?: string;
+    slitId?: string;
   }[];
   rejectedOrderCount?: number;
 }
@@ -351,6 +371,8 @@ export interface RejectedOrderRow {
   planDate?: string;
   subProcess?: string;
   coilNo?: string;
+  motherCoil?: string;
+  slitId?: string;
 }
 
 export interface MachineAccessEntry {

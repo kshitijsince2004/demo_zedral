@@ -6,6 +6,7 @@ import { ZBadge } from '../primitives/ZBadge';
 import { reportingService, type PlantHeadBacklogOrder } from '../../lib/reportingService';
 import { liveService } from '../../lib/liveService';
 import { OrderDetailModal } from '../live/OrderDetailModal';
+import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
 
 interface BacklogDetailDrawerProps {
   open: boolean;
@@ -98,7 +99,6 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
                 <thead className="sticky top-0 bg-background border-b border-border">
                   <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-3 font-semibold">Order</th>
-                    <th className="px-4 py-3 font-semibold">Coil</th>
                     <th className="px-4 py-3 font-semibold">Planned</th>
                     <th className="px-4 py-3 font-semibold">Pending</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
@@ -113,11 +113,16 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
                       className="border-b border-border/60 hover:bg-muted/30 cursor-pointer transition-colors"
                       onClick={() => loadDetail(order.batchNumber)}
                     >
-                      <td className="px-4 py-3 font-mono font-medium">{order.batchNumber}</td>
                       <td className="px-4 py-3">
-                        <div className="font-mono">
-                          {order.slitId ? `${order.coilNo} ${order.slitId}` : order.coilNo}
-                        </div>
+                        <OrderIdentityDisplay
+                          order={{
+                            batchNumber: order.batchNumber,
+                            motherCoil: order.motherCoil ?? order.coilNo,
+                            coilNo: order.coilNo,
+                            slitId: order.slitId,
+                          }}
+                          size="sm"
+                        />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div>{order.planDate}</div>

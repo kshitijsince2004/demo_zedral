@@ -625,7 +625,7 @@ export class MachineHandoverService {
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
       .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
-      .select([...handoverSelect, 'pb.sub_process'])
+      .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
       .where('h.status', '=', 'PENDING')
       .orderBy('h.created_at', 'desc');
 
@@ -643,7 +643,7 @@ export class MachineHandoverService {
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
       .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
-      .select([...handoverSelect, 'pb.sub_process'])
+      .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
       .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED'])
       .orderBy('h.created_at', 'desc')
       .limit(15);
@@ -681,6 +681,8 @@ export class MachineHandoverService {
         ? Math.max(0, Math.round((new Date(shiftEndAt).getTime() - new Date(shiftStartAt).getTime()) / 60000))
         : undefined;
 
+      const coilNo = h.coil_no?.trim() || undefined;
+      const slitId = h.slit_id?.trim() || undefined;
       return {
         handoverId: String(h.handover_id),
         machineCode: h.machine_code,
@@ -700,6 +702,9 @@ export class MachineHandoverService {
         incomingUsername: h.incoming_username ?? undefined,
         createdByBoundary: h.created_by_boundary,
         subProcess: h.sub_process ?? undefined,
+        coilNo,
+        motherCoil: coilNo,
+        slitId,
       };
     };
 

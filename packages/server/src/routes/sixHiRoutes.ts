@@ -403,6 +403,9 @@ router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
         'pb.sub_process',
         'pb.ppc_weight_mt',
         'pb.coil_no',
+        'pb.slit_id',
+        'o.coil_no as order_coil_no',
+        'o.slit_id as order_slit_id',
         'pb.shift_code',
         'pb.plan_date',
         'o.status',
@@ -424,22 +427,28 @@ router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
     }
 
     const rows = await q.orderBy('o.prod_end_at', 'desc').limit(200).execute();
-    res.json(rows.map((r) => ({
-      batchNumber: r.batch_number,
-      customer: r.customer_name,
-      grade: r.grade_code,
-      machineCode: r.machine_code,
-      machineName: r.machine_name,
-      subProcess: r.sub_process,
-      weightMt: Number(r.ppc_weight_mt),
-      coilNo: r.coil_no,
-      shiftCode: r.shift_code,
-      planDate: r.plan_date,
-      status: r.status,
-      prodStartAt: r.prod_start_at,
-      prodEndAt: r.prod_end_at,
-      operatorName: r.operator_name,
-    })));
+    res.json(rows.map((r) => {
+      const coilNo = ((r as { order_coil_no?: string | null }).order_coil_no ?? r.coil_no ?? '').trim() || undefined;
+      const slitId = ((r as { order_slit_id?: string | null }).order_slit_id ?? r.slit_id)?.trim() || undefined;
+      return {
+        batchNumber: r.batch_number,
+        customer: r.customer_name,
+        grade: r.grade_code,
+        machineCode: r.machine_code,
+        machineName: r.machine_name,
+        subProcess: r.sub_process,
+        weightMt: Number(r.ppc_weight_mt),
+        coilNo,
+        motherCoil: coilNo,
+        slitId,
+        shiftCode: r.shift_code,
+        planDate: r.plan_date,
+        status: r.status,
+        prodStartAt: r.prod_start_at,
+        prodEndAt: r.prod_end_at,
+        operatorName: r.operator_name,
+      };
+    }));
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load completed orders' });
   }

@@ -32,6 +32,16 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</dt>
           <dd className="font-mono font-semibold">{formatDuration(order.prodDurationMin)}</dd>
         </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {isRolling ? 'Input Thickness' : 'Pre-Stage Thickness'}
+          </dt>
+          <dd className="font-mono font-semibold">{order.inputThkMm} mm</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Target Thickness</dt>
+          <dd className="font-mono font-semibold">{order.targetThkMm} mm</dd>
+        </div>
         <div className="col-span-2">
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Start</dt>
           <dd className="font-mono text-xs">{order.prodStartAt ? formatPlantDateTime(order.prodStartAt) : '—'}</dd>
@@ -45,7 +55,7 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           <dd className="font-mono font-semibold">{producedMt != null ? `${producedMt} MT` : '—'}</dd>
         </div>
         <div>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Target</dt>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Target Weight</dt>
           <dd className="font-mono font-semibold">{order.ppcWeightMt} MT</dd>
         </div>
       </dl>
@@ -57,7 +67,12 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           {order.rolling.passes.length > 0 && (
             <p className="font-mono text-xs">
               Passes: {order.rolling.passes.map((p) => `P${p.passNo} ${p.thicknessMm}mm`).join(' · ')}
+              {order.rolling.totalPasses != null ? ` · ${order.rolling.totalPasses} total` : ''}
             </p>
+          )}
+          {order.rolling.finalThkMm != null && <p>Final thickness: {order.rolling.finalThkMm} mm</p>}
+          {(order.rolling.etr != null || order.rolling.dtr != null) && (
+            <p>ETR/DTR: {order.rolling.etr ?? '—'} / {order.rolling.dtr ?? '—'}</p>
           )}
           {order.rolling.associateRw && <p>Rewinder: {order.rolling.associateRw}</p>}
         </div>
@@ -67,10 +82,15 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
         <div className="rounded-xl bg-secondary/50 p-3 space-y-1 text-sm">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Skin Pass</p>
           {order.skinPass.outputThkMm != null && <p>Output: {order.skinPass.outputThkMm} mm</p>}
+          {order.skinPass.stretchPct != null && <p>Stretch: {order.skinPass.stretchPct}%</p>}
           {order.skinPass.annHard != null && <p>Ann Hard: {order.skinPass.annHard}</p>}
           {(order.skinPass.rwTension1 != null || order.skinPass.rwTension2 != null) && (
             <p>SP Tension: {order.skinPass.rwTension1 ?? '—'}/{order.skinPass.rwTension2 ?? '—'}</p>
           )}
+          {(order.skinPass.loadMinT != null || order.skinPass.loadMaxT != null) && (
+            <p>Load: {order.skinPass.loadMinT ?? '—'}–{order.skinPass.loadMaxT ?? '—'} T</p>
+          )}
+          {order.skinPass.operatingMode && <p>Mode: {order.skinPass.operatingMode}</p>}
         </div>
       )}
 
@@ -142,9 +162,12 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Stoppages</p>
           <ul className="space-y-1 text-xs font-mono">
-            {order.stoppages.slice(0, 5).map((s) => (
+            {order.stoppages.map((s) => (
               <li key={s.id} className="text-muted-foreground">
                 {s.categoryLabel} · {formatDuration(s.durationMin)}
+                {s.startAt ? ` · ${formatPlantDateTime(s.startAt)}` : ''}
+                {s.endAt ? ` → ${formatPlantDateTime(s.endAt)}` : ''}
+                {s.remarks ? ` · ${s.remarks}` : ''}
               </li>
             ))}
           </ul>

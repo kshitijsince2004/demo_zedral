@@ -16,6 +16,7 @@ export type TraceabilitySearchResult = {
   orderInfo: {
     batchNumber: string;
     coilNo: string;
+    motherCoil?: string | null;
     slitId?: string | null;
     customer: string;
     grade: string;

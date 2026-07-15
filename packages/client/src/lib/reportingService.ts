@@ -101,6 +101,7 @@ export interface PlantHeadBacklogOrder {
   batchNumber: string;
   batchId: string;
   coilNo: string;
+  motherCoil?: string;
   slitId?: string;
   planDate: string;
   shiftCode: string;

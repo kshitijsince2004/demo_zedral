@@ -106,6 +106,12 @@ export default defineConfig({
         target: 'http://localhost:3005',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      // SuperTokens SDK calls /auth/* directly when apiBasePath is '/auth'.
+      // Proxy this to the backend so both web and APK use the same path.
+      '/auth': {
+        target: 'http://localhost:3005',
+        changeOrigin: true,
       }
     }
   }

@@ -69,22 +69,41 @@ function liveRowFromQueue(o: MachineHeadDashboardData['orderQueue'][0]): LiveOrd
   return o;
 }
 
+function identityFromRow(r: {
+  batchNumber: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
+}) {
+  const coil = (r.motherCoil ?? r.coilNo ?? r.batchNumber).trim() || r.batchNumber;
+  return {
+    batchNumber: r.batchNumber,
+    motherCoil: r.motherCoil ?? r.coilNo ?? coil,
+    coilNo: r.coilNo ?? r.motherCoil ?? coil,
+    slitId: r.slitId,
+  };
+}
+
 function liveRowFromHistory(h: MachineHeadDashboardData['productionHistory'][0], dashboard: MachineHeadDashboardData): LiveOrderRow {
   const match = dashboard.orderQueue.find((q) => q.batchNumber === h.batchNumber);
+  const id = identityFromRow(h);
   return match ?? {
     batchNumber: h.batchNumber,
     customer: '—',
     grade: '—',
-    machineCode: '—',
-    machineName: '—',
-    currentProcess: '—',
+    machineCode: h.machineCode ?? '—',
+    machineName: h.machineCode ?? '—',
+    currentProcess: h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
     status: 'COMPLETED',
     weightMt: h.weightMt,
-    coilNo: h.batchNumber,
+    coilNo: id.coilNo,
+    motherCoil: id.motherCoil,
+    slitId: id.slitId,
   };
 }
 
 function liveRowFromRejected(r: NonNullable<MachineHeadDashboardData['rejectedOrders']>[0] | import('@m1/shared-validation').RejectedOrderRow): LiveOrderRow {
+  const id = identityFromRow(r);
   return {
     batchNumber: r.batchNumber,
     customer: '—',
@@ -94,7 +113,9 @@ function liveRowFromRejected(r: NonNullable<MachineHeadDashboardData['rejectedOr
     currentProcess: r.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
     status: 'REJECTED',
     weightMt: r.weightMt,
-    coilNo: ('coilNo' in r && r.coilNo) ? r.coilNo : r.batchNumber,
+    coilNo: id.coilNo,
+    motherCoil: id.motherCoil,
+    slitId: id.slitId,
     shiftCode: r.shiftCode,
   };
 }
@@ -472,7 +493,7 @@ export function MachineHeadDashboard() {
                       tabIndex={0}
                     >
                       <span className="min-w-0 flex-1">
-                        <OrderIdentityDisplay order={{ batchNumber: h.batchNumber, coilNo: h.batchNumber }} size="sm" />
+                        <OrderIdentityDisplay order={identityFromRow(h)} size="sm" />
                       </span>
                       <span className="font-mono">{h.weightMt} MT</span>
                       <span className="text-muted-foreground">{formatPlantDateTime(h.completedAt)}</span>
@@ -494,24 +515,29 @@ export function MachineHeadDashboard() {
                       onClick={() => {
                         if (!dashboard) return;
                         const match = dashboard.orderQueue.find((q) => q.batchNumber === a.batchNumber);
+                        const id = identityFromRow(a);
                         selectOrder(match ?? {
                           batchNumber: a.batchNumber,
                           customer: '—',
                           grade: '—',
-                          machineCode: '—',
-                          machineName: '—',
-                          currentProcess: '—',
+                          machineCode: a.machineCode ?? '—',
+                          machineName: a.machineCode ?? '—',
+                          currentProcess: a.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
                           operatorName: a.operatorName,
                           status: a.status as LiveOrderRow['status'],
                           weightMt: 0,
-                          coilNo: a.batchNumber,
+                          coilNo: id.coilNo,
+                          motherCoil: id.motherCoil,
+                          slitId: id.slitId,
                         });
                       }}
                       role="button"
                       tabIndex={0}
                     >
                       <span className="font-semibold">{a.operatorName}</span>
-                      <span className="font-mono font-bold">{a.batchNumber}</span>
+                      <span className="min-w-0 flex-1">
+                        <OrderIdentityDisplay order={identityFromRow(a)} size="sm" />
+                      </span>
                       <span className="text-muted-foreground">{formatOrderStatusLabel(a.status)}</span>
                     </li>
                   ))}
@@ -550,6 +576,7 @@ export function MachineHeadDashboard() {
                           onClick={() => {
                             if (!dashboard) return;
                             const match = dashboard.orderQueue.find((q) => q.batchNumber === s.batchNumber);
+                            const id = identityFromRow(s);
                             selectOrder(match ?? {
                               batchNumber: s.batchNumber,
                               customer: '—',
@@ -559,12 +586,16 @@ export function MachineHeadDashboard() {
                               currentProcess: '—',
                               status: 'STOPPAGE',
                               weightMt: 0,
-                              coilNo: s.batchNumber,
+                              coilNo: id.coilNo,
+                              motherCoil: id.motherCoil,
+                              slitId: id.slitId,
                             });
                           }}
                         >
                           <td className="px-4 py-3 text-sm font-mono font-bold">{s.machineCode}</td>
-                          <td className="px-4 py-3 text-sm font-mono">{s.batchNumber}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <OrderIdentityDisplay order={identityFromRow(s)} size="sm" />
+                          </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="font-medium text-destructive">{s.category}</div>
                             {s.remarks && <div className="text-xs text-muted-foreground">{s.remarks}</div>}
@@ -638,7 +669,7 @@ export function MachineHeadDashboard() {
                     tabIndex={0}
                   >
                     <div className="flex justify-between w-full gap-2">
-                      <OrderIdentityDisplay order={{ batchNumber: r.batchNumber, coilNo: r.coilNo }} size="sm" className="min-w-0" />
+                      <OrderIdentityDisplay order={identityFromRow(r)} size="sm" className="min-w-0" />
                       <span className="font-mono font-bold text-destructive shrink-0">{r.weightMt} MT</span>
                     </div>
                     <div className="flex gap-2 items-start mt-1 w-full">
@@ -703,6 +734,7 @@ export function MachineHeadDashboard() {
                         key={o.batchNumber}
                         className="hover:bg-secondary/50 cursor-pointer transition-colors"
                         onClick={() => {
+                          const id = identityFromRow(o);
                           selectOrder({
                             batchNumber: o.batchNumber,
                             customer: o.customer ?? '—',
@@ -713,12 +745,14 @@ export function MachineHeadDashboard() {
                             operatorName: o.operatorName,
                             status: 'COMPLETED',
                             weightMt: o.weightMt,
-                            coilNo: o.coilNo,
+                            coilNo: id.coilNo,
+                            motherCoil: id.motherCoil,
+                            slitId: id.slitId,
                           });
                         }}
                       >
                         <td className="px-4 py-3 text-sm">
-                          <OrderIdentityDisplay order={{ batchNumber: o.batchNumber, coilNo: o.coilNo }} size="sm" />
+                          <OrderIdentityDisplay order={identityFromRow(o)} size="sm" />
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer}</td>
                         <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">{o.weightMt} MT</td>
@@ -754,10 +788,23 @@ export function MachineHeadDashboard() {
                       <span className="font-bold">{h.machineCode}</span>
                       <span className="text-muted-foreground font-mono">Shift {h.outgoingShiftCode} → {h.incomingShiftCode}</span>
                     </div>
-                    <p className="text-muted-foreground">
-                      {h.batchNumber ? `Order ${h.batchNumber}` : 'Machine handover'}
-                      {h.subProcess ? ` · ${h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Cold Rolling'}` : ''}
-                    </p>
+                    {h.batchNumber ? (
+                      <div className="mb-1">
+                        <OrderIdentityDisplay order={identityFromRow({
+                          batchNumber: h.batchNumber,
+                          motherCoil: h.motherCoil,
+                          coilNo: h.coilNo,
+                          slitId: h.slitId,
+                        })} size="sm" />
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">Machine handover</p>
+                    )}
+                    {h.subProcess && (
+                      <p className="text-muted-foreground">
+                        {h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Cold Rolling'}
+                      </p>
+                    )}
                     <p className="text-muted-foreground">
                       Start {formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}
                       {h.shiftEndAt ? ` · End ${formatPlantDateTime(h.shiftEndAt)}` : ''}

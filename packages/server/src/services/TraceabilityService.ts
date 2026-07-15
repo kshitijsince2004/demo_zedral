@@ -31,10 +31,13 @@ export class TraceabilityService {
         .where('batch_id', '=', batch.batch_id)
         .executeTakeFirst();
 
+      const coilNo = (crmOrder?.coil_no ?? batch.coil_no ?? '').trim() || null;
+      const slitId = (crmOrder?.slit_id ?? batch.slit_id)?.trim() || null;
       orderInfo = {
         batchNumber: batch.batch_number,
-        coilNo: batch.coil_no,
-        slitId: batch.slit_id,
+        coilNo,
+        motherCoil: coilNo,
+        slitId,
         customer: batch.customer_name,
         grade: batch.grade_code,
         subProcess: batch.sub_process,

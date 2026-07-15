@@ -79,7 +79,12 @@ export function RejectedOrdersDrawer({
                   onClick={() => onSelect(order.batchNumber)}
                 >
                   <OrderIdentityDisplay
-                    order={{ batchNumber: order.batchNumber, coilNo: order.coilNo }}
+                    order={{
+                      batchNumber: order.batchNumber,
+                      motherCoil: order.motherCoil ?? order.coilNo,
+                      coilNo: order.coilNo,
+                      slitId: order.slitId,
+                    }}
                     size="sm"
                   />
                   <p className="text-xs text-muted-foreground mt-2 truncate">{order.reason}</p>

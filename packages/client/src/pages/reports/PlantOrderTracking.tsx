@@ -5,6 +5,7 @@ import { formatTraceabilityRecordDetails } from '../../lib/traceabilityFormat';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
+import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -151,10 +152,19 @@ export function PlantOrderTracking() {
               <div className="px-5 py-4 border-b border-border/50">
                 <h3 className="font-semibold text-foreground">Order Information</h3>
               </div>
+              <div className="px-5 pt-5">
+                <OrderIdentityDisplay
+                  order={{
+                    batchNumber: result.orderInfo.batchNumber,
+                    motherCoil: result.orderInfo.motherCoil ?? result.orderInfo.coilNo,
+                    coilNo: result.orderInfo.coilNo,
+                    slitId: result.orderInfo.slitId ?? undefined,
+                  }}
+                  size="lg"
+                />
+              </div>
               <dl className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 text-sm">
                 {[
-                  ['Batch', result.orderInfo.batchNumber],
-                  ['Coil', result.orderInfo.coilNo],
                   ['Customer', result.orderInfo.customer],
                   ['Grade', result.orderInfo.grade],
                   ['Status', result.orderInfo.status],

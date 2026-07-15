@@ -930,11 +930,14 @@ export class ReportingService {
           ? 'Rolling'
           : subProcess || undefined;
 
+      const coilNo = row.coil_no ?? undefined;
+      const slitId = row.slit_id ?? undefined;
       return {
         batchNumber: row.batch_number,
         batchId: String(row.batch_id),
-        coilNo: row.coil_no,
-        slitId: row.slit_id ?? undefined,
+        coilNo,
+        motherCoil: coilNo,
+        slitId,
         planDate: planDateKey,
         shiftCode: row.shift_code,
         status: row.order_status ?? 'PENDING',

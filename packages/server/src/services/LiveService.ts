@@ -229,10 +229,13 @@ export class LiveService {
         'pb.ppc_weight_mt',
         'pb.destination',
         'pb.coil_no',
+        'pb.slit_id',
         'pb.shift_code',
         'pb.plan_date',
         'pb.queue_seq',
         'o.status',
+        'o.coil_no as order_coil_no',
+        'o.slit_id as order_slit_id',
         'o.prod_start_at',
         'o.prod_duration_min',
         'u.full_name as operator_name',
@@ -257,6 +260,7 @@ export class LiveService {
         eb.or([
           eb('pb.batch_number', 'ilike', term),
           eb('pb.coil_no', 'ilike', term),
+          eb('pb.slit_id', 'ilike', term),
           eb('pb.customer_name', 'ilike', term),
           eb('pb.grade_code', 'ilike', term),
         ]),
@@ -302,7 +306,9 @@ export class LiveService {
       if (!runtimeMin && r.prod_start_at) {
         runtimeMin = Math.round((Date.now() - new Date(r.prod_start_at).getTime()) / 60000);
       }
-      const journey = journeysByCoil.get(r.coil_no) ?? null;
+      const coilNo = (r.order_coil_no ?? r.coil_no ?? '').trim() || r.batch_number;
+      const slitId = (r.order_slit_id ?? r.slit_id ?? undefined) || undefined;
+      const journey = journeysByCoil.get(r.coil_no) ?? journeysByCoil.get(coilNo) ?? null;
       const progress = journeyProgress(journey);
       orders.push({
         batchNumber: r.batch_number,
@@ -317,7 +323,9 @@ export class LiveService {
         weightMt: Number(r.ppc_weight_mt),
         destination: r.destination === 'REWINDING' ? 'REWINDING' : r.destination === 'ANNEALING' ? 'ANNEALING' : undefined,
         subProcess: r.sub_process as LiveOrderRow['subProcess'],
-        coilNo: r.coil_no,
+        coilNo,
+        motherCoil: coilNo,
+        slitId: slitId?.trim() || undefined,
         shiftCode: r.shift_code,
         nextProcess: progress.nextProcess,
         completionPct: progress.completionPct,
@@ -901,6 +909,7 @@ export class LiveService {
         'pb.shift_code',
         'pb.plan_date',
         'pb.coil_no',
+        'pb.slit_id',
         'o.sub_process',
         'o.prod_end_at',
         sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('reason'),
@@ -926,18 +935,24 @@ export class LiveService {
     }
 
     const rows = await q.execute();
-    return rows.map((r) => ({
-      batchNumber: r.batch_number,
-      machineCode: r.machine_code,
-      rejectionTime: r.prod_end_at ? new Date(r.prod_end_at).toISOString() : '',
-      reason: r.reason,
-      rejectedBy: r.operator,
-      weightMt: Number(r.ppc_weight_mt),
-      shiftCode: r.shift_code ?? undefined,
-      planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
-      subProcess: r.sub_process ?? undefined,
-      coilNo: r.coil_no ?? undefined,
-    }));
+    return rows.map((r) => {
+      const coilNo = r.coil_no ?? undefined;
+      const slitId = r.slit_id?.trim() || undefined;
+      return {
+        batchNumber: r.batch_number,
+        machineCode: r.machine_code,
+        rejectionTime: r.prod_end_at ? new Date(r.prod_end_at).toISOString() : '',
+        reason: r.reason,
+        rejectedBy: r.operator,
+        weightMt: Number(r.ppc_weight_mt),
+        shiftCode: r.shift_code ?? undefined,
+        planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+        subProcess: r.sub_process ?? undefined,
+        coilNo,
+        motherCoil: coilNo,
+        slitId,
+      };
+    });
   }
 
   /** Production MT for a shift plan (saved weights: completed + in-progress). */
@@ -1053,6 +1068,10 @@ export class LiveService {
         'o.sub_process',
         'pb.batch_number',
         'pb.machine_code',
+        'pb.coil_no',
+        'pb.slit_id',
+        'o.coil_no as order_coil_no',
+        'o.slit_id as order_slit_id',
         'o.prod_end_at',
         'pb.ppc_weight_mt',
       ])
@@ -1092,6 +1111,8 @@ export class LiveService {
         'pb.machine_code',
         'pb.shift_code',
         'pb.plan_date',
+        'pb.coil_no',
+        'pb.slit_id',
         'o.sub_process',
         'o.prod_end_at',
         sql<string>`COALESCE(rej.rejection_reason, 'No reason provided')`.as('reason'),
@@ -1144,6 +1165,10 @@ export class LiveService {
         'pb.batch_number',
         'pb.machine_code',
         'pb.sub_process',
+        'pb.coil_no',
+        'pb.slit_id',
+        'o.coil_no as order_coil_no',
+        'o.slit_id as order_slit_id',
         'sc.label as category',
         'os.remarks',
         'os.duration_min',
@@ -1232,15 +1257,22 @@ export class LiveService {
           };
         }
       })),
-      stoppages: stoppageRows.map((s) => ({
-        batchNumber: s.batch_number,
-        machineCode: s.machine_code,
-        category: s.category,
-        durationMin: s.duration_min ? Number(s.duration_min) : undefined,
-        startAt: new Date(s.start_at).toISOString(),
-        subProcess: s.sub_process ?? undefined,
-        remarks: s.remarks?.trim() || undefined,
-      })),
+      stoppages: stoppageRows.map((s) => {
+        const coilNo = ((s as { order_coil_no?: string | null }).order_coil_no ?? s.coil_no ?? '').trim() || undefined;
+        const slitId = ((s as { order_slit_id?: string | null }).order_slit_id ?? s.slit_id)?.trim() || undefined;
+        return {
+          batchNumber: s.batch_number,
+          machineCode: s.machine_code,
+          category: s.category,
+          durationMin: s.duration_min ? Number(s.duration_min) : undefined,
+          startAt: new Date(s.start_at).toISOString(),
+          subProcess: s.sub_process ?? undefined,
+          remarks: s.remarks?.trim() || undefined,
+          coilNo,
+          motherCoil: coilNo,
+          slitId,
+        };
+      }),
       operatorActivity: orders
         .filter((o) => o.operatorName)
         .map((o) => ({
@@ -1249,34 +1281,51 @@ export class LiveService {
           machineCode: o.machineCode,
           status: o.status,
           subProcess: o.subProcess,
+          coilNo: o.coilNo,
+          motherCoil: o.motherCoil ?? o.coilNo,
+          slitId: o.slitId,
         })),
       handoverOverview,
       productionHistory: await Promise.all(
         completed
           .filter((c) => c.prod_end_at)
-          .map(async (c) => ({
-            batchNumber: c.batch_number,
-            machineCode: c.machine_code,
-            completedAt: new Date(c.prod_end_at!).toISOString(),
-            weightMt: await SixHiExecutionService.resolveOrderWeight(
-              String(c.order_id),
-              c.sub_process,
-              Number(c.ppc_weight_mt),
-            ),
-            subProcess: c.sub_process ?? undefined,
-          })),
+          .map(async (c) => {
+            const coilNo = ((c as { order_coil_no?: string | null }).order_coil_no ?? c.coil_no ?? '').trim() || undefined;
+            const slitId = ((c as { order_slit_id?: string | null }).order_slit_id ?? c.slit_id)?.trim() || undefined;
+            return {
+              batchNumber: c.batch_number,
+              machineCode: c.machine_code,
+              completedAt: new Date(c.prod_end_at!).toISOString(),
+              weightMt: await SixHiExecutionService.resolveOrderWeight(
+                String(c.order_id),
+                c.sub_process,
+                Number(c.ppc_weight_mt),
+              ),
+              subProcess: c.sub_process ?? undefined,
+              coilNo,
+              motherCoil: coilNo,
+              slitId,
+            };
+          }),
       ),
-      rejectedOrders: rejected.map((r) => ({
-        batchNumber: r.batch_number,
-        machineCode: r.machine_code,
-        rejectionTime: new Date(r.prod_end_at || Date.now()).toISOString(),
-        reason: r.reason || 'No reason provided',
-        rejectedBy: r.operator || 'Unknown',
-        weightMt: Number(r.ppc_weight_mt || 0),
-        shiftCode: r.shift_code ?? undefined,
-        planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
-        subProcess: r.sub_process ?? undefined,
-      })),
+      rejectedOrders: rejected.map((r) => {
+        const coilNo = r.coil_no ?? undefined;
+        const slitId = r.slit_id?.trim() || undefined;
+        return {
+          batchNumber: r.batch_number,
+          machineCode: r.machine_code,
+          rejectionTime: new Date(r.prod_end_at || Date.now()).toISOString(),
+          reason: r.reason || 'No reason provided',
+          rejectedBy: r.operator || 'Unknown',
+          weightMt: Number(r.ppc_weight_mt || 0),
+          shiftCode: r.shift_code ?? undefined,
+          planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+          subProcess: r.sub_process ?? undefined,
+          coilNo,
+          motherCoil: coilNo,
+          slitId,
+        };
+      }),
       rejectedOrderCount,
     };
   }

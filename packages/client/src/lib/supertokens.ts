@@ -15,9 +15,11 @@ export function initSuperTokens() {
   }
 
   const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-  // Vite proxies `/api/*` → backend (strips `/api`). Direct host (APK) talks to `/auth`.
+  // Web: Vite proxies `/auth/*` → backend (no prefix strip needed).
+  // APK (VITE_API_URL set): talks directly to the backend host at `/auth`.
+  // Both use apiBasePath '/auth' so the server-side ST config always matches.
   const apiDomain = host || window.location.origin;
-  const apiBasePath = host ? '/auth' : '/api/auth';
+  const apiBasePath = '/auth';
 
   console.info(`[SuperTokens] Initializing. API: ${apiDomain}${apiBasePath}, Origin: ${window.location.origin}`);
 
