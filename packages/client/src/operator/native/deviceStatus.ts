@@ -35,19 +35,41 @@ function resolveHealthUrl(): string {
   return `${base}/health`;
 }
 
+let lastGoodPing: number | null = null;
+let lastPingAt = 0;
+const PING_CACHE_MS = 10_000;
+
 export async function measurePingMs(timeoutMs = 4000): Promise<number | null> {
+  const now = Date.now();
+  if (lastGoodPing !== null && now - lastPingAt < PING_CACHE_MS) {
+    return lastGoodPing;
+  }
+
+  const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+  if (!host) return null;
+  const base = host.endsWith('/api') ? host.slice(0, -4) : host;
+  const healthUrl = `${base}/health`;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const started = performance.now();
   try {
-    const res = await fetch(resolveHealthUrl(), {
+    const res = await fetch(healthUrl, {
       method: 'GET',
+      mode: 'no-cors',
       cache: 'no-store',
       signal: controller.signal,
     });
-    if (!res.ok) return null;
-    return Math.max(0, Math.round(performance.now() - started));
-  } catch {
+    const duration = Math.max(1, Math.round(performance.now() - started));
+    lastGoodPing = duration;
+    lastPingAt = now;
+    return duration;
+  } catch (err) {
+    console.debug('[measurePingMs] Ping failed', err);
+    // If we have a recent good ping, keep using it for a while even on failure
+    if (lastGoodPing !== null && now - lastPingAt < 30_000) {
+      return lastGoodPing;
+    }
     return null;
   } finally {
     clearTimeout(timer);
@@ -84,7 +106,8 @@ export async function readDeviceStatus(): Promise<DeviceStatusSnapshot> {
 
   let snapshot: DeviceStatusSnapshot;
   try {
-    snapshot = { ...await DeviceStatusNative.getStatus(), pingMs: null };
+    const raw = await DeviceStatusNative.getStatus();
+    snapshot = { ...raw, pingMs: null };
   } catch (err) {
     console.warn('[DeviceStatus] Native plugin failed, using fallback', err);
     try {
@@ -94,6 +117,7 @@ export async function readDeviceStatus(): Promise<DeviceStatusSnapshot> {
     }
   }
 
+  // Only measure ping if we are not already in a high-frequency loop or if status changed
   const online = snapshot.wifiConnected || snapshot.connectionType === 'cellular' || snapshot.connectionType === 'ethernet';
   const pingMs = online ? await measurePingMs() : null;
   return { ...snapshot, pingMs };

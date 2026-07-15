@@ -135,7 +135,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     stopAccessTokenRefresh();
     
     if (await Session.doesSessionExist()) {
-      await Session.signOut();
+      try {
+        await Session.signOut();
+      } catch (err) {
+        console.warn('[auth] SuperTokens signOut failed; local session cleared anyway', err);
+      }
     }
     
     set({

@@ -53,7 +53,15 @@ export async function initDb(): Promise<void> {
 
   try {
     const sqlite = new SQLiteConnection(CapacitorSQLite);
-    db = await sqlite.createConnection('m1operator', false, 'no-encryption', 1, false);
+    const check = await sqlite.checkConnectionsConsistency();
+    const isConn = (await sqlite.isConnection('m1operator', false)).result;
+
+    if (isConn && check.result) {
+      db = await sqlite.retrieveConnection('m1operator', false);
+    } else {
+      db = await sqlite.createConnection('m1operator', false, 'no-encryption', 1, false);
+    }
+
     await db.open();
     await db.execute(SCHEMA);
   } catch (err) {

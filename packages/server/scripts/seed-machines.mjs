@@ -13,7 +13,7 @@ export async function seedMachines(client) {
   await client.query(`
     INSERT INTO master.process (process_id, code, name, seq_no, has_mill_type)
     VALUES (31, '6HI', '6HI', 31, FALSE)
-    ON CONFLICT (process_id) DO UPDATE SET code = '6HI', name = '6HI';
+    ON CONFLICT (process_id) DO UPDATE SET name = EXCLUDED.name;
   `);
 
   await client.query(`

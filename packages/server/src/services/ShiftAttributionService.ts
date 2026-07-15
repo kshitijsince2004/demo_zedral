@@ -2,7 +2,7 @@ import { db } from '../db';
 import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { assertRuntimeAccounting } from '../validation/manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
-import { parseDateOnly } from '../utils/dateOnly';
+import { parseDateOnly, formatPlantDate } from '../utils/dateOnly';
 
 export interface AttributionSlice {
   orderId: number;
@@ -18,15 +18,47 @@ export interface AttributionSlice {
 
 export class ShiftAttributionService {
   static async resolveShiftLogId(shiftCode: string, prodDate: string): Promise<string | null> {
-    const processId = await SixHiShiftService.getProcessId();
-    const row = await db
+    const { ShiftDetectionService } = await import('./ShiftDetectionService');
+    const resolved = await ShiftDetectionService.resolveShift({ shiftCode, planDate: prodDate });
+    return resolved.shiftLogId;
+  }
+
+  /** Single writer for order↔shift attribution slices. */
+  static async attributeOrder(
+    orderId: string | number,
+    shiftLogId: string,
+    extras?: Partial<Pick<AttributionSlice, 'machineCode' | 'runtimeMinutes' | 'productionMt' | 'stoppageMinutes' | 'breakdownMinutes'>>,
+  ): Promise<void> {
+    const id = String(orderId);
+    const log = await db
       .selectFrom('txn.shift_log')
-      .select('shift_log_id')
-      .where('process_id', '=', processId)
-      .where('shift_code', '=', shiftCode)
-      .where('prod_date', '=', parseDateOnly(prodDate))
+      .select(['shift_code', 'prod_date'])
+      .where('shift_log_id', '=', shiftLogId)
       .executeTakeFirst();
-    return row ? String(row.shift_log_id) : null;
+    if (!log) return;
+
+    let machineCode = extras?.machineCode;
+    if (!machineCode) {
+      const row = await db
+        .selectFrom('txn.crm_order as o')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+        .select('pb.machine_code')
+        .where('o.order_id', '=', id)
+        .executeTakeFirst();
+      machineCode = row?.machine_code ?? 'UNKNOWN';
+    }
+
+    await this.upsertSlice({
+      orderId: Number(id),
+      machineCode,
+      shiftLogId,
+      shiftCode: String(log.shift_code).toUpperCase(),
+      prodDate: formatPlantDate(log.prod_date as Date),
+      runtimeMinutes: extras?.runtimeMinutes ?? 0,
+      productionMt: extras?.productionMt ?? 0,
+      stoppageMinutes: extras?.stoppageMinutes ?? 0,
+      breakdownMinutes: extras?.breakdownMinutes ?? 0,
+    });
   }
 
   static async upsertSlice(slice: AttributionSlice): Promise<void> {

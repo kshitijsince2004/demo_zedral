@@ -28,11 +28,12 @@ export const liveService = {
   getMachines: () =>
     apiClient.get<{ machines: MachineStatusCard[]; refreshedAt: string }>('/live/machines'),
 
-  getMachineHeadDashboard: (params?: { machine?: string; search?: string; subProcess?: string }) => {
+  getMachineHeadDashboard: (params?: { machine?: string; search?: string; subProcess?: string; shift?: string }) => {
     const q = new URLSearchParams();
     if (params?.machine && params.machine !== 'ALL') q.set('machine', params.machine);
     if (params?.search?.trim()) q.set('search', params.search.trim());
     if (params?.subProcess && params.subProcess !== 'ALL') q.set('subProcess', params.subProcess);
+    if (params?.shift && params.shift !== 'ALL') q.set('shift', params.shift);
     const suffix = q.toString() ? `?${q.toString()}` : '';
     return apiClient.get<MachineHeadDashboardData>(`/live/machine-head-dashboard${suffix}`);
   },

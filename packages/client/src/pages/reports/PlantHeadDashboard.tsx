@@ -37,6 +37,15 @@ import { jsonFingerprint } from '../../lib/silentRefresh';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [coilFilter, setCoilFilter] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState<{
+    grades?: string[];
+    customers?: string[];
+    coils?: string[];
+  }>({});
+  const [opsFeedOpen, setOpsFeedOpen] = useState(false);
   const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,6 +94,16 @@ export function PlantHeadDashboard() {
     }
   }, []);
 
+  const dashFilters = appliedFilters;
+
+  const applyFilters = () => {
+    setAppliedFilters({
+      grades: gradeFilter.trim() ? [gradeFilter.trim()] : undefined,
+      customers: customerFilter.trim() ? [customerFilter.trim()] : undefined,
+      coils: coilFilter.trim() ? [coilFilter.trim()] : undefined,
+    });
+  };
+
   const load = useCallback(async (silent = false) => {
     if (!silent) {
       setLoading(true);
@@ -92,7 +111,7 @@ export function PlantHeadDashboard() {
     }
     setError(null);
     try {
-      const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
+      const result = await reportingService.getExtendedPlantHeadDashboard(windowDays, dashFilters);
       const fingerprint = jsonFingerprint(result);
       if (!silent || fingerprint !== prevDataFpRef.current) {
         prevDataFpRef.current = fingerprint;
@@ -116,7 +135,7 @@ export function PlantHeadDashboard() {
     } catch {
       if (!silent) setHandovers([]);
     }
-  }, [windowDays]);
+  }, [windowDays, dashFilters]);
 
   useEffect(() => {
     load(false);
@@ -202,9 +221,44 @@ export function PlantHeadDashboard() {
       aria-label="Plant command center"
     >
 
-      {/* Header */}
-      <div className="flex justify-end gap-4 mb-3 px-1">
-
+      {/* Header + filters */}
+      <div className="flex flex-wrap justify-end gap-3 mb-3 px-1 sticky top-0 z-20 bg-background/95 backdrop-blur-sm py-2">
+        <div className="flex items-center gap-2 flex-wrap mr-auto">
+          <input
+            type="text"
+            value={gradeFilter}
+            onChange={(e) => setGradeFilter(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
+            placeholder="Grade"
+            aria-label="Filter by grade"
+            className="h-9 w-28 rounded-lg border border-input bg-card px-3 text-sm"
+          />
+          <input
+            type="text"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
+            placeholder="Customer"
+            aria-label="Filter by customer"
+            className="h-9 w-36 rounded-lg border border-input bg-card px-3 text-sm"
+          />
+          <input
+            type="text"
+            value={coilFilter}
+            onChange={(e) => setCoilFilter(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
+            placeholder="Coil"
+            aria-label="Filter by coil"
+            className="h-9 w-32 rounded-lg border border-input bg-card px-3 text-sm"
+          />
+          <button
+            type="button"
+            onClick={applyFilters}
+            className="h-9 px-3 rounded-lg border border-border bg-card text-sm"
+          >
+            Apply
+          </button>
+        </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button
             type="button"
@@ -227,15 +281,22 @@ export function PlantHeadDashboard() {
             <option value={30}>Last 30 Days</option>
             <option value={90}>Last 90 Days</option>
           </select>
+          <button
+            type="button"
+            onClick={() => setOpsFeedOpen(true)}
+            className="h-9 px-3 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:bg-secondary"
+          >
+            Ops feed
+          </button>
         </div>
       </div>
 
 
 
-      <div className="flex flex-col gap-5 min-h-0">
+      <div className="flex flex-col gap-4 min-h-0">
 
-        {/* KPI Strip */}
-        <section aria-label="Key performance indicators">
+        {/* KPI Strip — sticky above charts */}
+        <section aria-label="Key performance indicators" className="sticky top-14 z-10 bg-background/95 backdrop-blur-sm pb-1">
           <PlantKpiStrip
             data={displayData}
             liveKpis={liveKpis}
@@ -276,15 +337,13 @@ export function PlantHeadDashboard() {
           </section>
         )}
 
-        {/* Production + Insights */}
-        <section>
+        {/* Production + Quality — above the fold on 1080p */}
+        <section className="lg:grid lg:grid-cols-2 gap-4 flex flex-col">
           <PlantMainOpsArea data={displayData} liveKpis={liveKpis} />
+          <PlantQualityDowntimeArea data={displayData} />
         </section>
 
-        {/* Quality + Downtime */}
         <section>
-            <PlantQualityDowntimeArea data={displayData} />
-
             <div className="bg-white border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col h-[400px]">
               <div className="flex items-center justify-between border-b border-border/50 bg-secondary/50 px-5 py-3 shrink-0 gap-3">
                 <div className="flex items-center gap-2 text-primary font-bold">
@@ -373,10 +432,26 @@ export function PlantHeadDashboard() {
           />
         </section>
 
-        {/* Ops Feed */}
-        <section>
-          <PlantOpsFeed data={displayData} />
-        </section>
+        {/* Ops Feed — drawer */}
+        {opsFeedOpen && (
+          <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-label="Ops feed">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/30"
+              aria-label="Close ops feed"
+              onClick={() => setOpsFeedOpen(false)}
+            />
+            <div className="relative w-full max-w-md h-full bg-background shadow-xl overflow-y-auto p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold">Ops feed</h2>
+                <button type="button" className="text-sm text-muted-foreground" onClick={() => setOpsFeedOpen(false)}>
+                  Close
+                </button>
+              </div>
+              <PlantOpsFeed data={displayData} />
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

@@ -51,33 +51,38 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
     return <>{children}</>;
   }
 
-  if (pending === undefined && !loadError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-secondary text-muted-foreground text-sm">
-        Checking handover status…
-      </div>
-    );
-  }
+  // Instead of returning early and unmounting everything,
+  // we render the gate as a full-screen overlay if needed.
+  return (
+    <>
+      {children}
 
-  if (loadError) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-secondary gap-4 p-6">
-        <p className="text-sm text-destructive text-center max-w-md">{loadError}</p>
-        <ZButton variant="secondary" onClick={() => void checkPending()}>
-          Retry
-        </ZButton>
-      </div>
-    );
-  }
+      {(pending === undefined && !loadError) && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-secondary/80 backdrop-blur-sm text-muted-foreground text-sm">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            Checking handover status…
+          </div>
+        </div>
+      )}
 
-  if (pending) {
-    return (
-      <HandoverAcceptPage
-        handover={pending}
-        onAccepted={() => setPending(null)}
-      />
-    );
-  }
+      {loadError && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-secondary gap-4 p-6">
+          <p className="text-sm text-destructive text-center max-w-md">{loadError}</p>
+          <ZButton variant="secondary" onClick={() => void checkPending()}>
+            Retry
+          </ZButton>
+        </div>
+      )}
 
-  return <>{children}</>;
+      {pending && (
+        <div className="fixed inset-0 z-[200]">
+          <HandoverAcceptPage
+            handover={pending}
+            onAccepted={() => setPending(null)}
+          />
+        </div>
+      )}
+    </>
+  );
 }

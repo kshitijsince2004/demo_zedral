@@ -11,7 +11,6 @@ import { UserScopeShell } from '../components/UserScopeShell';
 import { UserScopeIndex } from '../pages/UserScopeIndex';
 import { SixHiCapturePage } from '../pages/sixHi/SixHiCapturePage';
 import { CrmOutgoingHandoverPage } from '../pages/sixHi/CrmOutgoingHandoverPage';
-import { SixHiShiftSummaryPage } from '../pages/sixHi/SixHiShiftSummaryPage';
 import { SixHiQueuePage } from '../pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from '../pages/sixHi/SixHiOrderPage';
 
@@ -57,7 +56,7 @@ function OperatorApp() {
           <Route index element={<UserScopeIndex />} />
           <Route path="capture" element={<SixHiCapturePage />} />
           <Route path="handover" element={<CrmOutgoingHandoverPage />} />
-          <Route path="shift-summary" element={<SixHiShiftSummaryPage />} />
+          <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
           <Route path="rolling" element={<SixHiQueuePage />} />
           <Route path="skinpass" element={<SixHiQueuePage />} />
           <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />

@@ -76,7 +76,7 @@ export function SixHiLayout() {
 
   // Suppress the automatic shift-end prompt while the operator is already on the
   // handover / summary pages (they are actively completing the handover there).
-  const onHandoverRoute = /\/(handover|shift-summary)\/?$/.test(location.pathname);
+  const onHandoverRoute = /\/handover\/?$/.test(location.pathname);
   const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
   const handoverPath = basePath ? `${basePath}/handover` : null;
 

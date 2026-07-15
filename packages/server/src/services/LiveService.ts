@@ -991,7 +991,7 @@ export class LiveService {
   static async getMachineHeadDashboard(
     userId: number,
     roles: string[],
-    opts: { machine?: string; search?: string; subProcess?: string } = {},
+    opts: { machine?: string; search?: string; subProcess?: string; shift?: string } = {},
   ): Promise<MachineHeadDashboardData> {
     let machineFilter = await this.getMachineScope(userId, roles);
     if (opts.machine && opts.machine !== 'ALL') {
@@ -999,7 +999,9 @@ export class LiveService {
       if (machineFilter === null) machineFilter = [code];
       else machineFilter = machineFilter.filter((m) => m === code);
     }
-    const { prodDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const ctx = await this.getShiftQueueContext(userId);
+    const prodDate = ctx.prodDate;
+    const shiftCode = opts.shift && opts.shift !== 'ALL' ? opts.shift.toUpperCase() : ctx.shiftCode;
     const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
     const search = opts.search?.trim() || undefined;
     const subProcess = opts.subProcess === 'ROLLING' || opts.subProcess === 'SKIN_PASS'

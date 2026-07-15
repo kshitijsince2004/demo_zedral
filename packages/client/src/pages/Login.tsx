@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound } from 'lucide-react';
-import { signIn } from 'supertokens-web-js/recipe/emailpassword';
+import EmailPassword from 'supertokens-auth-react/recipe/emailpassword';
 import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
@@ -70,7 +70,7 @@ export function Login() {
     e.preventDefault();
     setError('');
     try {
-      const res = await signIn({
+      const res = await EmailPassword.signIn({
         formFields: [
           { id: 'email', value: email.trim() },
           { id: 'password', value: password },

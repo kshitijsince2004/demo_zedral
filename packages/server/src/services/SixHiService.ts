@@ -111,11 +111,15 @@ export class SixHiService {
       .executeTakeFirst();
     if (!current) return null;
 
-    const detected = await ShiftDetectionService.getCurrentShift({ userId, machineCode });
-    const prodDate = this.toPlanDate(detected.prodDate);
-    const shiftCode = detected.shiftCode.toUpperCase();
-
-    const targetShiftLogId = await this.ensureActiveShiftLog(userId, prodDate, shiftCode);
+    const processId = await this.getProcessId();
+    const resolved = await ShiftDetectionService.resolveShift({
+      userId,
+      machineCode,
+      processId,
+    });
+    const targetShiftLogId = resolved.shiftLogId;
+    const prodDate = this.toPlanDate(resolved.prodDate);
+    const shiftCode = resolved.shiftCode.toUpperCase();
     const oldShiftLogId = current.shift_log_id != null ? String(current.shift_log_id) : null;
 
     // No-op when the order is already attributed to the active shift (normal same-shift orders).
@@ -139,16 +143,26 @@ export class SixHiService {
         .set({ shift_code: shiftCode, prod_date: prodDate } as any)
         .where('order_id', '=', id)
         .execute();
+
+      // Move stoppages with the order so shift totals stay consistent.
+      await trx.updateTable('txn.stoppage')
+        .set({
+          shift_log_id: targetShiftLogId,
+          shift_code: shiftCode,
+          prod_date: prodDate,
+        } as any)
+        .where('order_id', '=', id)
+        .execute();
     });
 
-    // Machine-centric attribution slices (runtime/utilization) follow the order too.
-    // Slices are only created at shift-boundary processing, so at production start there
-    // are normally none; the .catch guards the rare (order, shift_log, machine) collision.
+    const { ShiftAttributionService } = await import('./ShiftAttributionService');
+    // Move existing attribution slice(s) with the order, then upsert via single writer.
     await db.updateTable('txn.order_shift_attribution')
       .set({ shift_log_id: targetShiftLogId, shift_code: shiftCode, prod_date: prodDate } as any)
       .where('order_id', '=', id)
       .execute()
-      .catch((err) => console.error('[SixHi] reattribute attribution slice failed:', err));
+      .catch((err) => console.error('[SixHi] reattribute attribution slice move failed:', err));
+    await ShiftAttributionService.attributeOrder(id, targetShiftLogId, { machineCode });
 
     // Recompute cached production totals for BOTH shifts: the old shift must no longer
     // count this order, the new shift must now include it.
@@ -1447,6 +1461,25 @@ export class SixHiService {
     const startAt = new Date();
     await validateOrderStoppageStart(orderId, startAt);
 
+    const orderMeta = await db.selectFrom('txn.crm_order')
+      .select(['shift_log_id', 'shift_code', 'prod_date'])
+      .where('order_id', '=', orderId)
+      .executeTakeFirst();
+    let shiftLogId = orderMeta?.shift_log_id != null ? String(orderMeta.shift_log_id) : null;
+    let shiftCode = orderMeta?.shift_code ?? null;
+    let prodDate = orderMeta?.prod_date ?? null;
+    if (!shiftLogId) {
+      const processId = await this.getProcessId();
+      const resolved = await ShiftDetectionService.resolveShift({
+        userId,
+        processId,
+        orderId: String(orderId),
+      });
+      shiftLogId = resolved.shiftLogId;
+      shiftCode = resolved.shiftCode;
+      prodDate = this.toPlanDate(resolved.prodDate);
+    }
+
     await db.insertInto('txn.stoppage')
       .values({
         order_id: orderId,
@@ -1455,6 +1488,9 @@ export class SixHiService {
         remarks: remarks ?? null,
         operator_id: userId,
         start_at: startAt,
+        shift_log_id: shiftLogId,
+        shift_code: shiftCode,
+        prod_date: prodDate,
       })
       .execute();
     await db.updateTable('txn.crm_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
@@ -1959,7 +1995,22 @@ export class SixHiService {
       throw new Error('A manual stoppage is already active on this machine');
     }
 
-    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode });
+    const shift = await ShiftDetectionService.resolveShift({ userId, machineCode });
+    const startAt = new Date();
+    await db.insertInto('txn.stoppage')
+      .values({
+        machine_code: machineCode,
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+        operator_id: userId,
+        start_at: startAt,
+        shift_log_id: shift.shiftLogId,
+        shift_code: shift.shiftCode,
+        prod_date: this.toPlanDate(shift.prodDate),
+      })
+      .execute();
+
     await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_STARTED', {
       operatorId: userId,
       shiftCode: shift.shiftCode,
@@ -2023,6 +2074,22 @@ export class SixHiService {
     }
 
     const shiftCode = currentEvent.shift_code ?? undefined;
+    const endAt = new Date();
+    const openManual = await db.selectFrom('txn.stoppage')
+      .select(['stoppage_id', 'start_at'])
+      .where('machine_code', '=', machineCode)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .orderBy('start_at', 'desc')
+      .executeTakeFirst();
+    if (openManual) {
+      const durationMin = Math.round((endAt.getTime() - new Date(openManual.start_at as Date).getTime()) / 60000);
+      await db.updateTable('txn.stoppage')
+        .set({ end_at: endAt, duration_min: durationMin })
+        .where('stoppage_id', '=', openManual.stoppage_id)
+        .execute();
+    }
+
     await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_ENDED', {
       operatorId: userId,
       shiftCode,
@@ -2294,27 +2361,21 @@ export class SixHiService {
 
   static async resolveShiftLogIdForPlan(planDate: string | Date, shiftCode: string): Promise<string | null> {
     const processId = await this.getProcessId();
-    const prodDate = typeof planDate === 'string' ? this.toPlanDate(planDate) : planDate;
-    const row = await db.selectFrom('txn.shift_log')
-      .select('shift_log_id')
-      .where('process_id', '=', processId)
-      .where('prod_date', '=', prodDate)
-      .where('shift_code', '=', shiftCode)
-      .executeTakeFirst();
-    return row ? String(row.shift_log_id) : null;
+    const resolved = await ShiftDetectionService.resolveShift({
+      planDate,
+      shiftCode,
+      processId,
+    });
+    return resolved.shiftLogId;
   }
 
   static async resolveShiftLogIdForOrder(orderId: string): Promise<string | null> {
-    const order = await db.selectFrom('txn.crm_order as o')
-      .select(['o.shift_log_id', 'o.prod_date', 'o.shift_code'])
-      .where('o.order_id', '=', orderId)
-      .executeTakeFirst();
-    if (!order) return null;
-    if (order.shift_log_id) return String(order.shift_log_id);
-    if (order.prod_date && order.shift_code) {
-      return this.resolveShiftLogIdForPlan(order.prod_date, order.shift_code);
+    try {
+      const resolved = await ShiftDetectionService.resolveShift({ orderId });
+      return resolved.shiftLogId;
+    } catch {
+      return null;
     }
-    return null;
   }
 
   /** Keep txn.shift_log.total_prod_mt in sync with live 6HI production totals. */

@@ -290,6 +290,110 @@ export class ShiftDetectionService {
     };
   }
 
+  /**
+   * Single source of truth for shift-log resolution.
+   * Prefer ACTIVE session (machineCode) over explicit planDate/shiftCode over wall clock.
+   * Idempotently creates the shift_log row when missing.
+   */
+  static async resolveShift(opts: {
+    machineCode?: string;
+    planDate?: string | Date;
+    shiftCode?: string;
+    orderId?: string;
+    clock?: Date;
+    userId?: number;
+    processId?: number;
+  }): Promise<{ shiftLogId: string; shiftCode: string; prodDate: string; processId: number }> {
+    const { ShiftLogService } = await import('./shiftLogService');
+    const { parseDateOnly } = await import('../utils/dateOnly');
+
+    // Order already attributed — honor it unless caller forced plan/session.
+    if (opts.orderId && !opts.machineCode && !opts.planDate && !opts.shiftCode) {
+      const order = await db
+        .selectFrom('txn.crm_order')
+        .select(['shift_log_id', 'prod_date', 'shift_code'])
+        .where('order_id', '=', opts.orderId)
+        .executeTakeFirst();
+      if (!order) {
+        throw new Error(`Order ${opts.orderId} not found`);
+      }
+      if (order.shift_log_id) {
+        const log = await db
+          .selectFrom('txn.shift_log')
+          .select(['shift_log_id', 'shift_code', 'prod_date', 'process_id'])
+          .where('shift_log_id', '=', order.shift_log_id)
+          .executeTakeFirstOrThrow();
+        return {
+          shiftLogId: String(log.shift_log_id),
+          shiftCode: String(log.shift_code).toUpperCase(),
+          prodDate: formatDbDate(log.prod_date as Date),
+          processId: log.process_id,
+        };
+      }
+      if (order.prod_date && order.shift_code) {
+        opts = {
+          ...opts,
+          planDate: order.prod_date,
+          shiftCode: order.shift_code,
+        };
+      } else {
+        throw new Error(`Order ${opts.orderId} has no shift attribution`);
+      }
+    }
+
+    let processId = opts.processId;
+    if (processId == null) {
+      const proc =
+        (await db
+          .selectFrom('master.process')
+          .select('process_id')
+          .where('code', '=', 'ROLLING')
+          .executeTakeFirst()) ??
+        (await db
+          .selectFrom('master.process')
+          .select('process_id')
+          .where('code', '=', 'CRM')
+          .executeTakeFirst());
+      if (!proc) throw new Error('CRM/ROLLING process not configured');
+      processId = proc.process_id;
+    }
+
+    let shiftCode: string;
+    let prodDate: string;
+
+    if (opts.machineCode) {
+      const detected = await this.getCurrentShift({
+        userId: opts.userId,
+        machineCode: opts.machineCode,
+      });
+      shiftCode = detected.shiftCode.toUpperCase();
+      prodDate = detected.prodDate;
+    } else if (opts.planDate && opts.shiftCode) {
+      shiftCode = opts.shiftCode.toUpperCase();
+      prodDate =
+        typeof opts.planDate === 'string'
+          ? opts.planDate.slice(0, 10)
+          : formatDbDate(opts.planDate);
+    } else {
+      const windows = await loadShiftWindows();
+      const { resolveBoundaryShifts } = await import('./ShiftBoundaryService');
+      const boundary = resolveBoundaryShifts(windows, opts.clock ?? new Date());
+      shiftCode = boundary.incomingShiftCode;
+      prodDate = boundary.incomingProdDate;
+    }
+
+    const shiftLogId = String(
+      await ShiftLogService.create({
+        processId,
+        productionDate: parseDateOnly(prodDate),
+        shiftCode,
+        supervisorId: opts.userId ?? 1,
+      }),
+    );
+
+    return { shiftLogId, shiftCode, prodDate, processId };
+  }
+
   static async recordOverride(input: {
     userId: number;
     selectedShiftCode: string;

@@ -1,12 +1,15 @@
+import { initSuperTokens } from './lib/supertokens';
+
+// 1. Initialize SuperTokens first
+initSuperTokens();
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { scheduleAccessTokenRefresh } from './lib/authSession'
 import { getAuthToken } from './lib/apiClient'
-import SuperTokens, { SuperTokensWrapper } from 'supertokens-auth-react'
-import EmailPassword from 'supertokens-auth-react/recipe/emailpassword'
-import Session from 'supertokens-auth-react/recipe/session'
+import { SuperTokensWrapper } from 'supertokens-auth-react'
 import { registerSW } from 'virtual:pwa-register'
 import { AnalyticErrorBoundary } from './components/shared/AnalyticErrorBoundary'
 
@@ -22,23 +25,6 @@ const updateSW = registerSW({
     console.log('App is ready to work offline.');
   },
 })
-
-// Web: empty host. APK/native: VITE_API_URL host.
-const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-
-SuperTokens.init({
-    appInfo: {
-        appName: 'Zedral M1',
-        apiDomain: host || window.location.origin,
-        websiteDomain: window.location.origin,
-        apiBasePath: '/auth',
-        websiteBasePath: '/login'
-    },
-    recipeList: [
-        EmailPassword.init(),
-        Session.init({ tokenTransferMethod: 'header' })
-    ]
-});
 
 const existingToken = getAuthToken()
 if (existingToken) {

@@ -22,6 +22,8 @@ function resolveApiBase(): string {
 const API_BASE = resolveApiBase();
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev';
 
+console.info(`[apiClient] API Base: ${API_BASE}, Version: ${APP_VERSION}`);
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -129,11 +131,17 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${finalPath}`, {
+    const url = `${API_BASE}${finalPath}`;
+    res = await fetch(url, {
       ...options,
       headers,
       credentials: 'include',
     });
+
+    if (res.status === 401 && !isPublicAuthPath(path)) {
+      console.warn(`[apiClient] 401 Unauthorized for ${path}. Auth Gen: ${generationAtStart}, Headers:`,
+        Object.fromEntries(res.headers.entries()));
+    }
   } catch (networkErr) {
     let msg = 'Network unavailable or request blocked by CORS';
     if (networkErr instanceof Error) {

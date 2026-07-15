@@ -1,25 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Network } from '@capacitor/network';
-import {
-  EMPTY_DEVICE_STATUS,
-  isAndroidApk,
-  readDeviceStatus,
-  type DeviceStatusSnapshot,
-} from '../operator/native/deviceStatus';
+import { isAndroidApk } from '../operator/native/deviceStatus';
+import { useDeviceStatusStore } from '../operator/native/deviceStatusStore';
 
 const POLL_MS = 15_000;
 
-export function useAndroidDeviceStatus(): DeviceStatusSnapshot {
-  const [status, setStatus] = useState<DeviceStatusSnapshot>(EMPTY_DEVICE_STATUS);
+/**
+ * Hook to manage device status polling.
+ * Syncs results into a global store to prevent flickering on remount.
+ */
+export function useAndroidDeviceStatus() {
+  const status = useDeviceStatusStore();
 
   useEffect(() => {
     if (!isAndroidApk()) return;
 
-    let cancelled = false;
+    // Only one poller should run
+    if ((window as any).__DEVICE_STATUS_POLLING__) return;
+    (window as any).__DEVICE_STATUS_POLLING__ = true;
 
     const poll = async () => {
-      const next = await readDeviceStatus();
-      if (!cancelled) setStatus(next);
+      await useDeviceStatusStore.getState().update();
     };
 
     void poll();
@@ -27,9 +28,11 @@ export function useAndroidDeviceStatus(): DeviceStatusSnapshot {
     const networkListener = Network.addListener('networkStatusChange', () => void poll());
 
     return () => {
-      cancelled = true;
-      clearInterval(id);
-      void networkListener.then((handle) => handle.remove());
+      // In practice, this hook stays mounted with the shell,
+      // but we clean up for safety.
+      // (window as any).__DEVICE_STATUS_POLLING__ = false;
+      // clearInterval(id);
+      // void networkListener.then((handle) => handle.remove());
     };
   }, []);
 

@@ -12,7 +12,6 @@ import { AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from './pages/sixHi/SixHiOrderPage';
-import { SixHiShiftSummaryPage } from './pages/sixHi/SixHiShiftSummaryPage';
 import { CrmOutgoingHandoverPage } from './pages/sixHi/CrmOutgoingHandoverPage';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 
@@ -166,7 +165,7 @@ function App() {
           <Route index element={<UserScopeIndex />} />
           <Route path="capture" element={<SixHiCapturePage />} />
           <Route path="handover" element={<CrmOutgoingHandoverPage />} />
-          <Route path="shift-summary" element={<SixHiShiftSummaryPage />} />
+          <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
           <Route path="rolling" element={<SixHiQueuePage />} />
           <Route path="skinpass" element={<SixHiQueuePage />} />
           <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />

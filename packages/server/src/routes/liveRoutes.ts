@@ -97,10 +97,12 @@ router.get('/machine-head-dashboard', async (req, res) => {
     const machine = typeof req.query.machine === 'string' ? req.query.machine : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search : undefined;
     const subProcess = typeof req.query.subProcess === 'string' ? req.query.subProcess : undefined;
+    const shift = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const data = await LiveDashboardService.getMachineHeadDashboard(req.user!.id, roles, {
       machine,
       search,
       subProcess,
+      shift,
     });
     res.json(data);
   } catch (error: unknown) {

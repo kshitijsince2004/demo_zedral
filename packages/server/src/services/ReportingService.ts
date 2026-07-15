@@ -30,6 +30,7 @@ import {
   startOfPlantDay,
 } from '@m1/shared-validation';
 import { ShiftLogService } from './shiftLogService';
+import { CRM_MILL_CODES } from '../utils/machineAllocation';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -130,7 +131,8 @@ async function fetchShiftRows(
     .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
     .select([
       'sl.shift_log_id',
-      'p.code as lineId',
+      // Prefer mill_type so CRM mills (6HI/4HI/2HI) appear as distinct lines.
+      sql<string>`coalesce(sl.mill_type, p.code)`.as('lineId'),
       'p.name as lineName',
       'sl.target_mt',
       'sl.total_prod_mt',
@@ -155,9 +157,11 @@ async function fetchShiftRows(
     query = query.where('sl.shift_code', 'in', filters.shifts);
   }
 
-  // Note: grade, customer, and coil filtering requires joining specific
-  // production tables (txn.prod_*) or the crm6_order table.
-  // This is a stub for where that logic would go if a unified view existed.
+  if (filters?.grades?.length || filters?.customers?.length || filters?.coils?.length) {
+    const matchingIds = await resolveShiftIdsByProductionFilters(filters);
+    if (matchingIds.length === 0) return [];
+    query = query.where('sl.shift_log_id', 'in', matchingIds);
+  }
 
   const rows = await query.orderBy('sl.prod_date', 'desc').execute();
   const mapped = rows.map((r) => ({
@@ -173,13 +177,82 @@ async function fetchShiftRows(
   return enrichCrm6ShiftProduction(mapped);
 }
 
+/** Shift logs that have CRM orders or classic prod rows matching grade/customer/coil. */
+async function resolveShiftIdsByProductionFilters(filters: {
+  grades?: string[];
+  customers?: string[];
+  coils?: string[];
+}): Promise<string[]> {
+  const ids = new Set<string>();
+
+  let crmQ = reportingDb
+    .selectFrom('txn.crm_order')
+    .select('shift_log_id')
+    .where('shift_log_id', 'is not', null);
+  if (filters.grades?.length) crmQ = crmQ.where('grade_code', 'in', filters.grades);
+  if (filters.customers?.length) {
+    crmQ = crmQ.where((eb) =>
+      eb.or(filters.customers!.map((c) => eb('customer_name', 'ilike', `%${c}%`))),
+    );
+  }
+  if (filters.coils?.length) {
+    crmQ = crmQ.where((eb) =>
+      eb.or(filters.coils!.map((c) => eb('coil_no', 'ilike', `%${c}%`))),
+    );
+  }
+  for (const r of await crmQ.execute()) {
+    if (r.shift_log_id != null) ids.add(String(r.shift_log_id));
+  }
+
+  // Classic lines: match coil_no on prod_*; grade/customer via coil master.
+  // ponytail: raw union keeps kysely happy across five identical prod_* shapes.
+  const gradeList = filters.grades?.length
+    ? sql`AND c.grade_code IN (${sql.join(filters.grades.map((g) => sql`${g}`))})`
+    : sql``;
+  const customerPred = filters.customers?.length
+    ? sql`AND (${sql.join(
+        filters.customers.map((cust) => sql`cu.customer_name ILIKE ${'%' + cust + '%'}`),
+        sql` OR `,
+      )})`
+    : sql``;
+  const coilPred = filters.coils?.length
+    ? sql`AND (${sql.join(
+        filters.coils.map((coil) => sql`pr.coil_no ILIKE ${'%' + coil + '%'}`),
+        sql` OR `,
+      )})`
+    : sql``;
+
+  for (const table of ['txn.prod_hrs', 'txn.prod_crs', 'txn.prod_ctl', 'txn.prod_pkl', 'txn.prod_rwd']) {
+    const rows = await sql<{ shift_log_id: string | number }>`
+      SELECT pr.shift_log_id
+      FROM ${sql.raw(table)} pr
+      LEFT JOIN coil.coil c ON c.coil_no = pr.coil_no
+      LEFT JOIN master.customer cu ON cu.customer_id = c.customer_id
+      WHERE 1=1
+      ${coilPred}
+      ${gradeList}
+      ${customerPred}
+    `.execute(reportingDb);
+    for (const r of rows.rows) {
+      ids.add(String(r.shift_log_id));
+    }
+  }
+
+  return [...ids];
+}
+
 async function enrichCrm6ShiftProduction(rows: ShiftRow[]): Promise<ShiftRow[]> {
-  const crm6Rows = rows.filter((r) => r.lineId === '6HI');
-  if (crm6Rows.length === 0) return rows;
+  const crmProcessCodes = new Set(['CRM', 'CRM6', 'ROLLING', 'SKP']);
+  const crmRows = rows.filter(
+    (r) =>
+      (CRM_MILL_CODES as readonly string[]).includes(r.lineId) ||
+      crmProcessCodes.has(r.lineId),
+  );
+  if (crmRows.length === 0) return rows;
 
   const { SixHiShiftService } = await import('./sixHi');
   const liveTotals = await Promise.all(
-    crm6Rows.map(async (row) => ({
+    crmRows.map(async (row) => ({
       shiftLogId: row.shift_log_id,
       totalProdMt: await SixHiShiftService.getProducedMt(row.shift_log_id),
     })),
