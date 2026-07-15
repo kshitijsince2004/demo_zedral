@@ -85,11 +85,12 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
   });
 
   beforeEach(async () => {
-    // Clear out data to keep tests isolated.
+    // Clear out data to keep tests isolated (children before parents).
     await db.deleteFrom('txn.crm_rolling_pass').execute();
     await db.deleteFrom('txn.crm_rolling').execute();
     await db.deleteFrom('txn.crm_skinpass').execute();
     await db.deleteFrom('txn.crm_shift_summary').execute();
+    await db.deleteFrom('txn.stoppage').execute();
     await db.deleteFrom('txn.crm_order').execute();
     await db.deleteFrom('txn.machine_shift_session').execute();
     await db.deleteFrom('txn.machine_handover').execute();

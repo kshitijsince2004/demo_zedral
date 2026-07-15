@@ -128,7 +128,7 @@ describe('PlantHeadDashboard', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7);
+      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7, expect.any(Object));
     });
   });
 
@@ -143,7 +143,7 @@ describe('PlantHeadDashboard', () => {
       expect(screen.getByTestId('plant-head-dashboard')).toBeDefined();
     });
 
-    expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7);
+    expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(7, expect.any(Object));
 
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: /reporting time window/i }),
@@ -151,7 +151,7 @@ describe('PlantHeadDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(30);
+      expect(reportingService.getExtendedPlantHeadDashboard).toHaveBeenCalledWith(30, expect.any(Object));
     });
   });
 

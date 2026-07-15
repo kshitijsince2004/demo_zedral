@@ -283,15 +283,19 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
         const batchA = `QSEQ-A-${ts}`;
         const batchB = `QSEQ-B-${ts}`;
 
+        const coilA = `C-Q1-${ts}`;
+        const coilB = `C-Q2-${ts}`;
         const csv1 = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
-${batchA},${planDate},B,6HI,ROLLING,C-Q1,ACME,D,1250,1.2,10`;
+${batchA},${planDate},B,6HI,ROLLING,${coilA},ACME,D,1250,1.2,10`;
 
-        await PPCImportService.importFromCsvText('q1.csv', csv1, testUserId());
+        const first = await PPCImportService.importFromCsvText('q1.csv', csv1, testUserId());
+        expect(first.loaded).toBe(1);
 
         const csv2 = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
-${batchB},${planDate},B,6HI,ROLLING,C-Q2,ACME,D,1250,1.2,10`;
+${batchB},${planDate},B,6HI,ROLLING,${coilB},ACME,D,1250,1.2,10`;
 
-        await PPCImportService.importFromCsvText('q2.csv', csv2, testUserId());
+        const second = await PPCImportService.importFromCsvText('q2.csv', csv2, testUserId());
+        expect(second.loaded).toBe(1);
 
         const batches = await db.selectFrom('planning.ppc_batch')
           .select(['batch_number', 'queue_seq'])
