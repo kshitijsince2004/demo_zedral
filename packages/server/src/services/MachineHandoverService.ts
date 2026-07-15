@@ -943,7 +943,7 @@ export class MachineHandoverService {
     return updated;
   }
 
-  /** Start or resume operator session on machine login. Never replaces an open session with the clock. */
+  /** Start or resume operator session on machine login. Reuses only window-live sessions. */
   static async ensureActiveSession(machineCode: string, operatorUserId: number) {
     const pending = await this.getPendingForMachine(machineCode);
     if (pending) {
@@ -960,18 +960,13 @@ export class MachineHandoverService {
       .executeTakeFirst();
 
     if (existing) {
-      if (ShiftDetectionService.isSessionDateLive(existing.prod_date)) {
-        return { session: existing, pendingHandover: null };   // live reuse (incl. overtime)
+      const existingLive = await ShiftDetectionService.isSessionLiveById(String(existing.session_id));
+      if (existingLive) {
+        return { session: existing, pendingHandover: null }; // genuine live / overtime reuse
       }
-      // Orphan from a prior plant day -> close it (and any siblings) before starting fresh.
-      const clock = await ShiftDetectionService.getCurrentShift({ machineCode }); // clock/override only
-      await ShiftDetectionService.closeStaleOperatorSessions(
-        machineCode,
-        operatorUserId,
-        clock.prodDate,
-        clock.shiftCode,
-      );
-      // fall through to create a fresh session for the current shift
+      // Past shift-end + grace — close without asking getCurrentShift(machineCode) (circular pin).
+      await ShiftDetectionService.closeStaleOperatorSessions(machineCode, operatorUserId);
+      // fall through to create a fresh session for the current clock shift
     }
 
     const otherActive = await db

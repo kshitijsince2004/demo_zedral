@@ -8,17 +8,39 @@ import {
   currentPlantDate,
   addPlantDays,
   parsePlantDateOnly,
+  plantClockDate,
   type PlantShiftWindow,
 } from '@m1/shared-validation';
 
-/**
- * A session is "live" only if its prod_date is the current plant day, or the
- * immediately-previous plant day (legitimate overnight C-shift continuation
- * still awaiting handover). Anything older is an orphan that was never closed.
- * Widen the -1 if a continuation can legitimately span more than one plant day.
- */
+const OVERTIME_GRACE_MS = (Number(process.env.SHIFT_OVERTIME_GRACE_HOURS) || 2) * 3_600_000;
+
+/** End datetime of a shift window; C (end < start) ends next calendar day. */
+function shiftEndDateTime(prodDate: Date | string, startTime: string, endTime: string): Date {
+  const dateStr = formatDbDate(prodDate);
+  const end = endTime.slice(0, 5);
+  const start = startTime.slice(0, 5);
+  const [eh] = end.split(':').map(Number);
+  const [sh] = start.split(':').map(Number);
+  const endDate = eh < sh ? addPlantDays(dateStr, 1) : dateStr;
+  return plantClockDate(endDate, end);
+}
+
+/** Live only until shift end + grace — replaces the flat 1-day calendar window. */
+function isSessionLive(session: {
+  prod_date: Date | string;
+  start_time: string;
+  end_time: string;
+}): boolean {
+  return (
+    Date.now() <=
+    shiftEndDateTime(session.prod_date, session.start_time, session.end_time).getTime() +
+      OVERTIME_GRACE_MS
+  );
+}
+
+/** @deprecated Prefer isSessionLive / isSessionLiveById (window-aware). */
 function isSessionDateLive(prodDate: Date | string): boolean {
-  const earliestLive = addPlantDays(currentPlantDate(), -1); // 'YYYY-MM-DD'
+  const earliestLive = addPlantDays(currentPlantDate(), -1);
   return formatPlantDate(prodDate) >= earliestLive;
 }
 
@@ -151,7 +173,10 @@ function sessionMatchesOperational(
   );
 }
 
-/** ACTIVE session for machine (prefer this operator). Not filtered by clock — pin until handover closes it. */
+/**
+ * ACTIVE session for machine (prefer this operator), only if still within
+ * shift-end + overtime grace. Stale overnight sessions are ignored.
+ */
 async function findActiveSession(
   machineCode: string,
   userId?: number,
@@ -173,41 +198,75 @@ async function findActiveSession(
       .where('s.prod_date', '>=', parsePlantDateOnly(addPlantDays(currentPlantDate(), -1)))
       .orderBy('s.started_at', 'desc');
 
+  const live = (row: SessionRow | undefined | null) =>
+    row &&
+    isSessionLive({
+      prod_date: row.prod_date,
+      start_time: String(row.start_time).slice(0, 5),
+      end_time: String(row.end_time).slice(0, 5),
+    })
+      ? row
+      : null;
+
   if (userId) {
     const userSession = await sessionSelect()
       .where('s.operator_user_id', '=', userId)
       .executeTakeFirst();
-    if (userSession) return userSession as SessionRow;
+    const r = live(userSession as SessionRow);
+    if (r) return r;
   }
 
   const activeSession = await sessionSelect().executeTakeFirst();
-  return (activeSession as SessionRow) ?? null;
+  return live(activeSession as SessionRow);
 }
 
 export class ShiftDetectionService {
   static isSessionDateLive = isSessionDateLive;
+  static isSessionLive = isSessionLive;
+  static shiftEndDateTime = shiftEndDateTime;
   static sessionMatchesOperational = sessionMatchesOperational;
 
+  /** Join master.shift and apply window-aware liveness. */
+  static async isSessionLiveById(sessionId: string): Promise<boolean> {
+    const row = await db
+      .selectFrom('txn.machine_shift_session as s')
+      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+      .select(['s.prod_date', 'w.start_time', 'w.end_time'])
+      .where('s.session_id', '=', sessionId)
+      .executeTakeFirst();
+    if (!row) return false;
+    return isSessionLive({
+      prod_date: row.prod_date,
+      start_time: String(row.start_time).slice(0, 5),
+      end_time: String(row.end_time).slice(0, 5),
+    });
+  }
+
   /**
-   * Close this operator's ACTIVE sessions that do not match prodDate+shiftCode.
-   * Do not call from ensureActiveSession — an open session past the clock boundary
-   * is overtime/continuation and must stay pinned until handover closes it.
+   * Close this operator's ACTIVE sessions that are past shift-end + overtime grace.
+   * Safe on login — keeps genuine live/overtime sessions open.
    */
   static async closeStaleOperatorSessions(
     machineCode: string,
     operatorUserId: number,
-    prodDate: string,
-    shiftCode: string,
   ): Promise<number> {
-    const stale = await db
-      .selectFrom('txn.machine_shift_session')
-      .select(['session_id', 'prod_date', 'shift_code'])
-      .where('machine_code', '=', machineCode)
-      .where('operator_user_id', '=', operatorUserId)
-      .where('status', '=', 'ACTIVE')
+    const active = await db
+      .selectFrom('txn.machine_shift_session as s')
+      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+      .select(['s.session_id', 's.prod_date', 'w.start_time', 'w.end_time'])
+      .where('s.machine_code', '=', machineCode)
+      .where('s.operator_user_id', '=', operatorUserId)
+      .where('s.status', '=', 'ACTIVE')
       .execute();
 
-    const toClose = stale.filter((s) => !sessionMatchesOperational(s, prodDate, shiftCode));
+    const toClose = active.filter(
+      (s) =>
+        !isSessionLive({
+          prod_date: s.prod_date,
+          start_time: String(s.start_time).slice(0, 5),
+          end_time: String(s.end_time).slice(0, 5),
+        }),
+    );
     if (toClose.length === 0) return 0;
 
     const closedAt = new Date();
