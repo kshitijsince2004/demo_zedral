@@ -28,13 +28,6 @@ export const EMPTY_DEVICE_STATUS: DeviceStatusSnapshot = {
   pingMs: null,
 };
 
-function resolveHealthUrl(): string {
-  const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-  if (!host) return '/health';
-  const base = host.endsWith('/api') ? host.slice(0, -4) : host;
-  return `${base}/health`;
-}
-
 let lastGoodPing: number | null = null;
 let lastPingAt = 0;
 const PING_CACHE_MS = 10_000;
@@ -54,7 +47,7 @@ export async function measurePingMs(timeoutMs = 4000): Promise<number | null> {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const started = performance.now();
   try {
-    const res = await fetch(healthUrl, {
+    await fetch(healthUrl, {
       method: 'GET',
       mode: 'no-cors',
       cache: 'no-store',

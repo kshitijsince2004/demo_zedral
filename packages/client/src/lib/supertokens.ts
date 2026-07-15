@@ -2,8 +2,14 @@ import SuperTokens from 'supertokens-auth-react';
 import EmailPassword from 'supertokens-auth-react/recipe/emailpassword';
 import Session from 'supertokens-auth-react/recipe/session';
 
+declare global {
+  interface Window {
+    __SUPERTOKENS_INIT__?: boolean;
+  }
+}
+
 export function initSuperTokens() {
-  if ((window as any).__SUPERTOKENS_INIT__) {
+  if (window.__SUPERTOKENS_INIT__) {
     console.warn('[SuperTokens] Already initialized, skipping.');
     return;
   }
@@ -29,5 +35,5 @@ export function initSuperTokens() {
     ],
   });
 
-  (window as any).__SUPERTOKENS_INIT__ = true;
+  window.__SUPERTOKENS_INIT__ = true;
 }

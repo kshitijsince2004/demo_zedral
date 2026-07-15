@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { AlertTriangle, X } from 'lucide-react';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
+import { DefectTagSelector } from './DefectTagSelector';
 
 const REJECTION_REASONS = [
   { value: 'QUALITY_ISSUE', label: 'Quality Issue' },
@@ -35,8 +36,17 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [error]);
 
   if (!open) return null;
+
+  const canSubmit = !!batchNumber.trim() && !!remarks.trim();
 
   const toggleTag = (code: string) => {
     setSelectedTags((prev) =>
@@ -51,6 +61,10 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
   };
 
   const handleSubmit = async () => {
+    if (!batchNumber.trim()) {
+      setError('No order selected for hold');
+      return;
+    }
     if (!remarks.trim()) {
       setError('Hold remarks are required');
       return;
@@ -85,7 +99,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
           <AlertTriangle className="h-6 w-6" />
           <div className="flex-1">
             <h3 className="text-lg font-bold">Hold Order</h3>
-            <p className="text-sm font-medium opacity-90">{orderLabel ?? `Batch ${batchNumber}`}</p>
+            <p className="text-sm font-medium opacity-90">{orderLabel ?? (batchNumber ? `Batch ${batchNumber}` : 'No order selected')}</p>
             {orderSubtitle && <p className="text-xs opacity-75">{orderSubtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="hover:bg-destructive/10 p-2 rounded-lg" aria-label="Close">
@@ -95,7 +109,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
 
         <div className="flex-1 overflow-auto p-5 space-y-6">
           {error && (
-            <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-xl border border-destructive/30">
+            <div ref={errorRef} role="alert" className="bg-destructive/10 text-destructive text-sm p-3 rounded-xl border border-destructive/30">
               {error}
             </div>
           )}
@@ -151,7 +165,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
           <ZButton
             variant="danger"
             onClick={handleSubmit}
-            disabled={busy || !remarks.trim()}
+            disabled={busy || !canSubmit}
             className="min-h-14 flex-1"
           >
             Confirm {HOLD_ACTION_LABEL}

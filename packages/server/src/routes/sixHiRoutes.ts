@@ -22,7 +22,7 @@ import {
   SixHiShiftService,
   SixHiStoppageService,
 } from '../services/sixHi';
-import { parseCrmMillCode } from '../utils/machineAllocation';
+import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
 import { currentPlantDate } from '../utils/dateOnly';
@@ -49,18 +49,33 @@ async function shiftCodeFromQueryOrCurrent(
   return detected.shiftCode.toUpperCase();
 }
 
+function resolveRequiredCrmMill(
+  req: import('express').Request,
+  res: import('express').Response,
+): CrmMillCode | null {
+  const raw = req.body?.machine ?? req.query?.machine;
+  if (raw == null || String(raw).trim() === '') {
+    res.status(400).json({ error: 'machine param required' });
+    return null;
+  }
+  const machine = parseCrmMillCode(String(raw).toUpperCase());
+  if (!machine) {
+    res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
+    return null;
+  }
+  return machine;
+}
+
 // operation kept in the signature so the 42 call sites (requireSixHi('READ'|'WRITE')) don't change.
 function requireCrmMill(_operation: LineAccessLevel) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
-      const machineRaw = String(req.body?.machine ?? req.query?.machine ?? '6HI').toUpperCase();
-      const machine = parseCrmMillCode(machineRaw);
-      if (!machine) {
-        return res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
-      }
+      const machine = resolveRequiredCrmMill(req, res);
+      if (!machine) return;
       // Machine-wise scope: security.machine_access holds 6HI/4HI/2HI; ADMIN/PLANT_HEAD bypass inside.
       assertMachineAccess(req.user, machine);
+      (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
       next();
     } catch (e: unknown) {
       res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
@@ -118,10 +133,13 @@ router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREV
     }
     const rows = await PPCImportService.updatePreviewMachines(
       req.params.sessionId,
-      assignments.map((a) => ({
-        batchNumber: a.batchNumber,
-        machineCode: (['6HI', '4HI', '2HI'].includes(a.machineCode) ? a.machineCode : '6HI') as '6HI' | '4HI' | '2HI',
-      })),
+      assignments.map((a) => {
+        const machineCode = parseCrmMillCode(String(a.machineCode ?? '').toUpperCase());
+        if (!machineCode) {
+          throw new Error(`Invalid machineCode "${a.machineCode}" (expected 6HI, 4HI, or 2HI)`);
+        }
+        return { batchNumber: a.batchNumber, machineCode };
+      }),
     );
     res.json({ rows });
   } catch (e: unknown) {
@@ -244,8 +262,9 @@ router.patch('/master/stoppage-codes/:code/toggle', requireSixHi('WRITE'), async
 
 router.get('/active-order', requireSixHi('READ'), async (req, res) => {
   try {
-    const machine = String(req.query.machine ?? '6HI').toUpperCase();
-    const active = await SixHiExecutionService.findActiveMachineOrder(parseCrmMillCode(machine) ?? '6HI');
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
+    const active = await SixHiExecutionService.findActiveMachineOrder(machine);
     res.json(active);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load active order' });
@@ -254,7 +273,8 @@ router.get('/active-order', requireSixHi('READ'), async (req, res) => {
 
 router.get('/manual-stoppage', requireSixHi('READ'), async (req, res) => {
   try {
-    const machine = parseCrmMillCode(String(req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
     const status = await SixHiExecutionService.getManualStoppageStatus(machine);
     res.json(status);
   } catch (e: unknown) {
@@ -264,7 +284,8 @@ router.get('/manual-stoppage', requireSixHi('READ'), async (req, res) => {
 
 router.post('/manual-stoppage/start', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
     const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const status = await SixHiExecutionService.startManualStoppage(
@@ -282,7 +303,8 @@ router.post('/manual-stoppage/start', requireSixHi('WRITE'), async (req, res) =>
 
 router.patch('/manual-stoppage', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
     const parsed = SixHiOrderStoppageSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const rollChange = req.body.rollChange as {
@@ -305,7 +327,8 @@ router.patch('/manual-stoppage', requireSixHi('WRITE'), async (req, res) => {
 
 router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
   try {
-    const machine = parseCrmMillCode(String(req.body.machine ?? req.query.machine ?? '6HI').toUpperCase()) ?? '6HI';
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
     const status = await SixHiExecutionService.endManualStoppage(machine, req.user!.id);
     res.json(status);
   } catch (e: unknown) {
@@ -316,21 +339,18 @@ router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
 router.get('/queue', requireSixHi('READ'), async (req, res) => {
   try {
     const subProcess = String(req.query.subProcess ?? 'ROLLING').toUpperCase().replace(' ', '_');
-    const machine = String(req.query.machine ?? '6HI').toUpperCase();
-    const shiftCode = await shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id, machine);
+    const parsedMachine = resolveRequiredCrmMill(req, res);
+    if (!parsedMachine) return;
+    const shiftCode = await shiftCodeFromQueryOrCurrent(req.query.shift, req.user!.id, parsedMachine);
     const detected = await ShiftDetectionService.getCurrentShift({
       userId: req.user!.id,
-      machineCode: machine,
+      machineCode: parsedMachine,
     });
     const viewDate = typeof req.query.date === 'string'
       ? req.query.date.slice(0, 10)
       : currentPlantDate();
     if (!['ROLLING', 'SKIN_PASS'].includes(subProcess)) {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
-    }
-    const parsedMachine = parseCrmMillCode(machine);
-    if (!parsedMachine) {
-      return res.status(400).json({ error: 'machine must be 6HI, 4HI, or 2HI' });
     }
     let shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
     if (!shiftLogId) {
@@ -577,7 +597,7 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
         .select('machine_code')
         .where('batch_number', '=', req.params.batchNo)
         .executeTakeFirst();
-      const mc = batch?.machine_code ?? '6HI';
+      const mc = batch?.machine_code ?? 'unknown';
       return res.status(409).json({
         error: `Another order is already active on CRM ${mc}`,
         activeBatchNumber: msg.split(':')[1],
@@ -602,6 +622,9 @@ router.patch('/orders/:batchNo/rolling', requireSixHi('WRITE'), async (req, res)
   const parsed = SixHiRollingUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
+    const machine = resolveRequiredCrmMill(req, res);
+    if (!machine) return;
+    assertMachineForSubProcess('ROLLING', machine);
     const order = await SixHiExecutionService.updateRolling(req.params.batchNo, {
       ...parsed.data,
       destinationOverride: req.body.destinationOverride ?? false,

@@ -3,6 +3,12 @@ import { Network } from '@capacitor/network';
 import { isAndroidApk } from '../operator/native/deviceStatus';
 import { useDeviceStatusStore } from '../operator/native/deviceStatusStore';
 
+declare global {
+  interface Window {
+    __DEVICE_STATUS_POLLING__?: boolean;
+  }
+}
+
 const POLL_MS = 15_000;
 
 /**
@@ -16,23 +22,21 @@ export function useAndroidDeviceStatus() {
     if (!isAndroidApk()) return;
 
     // Only one poller should run
-    if ((window as any).__DEVICE_STATUS_POLLING__) return;
-    (window as any).__DEVICE_STATUS_POLLING__ = true;
+    if (window.__DEVICE_STATUS_POLLING__) return;
+    window.__DEVICE_STATUS_POLLING__ = true;
 
     const poll = async () => {
       await useDeviceStatusStore.getState().update();
     };
 
     void poll();
-    const id = setInterval(() => void poll(), POLL_MS);
-    const networkListener = Network.addListener('networkStatusChange', () => void poll());
+    const intervalId = setInterval(() => void poll(), POLL_MS);
+    const listenerPromise = Network.addListener('networkStatusChange', () => void poll());
 
     return () => {
-      // In practice, this hook stays mounted with the shell,
-      // but we clean up for safety.
-      // (window as any).__DEVICE_STATUS_POLLING__ = false;
-      // clearInterval(id);
-      // void networkListener.then((handle) => handle.remove());
+      window.__DEVICE_STATUS_POLLING__ = false;
+      clearInterval(intervalId);
+      void listenerPromise.then((handle) => handle.remove());
     };
   }, []);
 

@@ -31,6 +31,14 @@ describe('machineRouting', () => {
     expect(preferCrmMachine(['PKL', 'HRS'])).toBe(null);
   });
 
+  it('lands 4HI-only and 2HI-only operators on their mill (does not force 6HI)', () => {
+    expect(preferCrmMachine(['4HI'])).toBe('4HI');
+    expect(preferCrmMachine(['2HI'])).toBe('2HI');
+    expect(preferCrmMachine(['4HI', '2HI'])).toBe('4HI');
+    expect(resolvePrimaryMachinePath('OPERATOR', ['4HI'], [])).toBe('/4hi');
+    expect(resolvePrimaryMachinePath('OPERATOR', ['2HI'], [])).toBe('/2hi');
+  });
+
   it('resolves primary path to CRM first, then process capture', () => {
     expect(resolvePrimaryMachinePath('OPERATOR', ['4HI'], ['HRS'])).toBe('/4hi');
     expect(resolvePrimaryMachinePath('OPERATOR', ['HRS'], ['HRS'])).toBe('/capture/HRS');

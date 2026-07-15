@@ -68,6 +68,7 @@ export function SixHiLayout() {
   } = useSixHiStore();
 
   const [rejectionOpen, setRejectionOpen] = useState(false);
+  const [rejectionBatch, setRejectionBatch] = useState<string | null>(null);
   const [endOpen, setEndOpen] = useState(false);
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [manualStoppageOpen, setManualStoppageOpen] = useState(false);
@@ -121,7 +122,8 @@ export function SixHiLayout() {
 
   useEffect(() => {
     useSixHiStore.setState({
-      requestRejectionDialog: () => {
+      requestRejectionDialog: (batchNo: string) => {
+        setRejectionBatch(batchNo);
         setRejectionOpen(true);
       },
     });
@@ -131,18 +133,24 @@ export function SixHiLayout() {
   }, []);
 
   const activeBatch = combinedRun?.primaryBatchNumber ?? workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
+  const rejectTarget = rejectionBatch ?? activeBatch;
   const stoppageBatch = stoppageModalBatch ?? activeBatch;
   const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : activeBatch ? [activeBatch] : [];
-  const modalOrderLabel = combinedRun
+  const rejectActionBatchNumbers = combinedRun?.batchNumbers.length && !rejectionBatch
+    ? combinedRun.batchNumbers
+    : rejectTarget
+      ? [rejectTarget]
+      : [];
+  const modalOrderLabel = combinedRun && !rejectionBatch
     ? `Combined run (${combinedRun.batchNumbers.length} orders)`
-    : panelOrder
+    : panelOrder && (!rejectionBatch || rejectionBatch === panelOrder.batchNumber)
       ? displayMotherCoilId(panelOrder)
-      : activeBatch
-        ? `Batch ${activeBatch}`
+      : rejectTarget
+        ? `Batch ${rejectTarget}`
         : undefined;
-  const modalOrderSubtitle = combinedRun
+  const modalOrderSubtitle = combinedRun && !rejectionBatch
     ? combinedRun.batchNumbers.join(', ')
-    : panelOrder
+    : panelOrder && (!rejectionBatch || rejectionBatch === panelOrder.batchNumber)
       ? orderIdentitySubtitle(panelOrder)
       : undefined;
   const showPanel = panelOrder && shouldShowProductionPanel(panelOrder, workspaceOpen, workspaceBatch);
@@ -201,7 +209,10 @@ export function SixHiLayout() {
         combinedRun,
         onStart: handleStart,
         onEnd: handleEnd,
-        onReject: () => setRejectionOpen(true),
+        onReject: () => {
+          setRejectionBatch(panelOrder.batchNumber);
+          setRejectionOpen(true);
+        },
         onRemark: () => setRemarkOpen(true),
         onStoppage: handleStoppage,
         onViewOrder: () => openWorkspace(panelOrder.batchNumber),
@@ -231,14 +242,23 @@ export function SixHiLayout() {
         <OrderEndModal
           open={endOpen}
           batchNumber={activeBatch}
-          orderLabel={modalOrderLabel}
-          orderSubtitle={modalOrderSubtitle}
+          orderLabel={combinedRun
+            ? `Combined run (${combinedRun.batchNumbers.length} orders)`
+            : panelOrder
+              ? displayMotherCoilId(panelOrder)
+              : `Batch ${activeBatch}`}
+          orderSubtitle={combinedRun
+            ? combinedRun.batchNumbers.join(', ')
+            : panelOrder
+              ? orderIdentitySubtitle(panelOrder)
+              : undefined}
           order={panelOrder ?? undefined}
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {
+              const endTargets = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [activeBatch];
               await runOrderAction(activeBatch, async () =>
-                Promise.all(actionBatchNumbers.map((batchNumber) =>
+                Promise.all(endTargets.map((batchNumber) =>
                   apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/end`, { defectCodes }),
                 )),
               );
@@ -256,29 +276,36 @@ export function SixHiLayout() {
         />
       )}
 
-      {activeBatch && (
-        <OrderRejectionModal
-          open={rejectionOpen}
-          batchNumber={activeBatch}
-          orderLabel={modalOrderLabel}
-          orderSubtitle={modalOrderSubtitle}
-          onClose={() => setRejectionOpen(false)}
-          onReject={async (batchNo, rejectionReason, defectCodes, remarks) => {
-            await runOrderAction(batchNo, async () =>
-              Promise.all(actionBatchNumbers.map((batchNumber) =>
-                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/reject`, {
-                  rejectionReason,
-                  defectCodes,
-                  remarks,
-                }),
-              )),
-            );
-            if (shiftLogId) await loadShiftSummary(shiftLogId);
-            setCombinedRun(null);
-            closeWorkspace();
-          }}
-        />
-      )}
+      <OrderRejectionModal
+        open={rejectionOpen}
+        batchNumber={rejectTarget ?? ''}
+        orderLabel={modalOrderLabel}
+        orderSubtitle={modalOrderSubtitle}
+        onClose={() => {
+          setRejectionOpen(false);
+          setRejectionBatch(null);
+        }}
+        onReject={async (batchNo, rejectionReason, defectCodes, remarks) => {
+          const targets = rejectActionBatchNumbers.length > 0 ? rejectActionBatchNumbers : batchNo ? [batchNo] : [];
+          if (targets.length === 0) {
+            setActionError('No order selected for hold');
+            throw new Error('No order selected for hold');
+          }
+          await runOrderAction(targets[0], async () =>
+            Promise.all(targets.map((batchNumber) =>
+              apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/reject`, {
+                rejectionReason,
+                defectCodes,
+                remarks,
+              }),
+            )),
+          );
+          if (shiftLogId) await loadShiftSummary(shiftLogId);
+          setCombinedRun(null);
+          setRejectionBatch(null);
+          closeWorkspace();
+        }}
+      />
       
       {showPanel && actionRailProps && !workspaceOpen && (
         <SixHiGlobalProductionPanel {...actionRailProps} />

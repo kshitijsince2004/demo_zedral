@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SixHiOrderDetail, SixHiQueueCard, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
+import { setActiveCrmMill } from '../lib/crmMillContext';
 import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
 import { canRecordStoppage } from '../lib/sixHiRuntime';
@@ -116,6 +117,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   setProcessTab: (tab) => set({ processTab: tab }),
   setMachineCode: (machine: MillCode) => {
     const { processTab } = get();
+    setActiveCrmMill(machine);
     set({
       machineCode: machine,
       processTab: machine === '2HI' && processTab === 'rolling' ? defaultMillTab(machine) : processTab,

@@ -45,6 +45,8 @@ const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD || 'Password123!';
 const USERS = [
   { username: 'admin', emp_code: '1000', full_name: 'Plant Admin', role_id: 4, lines: [], machines: [], staff: true },
   { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', 'ROLLING'], machines: ['6HI'] },
+  { username: 'operator4hi', emp_code: '3004', full_name: '4HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['4HI'] },
+  { username: 'operator2hi', emp_code: '3002', full_name: '2HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['2HI'] },
   { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
   { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
 ];

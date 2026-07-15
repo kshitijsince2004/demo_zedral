@@ -11,6 +11,7 @@
  */
 
 import { useAuthStore } from './authStore';
+import { getActiveCrmMill } from './crmMillContext';
 
 /** Web: `/api` via nginx. APK/native: `VITE_API_URL` host + `/api` (see M1-10). */
 function resolveApiBase(): string {
@@ -115,16 +116,16 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   }
   headers.set('X-App-Version', APP_VERSION);
 
-  // Inject machine code into /6hi/ API requests
+  // Inject machine code into /6hi/ API requests (path mill or active CRM context).
   let finalPath = path;
-  if (typeof window !== 'undefined' && path.startsWith('/6hi/')) {
+  if (typeof window !== 'undefined' && path.startsWith('/6hi/') && !path.includes('machine=')) {
     const pathname = window.location.pathname.toLowerCase();
     let machine: string | null = null;
     if (pathname.includes('/4hi')) machine = '4HI';
     else if (pathname.includes('/2hi')) machine = '2HI';
     else if (pathname.includes('/6hi')) machine = '6HI';
-
-    if (machine && !path.includes('machine=')) {
+    if (!machine) machine = getActiveCrmMill();
+    if (machine) {
       finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
     }
   }

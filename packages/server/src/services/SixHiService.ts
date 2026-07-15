@@ -9,7 +9,7 @@ import type {
 } from '@m1/shared-validation';
 import { db } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
-import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode } from '../utils/machineAllocation';
+import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode, assertMachineForSubProcess } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import { ValidationConfigService } from './ValidationConfigService';
 import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
@@ -1027,13 +1027,18 @@ export class SixHiService {
 
   static async startProduction(batchNumber: string, userId: number) {
     const batch = await db.selectFrom('planning.ppc_batch')
-      .select(['machine_code', 'machine_allocated', 'shift_code'])
+      .select(['machine_code', 'machine_allocated', 'shift_code', 'sub_process'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     if (!batch?.machine_allocated) {
       throw new Error('Assign a production machine before starting');
     }
-    const machineCode = batch?.machine_code ?? '6HI';
+    const machineCode = batch.machine_code;
+    if (!machineCode) throw new Error('Order has no machine assigned');
+    assertMachineForSubProcess(
+      batch.sub_process === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
+      machineCode,
+    );
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 

@@ -4,6 +4,7 @@ import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { PassTracker } from './PassTracker';
+import { ThicknessSpecs } from './ThicknessSpecs';
 
 interface RollingWorkspaceProps {
   order: SixHiOrderDetail;
@@ -133,9 +134,14 @@ export function FourHiRollingForm({
       <div className="flex flex-col">
         <div className="p-3 space-y-3">
           <div className="bg-white border border-border rounded-xl p-3 space-y-2">
-            <h3 className="text-base font-bold text-foreground">
-              Production{passLabel ? ` · ${passLabel}` : ''}
-            </h3>
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+              <h3 className="text-base font-bold text-foreground whitespace-nowrap">
+                Production{passLabel ? ` · ${passLabel}` : ''}
+              </h3>
+              <div className="w-full md:w-[65%] lg:w-[60%]">
+                <ThicknessSpecs order={order} compact />
+              </div>
+            </div>
             {order.finishThkMm != null && order.finishThkMm !== order.targetThkMm && (
               <p className="text-xs text-muted-foreground">
                 Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
@@ -232,6 +238,9 @@ export function FourHiRollingForm({
             Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
           </p>
         )}
+      </div>
+      <div className="bg-white border border-border rounded-2xl p-4">
+        <ThicknessSpecs order={order} />
       </div>
       <div className="bg-white border border-border rounded-2xl p-4">
         <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>
