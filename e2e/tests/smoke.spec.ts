@@ -98,6 +98,16 @@ test.describe('Staging smoke', () => {
     const logout = page.getByRole('button', { name: /log ?out|sign out/i }).first();
     if (await logout.count()) {
       await logout.click();
+      
+      try {
+        const confirmDialog = page.getByRole('dialog');
+        const confirmBtn = confirmDialog.getByRole('button', { name: /log ?out|sign out|confirm/i });
+        await confirmBtn.waitFor({ state: 'visible', timeout: 2000 });
+        await confirmBtn.click();
+      } catch (e) {
+        // No confirmation modal appeared, proceed
+      }
+
       await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
     } else {
       await page.goto('/login');
