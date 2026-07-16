@@ -396,15 +396,26 @@ router.get('/orders/completed', async (req, res) => {
     const shiftCode = req.query.shiftCode ? String(req.query.shiftCode).toUpperCase() : undefined;
     // Prefer resolved shift-log scoping so "completed this shift" matches the rest
     // of the dashboard (Overview / Completed count), not a raw calendar-day window.
-    let shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
-    if (!shiftLogId && date && shiftCode && shiftCode !== 'ALL') {
-      shiftLogId = (await SixHiService.resolveShiftLogIdForPlan(date, shiftCode)) ?? undefined;
+    // Include mill_type siblings — orders may sit on mill-specific logs.
+    let shiftLogIds: string[] | undefined;
+    if (req.query.shiftLogId) {
+      shiftLogIds = await SixHiService.expandSiblingShiftLogIds(String(req.query.shiftLogId));
+    } else if (date && shiftCode && shiftCode !== 'ALL') {
+      shiftLogIds = await SixHiService.resolveShiftLogIdsForPlan(date, shiftCode);
     }
 
-    // Resolve machine scope for the requesting user
+    // Resolve machine scope for the requesting user — prefer DB grants over
+    // stale JWT claims (same source as LiveService.getMachineScope).
     const isAdmin = req.user.roles.includes(UserRole.ADMIN as string);
     const isPlantHead = req.user.roles.includes(UserRole.PLANT_HEAD as string);
-    const userMachineAccess = (req.user.machineAccess ?? []).map((m) => m.toUpperCase());
+    let userMachineAccess = (req.user.machineAccess ?? []).map((m) => m.toUpperCase());
+    if (!isAdmin && !isPlantHead && req.user.roles.includes(UserRole.MACHINE_HEAD as string)) {
+      const rows = await db.selectFrom('security.machine_access')
+        .select('machine_code')
+        .where('user_id', '=', req.user.id as any)
+        .execute();
+      userMachineAccess = rows.map((r) => r.machine_code.toUpperCase());
+    }
 
     // If a specific machine is requested, verify the user can access it
     if (rawMachine && rawMachine !== 'ALL') {
@@ -453,8 +464,8 @@ router.get('/orders/completed', async (req, res) => {
       }
       q = q.where('pb.machine_code', 'in', scopedMachines);
     }
-    if (shiftLogId) {
-      q = q.where('o.shift_log_id', '=', shiftLogId);
+    if (shiftLogIds && shiftLogIds.length > 0) {
+      q = q.where('o.shift_log_id', 'in', shiftLogIds);
     } else {
       if (date) {
         q = q.where('o.prod_end_at', '>=', new Date(`${date}T00:00:00Z`))

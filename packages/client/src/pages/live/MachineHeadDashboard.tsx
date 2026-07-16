@@ -751,11 +751,20 @@ export function MachineHeadDashboard() {
                 <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1">
                   <div className="flex items-baseline gap-1.5">
                     <dt className="text-xs font-medium text-muted-foreground">Completed this shift</dt>
-                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">{dashboard.shiftSummary.completedOrderCount}</dd>
+                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">
+                      {completedLoading
+                        ? dashboard.shiftSummary.completedOrderCount
+                        : completedOrders.length}
+                    </dd>
                   </div>
                   <div className="flex items-baseline gap-1.5">
                     <dt className="text-xs font-medium text-muted-foreground">Completed MT</dt>
-                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">{(dashboard.shiftSummary.completedProdMt ?? 0)} MT</dd>
+                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">
+                      {(completedLoading
+                        ? (dashboard.shiftSummary.completedProdMt ?? 0)
+                        : completedOrders.reduce((s, o) => s + (Number(o.weightMt) || 0), 0)
+                      ).toFixed(1)} MT
+                    </dd>
                   </div>
                 </dl>
               )}
@@ -766,6 +775,7 @@ export function MachineHeadDashboard() {
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Machine</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Completed At</th>
@@ -783,7 +793,7 @@ export function MachineHeadDashboard() {
                             customer: o.customer ?? '—',
                             grade: o.grade ?? '—',
                             machineCode: o.machineCode ?? '—',
-                            machineName: o.machineName ?? '—',
+                            machineName: o.machineName ?? o.machineCode ?? '—',
                             currentProcess: o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
                             operatorName: o.operatorName,
                             status: 'COMPLETED',
@@ -797,6 +807,7 @@ export function MachineHeadDashboard() {
                         <td className="px-4 py-3 text-sm">
                           <OrderIdentityDisplay order={identityFromRow(o)} size="sm" />
                         </td>
+                        <td className="px-4 py-3 text-sm font-mono font-bold">{o.machineCode ?? '—'}</td>
                         <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer}</td>
                         <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">{o.weightMt} MT</td>
                         <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">{o.prodEndAt ? formatPlantDateTime(o.prodEndAt) : '—'}</td>
@@ -957,7 +968,7 @@ export function MachineHeadDashboard() {
           </div>
 
           {showOrderPanel && (
-            <aside className="min-h-0 xl:max-h-full hidden xl:block">
+            <aside className="hidden xl:block self-start sticky top-0 w-full max-h-full overflow-y-auto">
               <MachineHeadOrderSidePanel
                 order={selectedOrder}
                 onViewDetails={() => setDetailOpen(true)}

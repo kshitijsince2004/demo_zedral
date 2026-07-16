@@ -14,7 +14,6 @@ import { PPCImportService } from '../services/PPCImportService';
 import { ValidationConfigService } from './ValidationConfigService';
 import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
 import { getTenantId } from '../context';
-import { ShiftLogService } from './shiftLogService';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
@@ -59,28 +58,16 @@ export class SixHiService {
   }
 
   static async ensureActiveShiftLog(userId: number, planDate?: Date, shiftCode?: string): Promise<string> {
+    // Same resolver as dashboards / reattribution (mill_type IS NULL) so orders
+    // are not pinned to a random mill-specific sibling of the same date/shift.
     const processId = await this.getProcessId();
-    const prodDate = planDate ?? new Date();
-    const shift = shiftCode ?? 'B';
-
-    const existing = await db.selectFrom('txn.shift_log')
-      .select('shift_log_id')
-      .where('process_id', '=', processId)
-      .where('prod_date', '=', prodDate)
-      .where('shift_code', '=', shift)
-      .executeTakeFirst();
-
-    if (existing) {
-      return String(existing.shift_log_id);
-    }
-
-    const id = await ShiftLogService.create({
+    const resolved = await ShiftDetectionService.resolveShift({
+      planDate: planDate ?? new Date(),
+      shiftCode: shiftCode ?? 'B',
       processId,
-      productionDate: prodDate,
-      shiftCode: shift,
-      supervisorId: userId,
+      userId,
     });
-    return String(id);
+    return resolved.shiftLogId;
   }
 
   /**
@@ -494,31 +481,16 @@ export class SixHiService {
       .where('pb.machine_allocated', '=', true)
       .where('o.status', 'in', ['COMPLETED', 'REJECTED']);
 
-    const effectiveShiftLogId =
-      shiftLogId ?? (await this.resolveShiftLogIdForPlan(prodDate, shiftCode));
-    if (!effectiveShiftLogId) {
+    const logIds = shiftLogId
+      ? await this.expandSiblingShiftLogIds(shiftLogId)
+      : await this.resolveShiftLogIdsForPlan(prodDate, shiftCode);
+    if (logIds.length === 0) {
       console.warn(
         `[SixHi] fetchTerminalBatches: no shift_log for ${prodDate}/${shiftCode} — completed list empty`,
       );
       return [];
     }
-
-    const shiftRow = await db.selectFrom('txn.shift_log')
-      .select(['prod_date', 'shift_code', 'process_id'])
-      .where('shift_log_id', '=', effectiveShiftLogId)
-      .executeTakeFirst();
-    if (shiftRow?.prod_date && shiftRow.shift_code) {
-      const siblingLogs = await db.selectFrom('txn.shift_log')
-        .select('shift_log_id')
-        .where('process_id', '=', shiftRow.process_id)
-        .where('prod_date', '=', shiftRow.prod_date)
-        .where('shift_code', '=', shiftRow.shift_code)
-        .execute();
-      const logIds = siblingLogs.map((row) => String(row.shift_log_id));
-      query = query.where('o.shift_log_id', 'in', logIds.length > 0 ? logIds : [effectiveShiftLogId]);
-    } else {
-      query = query.where('o.shift_log_id', '=', effectiveShiftLogId);
-    }
+    query = query.where('o.shift_log_id', 'in', logIds);
 
     const rows = await query
       .orderBy('o.updated_at', 'desc')
@@ -2189,10 +2161,15 @@ export class SixHiService {
    * on the planned date as well would count such an order under both the planned
    * shift and the production shift (double counting).
    */
-  private static async listShiftProductionOrders(shiftLogId: string, machineFilter?: string | string[]) {
+  private static async listShiftProductionOrders(
+    shiftLogId: string | string[],
+    machineFilter?: string | string[],
+  ) {
     const machineCodes = machineFilter == null
       ? null
       : Array.isArray(machineFilter) ? machineFilter : [machineFilter];
+    const logIds = Array.isArray(shiftLogId) ? shiftLogId : [shiftLogId];
+    if (logIds.length === 0) return [];
 
     let query = db
       .selectFrom('txn.crm_order as o')
@@ -2207,7 +2184,7 @@ export class SixHiService {
         'o.ppc_weight_mt',
         'pb.ppc_weight_mt as batch_ppc_weight_mt',
       ])
-      .where('o.shift_log_id', '=', shiftLogId)
+      .where('o.shift_log_id', 'in', logIds)
       .where('o.status', '!=', 'CANCELLED');
 
     if (machineCodes && machineCodes.length > 0) {
@@ -2242,8 +2219,17 @@ export class SixHiService {
     return s?.actual_weight_mt ? Number(s.actual_weight_mt) : ppcWeight;
   }
 
-  static async getShiftSummary(shiftLogId: string, machineFilter?: string | string[]): Promise<SixHiShiftSummary> {
-    const shiftOrders = await this.listShiftProductionOrders(shiftLogId, machineFilter);
+  static async getShiftSummary(
+    shiftLogId: string | string[],
+    machineFilter?: string | string[],
+  ): Promise<SixHiShiftSummary> {
+    const logIds = Array.isArray(shiftLogId)
+      ? shiftLogId
+      : await this.expandSiblingShiftLogIds(shiftLogId);
+    const primaryId = logIds[0] ?? (Array.isArray(shiftLogId) ? '' : shiftLogId);
+    const shiftOrders = primaryId
+      ? await this.listShiftProductionOrders(logIds.length > 0 ? logIds : [primaryId], machineFilter)
+      : [];
 
     let completedRolling = 0;
     let completedReroll = 0;
@@ -2306,15 +2292,15 @@ export class SixHiService {
 
     const saved = await db.selectFrom('txn.crm_shift_summary')
       .selectAll()
-      .where('shift_log_id', '=', shiftLogId)
+      .where('shift_log_id', '=', primaryId)
       .executeTakeFirst();
 
     const { ShiftAttributionService } = await import('./ShiftAttributionService');
     const machineCode = Array.isArray(machineFilter) ? machineFilter[0] : machineFilter;
-    const metrics = await ShiftAttributionService.getShiftMetrics(shiftLogId, machineCode);
+    const metrics = await ShiftAttributionService.getShiftMetrics(primaryId, machineCode);
 
     return {
-      shiftLogId,
+      shiftLogId: primaryId,
       totalProdMt: totalRolling + totalSkinpass,
       completedProdMt,
       inProgressProdMt,
@@ -2385,6 +2371,34 @@ export class SixHiService {
       processId,
     });
     return resolved.shiftLogId;
+  }
+
+  /**
+   * All shift_log rows for the same process/date/shift (every mill_type sibling).
+   * MH completed counts used to pin to one mill_type=null id and miss orders on
+   * mill-specific siblings created for shift review.
+   */
+  static async expandSiblingShiftLogIds(shiftLogId: string): Promise<string[]> {
+    const shiftRow = await db.selectFrom('txn.shift_log')
+      .select(['prod_date', 'shift_code', 'process_id'])
+      .where('shift_log_id', '=', shiftLogId)
+      .executeTakeFirst();
+    if (!shiftRow?.prod_date || !shiftRow.shift_code) return [shiftLogId];
+
+    const siblings = await db.selectFrom('txn.shift_log')
+      .select('shift_log_id')
+      .where('process_id', '=', shiftRow.process_id)
+      .where('prod_date', '=', shiftRow.prod_date)
+      .where('shift_code', '=', shiftRow.shift_code)
+      .execute();
+    const ids = siblings.map((row) => String(row.shift_log_id));
+    return ids.length > 0 ? ids : [shiftLogId];
+  }
+
+  static async resolveShiftLogIdsForPlan(planDate: string | Date, shiftCode: string): Promise<string[]> {
+    const primary = await this.resolveShiftLogIdForPlan(planDate, shiftCode);
+    if (!primary) return [];
+    return this.expandSiblingShiftLogIds(primary);
   }
 
   static async resolveShiftLogIdForOrder(orderId: string): Promise<string | null> {

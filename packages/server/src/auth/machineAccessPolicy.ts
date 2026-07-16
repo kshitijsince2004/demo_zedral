@@ -42,14 +42,15 @@ export async function resolveShiftLogMachines(shiftLogId: string): Promise<strin
     if (s.machine_code) machines.add(s.machine_code.toUpperCase());
   }
 
-  // 2. txn.crm_order
+  // 2. Orders attributed to this shift → machine from PPC batch (not sub_process)
   const orders = await db
-    .selectFrom('txn.crm_order')
-    .select('sub_process')
-    .where('shift_log_id', '=', id as any)
+    .selectFrom('txn.crm_order as o')
+    .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+    .select('pb.machine_code')
+    .where('o.shift_log_id', '=', id as any)
     .execute();
   for (const o of orders) {
-    if (o.sub_process) machines.add(o.sub_process.toUpperCase());
+    if (o.machine_code) machines.add(o.machine_code.toUpperCase());
   }
 
   // 3. shift_log.mill_type & fallback

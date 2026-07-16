@@ -49,6 +49,18 @@ export class SixHiShiftService {
     return SixHiService.resolveShiftLogIdForPlan(...args);
   }
 
+  static resolveShiftLogIdsForPlan(
+    ...args: Parameters<typeof SixHiService.resolveShiftLogIdsForPlan>
+  ): ReturnType<typeof SixHiService.resolveShiftLogIdsForPlan> {
+    return SixHiService.resolveShiftLogIdsForPlan(...args);
+  }
+
+  static expandSiblingShiftLogIds(
+    ...args: Parameters<typeof SixHiService.expandSiblingShiftLogIds>
+  ): ReturnType<typeof SixHiService.expandSiblingShiftLogIds> {
+    return SixHiService.expandSiblingShiftLogIds(...args);
+  }
+
   static syncShiftProductionCache(
     ...args: Parameters<typeof SixHiService.syncShiftProductionCache>
   ): ReturnType<typeof SixHiService.syncShiftProductionCache> {

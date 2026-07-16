@@ -993,11 +993,11 @@ export class LiveService {
     }
 
     const { SixHiShiftService } = await import('./sixHi');
-    const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(planDate, shiftCode);
-    if (!shiftLogId) return zeros;
+    const shiftLogIds = await SixHiShiftService.resolveShiftLogIdsForPlan(planDate, shiftCode);
+    if (shiftLogIds.length === 0) return zeros;
 
     const machineScope = machineFilter && machineFilter.length > 0 ? machineFilter : undefined;
-    const summary = await SixHiShiftService.getShiftSummary(shiftLogId, machineScope);
+    const summary = await SixHiShiftService.getShiftSummary(shiftLogIds, machineScope);
     const round = (n: number) => Math.round(n * 10) / 10;
     const completedOrderCount = summary.completedOrders?.length ?? 0;
     const inProgressOrderCount = summary.ordersInProgress?.length ?? 0;
@@ -1062,7 +1062,8 @@ export class LiveService {
 
     const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode, { search, subProcess });
     const machines = await this.getMachineCards(machineFilter);
-    const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(prodDate, shiftCode);
+    const shiftLogIds = await SixHiShiftService.resolveShiftLogIdsForPlan(prodDate, shiftCode);
+    const shiftLogId = shiftLogIds[0] ?? null;
 
     let completedQ = db
       .selectFrom('txn.crm_order as o')
@@ -1083,8 +1084,8 @@ export class LiveService {
       .orderBy('o.prod_end_at', 'desc')
       // Full shift production history (not just the last 10) — see Task 2.3.
       .limit(200);
-    if (shiftLogId) {
-      completedQ = completedQ.where('o.shift_log_id', '=', shiftLogId);
+    if (shiftLogIds.length > 0) {
+      completedQ = completedQ.where('o.shift_log_id', 'in', shiftLogIds);
     } else {
       completedQ = completedQ
         .where('pb.plan_date', '=', SixHiShiftService.toPlanDate(prodDate))
@@ -1133,9 +1134,9 @@ export class LiveService {
       .select(sql<number>`count(*)::int`.as('n'))
       .where('o.status', '=', 'REJECTED');
 
-    if (shiftLogId) {
-      rejectedQ = rejectedQ.where('o.shift_log_id', '=', shiftLogId);
-      rejectedCountQ = rejectedCountQ.where('o.shift_log_id', '=', shiftLogId);
+    if (shiftLogIds.length > 0) {
+      rejectedQ = rejectedQ.where('o.shift_log_id', 'in', shiftLogIds);
+      rejectedCountQ = rejectedCountQ.where('o.shift_log_id', 'in', shiftLogIds);
     } else {
       const plan = SixHiShiftService.toPlanDate(prodDate);
       rejectedQ = rejectedQ.where('pb.plan_date', '=', plan).where('pb.shift_code', '=', shiftCode);
@@ -1181,8 +1182,8 @@ export class LiveService {
         'os.start_at',
         'os.end_at',
       ]);
-    if (shiftLogId) {
-      stoppageQ = stoppageQ.where('o.shift_log_id', '=', shiftLogId);
+    if (shiftLogIds.length > 0) {
+      stoppageQ = stoppageQ.where('o.shift_log_id', 'in', shiftLogIds);
     }
     if (machineFilter !== null) {
       stoppageQ = stoppageQ.where('pb.machine_code', 'in', machineFilter);

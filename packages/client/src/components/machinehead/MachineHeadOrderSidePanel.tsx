@@ -56,7 +56,7 @@ export function MachineHeadOrderSidePanel({
 
   if (!order) {
     return (
-      <div className="bg-white border border-border rounded-2xl p-5 h-full min-h-[200px] flex items-center justify-center text-muted-foreground text-sm text-center">
+      <div className="bg-white border border-border rounded-2xl p-5 min-h-[120px] flex items-center justify-center text-muted-foreground text-sm text-center">
         Select an order to view details
       </div>
     );
@@ -66,7 +66,7 @@ export function MachineHeadOrderSidePanel({
   const canDelete = isDeletable(detail, order);
 
   return (
-    <div className="bg-white border border-border rounded-2xl h-full min-h-[280px] flex flex-col shadow-sm overflow-hidden">
+    <div className="bg-white border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden">
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border/60">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -79,7 +79,7 @@ export function MachineHeadOrderSidePanel({
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-4 py-3 flex-1 min-h-0 overflow-y-auto content-start text-sm">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-4 py-3 content-start text-sm">
         <div>
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Customer</dt>
           <dd className="font-semibold mt-0.5">{order.customer}</dd>

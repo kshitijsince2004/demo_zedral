@@ -9,6 +9,7 @@ vi.mock('../src/db', () => ({
 vi.mock('../src/services/sixHi', () => ({
   SixHiShiftService: {
     resolveShiftLogIdForPlan: vi.fn(async () => 'shift-1'),
+    resolveShiftLogIdsForPlan: vi.fn(async () => ['shift-1']),
     getShiftSummary: vi.fn(async () => ({
       totalProdMt: 32,
       completedProdMt: 32,
@@ -32,8 +33,8 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
   it('returns unified shift summary totals for machine scope', async () => {
     const result = await LiveService.getShiftCompletedProductionMt(['6HI'], '2026-06-10', 'A');
 
-    expect(SixHiShiftService.resolveShiftLogIdForPlan).toHaveBeenCalledWith('2026-06-10', 'A');
-    expect(SixHiShiftService.getShiftSummary).toHaveBeenCalledWith('shift-1', ['6HI']);
+    expect(SixHiShiftService.resolveShiftLogIdsForPlan).toHaveBeenCalledWith('2026-06-10', 'A');
+    expect(SixHiShiftService.getShiftSummary).toHaveBeenCalledWith(['shift-1'], ['6HI']);
     expect(result.completedOrderCount).toBe(2);
     expect(result.inProgressOrderCount).toBe(0);
     expect(result.orderCount).toBe(2);
