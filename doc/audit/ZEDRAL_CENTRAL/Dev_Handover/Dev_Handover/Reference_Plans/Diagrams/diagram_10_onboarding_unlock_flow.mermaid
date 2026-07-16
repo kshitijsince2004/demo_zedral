@@ -1,0 +1,8 @@
+flowchart LR
+  CONN["Connect source"] --> PROF["Profile"]
+  PROF --> MAPS["Auto-map (sector template) + manual"]
+  MAPS --> CLS["Classify Req/Add per module"]
+  CLS --> VQ["Validate + quality score"]
+  VQ --> DC["Dedup + conform to canonical"]
+  DC --> RDY["Compute readiness per module"]
+  RDY --> UNLOCK["Unlock deployable modules + show gaps"]

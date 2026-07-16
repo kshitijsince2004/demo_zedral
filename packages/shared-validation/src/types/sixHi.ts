@@ -363,6 +363,9 @@ export interface SixHiShiftSummary {
   /** Saved weight on in-progress / stoppage orders (not yet completed). */
   inProgressProdMt?: number;
 
+  /** Planned (PPC) weight of the orders completed this shift — the "Target MT done". */
+  targetCompletedMt?: number;
+
   totalRollingMt: number;
 
   totalRerollMt: number;

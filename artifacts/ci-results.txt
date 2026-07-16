@@ -1,0 +1,10 @@
+
+PASS|ESLint
+PASS|Build
+PASS|Client tests
+PASS|Operator bundle
+PASS|Migrate
+PASS|Server unit
+PASS|Server integration
+PASS|Arch check
+PASS|npm audit (report-only)

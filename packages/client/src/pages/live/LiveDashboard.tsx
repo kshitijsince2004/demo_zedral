@@ -5,6 +5,7 @@ import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
 import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { ZBadge } from '../../components/primitives/ZBadge';
+import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
 import { jsonFingerprint } from '../../lib/silentRefresh';
@@ -143,7 +144,7 @@ export function LiveDashboard() {
                       onClick={() => loadDetail(o.batchNumber)}
                     >
                       <td className="px-5 py-3 align-middle">
-                        <div className="font-mono text-sm font-bold text-foreground">{o.batchNumber}</div>
+                        <OrderIdentityDisplay order={o} size="sm" />
                         <div className="text-xs text-muted-foreground mt-0.5">{o.customer} · {o.weightMt} MT</div>
                       </td>
                       <td className="px-5 py-3 align-middle">

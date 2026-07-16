@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> PENDING: upload / scheduled pull
+  PENDING --> PROFILED: profile + auto-map
+  PROFILED --> MAPPED: confirm / manual map
+  MAPPED --> VALIDATED: rules pass
+  MAPPED --> FAILED: hard errors
+  VALIDATED --> PREVIEW: dry-run / impact analysis
+  PREVIEW --> LOADED: conform + load to canonical
+  PREVIEW --> PARTIAL: some rows quarantined
+  PARTIAL --> LOADED: fix + reprocess
+  FAILED --> PENDING: correct + retry
+  LOADED --> [*]

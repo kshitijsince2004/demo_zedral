@@ -1,0 +1,8 @@
+flowchart TD
+  REG["Canonical KPI Registry + marts (single source of numbers)"]
+  REG --> UIL["Unified Intelligence — interactive, live, explore/why/what-next"]
+  REG --> REP["Reporting — scheduled, static, formatted, distributable"]
+  UIL -. "report can snapshot a UIL view" .-> REP
+  REP --> PDF["Scheduled PDF"]
+  REP --> XL["Excel / CSV"]
+  REP --> VIEW["In-app viewer"]

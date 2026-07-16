@@ -347,7 +347,7 @@ export class SixHiService {
     subProcess: SixHiSubProcess,
     prodDate: string,
     shiftCode: string,
-    machineCode: string = '6HI',
+    machineCode: string,
     shiftLogId?: string,
   ): Promise<{
     prodDate: string;
@@ -1007,7 +1007,7 @@ export class SixHiService {
   }
 
   static async findActiveMachineOrder(
-    machineCode: string = '6HI',
+    machineCode: string,
   ): Promise<{ batchNumber: string; status: string; subProcess: SixHiSubProcess } | null> {
     const active = await db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1176,7 +1176,8 @@ export class SixHiService {
       }
     }
 
-    const machineCode = first.machine_code ?? '6HI';
+    const machineCode = first.machine_code;
+    if (!machineCode) throw new Error('Order has no machine assigned');
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
@@ -1233,7 +1234,8 @@ export class SixHiService {
       .select(['machine_code', 'shift_code'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
-    const machineCode = batchPre?.machine_code ?? '6HI';
+    const machineCode = batchPre?.machine_code;
+    if (!machineCode) throw new Error('Order has no machine assigned');
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
@@ -1940,7 +1942,7 @@ export class SixHiService {
     return row?.label ?? categoryCode;
   }
 
-  static async getManualStoppageStatus(machineCode: string = '6HI') {
+  static async getManualStoppageStatus(machineCode: string) {
     const activeOrder = await this.findActiveMachineOrder(machineCode);
     const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
     const isManualStoppage = Boolean(
@@ -2140,7 +2142,12 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
-  /** In-progress: saved actual weight only. Completed: saved actual or PPC fallback. */
+  /**
+   * Completed: saved actual weight, else PPC planned weight.
+   * In-progress/stoppage: saved actual weight if recorded, else the PPC planned
+   * weight of the in-flight order — so "In Progress MT" reflects the work on the
+   * machine instead of collapsing to 0 (which made Total MT == Completed MT).
+   */
   private static async getOrderProductionWeight(
     orderId: string,
     subProcess: string,
@@ -2150,7 +2157,9 @@ export class SixHiService {
     if (status === 'COMPLETED') {
       return this.resolveOrderWeight(orderId, subProcess, ppcWeightMt);
     }
-    return this.getSavedOrderWeight(orderId, subProcess);
+    const saved = await this.getSavedOrderWeight(orderId, subProcess);
+    if (saved > 0) return saved;
+    return ppcWeightMt > 0 ? ppcWeightMt : 0;
   }
 
   static async getSavedOrderWeight(orderId: string, subProcess: string): Promise<number> {
@@ -2242,6 +2251,8 @@ export class SixHiService {
     let inProgressRolling = 0;
     let inProgressReroll = 0;
     let inProgressSkinpass = 0;
+    // Planned (PPC) weight of the orders COMPLETED this shift — the real "Target MT done".
+    let targetCompletedMt = 0;
     const completedOrders: SixHiShiftSummary['completedOrders'] = [];
 
     const addWeight = (subProcess: string, wt: number, bucket: 'completed' | 'inProgress') => {
@@ -2271,6 +2282,7 @@ export class SixHiService {
           weightMt: wt,
           durationMin: o.prod_duration_min ?? undefined,
         });
+        targetCompletedMt += ppcWt;
         addWeight(o.sub_process, wt, 'completed');
         if (o.sub_process === 'ROLLING' && wt > 0) {
           const r = await db.selectFrom('txn.crm_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
@@ -2306,6 +2318,7 @@ export class SixHiService {
       totalProdMt: totalRolling + totalSkinpass,
       completedProdMt,
       inProgressProdMt,
+      targetCompletedMt,
       totalRollingMt: totalRolling,
       totalRerollMt: totalReroll,
       totalSkinpassMt: totalSkinpass,

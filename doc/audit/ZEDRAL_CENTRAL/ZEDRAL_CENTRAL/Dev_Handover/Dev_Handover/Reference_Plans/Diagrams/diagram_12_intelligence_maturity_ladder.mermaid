@@ -1,0 +1,11 @@
+flowchart LR
+  D["Descriptive — What happened?<br/>KPIs, dashboards, reports"] --> DG["Diagnostic — Why?<br/>root cause, correlation, drill-down"]
+  DG --> P["Predictive — What will happen?<br/>forecasts, failure/quality risk (ML)"]
+  P --> PR["Prescriptive — What to do?<br/>recommendations, optimization"]
+  D:::now
+  DG:::now
+  P:::soon
+  PR:::later
+  classDef now fill:#dcfce7,stroke:#16a34a;
+  classDef soon fill:#fef9c3,stroke:#ca8a04;
+  classDef later fill:#fee2e2,stroke:#dc2626;

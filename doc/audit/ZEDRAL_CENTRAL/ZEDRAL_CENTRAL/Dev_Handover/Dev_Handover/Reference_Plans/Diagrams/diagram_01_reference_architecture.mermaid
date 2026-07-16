@@ -1,0 +1,39 @@
+flowchart LR
+  subgraph SRC["1 · Data Sources"]
+    M1["M1 — Shopfloor Digitization (first-party capture)"]
+    HIST["Historical Systems — SAP / MES / ERP / Oracle / Excel / CSV"]
+    PLC["PLC & Machine Sensors / Equipment Signals"]
+    CV["Computer Vision — PPE / Idle / Machine State (future)"]
+  end
+
+  subgraph LAKE["2 · Data Lake (Manifold operates across Raw → Canonical)"]
+    RAW["Zone 0 · Raw / Landing — immutable, as-received"]
+    STD["Zone 1 · Standardized — typed, validated, deduped"]
+    CANON["Zone 2 · Canonical — Zedral Data Model"]
+    SERVE["Zone 3 · Serving — marts, aggregates, APIs, live views"]
+    CAT["Metadata Catalog · Lineage · Quality · Readiness"]
+  end
+
+  subgraph CONS["3 · Consumers"]
+    MODS["Modules M1–M7"]
+    UIL["Unified Intelligence Layer"]
+    MON["Operational Monitoring"]
+    FIN["Financial Impact Layer"]
+    REP["Reporting Layer"]
+  end
+
+  M1 --> RAW
+  HIST --> RAW
+  PLC --> RAW
+  CV -.future.-> RAW
+  RAW --> STD --> CANON --> SERVE
+  SERVE --> MODS
+  SERVE --> UIL
+  SERVE --> MON
+  SERVE --> FIN
+  SERVE --> REP
+  MODS -. contribute intelligence back .-> CANON
+  CAT -. governs .- RAW
+  CAT -. governs .- STD
+  CAT -. governs .- CANON
+  CAT -. governs .- SERVE

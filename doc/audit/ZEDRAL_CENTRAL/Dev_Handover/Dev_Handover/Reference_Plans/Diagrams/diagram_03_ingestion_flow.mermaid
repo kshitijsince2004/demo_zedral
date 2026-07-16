@@ -1,0 +1,22 @@
+flowchart TD
+  subgraph BATCH["Batch path — historical, ERP, files"]
+    B1["Source extract / upload / scheduled sync (CDC for ERP)"]
+    B2["Land to Raw (immutable)"]
+    B3["Profile: types, ranges, null %, cardinality"]
+    B4["Manifold: map fields → canonical candidates"]
+    B5["Validate + dedup + master-data resolve"]
+    B6["Conform to Canonical Model (UoM, tz, keys)"]
+    B7["Load Canonical → build Serving aggregates"]
+  end
+  subgraph STREAM["Streaming path — M1 events, PLC/sensor"]
+    S1["Event / tag stream"]
+    S2["Append to Raw log + time-series Standardized"]
+    S3["Map + conform on the fly"]
+    S4["Canonical event spine"]
+    S5["Live cache + incremental aggregates"]
+  end
+  B1-->B2-->B3-->B4-->B5-->B6-->B7
+  S1-->S2-->S3-->S4-->S5
+  B7 --> SERVE2["Serving Zone"]
+  S5 --> SERVE2
+  SERVE2 --> OUT["Modules · Unified Intelligence · Monitoring · Reporting"]

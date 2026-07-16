@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, X, RotateCcw } from 'lucide-react';
+import { Check, X, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { ZButton } from '../../components/primitives/ZButton';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
+import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 
 interface ShiftLogRow {
   id: string;
@@ -18,6 +19,40 @@ interface ShiftLogRow {
   machines?: string[];
 }
 
+interface ShiftReviewData {
+  shiftLogId: string;
+  prodDate: string;
+  shiftCode: string;
+  processLine?: string;
+  state: string;
+  machines: string[];
+  overview: {
+    targetMt: number;
+    completedProdMt: number;
+    totalProdMt: number;
+    inProgressProdMt: number;
+    attainmentPct: number;
+  };
+  metrics: {
+    totalStoppageMinutes: number;
+    totalBreakdownMinutes: number;
+    machineUtilizationPct: number;
+    shiftCapacityMinutes: number;
+  };
+  completedOrders: { batchNumber: string; subProcess?: string; customer?: string; weightMt: number; durationMin?: number }[];
+  ordersInProgress: { batchNumber: string; status: string; subProcess?: string; machineCode?: string }[];
+  stoppages: { id: string; batchNumber: string; categoryLabel: string; startAt: string; endAt?: string; durationMin?: number; remarks?: string }[];
+}
+
+function ReviewMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="text-sm font-bold font-mono tabular-nums text-foreground mt-0.5">{value}</div>
+    </div>
+  );
+}
+
 export function PlantShiftReviewPage() {
   const [logs, setLogs] = useState<ShiftLogRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,9 +60,32 @@ export function PlantShiftReviewPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reviewById, setReviewById] = useState<Record<string, ShiftReviewData>>({});
+  const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
   const machineAccess = useAuthStore((s) => s.machineAccess);
   const role = useAuthStore((s) => s.role);
+
+  const toggleReview = useCallback(async (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    setReviewError(null);
+    if (reviewById[id]) return;
+    setReviewLoadingId(id);
+    try {
+      const data = await apiClient.get<ShiftReviewData>(`/shift-logs/${id}/review`);
+      setReviewById((prev) => ({ ...prev, [id]: data }));
+    } catch (err: unknown) {
+      setReviewError((err as Error)?.message ?? 'Failed to load shift summary');
+    } finally {
+      setReviewLoadingId(null);
+    }
+  }, [expandedId, reviewById]);
 
   const load = useCallback(async () => {
     try {
@@ -37,7 +95,7 @@ export function PlantShiftReviewPage() {
       if (role === 'MACHINE_HEAD') {
         filtered = rows.filter((log) => {
           if (!log.machines || log.machines.length === 0) return false;
-          return log.machines.every((m) => machineAccess.includes(m));
+          return log.machines.some((m) => machineAccess.includes(m));
         });
       }
       
@@ -99,13 +157,8 @@ export function PlantShiftReviewPage() {
   };
 
   return (
+    <MachineHeadShell title="Shift Review" subtitle="Approve or reject submitted shift logs">
     <div className="flex flex-col gap-6 max-w-5xl">
-      <div>
-        <h1 className="text-lg font-bold text-foreground">Shift Review</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Approve or reject submitted shift logs. Former supervisor approval workflows are handled here.
-        </p>
-      </div>
 
       {error && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -148,6 +201,31 @@ export function PlantShiftReviewPage() {
               <span className="text-[10px] font-bold uppercase tracking-widest text-warning bg-warning/10 px-2 py-1 rounded-lg">
                 {log.state}
               </span>
+            </div>
+
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => void toggleReview(log.id)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              >
+                {expandedId === log.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                Shift summary
+              </button>
+
+              {expandedId === log.id && (
+                <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
+                  {reviewLoadingId === log.id ? (
+                    <p className="text-sm text-muted-foreground">Loading shift summary…</p>
+                  ) : reviewError ? (
+                    <p className="text-sm text-destructive">{reviewError}</p>
+                  ) : reviewById[log.id] ? (
+                    <ShiftReviewPanel review={reviewById[log.id]} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No summary available.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {rejectingId === log.id ? (
@@ -201,6 +279,105 @@ export function PlantShiftReviewPage() {
           </li>
         ))}
       </ul>
+    </div>
+    </MachineHeadShell>
+  );
+}
+
+function formatMinutes(min?: number): string {
+  if (min == null || min < 0) return '—';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Shift Overview</h4>
+        <p className="text-xs text-muted-foreground mb-2">
+          {review.prodDate} · Shift {review.shiftCode}
+          {review.processLine ? ` · ${review.processLine}` : ''}
+          {review.machines.length > 0 ? ` · ${review.machines.join(', ')}` : ''}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <ReviewMetric label="Target MT" value={review.overview.targetMt} />
+          <ReviewMetric label="Completed MT" value={review.overview.completedProdMt} />
+          <ReviewMetric label="Total MT" value={review.overview.totalProdMt} />
+          <ReviewMetric label="In Progress MT" value={review.overview.inProgressProdMt} />
+          <ReviewMetric label="Attainment" value={`${review.overview.attainmentPct}%`} />
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Downtime & Utilization</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <ReviewMetric label="Stoppage" value={formatMinutes(review.metrics.totalStoppageMinutes)} />
+          <ReviewMetric label="Breakdown" value={formatMinutes(review.metrics.totalBreakdownMinutes)} />
+          <ReviewMetric label="Utilization" value={`${review.metrics.machineUtilizationPct}%`} />
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Completed Orders ({review.completedOrders.length})
+        </h4>
+        {review.completedOrders.length > 0 ? (
+          <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
+            {review.completedOrders.map((o) => (
+              <li key={o.batchNumber} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+                <span className="font-mono font-semibold">{o.batchNumber}</span>
+                <span className="text-muted-foreground truncate flex-1">{o.customer ?? '—'}</span>
+                <span className="font-mono">{o.weightMt} MT</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No completed orders.</p>
+        )}
+      </div>
+
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Orders In Progress ({review.ordersInProgress.length})
+        </h4>
+        {review.ordersInProgress.length > 0 ? (
+          <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
+            {review.ordersInProgress.map((o) => (
+              <li key={o.batchNumber} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+                <span className="font-mono font-semibold">{o.batchNumber}</span>
+                <span className="text-muted-foreground">{o.machineCode ?? '—'}</span>
+                <span>{o.status.replace(/_/g, ' ')}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No orders in progress.</p>
+        )}
+      </div>
+
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Stoppages ({review.stoppages.length})
+        </h4>
+        {review.stoppages.length > 0 ? (
+          <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
+            {review.stoppages.map((s) => (
+              <li key={s.id} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+                <span className="font-medium">{s.categoryLabel}</span>
+                <span className="text-muted-foreground truncate flex-1">{s.batchNumber}</span>
+                <span className="font-mono">{formatMinutes(s.durationMin)}</span>
+                <span className={s.endAt ? 'text-muted-foreground' : 'text-destructive font-medium'}>
+                  {s.endAt ? 'Ended' : 'Active'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No stoppages recorded.</p>
+        )}
+      </div>
     </div>
   );
 }

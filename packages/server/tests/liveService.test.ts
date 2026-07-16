@@ -13,6 +13,7 @@ vi.mock('../src/services/sixHi', () => ({
       totalProdMt: 32,
       completedProdMt: 32,
       inProgressProdMt: 0,
+      targetCompletedMt: 30,
       completedOrders: [{}, {}],
       ordersInProgress: [],
     })),
@@ -38,6 +39,9 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
     expect(result.orderCount).toBe(2);
     expect(result.actualMt).toBe(32);
     expect(result.totalProdMt).toBe(32);
+    // Target MT is now the summed PPC/planned weight of completed orders (Task 3),
+    // surfaced through the summary — not txn.shift_log.target_mt.
+    expect(result.targetCompletedMt).toBe(30);
   });
 
   it('returns zero when machine scope is empty', async () => {
@@ -50,6 +54,7 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
       completedProdMt: 0,
       inProgressMt: 0,
       totalProdMt: 0,
+      targetCompletedMt: 0,
     });
     expect(db.selectFrom).not.toHaveBeenCalled();
   });

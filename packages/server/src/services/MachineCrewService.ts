@@ -9,6 +9,32 @@ export interface MachineCrewMember {
 }
 
 export class MachineCrewService {
+  /** Short-lived cache so operator-name fallback doesn't N+1 the roster per row. */
+  private static operatorCache = new Map<string, { name: string | undefined; at: number }>();
+
+  /**
+   * Operator-role member from the crew register for a machine — used as the
+   * display fallback when an order has no logged_in_user_id. Never returns a
+   * placeholder; callers decide the final blank-safe value.
+   */
+  static async getOperatorName(machineCode: string): Promise<string | undefined> {
+    const cached = this.operatorCache.get(machineCode);
+    if (cached && Date.now() - cached.at < 60_000) return cached.name;
+
+    const rows = await db
+      .selectFrom('master.machine_crew_roster')
+      .select(['member_name', 'role_label'])
+      .where('machine_code', '=', machineCode)
+      .where('is_active', '=', true)
+      .orderBy('member_name', 'asc')
+      .execute();
+
+    const operator = rows.find((r) => /operator/i.test(r.role_label ?? '')) ?? rows[0];
+    const name = operator?.member_name?.trim() || undefined;
+    this.operatorCache.set(machineCode, { name, at: Date.now() });
+    return name;
+  }
+
   static async list(machineCode: string): Promise<MachineCrewMember[]> {
     const rows = await db
       .selectFrom('master.machine_crew_roster')

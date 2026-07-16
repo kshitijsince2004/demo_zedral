@@ -28,19 +28,15 @@ import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
 import type { LiveOrderDetail } from '@m1/shared-validation';
 import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
-import { PlantQualityDowntimeArea } from '../../components/plant-head/PlantQualityDowntimeArea';
+import { PlantDowntimeCard, PlantQualityCard } from '../../components/plant-head/PlantQualityDowntimeArea';
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
-import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { AlertTriangle, Factory, RefreshCw } from 'lucide-react';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
-  const [gradeFilter, setGradeFilter] = useState('');
-  const [customerFilter, setCustomerFilter] = useState('');
-  const [coilFilter, setCoilFilter] = useState('');
-  const [appliedFilters, setAppliedFilters] = useState<{
+  const [appliedFilters] = useState<{
     grades?: string[];
     customers?: string[];
     coils?: string[];
@@ -95,14 +91,6 @@ export function PlantHeadDashboard() {
   }, []);
 
   const dashFilters = appliedFilters;
-
-  const applyFilters = () => {
-    setAppliedFilters({
-      grades: gradeFilter.trim() ? [gradeFilter.trim()] : undefined,
-      customers: customerFilter.trim() ? [customerFilter.trim()] : undefined,
-      coils: coilFilter.trim() ? [coilFilter.trim()] : undefined,
-    });
-  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) {
@@ -223,42 +211,6 @@ export function PlantHeadDashboard() {
 
       {/* Header + filters */}
       <div className="flex flex-wrap justify-end gap-3 mb-3 px-1 sticky top-0 z-20 bg-background/95 backdrop-blur-sm py-2">
-        <div className="flex items-center gap-2 flex-wrap mr-auto">
-          <input
-            type="text"
-            value={gradeFilter}
-            onChange={(e) => setGradeFilter(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
-            placeholder="Grade"
-            aria-label="Filter by grade"
-            className="h-9 w-28 rounded-lg border border-input bg-card px-3 text-sm"
-          />
-          <input
-            type="text"
-            value={customerFilter}
-            onChange={(e) => setCustomerFilter(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
-            placeholder="Customer"
-            aria-label="Filter by customer"
-            className="h-9 w-36 rounded-lg border border-input bg-card px-3 text-sm"
-          />
-          <input
-            type="text"
-            value={coilFilter}
-            onChange={(e) => setCoilFilter(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters(); }}
-            placeholder="Coil"
-            aria-label="Filter by coil"
-            className="h-9 w-32 rounded-lg border border-input bg-card px-3 text-sm"
-          />
-          <button
-            type="button"
-            onClick={applyFilters}
-            className="h-9 px-3 rounded-lg border border-border bg-card text-sm"
-          >
-            Apply
-          </button>
-        </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button
             type="button"
@@ -325,22 +277,26 @@ export function PlantHeadDashboard() {
           }}
         />
 
-        {/* Live Machine Status Board */}
-        {liveMachines.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <div className="px-1">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Live Shopfloor Status
-              </h2>
-            </div>
-            <MachineStatusBoard machines={liveMachines} />
-          </section>
-        )}
+        {/* 1–2. Machine Status + In Progress Orders (single canonical board) */}
+        <section>
+          <PlantOperationsArea
+            data={displayData}
+            liveMachines={liveMachines}
+            liveOrders={liveOrders}
+            liveOrdersError={liveOrdersError}
+            onOrderClick={(batchNumber) => void openOrderDetail(batchNumber)}
+          />
+        </section>
 
-        {/* Production + Quality — above the fold on 1080p */}
-        <section className="lg:grid lg:grid-cols-2 gap-4 flex flex-col">
+        {/* 3–4. Production Performance + Executive Insights */}
+        <section>
           <PlantMainOpsArea data={displayData} liveKpis={liveKpis} />
-          <PlantQualityDowntimeArea data={displayData} />
+        </section>
+
+        {/* 5–6. Downtime Analytics + Additional Production Insights (Quality) */}
+        <section className="lg:grid lg:grid-cols-2 gap-4 flex flex-col">
+          <PlantDowntimeCard data={displayData} />
+          <PlantQualityCard data={displayData} />
         </section>
 
         <section>
@@ -419,17 +375,6 @@ export function PlantHeadDashboard() {
             {exportJobId && (
               <ExportProgressModal jobId={exportJobId} onClose={() => setExportJobId(null)} />
             )}
-        </section>
-
-        {/* Machine Utilization + Orders */}
-        <section>
-          <PlantOperationsArea
-            data={displayData}
-            liveMachines={liveMachines}
-            liveOrders={liveOrders}
-            liveOrdersError={liveOrdersError}
-            onOrderClick={(batchNumber) => void openOrderDetail(batchNumber)}
-          />
         </section>
 
         {/* Ops Feed — drawer */}

@@ -144,6 +144,7 @@ export function MachineHeadDashboard() {
   const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
   const [machineFilter, setMachineFilter] = useState<string>('ALL');
   const [shiftFilter, setShiftFilter] = useState<string>('ALL');
+  const [stoppageReason, setStoppageReason] = useState<string>('ALL');
   const [orderSearch, setOrderSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [machineModalCode, setMachineModalCode] = useState<string | null>(null);
@@ -273,7 +274,16 @@ export function MachineHeadDashboard() {
     );
   }, [dashboard?.orderQueue]);
   const filteredProduction = dashboard?.productionHistory ?? [];
-  const filteredStoppages = dashboard?.stoppages ?? [];
+  const stoppageCategories = useMemo(
+    () => [...new Set((dashboard?.stoppages ?? []).map((s) => s.category).filter(Boolean))].sort(),
+    [dashboard?.stoppages],
+  );
+  const filteredStoppages = useMemo(
+    () => (dashboard?.stoppages ?? []).filter(
+      (s) => stoppageReason === 'ALL' || s.category === stoppageReason,
+    ),
+    [dashboard?.stoppages, stoppageReason],
+  );
   const filteredRejected = rejectedOrders;
   const filteredOperatorActivity = dashboard?.operatorActivity ?? [];
   const filteredHandover = useMemo(() => {
@@ -385,12 +395,12 @@ export function MachineHeadDashboard() {
                     <StatCell label="Live Queue MT" value={dashboard.shiftSummary.queuedMt} mono />
                     <StatCell
                       label="Total MT"
-                      value={dashboard.shiftSummary.totalProdMt ?? dashboard.shiftSummary.actualMt}
+                      value={dashboard.shiftSummary.totalProdMt ?? 0}
                       mono
                     />
                     <StatCell
                       label="Completed MT"
-                      value={dashboard.shiftSummary.completedProdMt ?? dashboard.shiftSummary.actualMt}
+                      value={dashboard.shiftSummary.completedProdMt ?? 0}
                       mono
                     />
                     <StatCell label="In Progress MT" value={dashboard.shiftSummary.inProgressMt ?? 0} mono />
@@ -550,10 +560,23 @@ export function MachineHeadDashboard() {
       case 'stoppages':
         return (
           <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
-              <h3 className="text-sm font-medium text-foreground">Active Machine Stoppages</h3>
+            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-medium text-foreground">Stoppage History · This Shift</h3>
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                Reason
+                <select
+                  value={stoppageReason}
+                  onChange={(e) => setStoppageReason(e.target.value)}
+                  className="block rounded-lg border border-border bg-white px-2 py-1 text-sm text-foreground"
+                >
+                  <option value="ALL">All reasons</option>
+                  {stoppageCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <PanelBody empty={filteredStoppages.length === 0} emptyLabel="No active stoppages">
+            <PanelBody empty={filteredStoppages.length === 0} emptyLabel="No stoppages for this shift">
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
                   <thead className="bg-muted/50">
@@ -568,7 +591,7 @@ export function MachineHeadDashboard() {
                   </thead>
                   <tbody className="bg-transparent divide-y divide-border">
                     {filteredStoppages.map((s) => {
-                      const durationMin = s.startAt ? Math.round((Date.now() - new Date(s.startAt).getTime()) / 60000) : 0;
+                      const isActive = s.status === 'ACTIVE';
                       return (
                         <tr
                           key={`${s.batchNumber}-${s.startAt}`}
@@ -597,19 +620,25 @@ export function MachineHeadDashboard() {
                             <OrderIdentityDisplay order={identityFromRow(s)} size="sm" />
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <div className="font-medium text-destructive">{s.category}</div>
+                            <div className={`font-medium ${isActive ? 'text-destructive' : 'text-foreground'}`}>{s.category}</div>
                             {s.remarks && <div className="text-xs text-muted-foreground">{s.remarks}</div>}
                           </td>
                           <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">
                             {s.startAt ? formatPlantDateTime(s.startAt) : '—'}
                           </td>
-                          <td className="px-4 py-3 text-sm font-mono tabular-nums text-warning">
-                            {formatDuration(durationMin)}
+                          <td className={`px-4 py-3 text-sm font-mono tabular-nums ${isActive ? 'text-warning' : 'text-muted-foreground'}`}>
+                            {formatDuration(s.durationMin)}
                           </td>
                           <td className="px-4 py-3 text-sm font-medium">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
-                              Active
-                            </span>
+                            {isActive ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
+                                Ended{s.endAt ? ` · ${formatPlantDateTime(s.endAt)}` : ''}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -716,6 +745,18 @@ export function MachineHeadDashboard() {
                   </select>
                 </label>
               </div>
+              {dashboard && (
+                <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <dt className="text-xs font-medium text-muted-foreground">Completed this shift</dt>
+                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">{dashboard.shiftSummary.completedOrderCount}</dd>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <dt className="text-xs font-medium text-muted-foreground">Completed MT</dt>
+                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">{(dashboard.shiftSummary.completedProdMt ?? 0)} MT</dd>
+                  </div>
+                </dl>
+              )}
             </div>
             <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading completed orders…' : 'No completed orders'}>
               <div className="min-w-full inline-block align-middle">
@@ -763,14 +804,6 @@ export function MachineHeadDashboard() {
                 </table>
               </div>
             </PanelBody>
-            {completedOrders.length > 0 && (
-              <div className="px-4 py-3 border-t border-border bg-muted/20 shrink-0">
-                <dl className="flex justify-around divide-x divide-border">
-                  <StatCell label="Total Orders" value={completedOrders.length} mono />
-                  <StatCell label="Total Produced" value={`${completedOrders.reduce((sum, o) => sum + (o.weightMt || 0), 0).toFixed(1)} MT`} mono />
-                </dl>
-              </div>
-            )}
           </Panel>
         );
 

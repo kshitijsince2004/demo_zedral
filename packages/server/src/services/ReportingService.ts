@@ -510,6 +510,67 @@ export interface PlantHeadFilters {
 }
 
 export class ReportingService {
+  /**
+   * Composed per-shift review bundle for the Shift Review panel (Task 4).
+   * Pure aggregation — reuses SixHiService / ShiftAttributionService rather than
+   * re-deriving production or stoppage math. Returns null if the log is unknown.
+   */
+  static async getShiftReview(shiftLogId: string) {
+    const { SixHiService } = await import('./SixHiService');
+    const { ShiftAttributionService } = await import('./ShiftAttributionService');
+
+    const log = await ShiftLogService.getById(shiftLogId);
+    if (!log) return null;
+
+    const [summary, stoppages, metrics, procRow, machineRows] = await Promise.all([
+      SixHiService.getShiftSummary(shiftLogId),
+      SixHiService.getShiftStoppages(shiftLogId),
+      ShiftAttributionService.getShiftMetrics(shiftLogId),
+      reportingDb
+        .selectFrom('master.process')
+        .select(['code', 'name'])
+        .where('process_id', '=', log.process_id)
+        .executeTakeFirst(),
+      reportingDb
+        .selectFrom('txn.crm_order as o')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+        .select('pb.machine_code')
+        .distinct()
+        .where('o.shift_log_id', '=', shiftLogId)
+        .execute(),
+    ]);
+
+    const targetMt = summary.targetCompletedMt ?? 0;
+    const completedProdMt = summary.completedProdMt ?? 0;
+    const attainmentPct = targetMt > 0 ? round1((completedProdMt / targetMt) * 100) : 0;
+    const machines = machineRows.map((m) => m.machine_code).filter((m): m is string => !!m);
+
+    return {
+      shiftLogId,
+      prodDate: formatDbDate(log.prod_date as Date),
+      shiftCode: String(log.shift_code).toUpperCase(),
+      processLine: procRow?.name ?? procRow?.code ?? undefined,
+      state: log.state,
+      machines,
+      overview: {
+        targetMt,
+        completedProdMt,
+        totalProdMt: summary.totalProdMt ?? 0,
+        inProgressProdMt: summary.inProgressProdMt ?? 0,
+        attainmentPct,
+      },
+      metrics: {
+        totalStoppageMinutes: metrics.totalStoppageMinutes,
+        totalBreakdownMinutes: metrics.totalBreakdownMinutes,
+        machineUtilizationPct: metrics.machineUtilizationPct,
+        shiftCapacityMinutes: metrics.shiftCapacityMinutes,
+      },
+      completedOrders: summary.completedOrders ?? [],
+      ordersInProgress: summary.ordersInProgress ?? [],
+      stoppages,
+    };
+  }
+
   static async getMachineHeadDashboard(machines: string[]) {
     const machineProcRows = await reportingDb
       .selectFrom('master.machine')

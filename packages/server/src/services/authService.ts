@@ -73,6 +73,30 @@ async function recordPinSuccess(userId: number): Promise<void> {
     .execute();
 }
 
+async function recordPinFailure(userId: number): Promise<void> {
+  const user = await db.selectFrom('security.app_user')
+    .select(['pin_failed_attempts'])
+    .where('user_id', '=', userId)
+    .executeTakeFirst();
+
+  const attempts = (user?.pin_failed_attempts ?? 0) + 1;
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_MINUTES = 15;
+
+  if (attempts >= MAX_ATTEMPTS) {
+    const lockedUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+    await db.updateTable('security.app_user')
+      .set({ pin_failed_attempts: attempts, pin_locked_until: lockedUntil })
+      .where('user_id', '=', userId)
+      .execute();
+  } else {
+    await db.updateTable('security.app_user')
+      .set({ pin_failed_attempts: attempts })
+      .where('user_id', '=', userId)
+      .execute();
+  }
+}
+
 async function verifyUserPin(
   pin: string,
   user: {

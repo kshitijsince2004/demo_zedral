@@ -6,6 +6,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
+import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -16,7 +17,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-export function PlantOrderTracking() {
+export function PlantOrderTracking({ standalone = false }: { standalone?: boolean }) {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 300);
   const [loading, setLoading] = useState(false);
@@ -75,14 +76,16 @@ export function PlantOrderTracking() {
     executeSearch(query.trim());
   };
 
-  return (
+  const content = (
     <div className="flex flex-col gap-6 w-full max-w-6xl mx-auto">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Traceability</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Search by order, batch, coil, production number, customer reference, or material number
-        </p>
-      </div>
+      {!standalone && (
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Traceability</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Search by order, batch, coil, production number, customer reference, or material number
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1" ref={wrapperRef}>
@@ -274,4 +277,14 @@ export function PlantOrderTracking() {
       )}
     </div>
   );
+
+  if (standalone) {
+    return (
+      <MachineHeadShell title="Order Tracing" subtitle="Search by order, batch, coil, or customer reference">
+        {content}
+      </MachineHeadShell>
+    );
+  }
+
+  return content;
 }

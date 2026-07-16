@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M1 Data Capture — Operator Prototype</title>
+<style>
+:root{
+  --ink:#1F3A5F; --blue:#2E75B6; --lblue:#D5E8F0; --llblue:#EAF2F8; --grey:#5B7A9D;
+  --lgrey:#EEF1F5; --accent:#C55A11; --lacc:#FBE4D5; --green:#2E7D32; --lgreen:#E3F2E1;
+  --amber:#B7791F; --lamber:#FCEFCB; --line:#BFC9D4;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#0d1722;color:#13243B;
+  display:flex;flex-direction:column;align-items:center;min-height:100vh}
+.note{color:#9fb3c8;font-size:13px;padding:10px 16px;text-align:center;max-width:980px}
+.device{width:min(1000px,96vw);height:660px;background:#fff;border-radius:18px;overflow:hidden;
+  box-shadow:0 16px 50px rgba(0,0,0,.5);display:flex;flex-direction:column;position:relative;margin:6px 0 18px}
+/* top context bar */
+.ctx{background:var(--ink);color:#fff;display:flex;align-items:center;gap:14px;padding:10px 16px;font-size:13px;flex-wrap:wrap}
+.ctx b{font-size:14px}
+.ctx .sp{flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:#4ade80;display:inline-block;margin-right:5px;box-shadow:0 0 6px #4ade80}
+.pill{background:rgba(255,255,255,.15);padding:4px 10px;border-radius:20px}
+.pill.tap{background:var(--accent)}
+.body{flex:1;display:flex;overflow:hidden}
+.coil-list{width:220px;background:var(--llblue);border-right:1px solid var(--line);overflow:auto;padding:10px}
+.coil-list h4{margin:6px 6px 10px;color:var(--ink);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+.coil{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.coil:hover{border-color:var(--blue);box-shadow:0 2px 8px rgba(46,117,182,.2)}
+.coil .id{font-weight:bold;color:var(--ink)}
+.coil .meta{font-size:12px;color:var(--grey);margin-top:3px}
+.chip{font-size:11px;padding:2px 8px;border-radius:10px;float:right}
+.chip.plan{background:var(--lgrey);color:var(--grey)} .chip.open{background:var(--lamber);color:var(--amber)}
+.chip.done{background:var(--lgreen);color:var(--green)}
+.panel{flex:1;overflow:auto;padding:18px 20px 90px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.card h3{margin:0 0 12px;color:var(--blue);font-size:15px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.f{display:flex;flex-direction:column;gap:5px}
+.f label{font-size:12px;color:var(--grey);font-weight:bold}
+.f .unit{color:var(--grey);font-weight:normal}
+.val{border:1.5px solid var(--line);border-radius:10px;padding:12px 12px;font-size:16px;background:#fff;min-height:46px;display:flex;align-items:center;cursor:pointer}
+.val.auto{background:var(--llblue);border-style:dashed;color:var(--ink);cursor:default}
+.val.num:hover{border-color:var(--blue)}
+.val .ph{color:#9aa7b4}
+.tag-auto{font-size:10px;background:var(--blue);color:#fff;padding:1px 6px;border-radius:8px;margin-left:6px}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;background:#fff;padding:12px 0;font-size:15px;cursor:pointer;color:var(--ink)}
+.seg button.on{background:var(--blue);color:#fff;font-weight:bold}
+.toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer}
+.sw{width:52px;height:30px;border-radius:16px;background:var(--line);position:relative;transition:.2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.toggle.on .sw{background:var(--green)} .toggle.on .sw::after{left:25px}
+select.val{cursor:pointer}
+.err{color:var(--accent);font-size:12px;font-weight:bold;display:none}
+.f.bad .val{border-color:var(--accent);background:#fff5f1} .f.bad .err{display:block}
+/* action bar */
+.actions{position:absolute;left:0;right:0;bottom:0;display:flex;gap:10px;padding:12px 16px;background:#fff;border-top:1px solid var(--line)}
+.btn{border:0;border-radius:12px;padding:14px 18px;font-size:15px;font-weight:bold;cursor:pointer}
+.btn.sec{background:var(--lgrey);color:var(--ink)} .btn.warn{background:var(--lamber);color:var(--amber)}
+.btn.def{background:var(--lacc);color:var(--accent)} .btn.pri{background:var(--accent);color:#fff;margin-left:auto}
+.btn.go{background:var(--green);color:#fff}
+.btn:active{transform:translateY(1px)}
+/* center screens */
+.screen{flex:1;display:none;flex-direction:column}
+.screen.on{display:flex}
+.center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:20px}
+.center h2{color:var(--ink);margin:0}
+.center p{color:var(--grey);margin:0;max-width:520px}
+/* keypad / modal */
+.modal{position:absolute;inset:0;background:rgba(13,23,34,.55);display:none;align-items:center;justify-content:center;z-index:20}
+.modal.on{display:flex}
+.sheet{background:#fff;border-radius:16px;padding:18px;width:min(380px,90%)}
+.sheet h3{margin:0 0 6px;color:var(--ink)} .sheet .disp{font-size:30px;font-weight:bold;text-align:right;border-bottom:2px solid var(--line);padding:8px 6px;min-height:46px;color:var(--ink)}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.keys button{padding:18px 0;font-size:20px;border:1px solid var(--line);background:#fff;border-radius:12px;cursor:pointer;font-weight:bold;color:var(--ink)}
+.keys button:active{background:var(--llblue)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;max-height:300px;overflow:auto}
+.tile{border:1px solid var(--line);border-radius:12px;padding:14px 8px;text-align:center;cursor:pointer;font-size:13px;color:var(--ink)}
+.tile:hover{border-color:var(--blue);background:var(--llblue)} .tile b{display:block;font-size:16px;color:var(--accent)}
+.sheet .row{display:flex;gap:10px;margin-top:14px}
+.pinrow{display:flex;gap:10px;justify-content:center;margin:10px 0}
+.pin{width:16px;height:16px;border-radius:50%;border:2px solid var(--blue)} .pin.f{background:var(--blue)}
+.toast{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:12px 20px;border-radius:30px;font-weight:bold;opacity:0;transition:.3s;z-index:30}
+.toast.on{opacity:1}
+.banner{background:var(--lamber);color:var(--amber);font-size:12px;padding:6px 16px;text-align:center;font-weight:bold}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+.kpibox{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 22px;min-width:130px}
+.kpibox .n{font-size:26px;font-weight:bold;color:var(--ink)} .kpibox .l{font-size:12px;color:var(--grey)}
+.procsel{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+.procsel button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer;color:var(--ink);font-size:13px}
+.procsel button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="note">Interactive prototype — <b>Hero Steels · Module M1 · Data Capture Layer</b>. Click through: Login → Dashboard → pick a coil → capture (numeric keypad, dropdowns, toggles) → stoppage/defect → submit → handover. The orange <b>Taps</b> counter and timer demonstrate the click budget from document M1-03.</div>
+
+<div class="device" id="device">
+  <div class="ctx">
+    <span><span class="dot"></span>Online</span>
+    <b id="ctxLine">— </b>
+    <span id="ctxShift"></span>
+    <span id="ctxOp"></span>
+    <span class="sp"></span>
+    <span class="pill" id="ctxProd">Produced 0 / 0 MT</span>
+    <span class="pill tap">Taps <span id="tapN">0</span></span>
+    <span class="pill" id="ctxTime">0:00</span>
+  </div>
+
+  <!-- LOGIN -->
+  <div class="screen on" id="s-login">
+    <div class="center">
+      <h2>Shift Login</h2>
+      <p>Shared line terminal. Tap your badge, then enter PIN. Identity is attributed to every entry — login happens once per shift.</p>
+      <div class="pinrow" id="pinRow"><span class="pin"></span><span class="pin"></span><span class="pin"></span><span class="pin"></span></div>
+      <div class="keys" style="width:240px" id="pinpad"></div>
+      <button class="btn sec" data-tap onclick="badge()">⌫ Clear</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="screen" id="s-dash">
+    <div class="banner">Shift dashboard — pick the next planned coil, or switch the demo line below.</div>
+    <div class="center" style="justify-content:flex-start;padding-top:22px">
+      <div class="kpi">
+        <div class="kpibox"><div class="n" id="kTarget">150</div><div class="l">Target MT</div></div>
+        <div class="kpibox"><div class="n" id="kProd">0</div><div class="l">Produced MT</div></div>
+        <div class="kpibox"><div class="n" id="kOpen">3</div><div class="l">Open coils</div></div>
+        <div class="kpibox"><div class="n" id="kStop">12</div><div class="l">Stoppage min</div></div>
+      </div>
+      <p style="margin-top:6px">Demo line / process (shows the shared pattern across all 10 forms):</p>
+      <div class="procsel" id="procsel"></div>
+      <button class="btn go" data-tap style="padding:16px 40px;font-size:17px" onclick="go('s-capture')">▶ Open next coil</button>
+      <button class="btn warn" data-tap onclick="openStoppage()">■ Log stoppage</button>
+    </div>
+  </div>
+
+  <!-- CAPTURE -->
+  <div class="screen" id="s-capture">
+    <div class="body">
+      <div class="coil-list" id="coilList"></div>
+      <div class="panel" id="capPanel"></div>
+    </div>
+    <div class="actions">
+      <button class="btn sec" data-tap onclick="go('s-dash')">‹ Back</button>
+      <button class="btn warn" data-tap onclick="openStoppage()">Stoppage</button>
+      <button class="btn def" data-tap onclick="openDefect()">Defect</button>
+      <button class="btn pri" data-tap onclick="review()">Review &amp; submit ›</button>
+    </div>
+  </div>
+
+  <!-- REVIEW -->
+  <div class="screen" id="s-review">
+    <div class="panel">
+      <div class="card"><h3>Review — validation gate</h3><div id="reviewBody"></div></div>
+    </div>
+    <div class="actions">
+      <button class="btn sec" data-tap onclick="go('s-capture')">‹ Keep editing</button>
+      <button class="btn go" data-tap id="submitBtn" onclick="submitEntry()">✓ Submit entry</button>
+      <button class="btn pri" data-tap onclick="go('s-handover')">End shift / Handover ›</button>
+    </div>
+  </div>
+
+  <!-- HANDOVER -->
+  <div class="screen" id="s-handover">
+    <div class="center">
+      <h2>Shift Handover</h2>
+      <p>Open coils and any running stoppage carry to the next shift automatically. Both operators are recorded — no coil is orphaned at a shift change.</p>
+      <div class="card" style="text-align:left;width:min(560px,92%)">
+        <h3>Handover summary</h3>
+        <div id="handBody"></div>
+      </div>
+      <div class="toggle" id="ackTog" onclick="this.classList.toggle('on')"><span class="sw"></span><span>Incoming operator confirms &amp; signs</span></div>
+      <button class="btn go" data-tap style="padding:14px 36px" onclick="finishHandover()">Complete handover</button>
+    </div>
+  </div>
+
+  <!-- KEYPAD MODAL -->
+  <div class="modal" id="m-keypad">
+    <div class="sheet">
+      <h3 id="kpLabel">Enter value</h3>
+      <div class="disp" id="kpDisp">0</div>
+      <div class="keys" id="numpad"></div>
+      <div class="row"><button class="btn sec" style="flex:1" data-tap onclick="closeKey()">Cancel</button>
+        <button class="btn go" style="flex:1" data-tap onclick="applyKey()">OK</button></div>
+    </div>
+  </div>
+
+  <!-- STOPPAGE MODAL -->
+  <div class="modal" id="m-stop">
+    <div class="sheet">
+      <h3>Stoppage — pick reason</h3>
+      <div class="tiles" id="stopTiles"></div>
+      <div class="row"><button class="btn sec" style="flex:1" data-tap onclick="close('m-stop')">Close</button></div>
+    </div>
+  </div>
+  <!-- DEFECT MODAL -->
+  <div class="modal" id="m-def">
+    <div class="sheet">
+      <h3>Defect — pick code</h3>
+      <div class="tiles" id="defTiles"></div>
+      <div class="row"><button class="btn sec" style="flex:1" data-tap onclick="close('m-def')">Close</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+</div>
+
+<script>
+// ---------- tap counter + timer ----------
+let taps=0, t0=null, timer=null;
+document.addEventListener('click',e=>{ if(e.target.closest('[data-tap]')){ taps++; document.getElementById('tapN').textContent=taps; }},true);
+function startTimer(){ t0=Date.now(); timer=setInterval(()=>{let s=Math.floor((Date.now()-t0)/1000);document.getElementById('ctxTime').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');},1000); }
+
+// ---------- process form registry (demonstrates modular per-process forms) ----------
+const PROC={
+ CRM:{name:'Cold Rolling Mill', line:'CRM · 4HI', target:150,
+   header:[['Coil No','HRC-24-0912','auto'],['Grade / Finish','CRCA / Bright','auto'],['Customer','Tata Motors','auto'],['Width','1250 mm','auto'],['Input thk','2.50 mm','auto'],['Weight','18.4 MT','auto']],
+   seg:['2HI','4HI','6HI'], segOn:1,
+   fields:[['Output thk','num','mm',''],['Hardness HRB','num','HRB',''],['Elongation','num','%',''],['R/W tension','num','kg','']],
+   toggle:'Re-Rolling', defect:true },
+ PKL:{name:'Pickling', line:'PKL', target:140,
+   header:[['Coil No','HRC-24-0907','auto'],['Grade','HROP','auto'],['Customer','Ashok Leyland','auto'],['Width','1200 mm','auto'],['Thk','3.20 mm','auto'],['Weight','21.0 MT','auto']],
+   fields:[['Line speed','num','MPM','range:25-40'],['Heat No','sel','',['H-5521','H-5522','H-5530']],['Acid strength T1','num','%',''],['Iron strength T1','num','%','']],
+   defect:true },
+ HRS:{name:'HR Slitting', line:'HRS', target:120,
+   header:[['Source Coil','HR-24-1180','auto'],['Grade','HROP','auto'],['Customer','JBM Group','auto'],['Nominal width','1500 mm','auto'],['Nominal thk','3.50 mm','auto']],
+   fields:[['Actual width','num','mm','le:1500'],['Slit A width','num','mm',''],['Slit B width','num','mm',''],['Scrap','num','MT','']],
+   defect:true },
+ CRS:{name:'CRS (CR Slitter)', line:'CRS', target:110,
+   header:[['Coil No','CR-24-0455','auto'],['Grade / Finish','CRCA / Matt','auto'],['Customer','Bajaj Auto','auto'],['Coil width','1000 mm','auto'],['Nominal thk','0.80 mm','auto']],
+   fields:[['Actual width','num','mm','le:1000'],['Hardness HRB','num','HRB',''],['UTS','num','N/mm²',''],['For-CTL','num','MT','']],
+   toggle:'Hold', defect:true },
+ CTL:{name:'Cut to Length', line:'CTL', target:90,
+   header:[['Coil No','CR-24-0455-CTL','auto'],['Grade','CRCA','auto'],['Customer','Bajaj Auto','auto'],['Width','1000 mm','auto'],['Thk','0.80 mm','auto']],
+   fields:[['Weight (kg)','num','kg','→MT'],['Set length','num','mm',''],['Pieces','num','no',''],['Bundles','num','no','']],
+   defect:true },
+};
+let curProc='CRM', form={}, segIdx=1, togOn=false, stoppages=0, defects=0, produced=0, doneCount=0;
+
+function buildProcSel(){
+ const c=document.getElementById('procsel'); c.innerHTML='';
+ Object.keys(PROC).forEach(k=>{const b=document.createElement('button');b.textContent=PROC[k].name;b.dataset.tap=1;b.className=(k===curProc?'on':'');b.onclick=()=>{curProc=k;buildProcSel();applyProc();};c.appendChild(b);});
+}
+function applyProc(){const p=PROC[curProc];document.getElementById('ctxLine').textContent=p.line;document.getElementById('kTarget').textContent=p.target;document.getElementById('ctxProd').textContent='Produced '+produced+' / '+p.target+' MT';}
+
+// ---------- coil list ----------
+const COILS=[['HRC-24-0912','18.4 MT','open'],['HRC-24-0913','17.9 MT','plan'],['HRC-24-0914','19.1 MT','plan'],['HRC-24-0911','18.0 MT','done']];
+function buildCoilList(){const c=document.getElementById('coilList');c.innerHTML='<h4>Shift coils</h4>';COILS.forEach(([id,w,st])=>{const d=document.createElement('div');d.className='coil';d.dataset.tap=1;d.innerHTML='<span class="chip '+st+'">'+st+'</span><div class="id">'+id+'</div><div class="meta">'+w+'</div>';d.onclick=()=>renderCapture();c.appendChild(d);});}
+
+// ---------- capture panel ----------
+function renderCapture(){
+ const p=PROC[curProc];form={};segIdx=p.segOn||0;togOn=false;
+ const el=document.getElementById('capPanel');let h='';
+ h+='<div class="card"><h3>'+p.name+' — header (auto-filled, no typing)</h3><div class="grid">';
+ p.header.forEach(([l,v])=>{h+='<div class="f"><label>'+l+'</label><div class="val auto">'+v+'<span class="tag-auto">AUTO</span></div></div>';});
+ h+='</div></div>';
+ if(p.seg){h+='<div class="card"><h3>Mill type</h3><div class="seg" id="segCtl">'+p.seg.map((s,i)=>'<button data-tap class="'+(i===segIdx?'on':'')+'" onclick="setSeg('+i+')">'+s+'</button>').join('')+'</div></div>';}
+ h+='<div class="card"><h3>Measured / observed (operator entry)</h3><div class="grid">';
+ p.fields.forEach((f,i)=>{const[lbl,type,unit,rule]=f;
+   if(type==='num'){h+='<div class="f" id="f'+i+'"><label>'+lbl+' <span class="unit">'+unit+'</span></label><div class="val num" data-tap onclick="openKey('+i+',\''+lbl+'\')"><span class="ph" id="v'+i+'">tap to enter</span></div><span class="err" id="e'+i+'">Out of range</span></div>';}
+   else if(type==='sel'){h+='<div class="f"><label>'+lbl+'</label><select class="val" data-tap id="v'+i+'">'+f[3].map(o=>'<option>'+o+'</option>').join('')+'</select></div>';}
+ });
+ h+='</div>';
+ if(p.toggle){h+='<div style="margin-top:12px" class="toggle" id="tog" data-tap onclick="togOn=!togOn;this.classList.toggle(\'on\')"><span class="sw"></span><span>'+p.toggle+'</span></div>';}
+ h+='</div>';
+ el.innerHTML=h;go('s-capture');buildCoilList();
+}
+function setSeg(i){segIdx=i;document.querySelectorAll('#segCtl button').forEach((b,j)=>b.className=(j===i?'on':''));}
+
+// ---------- numeric keypad ----------
+let kpTarget=null,kpVal='';
+function buildPads(){
+ const mk=(id,fn)=>{const c=document.getElementById(id);c.innerHTML='';['1','2','3','4','5','6','7','8','9','.','0','⌫'].forEach(k=>{const b=document.createElement('button');b.textContent=k;b.dataset.tap=1;b.onclick=()=>fn(k);c.appendChild(b);});};
+ mk('numpad',k=>{if(k==='⌫')kpVal=kpVal.slice(0,-1);else kpVal+=k;document.getElementById('kpDisp').textContent=kpVal||'0';});
+ // PIN pad
+ const c=document.getElementById('pinpad');c.innerHTML='';['1','2','3','4','5','6','7','8','9','','0','✓'].forEach(k=>{const b=document.createElement('button');if(k===''){b.style.visibility='hidden';}b.textContent=k;if(k)b.dataset.tap=1;b.onclick=()=>pin(k);c.appendChild(b);});
+}
+function openKey(i,lbl){kpTarget=i;kpVal='';document.getElementById('kpLabel').textContent=lbl;document.getElementById('kpDisp').textContent='0';open('m-keypad');}
+function applyKey(){form[kpTarget]=kpVal;const v=document.getElementById('v'+kpTarget);v.textContent=kpVal||'—';v.classList.remove('ph');validateField(kpTarget);close('m-keypad');}
+function closeKey(){close('m-keypad');}
+function validateField(i){const rule=PROC[curProc].fields[i][3];const f=document.getElementById('f'+i);if(!f)return;let bad=false;const num=parseFloat(form[i]);
+ if(rule&&rule.startsWith('range:')){const[a,b]=rule.slice(6).split('-').map(Number);bad=!(num>=a&&num<=b);document.getElementById('e'+i).textContent='Expected '+a+'–'+b;}
+ if(rule&&rule.startsWith('le:')){const m=Number(rule.slice(3));bad=num>m;document.getElementById('e'+i).textContent='Must be ≤ '+m;}
+ // dependency demo: CRM output thk must be < input 2.50
+ if(curProc==='CRM'&&i===0){bad=!(num<2.50);document.getElementById('e'+i).textContent='Output thk must be < input 2.50 mm';}
+ f.classList.toggle('bad',bad);return !bad;
+}
+
+// ---------- stoppage / defect ----------
+const STOPS=[['M01','Roll change'],['E04','Electrical'],['M07','Mechanical'],['U02','Utility'],['P01','Power'],['O03','Coil change']];
+const DEFS=[['D02','Edge crack'],['D05','Scratch'],['D08','Wavy edge'],['D11','Rust'],['D14','Dent'],['D19','Oil mark']];
+function openStoppage(){const c=document.getElementById('stopTiles');c.innerHTML='';STOPS.forEach(([k,n])=>{const d=document.createElement('div');d.className='tile';d.dataset.tap=1;d.innerHTML='<b>'+k+'</b>'+n;d.onclick=()=>{stoppages++;close('m-stop');toast('Stoppage '+k+' logged');};c.appendChild(d);});open('m-stop');}
+function openDefect(){const c=document.getElementById('defTiles');c.innerHTML='';DEFS.forEach(([k,n])=>{const d=document.createElement('div');d.className='tile';d.dataset.tap=1;d.innerHTML='<b>'+k+'</b>'+n;d.onclick=()=>{defects++;close('m-def');toast('Defect '+k+' logged');};c.appendChild(d);});open('m-def');}
+
+// ---------- review / submit ----------
+function review(){
+ const p=PROC[curProc];let ok=true,rows='';
+ p.fields.forEach((f,i)=>{if(f[1]==='num'){const good=validateField(i);if(form[i]===undefined||form[i]===''){ok=false;rows+=row(f[0],'— missing',false);}else{rows+=row(f[0],form[i]+' '+f[2],good);if(!good)ok=false;}}});
+ if(p.seg)rows=row('Mill type',p.seg[segIdx],true)+rows;
+ if(p.toggle)rows+=row(p.toggle,togOn?'Yes':'No',true);
+ rows+=row('Stoppages logged',stoppages,true)+row('Defects logged',defects,true);
+ document.getElementById('reviewBody').innerHTML='<table style="width:100%;border-collapse:collapse">'+rows+'</table>'+
+   (ok?'<p style="color:var(--green);font-weight:bold;margin-top:12px">✓ All checks passed — ready to submit.</p>'
+      :'<p style="color:var(--accent);font-weight:bold;margin-top:12px">✗ Fix the highlighted fields before submitting.</p>');
+ document.getElementById('submitBtn').style.opacity=ok?1:.5;document.getElementById('submitBtn').dataset.ok=ok?1:0;
+ go('s-review');
+}
+function row(k,v,good){return '<tr><td style="padding:7px 4px;border-bottom:1px solid var(--line);color:var(--grey)">'+k+'</td><td style="padding:7px 4px;border-bottom:1px solid var(--line);text-align:right;font-weight:bold;color:'+(good?'var(--ink)':'var(--accent)')+'">'+v+'</td></tr>';}
+function submitEntry(){if(document.getElementById('submitBtn').dataset.ok!=='1'){toast('Resolve validation first');return;}
+ produced+=18;doneCount++;document.getElementById('kProd').textContent=produced;applyProc();toast('Entry submitted ✓');stoppages=0;defects=0;setTimeout(()=>go('s-dash'),700);}
+
+// ---------- handover ----------
+function finishHandover(){if(!document.getElementById('ackTog').classList.contains('on')){toast('Incoming operator must confirm');return;}toast('Handover complete — open coils carried forward');}
+function buildHandover(){document.getElementById('handBody').innerHTML=
+ row('Produced this shift',produced+' MT',true)+row('Target',PROC[curProc].target+' MT',true)+
+ row('Coils completed',doneCount,true)+row('Open coils carried forward','2',true)+row('Holds / running stoppage','1',true);}
+
+// ---------- nav / modal helpers ----------
+function go(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));document.getElementById(id).classList.add('on');if(id==='s-handover')buildHandover();}
+function open(id){document.getElementById(id).classList.add('on');}
+function close(id){document.getElementById(id).classList.remove('on');}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1400);}
+
+// ---------- login ----------
+let pinVal='';
+function pin(k){if(k==='✓'){doLogin();return;}if(pinVal.length<4){pinVal+=k;}document.querySelectorAll('#pinRow .pin').forEach((p,i)=>p.classList.toggle('f',i<pinVal.length));if(pinVal.length===4)setTimeout(doLogin,250);}
+function badge(){pinVal='';document.querySelectorAll('#pinRow .pin').forEach(p=>p.classList.remove('f'));}
+function doLogin(){document.getElementById('ctxShift').textContent='Shift B';document.getElementById('ctxOp').textContent='Op: R. Kumar (E-2231)';startTimer();applyProc();go('s-dash');}
+
+// init
+buildPads();buildProcSel();applyProc();
+</script>
+</body>
+</html>

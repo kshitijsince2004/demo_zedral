@@ -80,7 +80,7 @@ router.post('/verify-pin', requireAuth, rateLimitMiddleware(10, 60_000), async (
 router.post(
   '/supervisor-override',
   requireAuth,
-  rateLimitMiddleware(10, 60_000),
+  rateLimitMiddleware(5, 60_000),
   async (req, res) => {
     try {
       const { pin, fieldLabel } = req.body;

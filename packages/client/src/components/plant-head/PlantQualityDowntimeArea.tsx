@@ -38,19 +38,15 @@ const DEFECT_COLORS = [C.red, '#f87171', '#fca5a5', '#fecaca', '#fee2e2'];
 
 
 
-export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps) {
+/** Quality Intelligence card — placeable independently (see Task 5.3). */
+export function PlantQualityCard({ data }: PlantQualityDowntimeAreaProps) {
   const qualityTrendData = data.qualityTrend.map((point) => ({
     date: point.date,
     rejectionRatePct: point.rejectionRatePct,
     yieldPct: point.yieldPct,
   }));
 
-  const topDowntime = data.downtimeDrivers[0];
-  const totalDowntimeMin = data.downtimeByCategory.reduce((s, d) => s + d.minutes, 0);
-
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {/* Quality */}
       <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
         <div className="p-6 flex items-center justify-between">
           <div className="flex flex-col space-y-1.5">
@@ -142,8 +138,15 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
           </div>
         </div>
       </div>
+  );
+}
 
-      {/* Downtime */}
+/** Downtime Intelligence card — placeable independently (see Task 5.3). */
+export function PlantDowntimeCard({ data }: PlantQualityDowntimeAreaProps) {
+  const topDowntime = data.downtimeDrivers[0];
+  const totalDowntimeMin = data.downtimeByCategory.reduce((s, d) => s + d.minutes, 0);
+
+  return (
       <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
         <div className="p-6 flex items-center justify-between">
           <div className="flex flex-col space-y-1.5">
@@ -240,6 +243,14 @@ export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps
           </div>
         </div>
       </div>
+  );
+}
+
+export function PlantQualityDowntimeArea({ data }: PlantQualityDowntimeAreaProps) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <PlantQualityCard data={data} />
+      <PlantDowntimeCard data={data} />
     </div>
   );
 }

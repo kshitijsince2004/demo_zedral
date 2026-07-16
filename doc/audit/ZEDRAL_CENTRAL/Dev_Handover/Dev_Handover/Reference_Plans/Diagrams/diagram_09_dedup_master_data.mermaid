@@ -1,0 +1,11 @@
+flowchart TD
+  IN["Incoming records (multi-source)"] --> BLK["Blocking — group candidate matches"]
+  BLK --> MATCH["Match: deterministic keys + probabilistic/fuzzy score"]
+  MATCH --> DEC{"Score vs thresholds"}
+  DEC -->|Match| CL["Cluster = same real-world entity"]
+  DEC -->|Maybe| REV["Steward review queue"]
+  DEC -->|No| NEW["Distinct entity"]
+  CL --> SURV["Survivorship: source priority - recency - completeness - manual override"]
+  REV --> SURV
+  SURV --> GR["Golden record (canonical surrogate key)"]
+  GR --> SKM["Source-key map: all native keys -> one canonical id"]

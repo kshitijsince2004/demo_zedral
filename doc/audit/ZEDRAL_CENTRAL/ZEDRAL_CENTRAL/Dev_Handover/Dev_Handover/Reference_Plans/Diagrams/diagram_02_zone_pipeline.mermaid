@@ -1,0 +1,12 @@
+flowchart LR
+  A["Zone 0 · RAW / LANDING<br/>immutable, as-received"] --> B["Zone 1 · STANDARDIZED<br/>typed · validated · deduped"]
+  B --> C["Zone 2 · CANONICAL<br/>Zedral Data Model · keys · UoM · tz"]
+  C --> D["Zone 3 · SERVING<br/>marts · KPI rollups · APIs · live cache"]
+  A:::z0
+  B:::z1
+  C:::z2
+  D:::z3
+  classDef z0 fill:#f1f5f9,stroke:#64748b;
+  classDef z1 fill:#e0f2fe,stroke:#0284c7;
+  classDef z2 fill:#dcfce7,stroke:#16a34a;
+  classDef z3 fill:#fef9c3,stroke:#ca8a04;

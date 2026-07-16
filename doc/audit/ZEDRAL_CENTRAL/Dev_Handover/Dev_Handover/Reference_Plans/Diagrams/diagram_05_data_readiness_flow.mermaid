@@ -1,0 +1,9 @@
+flowchart TD
+  SEL["Select module for tenant"] --> CONTRACT["Load module data contract (Required + Additional)"]
+  CONTRACT --> CHECK["Compare against mapped canonical fields"]
+  CHECK --> R{"All Required mapped?"}
+  R -- No --> BLOCK["BLOCKED — list missing Required fields + which source would unlock them"]
+  R -- Yes --> SCORE["Compute A · Q · H"]
+  SCORE --> COMP["Readiness% composite"]
+  COMP --> OUT["Show: Available · Missing · Recommended · Quality · Readiness%"]
+  OUT --> ACT["Implementation action: connect source / map field / improve quality"]

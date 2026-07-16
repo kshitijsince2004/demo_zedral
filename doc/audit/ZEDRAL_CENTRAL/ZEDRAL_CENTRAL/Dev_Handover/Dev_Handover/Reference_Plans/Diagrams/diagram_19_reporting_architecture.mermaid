@@ -1,0 +1,29 @@
+flowchart LR
+  subgraph IN["Inputs (read-only)"]
+    KPI["Canonical KPI marts"]
+    EVT["Event Spine (detail drill)"]
+    FIN["Financial Impact engine ($ twins)"]
+  end
+  subgraph ENGINE["Reporting Engine"]
+    TPL["Template library (versioned)"]
+    PARAM["Parameter & scope resolver (tenant/site/line/date/shift)"]
+    BIND["Data binding to canonical KPIs"]
+    REND["Renderers: PDF · Excel · CSV"]
+    SCH["Scheduler"]
+    DIST["Distribution (role lists, email, in-app)"]
+  end
+  subgraph OUT["Outputs"]
+    PDF["Scheduled PDF"]
+    XL["Excel / CSV export"]
+    VIEW["In-app report viewer"]
+  end
+  KPI --> BIND
+  EVT --> BIND
+  FIN --> BIND
+  TPL --> REND
+  PARAM --> BIND --> REND
+  REND --> PDF
+  REND --> XL
+  REND --> VIEW
+  SCH --> PARAM
+  REND --> DIST --> PDF

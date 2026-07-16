@@ -232,8 +232,13 @@ export interface MachineHeadStoppageRow {
   batchNumber: string;
   machineCode: string;
   category: string;
+  /** Closed: recorded minutes. Open: live-elapsed minutes since start. */
   durationMin?: number;
   startAt: string;
+  /** Null while the stoppage is still open (Active). */
+  endAt?: string;
+  /** ACTIVE = still open, ENDED = closed. */
+  status: 'ACTIVE' | 'ENDED';
   subProcess?: string;
   remarks?: string;
   motherCoil?: string;

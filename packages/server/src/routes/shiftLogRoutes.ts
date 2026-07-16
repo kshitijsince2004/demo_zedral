@@ -293,6 +293,21 @@ router.get('/:id/state', async (req, res) => {
   }
 });
 
+// Composed shift-review bundle (Task 4) — reuses ReportingService.getShiftReview.
+router.get('/:id/review', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'READ');
+    const review = await ReportingService.getShiftReview(req.params.id);
+    if (!review) {
+      return res.status(404).json({ error: 'Shift log not found' });
+    }
+    res.json(review);
+  } catch (error: any) {
+    const status = error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 500;
+    res.status(status).json({ error: error.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'READ');

@@ -15,6 +15,7 @@ import { loadOrderRejection } from './orderRejectionLoader';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
+import { MachineCrewService } from './MachineCrewService';
 import { currentPlantDate, startOfDateFilter } from '../utils/dateOnly';
 /** Live shopfloor queue — no COMPLETED (those belong in production history). */
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
@@ -310,6 +311,10 @@ export class LiveService {
       const slitId = (r.order_slit_id ?? r.slit_id ?? undefined) || undefined;
       const journey = journeysByCoil.get(r.coil_no) ?? journeysByCoil.get(coilNo) ?? null;
       const progress = journeyProgress(journey);
+      // No logged-in user → fall back to the machine's crew-register operator.
+      const operatorName = r.operator_name ?? (r.machine_code
+        ? await MachineCrewService.getOperatorName(r.machine_code)
+        : undefined);
       orders.push({
         batchNumber: r.batch_number,
         customer: r.customer_name,
@@ -317,7 +322,7 @@ export class LiveService {
         machineCode: r.machine_code,
         machineName: r.machine_name ?? r.machine_code,
         currentProcess: processLabel(r.sub_process),
-        operatorName: r.operator_name ?? undefined,
+        operatorName,
         runtimeMin,
         status,
         weightMt: Number(r.ppc_weight_mt),
@@ -850,6 +855,9 @@ export class LiveService {
     const rejection = status === 'REJECTED' && batch.order_id
       ? await loadOrderRejection(batch.order_id)
       : undefined;
+    const operatorName = batch.operator_name ?? (batch.machine_code
+      ? await MachineCrewService.getOperatorName(batch.machine_code)
+      : undefined);
 
     return {
       batchNumber: batch.batch_number,
@@ -858,7 +866,7 @@ export class LiveService {
       machineCode: batch.machine_code,
       machineName: batch.machine_name ?? batch.machine_code,
       currentProcess: processLabel(batch.sub_process),
-      operatorName: batch.operator_name ?? undefined,
+      operatorName,
       runtimeMin,
       status,
       weightMt: Number(batch.ppc_weight_mt),
@@ -968,6 +976,7 @@ export class LiveService {
     completedProdMt: number;
     inProgressMt: number;
     totalProdMt: number;
+    targetCompletedMt: number;
   }> {
     const zeros = {
       actualMt: 0,
@@ -977,6 +986,7 @@ export class LiveService {
       completedProdMt: 0,
       inProgressMt: 0,
       totalProdMt: 0,
+      targetCompletedMt: 0,
     };
     if (machineFilter !== null && machineFilter.length === 0) {
       return zeros;
@@ -997,6 +1007,7 @@ export class LiveService {
       totalProdMt: round(summary.totalProdMt),
       completedProdMt: round(summary.completedProdMt ?? 0),
       inProgressMt: round(summary.inProgressProdMt ?? 0),
+      targetCompletedMt: round(summary.targetCompletedMt ?? 0),
       completedOrderCount,
       inProgressOrderCount,
       orderCount: completedOrderCount + inProgressOrderCount,
@@ -1053,13 +1064,6 @@ export class LiveService {
     const machines = await this.getMachineCards(machineFilter);
     const shiftLogId = await SixHiShiftService.resolveShiftLogIdForPlan(prodDate, shiftCode);
 
-    const shiftLog = await db.selectFrom('txn.shift_log')
-      .select(['target_mt'])
-      .where('prod_date', '=', SixHiShiftService.toPlanDate(prodDate))
-      .where('shift_code', '=', shiftCode)
-      .where('process_id', '=', 31)
-      .executeTakeFirst();
-
     let completedQ = db
       .selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1077,7 +1081,8 @@ export class LiveService {
       ])
       .where('o.status', '=', 'COMPLETED')
       .orderBy('o.prod_end_at', 'desc')
-      .limit(10);
+      // Full shift production history (not just the last 10) — see Task 2.3.
+      .limit(200);
     if (shiftLogId) {
       completedQ = completedQ.where('o.shift_log_id', '=', shiftLogId);
     } else {
@@ -1157,6 +1162,7 @@ export class LiveService {
     const rejectedCountRow = await rejectedCountQ.executeTakeFirst();
     const rejectedOrderCount = rejectedCountRow?.n ?? 0;
 
+    // Stoppage HISTORY for the shift (open + closed), not just active — see Task 2.5.
     let stoppageQ = db.selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1173,8 +1179,11 @@ export class LiveService {
         'os.remarks',
         'os.duration_min',
         'os.start_at',
-      ])
-      .where('os.end_at', 'is', null);
+        'os.end_at',
+      ]);
+    if (shiftLogId) {
+      stoppageQ = stoppageQ.where('o.shift_log_id', '=', shiftLogId);
+    }
     if (machineFilter !== null) {
       stoppageQ = stoppageQ.where('pb.machine_code', 'in', machineFilter);
     }
@@ -1190,7 +1199,7 @@ export class LiveService {
         ]),
       );
     }
-    const stoppageRows = await stoppageQ.orderBy('os.start_at', 'desc').limit(15).execute();
+    const stoppageRows = await stoppageQ.orderBy('os.start_at', 'desc').limit(200).execute();
 
     const queuedMt = Math.round(orders.reduce((s, o) => s + o.weightMt, 0) * 10) / 10;
     const {
@@ -1200,6 +1209,7 @@ export class LiveService {
       completedProdMt,
       inProgressMt,
       totalProdMt,
+      targetCompletedMt,
     } = await this.getShiftCompletedProductionMt(
       machineFilter,
       prodDate,
@@ -1230,7 +1240,9 @@ export class LiveService {
       shiftSummary: {
         shiftCode: shiftCode,
         prodDate: prodDate,
-        targetMt: Number(shiftLog?.target_mt ?? 0),
+        // Target MT done = summed PPC/planned weight of orders COMPLETED this shift
+        // (not txn.shift_log.target_mt, which is a single plan figure). See Task 3.
+        targetMt: targetCompletedMt,
         actualMt,
         completedProdMt,
         inProgressMt,
@@ -1260,12 +1272,22 @@ export class LiveService {
       stoppages: stoppageRows.map((s) => {
         const coilNo = ((s as { order_coil_no?: string | null }).order_coil_no ?? s.coil_no ?? '').trim() || undefined;
         const slitId = ((s as { order_slit_id?: string | null }).order_slit_id ?? s.slit_id)?.trim() || undefined;
+        const startAt = new Date(s.start_at);
+        const endAt = s.end_at ? new Date(s.end_at) : null;
+        const isActive = endAt === null;
+        const durationMin = s.duration_min != null
+          ? Number(s.duration_min)
+          : isActive
+            ? Math.max(0, Math.round((Date.now() - startAt.getTime()) / 60000))
+            : undefined;
         return {
           batchNumber: s.batch_number,
           machineCode: s.machine_code,
           category: s.category,
-          durationMin: s.duration_min ? Number(s.duration_min) : undefined,
-          startAt: new Date(s.start_at).toISOString(),
+          durationMin,
+          startAt: startAt.toISOString(),
+          endAt: endAt ? endAt.toISOString() : undefined,
+          status: isActive ? ('ACTIVE' as const) : ('ENDED' as const),
           subProcess: s.sub_process ?? undefined,
           remarks: s.remarks?.trim() || undefined,
           coilNo,

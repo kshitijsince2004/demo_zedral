@@ -27,6 +27,7 @@ import { PPCImportService } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
 import { currentPlantDate } from '../utils/dateOnly';
 import { SixHiService } from '../services/SixHiService';
+import { MachineCrewService } from '../services/MachineCrewService';
 import multer from 'multer';
 
 const router = Router();
@@ -384,11 +385,42 @@ router.post('/orders/manual', requireSixHi('WRITE'), async (req, res) => {
 });
 
 // Must be registered before /orders/:batchNo or "completed" is treated as a batch number.
-router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
+// Uses requireAuth (not requireSixHi) so machine param is optional — "ALL" works without it.
+// Machine-scope is enforced manually: ADMIN/PLANT_HEAD see all; MACHINE_HEAD sees their assigned machines.
+router.get('/orders/completed', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+
   try {
-    const machine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
+    const rawMachine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
     const date = req.query.date ? String(req.query.date).slice(0, 10) : undefined;
     const shiftCode = req.query.shiftCode ? String(req.query.shiftCode).toUpperCase() : undefined;
+    // Prefer resolved shift-log scoping so "completed this shift" matches the rest
+    // of the dashboard (Overview / Completed count), not a raw calendar-day window.
+    let shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
+    if (!shiftLogId && date && shiftCode && shiftCode !== 'ALL') {
+      shiftLogId = (await SixHiService.resolveShiftLogIdForPlan(date, shiftCode)) ?? undefined;
+    }
+
+    // Resolve machine scope for the requesting user
+    const isAdmin = req.user.roles.includes(UserRole.ADMIN as string);
+    const isPlantHead = req.user.roles.includes(UserRole.PLANT_HEAD as string);
+    const userMachineAccess = (req.user.machineAccess ?? []).map((m) => m.toUpperCase());
+
+    // If a specific machine is requested, verify the user can access it
+    if (rawMachine && rawMachine !== 'ALL') {
+      if (!isAdmin && !isPlantHead && !userMachineAccess.includes(rawMachine)) {
+        return res.status(403).json({ error: `Access to machine ${rawMachine} denied` });
+      }
+    }
+
+    // Determine which machines to query
+    // null/undefined rawMachine or 'ALL' → scope to user's allowed machines (or all for admin/plant head)
+    const scopedMachines: string[] | null =
+      rawMachine && rawMachine !== 'ALL'
+        ? [rawMachine]
+        : isAdmin || isPlantHead
+          ? null // all machines
+          : userMachineAccess; // MACHINE_HEAD: only their assigned machines
 
     let q = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -415,21 +447,31 @@ router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
       ])
       .where('o.status', '=', 'COMPLETED');
 
-    if (machine && machine !== 'ALL') {
-      q = q.where('pb.machine_code', '=', machine);
+    if (scopedMachines !== null) {
+      if (scopedMachines.length === 0) {
+        return res.json([]); // user has no machine access
+      }
+      q = q.where('pb.machine_code', 'in', scopedMachines);
     }
-    if (date) {
-      q = q.where('o.prod_end_at', '>=', new Date(`${date}T00:00:00Z`))
-        .where('o.prod_end_at', '<=', new Date(`${date}T23:59:59Z`));
-    }
-    if (shiftCode && shiftCode !== 'ALL') {
-      q = q.where('pb.shift_code', '=', shiftCode);
+    if (shiftLogId) {
+      q = q.where('o.shift_log_id', '=', shiftLogId);
+    } else {
+      if (date) {
+        q = q.where('o.prod_end_at', '>=', new Date(`${date}T00:00:00Z`))
+          .where('o.prod_end_at', '<=', new Date(`${date}T23:59:59Z`));
+      }
+      if (shiftCode && shiftCode !== 'ALL') {
+        q = q.where('pb.shift_code', '=', shiftCode);
+      }
     }
 
     const rows = await q.orderBy('o.prod_end_at', 'desc').limit(200).execute();
-    res.json(rows.map((r) => {
+    res.json(await Promise.all(rows.map(async (r) => {
       const coilNo = ((r as { order_coil_no?: string | null }).order_coil_no ?? r.coil_no ?? '').trim() || undefined;
       const slitId = ((r as { order_slit_id?: string | null }).order_slit_id ?? r.slit_id)?.trim() || undefined;
+      // No logged-in user → fall back to the machine's crew-register operator.
+      const operatorName = r.operator_name
+        ?? (r.machine_code ? await MachineCrewService.getOperatorName(r.machine_code) : undefined);
       return {
         batchNumber: r.batch_number,
         customer: r.customer_name,
@@ -446,9 +488,9 @@ router.get('/orders/completed', requireSixHi('READ'), async (req, res) => {
         status: r.status,
         prodStartAt: r.prod_start_at,
         prodEndAt: r.prod_end_at,
-        operatorName: r.operator_name,
+        operatorName,
       };
-    }));
+    })));
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load completed orders' });
   }

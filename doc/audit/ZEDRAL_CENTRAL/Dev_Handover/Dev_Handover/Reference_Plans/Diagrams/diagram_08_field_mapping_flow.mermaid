@@ -1,0 +1,21 @@
+flowchart TD
+  F["Source field"] --> SIG["Collect signals"]
+  SIG --> N["Name similarity (tokens, synonyms, abbrev dict)"]
+  SIG --> M["Metadata (type, unit, length)"]
+  SIG --> I["Instance/profile match (patterns, ranges)"]
+  SIG --> H["Historical mappings + sector template"]
+  N --> SCORE["Weighted confidence score"]
+  M --> SCORE
+  I --> SCORE
+  H --> SCORE
+  SCORE --> T{"Confidence?"}
+  T -->|High >= auto| AUTO["Auto-map to canonical field"]
+  T -->|Medium| SUGGEST["Suggest — needs review"]
+  T -->|Low| UNMAP["Leave unmapped / flag missing"]
+  AUTO --> OV{"Manual override?"}
+  SUGGEST --> OV
+  UNMAP --> OV
+  OV -->|Yes| MANUAL["Manual mapping wins"]
+  OV -->|No| KEEP["Keep suggestion"]
+  MANUAL --> SAVE["Save versioned mapping -> learn into template library"]
+  KEEP --> SAVE
