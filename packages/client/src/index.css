@@ -206,6 +206,51 @@
   .z-nav-accent-border {
     border-color: color-mix(in oklab, var(--color-nav) 20%, transparent);
   }
+
+  /* ── Premium desk surfaces (Machine Head / Plant Head) ─────────────────── */
+
+  /* Elevated content card with layered soft shadow. */
+  .z-card {
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    box-shadow:
+      0 1px 2px color-mix(in oklab, var(--color-foreground) 5%, transparent),
+      0 10px 30px -18px color-mix(in oklab, var(--color-foreground) 22%, transparent);
+  }
+
+  .z-card-hover {
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  }
+  .z-card-hover:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 2px 4px color-mix(in oklab, var(--color-foreground) 8%, transparent),
+      0 18px 44px -20px color-mix(in oklab, var(--color-foreground) 30%, transparent);
+    border-color: color-mix(in oklab, var(--color-primary) 22%, var(--color-border));
+  }
+
+  /* Deep-green premium gradient for desk navigation rails. */
+  .z-nav-surface {
+    background:
+      radial-gradient(120% 60% at 50% 0%, color-mix(in oklab, var(--color-accent) 10%, transparent) 0%, transparent 55%),
+      linear-gradient(180deg, #1c4033 0%, #163328 48%, #10261f 100%);
+  }
+
+  /* Section eyebrow label. */
+  .z-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--color-muted-foreground);
+  }
+
+  /* Subtle branded surface tint (headers, toolbars). */
+  .z-tint {
+    background:
+      linear-gradient(180deg, color-mix(in oklab, var(--color-primary) 4%, var(--color-background)) 0%, var(--color-background) 100%);
+  }
 }
 
 /* ── Floor Dark theme (legacy night-shift terminals) ─────────────────────── */

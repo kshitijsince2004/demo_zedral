@@ -38,7 +38,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+      <div className="z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
           <h2 className="font-semibold leading-none tracking-tight text-foreground">Machine Status</h2>
           <p className="text-sm text-muted-foreground">
@@ -111,7 +111,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
         </div>
       </div>
 
-      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+      <div className="z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
           <h2 className="font-semibold leading-none tracking-tight text-foreground">In Progress Orders</h2>
           <p className="text-sm text-muted-foreground">

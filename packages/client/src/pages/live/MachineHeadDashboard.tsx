@@ -43,7 +43,16 @@ function formatDuration(minutes?: number): string {
 
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`bg-card border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0 ${className}`}>
+    <div className={`z-card overflow-hidden flex flex-col min-h-0 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function PanelHeader({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="px-4 py-3 border-b border-border/70 z-tint flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <h3 className="z-eyebrow">{title}</h3>
       {children}
     </div>
   );
@@ -58,9 +67,9 @@ function PanelBody({ children, empty, emptyLabel = 'No data' }: { children: Reac
 
 function StatCell({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) {
   return (
-    <div className="px-3 py-2.5">
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className={`mt-0.5 text-sm font-bold text-foreground tabular-nums ${mono ? 'font-mono' : ''}`}>{value}</dd>
+    <div className="px-4 py-3">
+      <dt className="z-eyebrow">{label}</dt>
+      <dd className={`mt-1 text-base font-bold text-foreground tabular-nums ${mono ? 'font-mono' : ''}`}>{value}</dd>
     </div>
   );
 }
@@ -372,9 +381,7 @@ export function MachineHeadDashboard() {
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
             <Panel className="lg:col-span-2">
-              <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Your Machines</h3>
-              </div>
+              <PanelHeader title="Your Machines" />
               <PanelBody empty={machines.length === 0} emptyLabel="No machines in scope">
                 <div className="p-4">
                   <MachineStatusBoard machines={machines} onSelect={openMachineDetail} />
@@ -385,10 +392,8 @@ export function MachineHeadDashboard() {
             {dashboard && (
               <>
                 <Panel>
-                  <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shift Summary</h3>
-                  </div>
-                  <dl className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-border">
+                  <PanelHeader title="Shift Summary" />
+                  <dl className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-border/70">
                     <StatCell label="Prod Date" value={dashboard.shiftSummary.prodDate} mono />
                     <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
                     <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
@@ -412,17 +417,21 @@ export function MachineHeadDashboard() {
                 </Panel>
 
                 <Panel>
-                  <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Runtime Utilization (24h)</h3>
-                  </div>
+                  <PanelHeader title="Runtime Utilization (24h)" />
                   <PanelBody empty={dashboard.runtimeUtilization.length === 0}>
                     <div className="grid grid-cols-2 gap-3 p-4">
-                      {dashboard.runtimeUtilization.map((u) => (
-                        <div key={u.machineCode} className="rounded-xl border border-border bg-secondary/30 p-3">
-                          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground truncate">{u.machineName}</p>
-                          <p className="text-xl font-mono font-bold text-primary mt-1">{u.runtimeUtilizationPct}%</p>
-                        </div>
-                      ))}
+                      {dashboard.runtimeUtilization.map((u) => {
+                        const pct = Math.max(0, Math.min(100, Number(u.runtimeUtilizationPct) || 0));
+                        return (
+                          <div key={u.machineCode} className="rounded-xl border border-border bg-secondary/40 p-3">
+                            <p className="z-eyebrow truncate">{u.machineName}</p>
+                            <p className="text-2xl font-mono font-bold text-primary mt-1 leading-none">{u.runtimeUtilizationPct}%</p>
+                            <div className="mt-2 h-1.5 w-full rounded-full bg-border/70 overflow-hidden">
+                              <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </PanelBody>
                 </Panel>
@@ -434,9 +443,7 @@ export function MachineHeadDashboard() {
       case 'orders':
         return (
           <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0">
-              <h3 className="text-sm font-medium text-foreground">Running & Preparing Orders</h3>
-            </div>
+            <PanelHeader title="Running & Preparing Orders" />
             <PanelBody empty={filteredQueue.length === 0} emptyLabel="No active orders found">
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
@@ -489,9 +496,7 @@ export function MachineHeadDashboard() {
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
             <Panel>
-              <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Production History · This Shift</h3>
-              </div>
+              <PanelHeader title="Production History · This Shift" />
               <PanelBody empty={filteredProduction.length === 0}>
                 <ul className="divide-y divide-border text-xs">
                   {filteredProduction.map((h) => (
@@ -513,9 +518,7 @@ export function MachineHeadDashboard() {
               </PanelBody>
             </Panel>
             <Panel>
-              <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Operator Activity</h3>
-              </div>
+              <PanelHeader title="Operator Activity" />
               <PanelBody empty={filteredOperatorActivity.length === 0}>
                 <ul className="divide-y divide-border text-xs">
                   {filteredOperatorActivity.map((a) => (
@@ -560,8 +563,7 @@ export function MachineHeadDashboard() {
       case 'stoppages':
         return (
           <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border bg-secondary/30 shrink-0 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-medium text-foreground">Stoppage History · This Shift</h3>
+            <PanelHeader title="Stoppage History · This Shift">
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 Reason
                 <select
@@ -575,7 +577,7 @@ export function MachineHeadDashboard() {
                   ))}
                 </select>
               </label>
-            </div>
+            </PanelHeader>
             <PanelBody empty={filteredStoppages.length === 0} emptyLabel="No stoppages for this shift">
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
@@ -653,7 +655,7 @@ export function MachineHeadDashboard() {
       case 'rejected':
         return (
           <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border bg-secondary/30 space-y-2 shrink-0">
+            <div className="px-4 py-3 border-b border-border/70 z-tint space-y-2 shrink-0">
               <div className="flex flex-wrap items-end gap-3">
                 <label className="text-xs font-medium text-muted-foreground">
                   Filter date
@@ -720,7 +722,7 @@ export function MachineHeadDashboard() {
       case 'completed':
         return (
           <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border bg-secondary/30 space-y-2 shrink-0">
+            <div className="px-4 py-3 border-b border-border/70 z-tint space-y-2 shrink-0">
               <div className="flex flex-wrap items-end gap-3">
                 <label className="text-xs font-medium text-muted-foreground">
                   Filter date
@@ -810,9 +812,7 @@ export function MachineHeadDashboard() {
       case 'handover':
         return (
           <Panel className="h-full">
-            <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shift Handover Logs</h3>
-            </div>
+            <PanelHeader title="Shift Handover Logs" />
             <PanelBody empty={filteredHandover.length === 0}>
               <ul className="divide-y divide-border text-xs">
                 {filteredHandover.map((h) => (
@@ -888,61 +888,63 @@ export function MachineHeadDashboard() {
           </div>
         )}
 
-        <div className="shrink-0 overflow-x-auto pb-1">
-          <ZPillTabs
-            tabs={tabs}
-            activeId={activeTab}
-            onChange={(id) => setActiveTab(id as DashboardTab)}
-            className="min-w-max"
-          />
-        </div>
-
-        {PROCESS_FILTER_TABS.includes(activeTab) && (
-          <div className="shrink-0 overflow-x-auto pb-1 flex flex-wrap gap-2 items-center">
+        <div className="z-card shrink-0 flex flex-col gap-2.5 p-2.5">
+          <div className="overflow-x-auto">
             <ZPillTabs
-              tabs={processFilterTabs}
-              activeId={processFilter}
-              onChange={(id) => setProcessFilter(id as ProcessFilter)}
+              tabs={tabs}
+              activeId={activeTab}
+              onChange={(id) => setActiveTab(id as DashboardTab)}
               className="min-w-max"
             />
-            <input
-              type="search"
-              value={orderSearch}
-              onChange={(e) => setOrderSearch(e.target.value)}
-              placeholder="Search batch, coil, customer…"
-              className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm min-w-[12rem] flex-1 max-w-xs"
-              aria-label="Search orders"
-            />
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              Shift
-              <select
-                value={shiftFilter}
-                onChange={(e) => setShiftFilter(e.target.value)}
-                className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-medium text-foreground"
-              >
-                <option value="ALL">All Shifts</option>
-                {['A', 'B', 'C'].map((s) => (
-                  <option key={s} value={s}>Shift {s}</option>
-                ))}
-              </select>
-            </label>
-            {machines.length > 0 && (
-              <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                Machine
+          </div>
+
+          {PROCESS_FILTER_TABS.includes(activeTab) && (
+            <div className="overflow-x-auto flex flex-wrap gap-2 items-center border-t border-border/60 pt-2.5">
+              <ZPillTabs
+                tabs={processFilterTabs}
+                activeId={processFilter}
+                onChange={(id) => setProcessFilter(id as ProcessFilter)}
+                className="min-w-max"
+              />
+              <input
+                type="search"
+                value={orderSearch}
+                onChange={(e) => setOrderSearch(e.target.value)}
+                placeholder="Search batch, coil, customer…"
+                className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm min-w-[12rem] flex-1 max-w-xs"
+                aria-label="Search orders"
+              />
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                Shift
                 <select
-                  value={machineFilter}
-                  onChange={(e) => setMachineFilter(e.target.value)}
-                  className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-mono font-bold text-foreground"
+                  value={shiftFilter}
+                  onChange={(e) => setShiftFilter(e.target.value)}
+                  className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-medium text-foreground"
                 >
-                  <option value="ALL">All Machines</option>
-                  {machines.map((m) => (
-                    <option key={m.machineCode} value={m.machineCode}>{m.machineCode}</option>
+                  <option value="ALL">All Shifts</option>
+                  {['A', 'B', 'C'].map((s) => (
+                    <option key={s} value={s}>Shift {s}</option>
                   ))}
                 </select>
               </label>
-            )}
-          </div>
-        )}
+              {machines.length > 0 && (
+                <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  Machine
+                  <select
+                    value={machineFilter}
+                    onChange={(e) => setMachineFilter(e.target.value)}
+                    className="block rounded-lg border border-border bg-white px-2 py-1 text-sm font-mono font-bold text-foreground"
+                  >
+                    <option value="ALL">All Machines</option>
+                    {machines.map((m) => (
+                      <option key={m.machineCode} value={m.machineCode}>{m.machineCode}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
 
         <div
           className={[

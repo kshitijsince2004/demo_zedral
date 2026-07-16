@@ -47,7 +47,7 @@ export function PlantQualityCard({ data }: PlantQualityDowntimeAreaProps) {
   }));
 
   return (
-      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+      <div className="z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex items-center justify-between">
           <div className="flex flex-col space-y-1.5">
             <h2 className="font-semibold leading-none tracking-tight text-foreground">Quality Intelligence</h2>
@@ -147,7 +147,7 @@ export function PlantDowntimeCard({ data }: PlantQualityDowntimeAreaProps) {
   const totalDowntimeMin = data.downtimeByCategory.reduce((s, d) => s + d.minutes, 0);
 
   return (
-      <div className="bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+      <div className="z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex items-center justify-between">
           <div className="flex flex-col space-y-1.5">
             <h2 className="font-semibold leading-none tracking-tight text-foreground">Downtime Intelligence</h2>

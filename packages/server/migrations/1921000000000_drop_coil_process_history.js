@@ -23,7 +23,7 @@ exports.down = async (pgm) => {
       in_thk_mm: { type: 'numeric' },
       out_thk_mm: { type: 'numeric' },
       out_weight_mt: { type: 'numeric' },
-      tenant_id: { type: 'uuid', notNull: true, default: pgm.func('current_setting(\'app.current_tenant\')::uuid') }
+      tenant_id: { type: 'uuid', notNull: true, default: pgm.func('current_setting(\'app.tenant_id\', true)::uuid') }
     }
   );
 
@@ -36,6 +36,7 @@ exports.down = async (pgm) => {
   pgm.sql(`
     CREATE POLICY tenant_isolation ON coil.coil_process_history
     FOR ALL
-    USING (tenant_id = current_setting('app.current_tenant', true)::uuid)
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
   `);
 };

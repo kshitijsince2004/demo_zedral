@@ -28,18 +28,20 @@ export function MachineHeadShell({ title, subtitle, onRefresh, fillViewport, chi
               fillViewport ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-auto',
             ].join(' ')}
           >
-            <ZPageHeader
-              title={title}
-              subtitle={subtitle}
-              actions={
-                onRefresh ? (
-                  <ZButton variant="secondary" size="sm" onClick={onRefresh}>
-                    <RefreshCw className="h-4 w-4" aria-hidden />
-                    Refresh
-                  </ZButton>
-                ) : undefined
-              }
-            />
+            <div className="z-card px-4 py-3.5 md:px-5">
+              <ZPageHeader
+                title={title}
+                subtitle={subtitle}
+                actions={
+                  onRefresh ? (
+                    <ZButton variant="secondary" size="sm" onClick={onRefresh}>
+                      <RefreshCw className="h-4 w-4" aria-hidden />
+                      Refresh
+                    </ZButton>
+                  ) : undefined
+                }
+              />
+            </div>
             {children}
           </div>
         </main>

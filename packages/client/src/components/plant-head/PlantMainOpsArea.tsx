@@ -46,7 +46,7 @@ export function PlantMainOpsArea({ data, liveKpis }: PlantMainOpsAreaProps) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
-      <div className="lg:col-span-7 bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col overflow-hidden">
+      <div className="lg:col-span-7 z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex items-center justify-between">
           <div className="flex flex-col space-y-1.5">
             <h2 className="font-semibold leading-none tracking-tight text-foreground">Production Performance</h2>
@@ -161,7 +161,7 @@ export function PlantMainOpsArea({ data, liveKpis }: PlantMainOpsAreaProps) {
         </div>
       </div>
 
-      <div className="lg:col-span-3 bg-card text-card-foreground border border-border rounded-lg shadow-sm flex flex-col">
+      <div className="lg:col-span-3 z-card text-card-foreground flex flex-col">
         <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
           <h2 className="font-semibold leading-none tracking-tight text-foreground">Executive Insights</h2>
           <p className="text-sm text-muted-foreground">From plant reporting API</p>

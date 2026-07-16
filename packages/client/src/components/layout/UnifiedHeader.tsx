@@ -7,12 +7,15 @@ interface UnifiedHeaderProps {
 
 export function UnifiedHeader({ title, subtitle }: UnifiedHeaderProps) {
   return (
-    <header className="shrink-0 border-b border-border bg-card px-4 py-4 md:px-5">
+    <header className="z-tint sticky top-0 z-20 shrink-0 border-b border-border px-4 py-4 md:px-5 backdrop-blur-sm">
       <div className="flex flex-col gap-2">
         <Breadcrumbs />
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight text-nav">{title}</h1>
-          {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
+        <div className="flex items-stretch gap-3">
+          <span className="w-1 rounded-full bg-accent shrink-0" aria-hidden />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-nav">{title}</h1>
+            {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
+          </div>
         </div>
       </div>
     </header>

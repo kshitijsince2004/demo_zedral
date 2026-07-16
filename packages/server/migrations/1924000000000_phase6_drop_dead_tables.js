@@ -40,7 +40,7 @@ exports.down = (pgm) => {
     "  cost_per_mt NUMERIC(12,4)," +
     "  currency VARCHAR(8) NOT NULL DEFAULT 'INR'," +
     "  cost_rate_ownership VARCHAR(20) NOT NULL DEFAULT 'platform'," +
-    "  tenant_id UUID NOT NULL DEFAULT current_setting('app.current_tenant', true)::uuid" +
+    "  tenant_id UUID NOT NULL DEFAULT current_setting('app.tenant_id', true)::uuid" +
     ")"
   );
 
@@ -52,7 +52,7 @@ exports.down = (pgm) => {
     "  role_code VARCHAR(30) NOT NULL," +
     "  valid_from DATE NOT NULL," +
     "  valid_to DATE," +
-    "  tenant_id UUID NOT NULL DEFAULT current_setting('app.current_tenant', true)::uuid" +
+    "  tenant_id UUID NOT NULL DEFAULT current_setting('app.tenant_id', true)::uuid" +
     ")"
   );
 };

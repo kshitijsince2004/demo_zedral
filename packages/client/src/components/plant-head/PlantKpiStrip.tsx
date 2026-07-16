@@ -83,15 +83,15 @@ export function PlantKpiStrip({ data, liveKpis, onBacklogClick }: PlantKpiStripP
             type={kpi.onClick ? 'button' : undefined}
             onClick={kpi.onClick}
             className={[
-              'bg-card text-card-foreground border border-border rounded-lg p-6 shadow-sm flex flex-col text-left',
-              kpi.onClick ? 'cursor-pointer hover:bg-secondary/40 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/30' : '',
+              'z-card text-card-foreground p-5 flex flex-col text-left',
+              kpi.onClick ? 'z-card-hover cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring/30' : '',
             ].join(' ')}
             data-testid={kpi.label === 'Backlog' ? 'plant-kpi-backlog' : undefined}
           >
-            <span className="text-sm font-medium text-muted-foreground mb-1">{kpi.label}</span>
+            <span className="z-eyebrow mb-2">{kpi.label}</span>
             <div className="flex items-baseline gap-2 mt-auto">
               <span
-                className={`text-2xl font-bold ${
+                className={`text-2xl font-bold tabular-nums ${
                   kpi.emphasis === 'warning' ? 'text-destructive' : 'text-foreground'
                 }`}
               >
@@ -99,12 +99,12 @@ export function PlantKpiStrip({ data, liveKpis, onBacklogClick }: PlantKpiStripP
               </span>
               {kpi.trend && (
                 <span
-                  className={`text-xs font-medium ${
+                  className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
                     isNeutral
-                      ? 'text-muted-foreground'
+                      ? 'bg-muted text-muted-foreground'
                       : isNegative
-                        ? 'text-destructive'
-                        : 'text-success'
+                        ? 'bg-destructive/10 text-destructive'
+                        : 'bg-success/10 text-success'
                   }`}
                 >
                   {kpi.trend}

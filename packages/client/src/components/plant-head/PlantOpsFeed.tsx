@@ -46,7 +46,7 @@ export function PlantOpsFeed({ data }: PlantOpsFeedProps) {
   const highCount = data.opsFeed.filter(e => e.priority === 'High').length;
 
   return (
-    <div className="bg-card border border-border rounded-lg shadow-sm flex flex-col overflow-hidden w-full">
+    <div className="z-card flex flex-col overflow-hidden w-full">
       <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-foreground flex items-center gap-2">

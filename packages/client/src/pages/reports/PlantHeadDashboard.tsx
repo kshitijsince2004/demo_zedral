@@ -209,15 +209,24 @@ export function PlantHeadDashboard() {
       aria-label="Plant command center"
     >
 
-      {/* Header + filters */}
-      <div className="flex flex-wrap justify-end gap-3 mb-3 px-1 sticky top-0 z-20 bg-background/95 backdrop-blur-sm py-2">
-        <div className="flex items-center gap-3 flex-wrap">
+      {/* Toolbar */}
+      <div className="z-card sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary shrink-0">
+            <Factory className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="z-eyebrow">Command Center</p>
+            <p className="text-sm font-semibold text-foreground leading-tight">Live plant overview</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button"
             onClick={() => load(false)}
             disabled={loading || refreshing}
             aria-label="Refresh dashboard"
-            className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-background text-sm text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-info' : ''}`} aria-hidden />
             Refresh
@@ -226,7 +235,7 @@ export function PlantHeadDashboard() {
             value={windowDays}
             onChange={(e) => setWindowDays(Number(e.target.value) as 1 | 7 | 30 | 90)}
             aria-label="Reporting time window"
-            className="h-9 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
           >
             <option value={1}>Last 24 Hours</option>
             <option value={7}>Last 7 Days</option>
@@ -236,14 +245,12 @@ export function PlantHeadDashboard() {
           <button
             type="button"
             onClick={() => setOpsFeedOpen(true)}
-            className="h-9 px-3 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:bg-secondary"
+            className="h-9 px-3 rounded-lg border border-border bg-background text-sm text-muted-foreground hover:bg-secondary transition-colors"
           >
             Ops feed
           </button>
         </div>
       </div>
-
-
 
       <div className="flex flex-col gap-4 min-h-0">
 
@@ -300,10 +307,12 @@ export function PlantHeadDashboard() {
         </section>
 
         <section>
-            <div className="bg-white border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col h-[400px]">
-              <div className="flex items-center justify-between border-b border-border/50 bg-secondary/50 px-5 py-3 shrink-0 gap-3">
+            <div className="z-card overflow-hidden flex flex-col h-[400px]">
+              <div className="flex items-center justify-between border-b border-border/70 z-tint px-5 py-3.5 shrink-0 gap-3">
                 <div className="flex items-center gap-2 text-primary font-bold">
-                  <Factory className="w-5 h-5 text-muted-foreground" />
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary shrink-0">
+                    <Factory className="w-4 h-4" />
+                  </span>
                   <h2>Shift Handover Logs</h2>
                 </div>
                 <div className="flex flex-wrap items-end gap-2">

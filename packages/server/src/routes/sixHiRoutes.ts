@@ -11,7 +11,7 @@ import {
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertLineOperation } from '../auth/lineAccessPolicy';
-import { assertMachineAccess } from '../auth/machineAccessPolicy';
+import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
 import type { LineAccessLevel } from '../services/authService';
 import { db } from '../db';
@@ -496,11 +496,39 @@ router.get('/orders/completed', async (req, res) => {
   }
 });
 
-router.get('/orders/:batchNo', requireSixHi('READ'), async (req, res) => {
+// Read-by-batch: mill is derived from the order record (not ?machine=).
+// Write routes keep requireSixHi('WRITE') → resolveRequiredCrmMill unchanged.
+router.get('/orders/:batchNo', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
   try {
-    const order = await SixHiExecutionService.getOrder(req.params.batchNo, req.user!.id);
+    const millRow = await db
+      .selectFrom('txn.crm_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select('pb.machine_code')
+      .where('o.batch_number', '=', req.params.batchNo)
+      .executeTakeFirst();
+
+    if (!millRow) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Authorize against the order's mill when one is assigned. Unallocated
+    // orders have no mill scope to enforce (ADMIN/PLANT_HEAD still bypass
+    // inside assertMachineAccess when a mill is present).
+    if (millRow.machine_code) {
+      const mill = parseCrmMillCode(String(millRow.machine_code).toUpperCase());
+      if (mill) {
+        assertMachineAccess(req.user, mill);
+        (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = mill;
+      }
+    }
+
+    const order = await SixHiExecutionService.getOrder(req.params.batchNo, req.user.id);
     res.json(order);
   } catch (e: unknown) {
+    if (isMachineAccessForbidden(e)) {
+      return res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
+    }
     res.status(404).json({ error: e instanceof Error ? e.message : 'Order not found' });
   }
 });

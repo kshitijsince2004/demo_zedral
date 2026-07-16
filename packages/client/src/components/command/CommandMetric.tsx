@@ -1,5 +1,5 @@
 import type { Tone } from '../../lib/tones';
-import { toneText } from '../../lib/tones';
+import { toneText, toneRail } from '../../lib/tones';
 
 interface CommandMetricProps {
   label: string;
@@ -16,13 +16,15 @@ export function CommandMetric({ label, value, sub, tone, onClick }: CommandMetri
       type={onClick ? 'button' : undefined}
       onClick={onClick}
       className={[
-        'flex flex-col gap-1 px-4 py-3 border border-border bg-background text-left min-w-[140px]',
-        'rounded-2xl shadow-sm transition-colors',
-        onClick ? 'hover:border-accent/40 hover:bg-accent/5 cursor-pointer' : '',
+        'z-card z-card-hover group flex flex-col gap-1.5 px-4 py-3.5 text-left min-w-[140px]',
+        onClick ? 'cursor-pointer' : '',
       ].join(' ')}
     >
-      <span className="z-rail-label">{label}</span>
-      <span className={`font-mono text-xl font-semibold tabular-nums ${tone ? toneText[tone] : 'text-foreground'}`}>
+      <span className="flex items-center gap-1.5 z-eyebrow">
+        <span className={`h-1.5 w-1.5 rounded-full ${tone ? toneRail[tone] : 'bg-primary/40'}`} aria-hidden />
+        {label}
+      </span>
+      <span className={`font-mono text-2xl font-bold tabular-nums leading-none ${tone ? toneText[tone] : 'text-foreground'}`}>
         {value}
       </span>
       {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}

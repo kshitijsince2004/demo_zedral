@@ -22,7 +22,7 @@ exports.up = async (pgm) => {
       tenant_id: {
         type: 'uuid',
         notNull: true,
-        default: pgm.func('current_setting(\'app.current_tenant\', true)::uuid'),
+        default: pgm.func('current_setting(\'app.tenant_id\', true)::uuid'),
       },
       created_at: {
         type: 'timestamptz',
@@ -39,7 +39,9 @@ exports.up = async (pgm) => {
   pgm.sql(`ALTER TABLE txn.session_crew ENABLE ROW LEVEL SECURITY`);
   pgm.sql(`
     CREATE POLICY tenant_isolation ON txn.session_crew
-    FOR ALL USING (tenant_id = current_setting('app.current_tenant', true)::uuid)
+    FOR ALL
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
   `);
 
   // 2. Backfill master.machine_crew_roster from legacy txn.crew_entry + master.operator
@@ -101,7 +103,7 @@ exports.down = async (pgm) => {
       tenant_id: {
         type: 'uuid',
         notNull: true,
-        default: pgm.func('current_setting(\'app.current_tenant\', true)::uuid'),
+        default: pgm.func('current_setting(\'app.tenant_id\', true)::uuid'),
       },
     }
   );
@@ -109,7 +111,9 @@ exports.down = async (pgm) => {
   pgm.sql(`ALTER TABLE txn.crew_entry ENABLE ROW LEVEL SECURITY`);
   pgm.sql(`
     CREATE POLICY tenant_isolation ON txn.crew_entry
-    FOR ALL USING (tenant_id = current_setting('app.current_tenant', true)::uuid)
+    FOR ALL
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
   `);
 
   // 2. Try to backfill txn.crew_entry from txn.session_crew
