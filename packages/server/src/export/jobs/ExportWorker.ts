@@ -86,11 +86,11 @@ export class ExportWorker {
   }
 
   private static parseStoredRequest(
-    paramsJson: string,
+    paramsJson: string | Record<string, unknown>,
     format: string,
     exportType: string,
   ): ExportRequest {
-    const parsed = JSON.parse(paramsJson) as Record<string, unknown>;
+    const parsed = (typeof paramsJson === 'string' ? JSON.parse(paramsJson) : paramsJson) as Record<string, unknown>;
     const { type: _t, format: _f, options, ...scope } = parsed;
     return {
       type: exportType.toUpperCase() as ExportType,
