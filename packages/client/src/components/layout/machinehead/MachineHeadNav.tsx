@@ -33,7 +33,7 @@ const NAV_ITEMS: DeskNavItem[] = [
   },
   {
     id: 'dpr-export',
-    label: 'DPR Export',
+    label: 'Export',
     icon: FileSpreadsheet,
     path: '/machine-head/dpr-export',
     match: (p) => p === '/machine-head/dpr-export' || p.startsWith('/machine-head/exports'),

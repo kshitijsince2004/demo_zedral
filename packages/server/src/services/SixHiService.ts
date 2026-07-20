@@ -1892,6 +1892,75 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
+  static async reinstateOrder(
+    batchNumber: string,
+    userId: number,
+    target: 'PREPARING' | 'PENDING' = 'PREPARING',
+  ) {
+    const batch = await db.selectFrom('planning.ppc_batch')
+      .select(['batch_id', 'coil_no', 'machine_code', 'shift_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch) throw new Error('Order not found');
+
+    const order = await db.selectFrom('txn.crm_order')
+      .select(['order_id', 'status', 'coil_no'])
+      .where('batch_id', '=', batch.batch_id)
+      .executeTakeFirst();
+
+    if (!order) throw new Error('No production record exists for this order');
+    if (order.status !== 'REJECTED') throw new Error('Order is not on hold');
+
+    const orderId = order.order_id;
+
+    const latestRejection = await db.selectFrom('txn.order_rejection')
+      .select('rejection_id')
+      .where('order_id', '=', String(orderId))
+      .orderBy('created_at', 'desc')
+      .executeTakeFirst();
+
+    if (latestRejection) {
+      await db.deleteFrom('txn.order_rejection')
+        .where('rejection_id', '=', latestRejection.rejection_id)
+        .execute();
+    }
+
+    await db.updateTable('txn.crm_order')
+      .set({
+        status: target,
+        prod_end_at: null,
+        updated_at: new Date(),
+      })
+      .where('order_id', '=', orderId)
+      .execute();
+
+    const coilNo = order.coil_no ?? batch.coil_no;
+    if (coilNo) {
+      await db.updateTable('coil.coil')
+        .set({ status: 'PLANNED' })
+        .where('coil_no', '=', coilNo)
+        .execute();
+    }
+
+    if (batch.machine_code) {
+      MachineStateEventService.recordEvent(batch.machine_code, 'ORDER_REINSTATED', {
+        orderId,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: batch.shift_code,
+      })
+        .then(() => MachineStateEventService.recordEvent(batch.machine_code!, 'IDLE_STARTED', {
+          orderId,
+          batchNumber,
+          operatorId: userId,
+          shiftCode: batch.shift_code,
+        }))
+        .catch((err) => console.error('[MachineStateEvent] REINSTATE events failed:', err));
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
   private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {
     if (!meta) return {};
     if (typeof meta === 'string') {

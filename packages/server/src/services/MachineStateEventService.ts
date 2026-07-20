@@ -21,7 +21,8 @@ export type MachineStateEventType =
   | 'MAINTENANCE_ENDED'
   | 'DEFECT_REPORTED'
   | 'DEFECT_CLOSED'
-  | 'ORDER_REJECTED';
+  | 'ORDER_REJECTED'
+  | 'ORDER_REINSTATED';
 
 export interface RecordEventOptions {
   orderId?: string | number | bigint;

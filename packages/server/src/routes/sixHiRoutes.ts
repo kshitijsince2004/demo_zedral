@@ -816,6 +816,21 @@ router.post('/orders/:batchNo/reject', requireSixHi('WRITE'), async (req, res) =
   }
 });
 
+router.post('/orders/:batchNo/reinstate', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const rawTarget = req.body?.target;
+    const target = rawTarget === 'PENDING' ? 'PENDING' : 'PREPARING';
+    const order = await SixHiExecutionService.reinstateOrder(
+      req.params.batchNo,
+      req.user!.id,
+      target,
+    );
+    res.json(order);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Order reinstate failed' });
+  }
+});
+
 router.post('/orders/:batchNo/remarks', requireSixHi('WRITE'), async (req, res) => {
   const parsed = SixHiRemarkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });

@@ -25,7 +25,8 @@ export type MachineStateEventType =
   | 'MAINTENANCE_ENDED'
   | 'DEFECT_REPORTED'
   | 'DEFECT_CLOSED'
-  | 'ORDER_REJECTED';
+  | 'ORDER_REJECTED'
+  | 'ORDER_REINSTATED';
 
 export interface MachineStateEvent {
   eventId: string;

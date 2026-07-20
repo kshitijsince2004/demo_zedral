@@ -47,7 +47,8 @@ export type PreviewRowStatus =
   | 'allocation-protected'
   | 'in-production'
   | 'completed'
-  | 'duplicate-in-file';
+  | 'duplicate-in-file'
+  | 'will-merge';
 
 interface PpcRow {
   batch_number: string;
@@ -75,6 +76,7 @@ type DbConn = Kysely<Database>;
 function mapPreviewRow(
   row: ParsedRollingPlanRow,
   previewStatus: PreviewRowStatus = 'new',
+  mergeTargetBatchNumber?: string,
 ) {
   return {
     rowNum: row.rowNum,
@@ -98,6 +100,7 @@ function mapPreviewRow(
     processRouteRaw: row.processRouteRaw,
     errors: row.errors,
     previewStatus,
+    mergeTargetBatchNumber,
   };
 }
 
@@ -588,7 +591,7 @@ export class PPCImportService {
         headerError: `Import rejected — duplicate batch_numbers detected in file: ${report}. Please correct the source file and re-import.`,
         batchId: null,
         status: 'FAILED' as const,
-        loaded: 0, updated: 0, skipped: 0, skippedDuplicates: duplicateEntries.length, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0,
+        loaded: 0, updated: 0, skipped: 0, merged: 0, skippedDuplicates: duplicateEntries.length, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0,
         errors: [],
       };
     }
@@ -629,8 +632,15 @@ export class PPCImportService {
           );
           return this.upsertPpcRow(trx, { ...validation.data, queue_seq: queueSeq }, Number(batch.import_batch_id));
         });
-        if (result.action === 'inserted') loaded++;
-        else updated++;
+        if (result.action === 'inserted') {
+          loaded++;
+          const { SixHiConfigService } = await import('./sixHi');
+          await SixHiConfigService.ensureOrder(row.batch_number, userId);
+        } else {
+          updated++;
+          const { SixHiConfigService } = await import('./sixHi');
+          await SixHiConfigService.ensureOrder(row.batch_number, userId);
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Insert failed';
         errors.push({ row: rowNum, message: msg });
@@ -672,6 +682,7 @@ export class PPCImportService {
       status,
       loaded,
       updated,
+      merged: 0,
       skipped,
       skippedDuplicates: 0,
       skippedAllocated,
@@ -714,6 +725,26 @@ export class PPCImportService {
     for (const bn of allBatchNumbers) batchNumberCounts.set(bn, (batchNumberCounts.get(bn) ?? 0) + 1);
     const duplicatesInFile = new Set([...batchNumberCounts.entries()].filter(([, n]) => n > 1).map(([bn]) => bn));
 
+    const seenIdentityInFile = new Map<string, string[]>();
+    for (const row of parsed.rows) {
+      if (row.errors.length > 0 || !row.batchNumber) continue;
+      const identityKey = pendingMergeIdentityKey(rollingRowToSchemaInput(row));
+      const existing = seenIdentityInFile.get(identityKey) ?? [];
+      existing.push(row.batchNumber);
+      seenIdentityInFile.set(identityKey, existing);
+    }
+    for (const row of parsed.rows) {
+      if (row.errors.length > 0 || !row.batchNumber) continue;
+      const identityKey = pendingMergeIdentityKey(rollingRowToSchemaInput(row));
+      const batchNumbers = seenIdentityInFile.get(identityKey) ?? [];
+      if (batchNumbers.length > 1 && new Set(batchNumbers).size > 1) {
+        const others = batchNumbers.filter((bn) => bn !== row.batchNumber);
+        if (others.length > 0) {
+          row.errors.push(`Same coil/spec as batch ${others.join(', ')} — different batch number`);
+        }
+      }
+    }
+
     // Bulk fetch existing batches with their order status
     const existingBatches = allBatchNumbers.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
@@ -733,8 +764,9 @@ export class PPCImportService {
 
     const existingMap = new Map(existingBatches.map((b) => [b.batch_number, b]));
 
-    const enrichedRows = parsed.rows.map((row) => {
+    const enrichedRows = await Promise.all(parsed.rows.map(async (row) => {
       let previewStatus: PreviewRowStatus = 'new';
+      let mergeTargetBatchNumber: string | undefined;
 
       if (duplicatesInFile.has(row.batchNumber)) {
         previewStatus = 'duplicate-in-file';
@@ -754,11 +786,23 @@ export class PPCImportService {
           } else {
             previewStatus = 'safe-update';
           }
+        } else if (row.errors.length === 0 && row.batchNumber) {
+          const pendingMatch = await this.findMatchingPendingBatch(db, rollingRowToSchemaInput(row));
+          if (pendingMatch) {
+            const targetBatch = await db.selectFrom('planning.ppc_batch')
+              .select('batch_number')
+              .where('batch_id', '=', String(pendingMatch.batch_id))
+              .executeTakeFirst();
+            if (targetBatch && targetBatch.batch_number !== row.batchNumber) {
+              previewStatus = 'will-merge';
+              mergeTargetBatchNumber = targetBatch.batch_number;
+            }
+          }
         }
       }
 
-      return mapPreviewRow(row, previewStatus);
-    });
+      return mapPreviewRow(row, previewStatus, mergeTargetBatchNumber);
+    }));
 
     previewSessionStore.set(sessionId, {
       sessionId,
@@ -845,6 +889,7 @@ export class PPCImportService {
     const errors: { row: number; message: string }[] = [];
     let loaded = 0;
     let updated = 0;
+    let merged = 0;
     let skippedAllocated = 0;
     let skippedProduction = 0;
     let skippedCompleted = 0;
@@ -866,6 +911,11 @@ export class PPCImportService {
       }
 
       try {
+        const existedByBatchNumber = await db.selectFrom('planning.ppc_batch')
+          .select('batch_id')
+          .where('batch_number', '=', row.batchNumber)
+          .executeTakeFirst();
+
         const result = await db.transaction().execute(async (trx) => {
           await this.ensureShift(row.shiftCode, trx);
           await this.ensureGrade(row.gradeCode, trx);
@@ -876,7 +926,8 @@ export class PPCImportService {
           await SixHiConfigService.ensureOrder(row.batchNumber, userId);
           loaded++;
         } else {
-          updated++;
+          if (!existedByBatchNumber) merged++;
+          else updated++;
         }
       } catch (e: unknown) {
         errors.push({ row: row.rowNum, message: e instanceof Error ? e.message : 'Insert failed' });
@@ -889,7 +940,7 @@ export class PPCImportService {
       }
     }
 
-    const totalLoaded = loaded + updated;
+    const totalLoaded = loaded + updated + merged;
     const skipped = skippedAllocated + skippedProduction + skippedCompleted;
     const status = totalLoaded === 0 && loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
@@ -927,6 +978,7 @@ export class PPCImportService {
     return {
       loaded,
       updated,
+      merged,
       skipped,
       skippedDuplicates: 0,
       skippedAllocated,

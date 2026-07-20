@@ -144,6 +144,7 @@ export function MachineHeadDashboard() {
   const [selectedOrder, setSelectedOrder] = useState<LiveOrderRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [reinstateBusy, setReinstateBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
@@ -350,6 +351,26 @@ export function MachineHeadDashboard() {
       alert((err as Error)?.message ?? 'Delete failed');
     } finally {
       setDeleteBusy(false);
+    }
+  }, [selectedOrder, loadDashboard, refresh]);
+
+  const handleReinstate = useCallback(async () => {
+    if (!selectedOrder) return;
+    const confirmed = window.confirm(
+      `Move order ${displayMotherCoilId(selectedOrder)} back to Preparing?\n\nThis clears the hold and returns the order to the active queue.`,
+    );
+    if (!confirmed) return;
+    setReinstateBusy(true);
+    try {
+      await apiClient.post(`/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}/reinstate`, {});
+      setSelectedOrder(null);
+      setDetailOpen(false);
+      await loadDashboard();
+      void refresh();
+    } catch (err: unknown) {
+      alert((err as Error)?.message ?? 'Reinstate failed');
+    } finally {
+      setReinstateBusy(false);
     }
   }, [selectedOrder, loadDashboard, refresh]);
 
@@ -974,6 +995,8 @@ export function MachineHeadDashboard() {
                 onViewDetails={() => setDetailOpen(true)}
                 onDelete={() => void handleDelete()}
                 deleteBusy={deleteBusy}
+                onReinstate={() => void handleReinstate()}
+                reinstateBusy={reinstateBusy}
               />
             </aside>
           )}
@@ -986,6 +1009,8 @@ export function MachineHeadDashboard() {
               onViewDetails={() => setDetailOpen(true)}
               onDelete={() => void handleDelete()}
               deleteBusy={deleteBusy}
+              onReinstate={() => void handleReinstate()}
+              reinstateBusy={reinstateBusy}
             />
           </div>
         )}

@@ -61,6 +61,12 @@ export class SixHiExecutionService {
     return SixHiService.deleteOrder(...args);
   }
 
+  static reinstateOrder(
+    ...args: Parameters<typeof SixHiService.reinstateOrder>
+  ): ReturnType<typeof SixHiService.reinstateOrder> {
+    return SixHiService.reinstateOrder(...args);
+  }
+
   static logRollChange(
     ...args: Parameters<typeof SixHiService.logRollChange>
   ): ReturnType<typeof SixHiService.logRollChange> {

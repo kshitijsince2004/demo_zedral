@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { LiveOrderRow, SixHiOrderDetail } from '@m1/shared-validation';
-import { Eye, Trash2 } from 'lucide-react';
+import { Eye, RotateCcw, Trash2 } from 'lucide-react';
 import { SixHiStatusPill } from '../sixHi/SixHiStatusPill';
 import { ZButton } from '../primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
@@ -13,6 +13,8 @@ interface MachineHeadOrderSidePanelProps {
   onViewDetails: () => void;
   onDelete?: () => void;
   deleteBusy?: boolean;
+  onReinstate?: () => void;
+  reinstateBusy?: boolean;
 }
 
 function isDeletable(detail: SixHiOrderDetail | null, row: LiveOrderRow | null): boolean {
@@ -21,11 +23,18 @@ function isDeletable(detail: SixHiOrderDetail | null, row: LiveOrderRow | null):
   return allowed.includes(status ?? '');
 }
 
+function isReinstatable(detail: SixHiOrderDetail | null, row: LiveOrderRow | null): boolean {
+  const status = detail?.status ?? row?.status;
+  return status === 'REJECTED';
+}
+
 export function MachineHeadOrderSidePanel({
   order,
   onViewDetails,
   onDelete,
   deleteBusy,
+  onReinstate,
+  reinstateBusy,
 }: MachineHeadOrderSidePanelProps) {
   const [detail, setDetail] = useState<SixHiOrderDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,6 +73,7 @@ export function MachineHeadOrderSidePanel({
 
   const terminal = order.status === 'COMPLETED' || order.status === 'REJECTED';
   const canDelete = isDeletable(detail, order);
+  const canReinstate = isReinstatable(detail, order);
 
   return (
     <div className="bg-white border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden">
@@ -132,6 +142,18 @@ export function MachineHeadOrderSidePanel({
           >
             <Trash2 className="w-4 h-4" />
             Delete Order
+          </ZButton>
+        )}
+        {canReinstate && onReinstate && (
+          <ZButton
+            variant="outline"
+            fullWidth
+            onClick={onReinstate}
+            disabled={reinstateBusy}
+            className="gap-2 min-h-11"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Move back to Preparing
           </ZButton>
         )}
       </div>

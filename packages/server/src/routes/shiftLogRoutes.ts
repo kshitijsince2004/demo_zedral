@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sql } from 'kysely';
 import { ShiftLogService } from '../services/shiftLogService';
 import { requireAuth, requireLineAccess, requireRole } from '../middleware/authMiddleware';
 import { validateBadgePin } from '../services/authService';
@@ -51,6 +52,8 @@ router.post('/', requireLineAccess('WRITE'), async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const state = req.query.state as string;
+    const shiftDate = req.query.shiftDate as string | undefined;
+    const shiftCode = req.query.shiftCode as string | undefined;
     const requestedLines = req.query.line
       ? (Array.isArray(req.query.line) ? req.query.line : [req.query.line])
       : [];
@@ -87,6 +90,14 @@ router.get('/', async (req, res) => {
 
     if (state) {
       query = query.where('sl.state', '=', state);
+    }
+
+    if (shiftDate) {
+      query = query.where(sql`date(sl.prod_date)`, '=', shiftDate.slice(0, 10));
+    }
+
+    if (shiftCode) {
+      query = query.where('sl.shift_code', '=', String(shiftCode).toUpperCase());
     }
 
     if (effectiveLines.length > 0) {

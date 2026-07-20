@@ -6,6 +6,7 @@ import { LineLogReport } from './LineLogReport';
 import { RawRegisterReport } from './RawRegisterReport';
 
 import { RejectedOrdersReport } from './RejectedOrdersReport';
+import { ShiftSummaryReport } from './ShiftSummaryReport';
 
 const REGISTRY: Record<ExportType, ReportDefinition> = {
   RAW: RawRegisterReport,
@@ -13,6 +14,7 @@ const REGISTRY: Record<ExportType, ReportDefinition> = {
   LINE_LOG: LineLogReport,
   COIL_TRACE: CoilTraceReport,
   REJECTED_ORDERS: RejectedOrdersReport,
+  SHIFT_SUMMARY: ShiftSummaryReport,
 };
 
 function stubDefinition(id: ExportType, formats: ExportFormat[]): ReportDefinition {

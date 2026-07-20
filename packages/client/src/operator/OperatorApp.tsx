@@ -45,7 +45,7 @@ function OperatorApp() {
     <BrowserRouter>
       <SuperTokensSync />
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Login operatorOnly />} />
 
         <Route path="/" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />
         <Route path="/station" element={<ProtectedRoute><RoleHomeRedirect /></ProtectedRoute>} />

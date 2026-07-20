@@ -50,7 +50,7 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
   },
   {
     id: 'dpr-export',
-    label: 'DPR Export',
+    label: 'Export',
     icon: FileSpreadsheet,
     path: '/plant/dpr-export',
     match: (p) => p === '/plant/dpr-export' || p.startsWith('/plant/exports'),

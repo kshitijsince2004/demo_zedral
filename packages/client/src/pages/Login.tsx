@@ -4,6 +4,7 @@ import EmailPassword from 'supertokens-auth-react/recipe/emailpassword';
 import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
+import { isNative } from '../operator/native/init';
 
 /** Pilot dev credentials — match `npm run seed:users` / `seed:profiles`. */
 const DEV_OPERATOR_BADGE = '3000';
@@ -15,8 +16,9 @@ const DEV_STAFF = {
   planthead: 'planthead@zedral.local',
 } as const;
 
-export function Login() {
-  const [mode, setMode] = useState<'operator' | 'staff'>('operator');
+export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boolean } = {}) {
+  const operatorOnly = operatorOnlyProp ?? isNative();
+  const [mode, setMode] = useState<'operator' | 'staff'>(operatorOnly ? 'operator' : 'operator');
   const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
   const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
   const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.machinehead : '');
@@ -124,26 +126,28 @@ export function Login() {
               <p className="text-xs text-muted-foreground mt-1">
                 Scan badge or enter operator credentials
               </p>
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  onClick={() => setMode('operator')}
-                  className={mode === 'operator' ? 'font-semibold underline text-sm' : 'text-muted-foreground text-sm'}
-                >
-                  Operator (badge + PIN)
-                </button>
-                <span className="text-muted-foreground">·</span>
-                <button
-                  type="button"
-                  onClick={() => setMode('staff')}
-                  className={mode === 'staff' ? 'font-semibold underline text-sm' : 'text-muted-foreground text-sm'}
-                >
-                  Staff (email)
-                </button>
-              </div>
+              {!operatorOnly && (
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setMode('operator')}
+                    className={mode === 'operator' ? 'font-semibold underline text-sm' : 'text-muted-foreground text-sm'}
+                  >
+                    Operator (badge + PIN)
+                  </button>
+                  <span className="text-muted-foreground">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setMode('staff')}
+                    className={mode === 'staff' ? 'font-semibold underline text-sm' : 'text-muted-foreground text-sm'}
+                  >
+                    Staff (email)
+                  </button>
+                </div>
+              )}
             </div>
 
-            {mode === 'staff' ? (
+            {!operatorOnly && mode === 'staff' ? (
               <form onSubmit={handleStaffLogin} className="p-5 flex flex-col gap-4">
                 {error && (
                   <div className="px-3 py-2 rounded-sm border border-destructive/40 bg-destructive/10 text-destructive text-sm">
@@ -204,11 +208,17 @@ export function Login() {
             )}
           </div>
 
-          {import.meta.env.DEV && (
+          {import.meta.env.DEV && !operatorOnly && (
             <div className="mt-3 space-y-1 text-center text-[10px] text-muted-foreground font-mono">
               <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
               <p>Staff ({DEV_STAFF_PASSWORD}):</p>
               <p>{DEV_STAFF.admin} · {DEV_STAFF.machinehead} · {DEV_STAFF.planthead}</p>
+            </div>
+          )}
+
+          {import.meta.env.DEV && operatorOnly && (
+            <div className="mt-3 text-center text-[10px] text-muted-foreground font-mono">
+              <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
             </div>
           )}
 

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Check, X, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
-import { ZButton } from '../../components/primitives/ZButton';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
@@ -44,243 +43,14 @@ interface ShiftReviewData {
   stoppages: { id: string; batchNumber: string; categoryLabel: string; startAt: string; endAt?: string; durationMin?: number; remarks?: string }[];
 }
 
+const COMPLETED_STATES = new Set(['SUBMITTED', 'APPROVED']);
+
 function ReviewMetric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
       <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className="text-sm font-bold font-mono tabular-nums text-foreground mt-0.5">{value}</div>
     </div>
-  );
-}
-
-export function PlantShiftReviewPage() {
-  const [logs, setLogs] = useState<ShiftLogRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [rejectNote, setRejectNote] = useState('');
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [reviewById, setReviewById] = useState<Record<string, ShiftReviewData>>({});
-  const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-
-  const machineAccess = useAuthStore((s) => s.machineAccess);
-  const role = useAuthStore((s) => s.role);
-
-  const toggleReview = useCallback(async (id: string) => {
-    if (expandedId === id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(id);
-    setReviewError(null);
-    if (reviewById[id]) return;
-    setReviewLoadingId(id);
-    try {
-      const data = await apiClient.get<ShiftReviewData>(`/shift-logs/${id}/review`);
-      setReviewById((prev) => ({ ...prev, [id]: data }));
-    } catch (err: unknown) {
-      setReviewError((err as Error)?.message ?? 'Failed to load shift summary');
-    } finally {
-      setReviewLoadingId(null);
-    }
-  }, [expandedId, reviewById]);
-
-  const load = useCallback(async () => {
-    try {
-      const rows = await apiClient.get<ShiftLogRow[]>('/shift-logs?state=SUBMITTED');
-      
-      let filtered = rows;
-      if (role === 'MACHINE_HEAD') {
-        filtered = rows.filter((log) => {
-          if (!log.machines || log.machines.length === 0) return false;
-          return log.machines.some((m) => machineAccess.includes(m));
-        });
-      }
-      
-      setLogs(filtered);
-      setError(null);
-    } catch (err: unknown) {
-      setError((err as Error)?.message ?? 'Failed to load shift logs');
-    } finally {
-      setLoading(false);
-    }
-  }, [machineAccess, role]);
-
-  useEffect(() => {
-    void load();
-    const id = setInterval(() => void load(), 30_000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  const approve = async (id: string) => {
-    setBusyId(id);
-    try {
-      await apiClient.put(`/shift-logs/${id}/approve`, {});
-      await load();
-    } catch (err: unknown) {
-      alert((err as Error)?.message ?? 'Approve failed');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const reject = async (id: string) => {
-    if (!rejectNote.trim()) {
-      alert('Rejection note is required');
-      return;
-    }
-    setBusyId(id);
-    try {
-      await apiClient.put(`/shift-logs/${id}/reject`, { note: rejectNote.trim() });
-      setRejectingId(null);
-      setRejectNote('');
-      await load();
-    } catch (err: unknown) {
-      alert((err as Error)?.message ?? 'Reject failed');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const reopen = async (id: string) => {
-    setBusyId(id);
-    try {
-      await apiClient.put(`/shift-logs/${id}/reopen`, {});
-      await load();
-    } catch (err: unknown) {
-      alert((err as Error)?.message ?? 'Reopen failed');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <MachineHeadShell title="Shift Review" subtitle="Approve or reject submitted shift logs">
-    <div className="flex flex-col gap-6 max-w-5xl">
-
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="flex items-center justify-center rounded-2xl border border-border bg-white px-6 py-12 text-sm text-muted-foreground">
-          <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
-          Loading pending reviews…
-        </div>
-      )}
-
-      {!loading && logs.length === 0 && (
-        <div className="rounded-2xl border border-border bg-white px-6 py-12 flex flex-col items-center justify-center text-center">
-          <Check className="h-8 w-8 text-muted-foreground/30 mb-3" />
-          <p className="text-sm font-medium text-foreground">All caught up</p>
-          <p className="text-sm text-muted-foreground mt-1">No shift logs are awaiting your review.</p>
-        </div>
-      )}
-
-      <ul className="space-y-3">
-        {logs.map((log) => (
-          <li key={log.id} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-mono font-bold text-foreground">
-                  {log.processLine} · Shift {log.shiftCode}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {String(log.shiftDate).slice(0, 10)} · Submitted by {log.submittedBy}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {log.submittedAt ? formatPlantDateTime(log.submittedAt) : '—'}
-                  {' · '}{log.entryCount} entries
-                  {log.overrideCount > 0 ? ` · ${log.overrideCount} overrides` : ''}
-                </p>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-warning bg-warning/10 px-2 py-1 rounded-lg">
-                {log.state}
-              </span>
-            </div>
-
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => void toggleReview(log.id)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-              >
-                {expandedId === log.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                Shift summary
-              </button>
-
-              {expandedId === log.id && (
-                <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
-                  {reviewLoadingId === log.id ? (
-                    <p className="text-sm text-muted-foreground">Loading shift summary…</p>
-                  ) : reviewError ? (
-                    <p className="text-sm text-destructive">{reviewError}</p>
-                  ) : reviewById[log.id] ? (
-                    <ShiftReviewPanel review={reviewById[log.id]} />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No summary available.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {rejectingId === log.id ? (
-              <div className="mt-4 space-y-2">
-                <textarea
-                  value={rejectNote}
-                  onChange={(e) => setRejectNote(e.target.value)}
-                  placeholder="Rejection reason (required)"
-                  className="w-full rounded-xl border border-border px-3 py-2 text-sm min-h-[80px]"
-                />
-                <div className="flex gap-2 justify-end">
-                  <ZButton variant="outline" size="sm" onClick={() => { setRejectingId(null); setRejectNote(''); }}>
-                    Cancel
-                  </ZButton>
-                  <ZButton variant="danger" size="sm" disabled={busyId === log.id} onClick={() => void reject(log.id)}>
-                    Confirm Reject
-                  </ZButton>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2 mt-4 justify-end">
-                <ZButton
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  disabled={busyId === log.id}
-                  onClick={() => void reopen(log.id)}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" /> Reopen
-                </ZButton>
-                <ZButton
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 text-destructive border-destructive/30"
-                  disabled={busyId === log.id}
-                  onClick={() => setRejectingId(log.id)}
-                >
-                  <X className="w-3.5 h-3.5" /> Reject
-                </ZButton>
-                <ZButton
-                  variant="primary"
-                  size="sm"
-                  className="gap-1"
-                  disabled={busyId === log.id}
-                  onClick={() => void approve(log.id)}
-                >
-                  <Check className="w-3.5 h-3.5" /> Approve
-                </ZButton>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
-    </MachineHeadShell>
   );
 }
 
@@ -379,5 +149,198 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
         )}
       </div>
     </div>
+  );
+}
+
+export function PlantShiftReviewPage() {
+  const [logs, setLogs] = useState<ShiftLogRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reviewById, setReviewById] = useState<Record<string, ShiftReviewData>>({});
+  const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  const [filterDate, setFilterDate] = useState('');
+  const [filterShift, setFilterShift] = useState('');
+  const [filterMachine, setFilterMachine] = useState('');
+
+  const machineAccess = useAuthStore((s) => s.machineAccess);
+  const role = useAuthStore((s) => s.role);
+
+  const machineOptions = useMemo(() => {
+    if (role === 'MACHINE_HEAD') return machineAccess;
+    const all = new Set<string>();
+    for (const log of logs) {
+      for (const m of log.machines ?? []) all.add(m);
+    }
+    return [...all].sort();
+  }, [logs, machineAccess, role]);
+
+  const toggleReview = useCallback(async (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    setReviewError(null);
+    if (reviewById[id]) return;
+    setReviewLoadingId(id);
+    try {
+      const data = await apiClient.get<ShiftReviewData>(`/shift-logs/${id}/review`);
+      setReviewById((prev) => ({ ...prev, [id]: data }));
+    } catch (err: unknown) {
+      setReviewError((err as Error)?.message ?? 'Failed to load shift summary');
+    } finally {
+      setReviewLoadingId(null);
+    }
+  }, [expandedId, reviewById]);
+
+  const load = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (filterDate) qs.set('shiftDate', filterDate);
+      if (filterShift) qs.set('shiftCode', filterShift);
+
+      const rows = await apiClient.get<ShiftLogRow[]>(`/shift-logs?${qs.toString()}`);
+
+      let filtered = rows.filter((log) => COMPLETED_STATES.has(log.state));
+
+      if (role === 'MACHINE_HEAD') {
+        filtered = filtered.filter((log) => {
+          if (!log.machines || log.machines.length === 0) return false;
+          return log.machines.some((m) => machineAccess.includes(m));
+        });
+      }
+
+      if (filterMachine) {
+        filtered = filtered.filter((log) => log.machines?.includes(filterMachine));
+      }
+
+      setLogs(filtered);
+      setError(null);
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to load shift logs');
+    } finally {
+      setLoading(false);
+    }
+  }, [machineAccess, role, filterDate, filterShift, filterMachine]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <MachineHeadShell title="Shift Review" subtitle="Browse completed shift logs and production summaries">
+      <div className="flex flex-col gap-6 max-w-5xl">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-2xl border border-border bg-white p-4">
+          <label className="text-xs font-medium text-muted-foreground">
+            Date
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm font-mono"
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Shift
+            <select
+              value={filterShift}
+              onChange={(e) => setFilterShift(e.target.value)}
+              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+            >
+              <option value="">All shifts</option>
+              {['A', 'B', 'C'].map((s) => (
+                <option key={s} value={s}>Shift {s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Machine
+            <select
+              value={filterMachine}
+              onChange={(e) => setFilterMachine(e.target.value)}
+              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+            >
+              <option value="">All machines</option>
+              {machineOptions.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="flex items-center justify-center rounded-2xl border border-border bg-white px-6 py-12 text-sm text-muted-foreground">
+            <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+            Loading completed shifts…
+          </div>
+        )}
+
+        {!loading && logs.length === 0 && (
+          <div className="rounded-2xl border border-border bg-white px-6 py-12 flex flex-col items-center justify-center text-center">
+            <ClipboardList className="h-8 w-8 text-muted-foreground/30 mb-3" />
+            <p className="text-sm font-medium text-foreground">No completed shifts found</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Try adjusting filters or check back after shifts are submitted.
+            </p>
+          </div>
+        )}
+
+        <ul className="space-y-3">
+          {logs.map((log) => (
+            <li key={log.id} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+              <button
+                type="button"
+                onClick={() => void toggleReview(log.id)}
+                className="w-full text-left"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono font-bold text-foreground flex items-center gap-1.5">
+                      {expandedId === log.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      {log.processLine} · Shift {log.shiftCode}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {String(log.shiftDate).slice(0, 10)} · Submitted by {log.submittedBy}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {log.submittedAt ? formatPlantDateTime(log.submittedAt) : '—'}
+                      {' · '}{log.entryCount} entries
+                      {log.overrideCount > 0 ? ` · ${log.overrideCount} overrides` : ''}
+                      {log.machines?.length ? ` · ${log.machines.join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-success bg-success/10 px-2 py-1 rounded-lg">
+                    {log.state}
+                  </span>
+                </div>
+              </button>
+
+              {expandedId === log.id && (
+                <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
+                  {reviewLoadingId === log.id ? (
+                    <p className="text-sm text-muted-foreground">Loading shift summary…</p>
+                  ) : reviewError ? (
+                    <p className="text-sm text-destructive">{reviewError}</p>
+                  ) : reviewById[log.id] ? (
+                    <ShiftReviewPanel review={reviewById[log.id]} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No summary available.</p>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </MachineHeadShell>
   );
 }

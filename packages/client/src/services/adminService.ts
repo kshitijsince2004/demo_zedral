@@ -24,7 +24,8 @@ export type PpcPreviewRowStatus =
   | 'allocation-protected'
   | 'in-production'
   | 'completed'
-  | 'duplicate-in-file';
+  | 'duplicate-in-file'
+  | 'will-merge';
 
 export interface PpcRollingPreviewRow {
   rowNum: number;
@@ -50,6 +51,8 @@ export interface PpcRollingPreviewRow {
   selected?: boolean;
   /** Production-safety classification returned by the server during preview. */
   previewStatus: PpcPreviewRowStatus;
+  /** When previewStatus is will-merge, the existing batch number that will be updated. */
+  mergeTargetBatchNumber?: string;
 }
 
 export interface PpcRollingPreviewResult {

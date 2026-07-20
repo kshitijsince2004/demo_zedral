@@ -30,6 +30,7 @@ const PREVIEW_STATUS_LABELS: Record<PpcPreviewRowStatus, { label: string; classN
   'in-production':        { label: 'In Production',      className: 'bg-destructive/15 text-destructive' },
   'completed':            { label: 'Completed',          className: 'bg-muted text-muted-foreground' },
   'duplicate-in-file':    { label: 'Duplicate',          className: 'bg-destructive/15 text-destructive' },
+  'will-merge':           { label: 'Will Merge',         className: 'bg-warning/15 text-warning' },
 };
 
 /** Rows that must never be imported — checkboxes disabled, excluded from auto-select */
@@ -50,6 +51,7 @@ export function PpcRollingImportPanel() {
   const [commitResult, setCommitResult] = useState<{
     loaded: number;
     updated: number;
+    merged?: number;
     skipped: number;
     skippedDuplicates: number;
     skippedAllocated: number;
@@ -199,6 +201,9 @@ export function PpcRollingImportPanel() {
           <p>
             Import status: <span className="font-semibold text-success">{commitResult.status}</span>
             {' — '}{commitResult.loaded} new · {commitResult.updated ?? 0} updated
+            {(commitResult.merged ?? 0) > 0 && (
+              <span className="text-warning ml-1">· {commitResult.merged} merged</span>
+            )}
             {(commitResult.skipped ?? 0) > 0 && (
               <span className="text-warning ml-1">· {commitResult.skipped} skipped</span>
             )}
@@ -341,6 +346,11 @@ export function PpcRollingImportPanel() {
                           <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${status.className}`}>
                             {status.label}
                           </span>
+                          {row.previewStatus === 'will-merge' && row.mergeTargetBatchNumber && (
+                            <p className="text-[10px] text-warning mt-1">
+                              Will update existing batch {row.mergeTargetBatchNumber}
+                            </p>
+                          )}
                         </td>
                         <td className="p-3 text-destructive">{row.errors.join('; ')}</td>
                       </tr>

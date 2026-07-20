@@ -283,7 +283,7 @@ export function parseRollingPlanXlsx(
 
     const errors: string[] = [];
     const batchNumber = String(raw.batchNumber ?? '').trim();
-    if (!batchNumber) continue;
+    if (!batchNumber) errors.push('Empty batch number');
 
     const pvDesc = pvDescCol >= 0 ? String(line[pvDescCol] ?? '').trim() : '';
     const fromWorkCenter = String(raw.fromWorkCenter ?? '').trim();
@@ -326,9 +326,12 @@ export function parseRollingPlanXlsx(
     const translated = routeRaw ? translatePpcRoute(routeRaw) : { raw: '', canonical: '', codes: [], rollingPassCount: 1 };
     if (routeRaw && !translated.canonical) errors.push(`invalid process route: ${routeRaw}`);
 
+    const widthMm = num(raw.widthMm);
+    if (widthMm == null || widthMm <= 0) errors.push('Width required / must be > 0');
+
     rows.push({
       rowNum: i + 1,
-      batchNumber,
+      batchNumber: batchNumber || `(row ${i + 1})`,
       planDate: planDateIso ?? currentPlantDate(),
       shiftCode,
       machineCode,
@@ -337,7 +340,7 @@ export function parseRollingPlanXlsx(
       slitId: raw.slitId ? String(raw.slitId).trim() : undefined,
       customerName,
       gradeCode,
-      widthMm: num(raw.widthMm) ?? 0,
+      widthMm: widthMm ?? 0,
       finishThkMm: finishThkMm ?? 0,
       inputThkMm: resolvedInputThkMm ?? 0,
       passTargetThkMm: subProcess === 'SKIN_PASS' ? (spThkMm ?? activePlan?.targetThkMm) : activePlan?.targetThkMm,

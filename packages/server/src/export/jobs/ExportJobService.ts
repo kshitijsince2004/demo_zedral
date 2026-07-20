@@ -66,6 +66,8 @@ function normalizeType(raw?: string): ExportType {
 
   if (v === 'REJECTED_ORDERS') return 'REJECTED_ORDERS';
 
+  if (v === 'SHIFT_SUMMARY') return 'SHIFT_SUMMARY';
+
   return 'RAW';
 
 }
@@ -101,6 +103,8 @@ function scopeLabel(type: ExportType, scope: Record<string, unknown>): string {
   if (type === 'LINE_LOG') return `LOG:${scope.process_code ?? scope.processId ?? 'line'}`;
 
   if (type === 'REJECTED_ORDERS') return `REJECTED:${scope.dateFrom ?? 'all'}`;
+
+  if (type === 'SHIFT_SUMMARY') return `SHIFT:${scope.date ?? scope.dateFrom ?? 'date'}:${scope.shiftCode ?? 'shift'}`;
 
   return `RAW:${Object.keys(scope).join(',')}`;
 }
