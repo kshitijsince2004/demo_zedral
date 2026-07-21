@@ -337,10 +337,15 @@ export class PPCImportService {
     return next;
   }
 
-  /** Find an existing pending batch with identical order identity (plan_date may differ). */
+  /**
+   * Find an existing pending batch with identical order identity (plan_date may differ).
+   * Batches from the current import run are excluded so same-file rows with different
+   * batch_numbers are not silently merged into each other.
+   */
   private static async findMatchingPendingBatch(
     trx: DbConn,
     row: PpcRow,
+    currentImportBatchId: number,
   ): Promise<{ batch_id: string } | undefined> {
     const targetKey = pendingMergeIdentityKey(row);
     const candidates = await trx.selectFrom('planning.ppc_batch as pb')
@@ -352,6 +357,10 @@ export class PPCImportService {
       .where((eb) => eb.or([
         eb('o.status', 'is', null),
         eb('o.status', 'in', ['PENDING', 'PREPARING']),
+      ]))
+      .where((eb) => eb.or([
+        eb('pb.import_batch_id', 'is', null),
+        eb('pb.import_batch_id', '!=', String(currentImportBatchId)),
       ]))
       .execute();
 
@@ -477,7 +486,7 @@ export class PPCImportService {
       .executeTakeFirst();
 
     if (!existing) {
-      const pendingMatch = await this.findMatchingPendingBatch(trx, row);
+      const pendingMatch = await this.findMatchingPendingBatch(trx, row, importBatchId);
       if (pendingMatch) existing = { batch_id: pendingMatch.batch_id };
     }
 
@@ -787,7 +796,8 @@ export class PPCImportService {
             previewStatus = 'safe-update';
           }
         } else if (row.errors.length === 0 && row.batchNumber) {
-          const pendingMatch = await this.findMatchingPendingBatch(db, rollingRowToSchemaInput(row));
+          // Preview has no import_batch yet; 0 never matches a real id, so all DB candidates remain.
+          const pendingMatch = await this.findMatchingPendingBatch(db, rollingRowToSchemaInput(row), 0);
           if (pendingMatch) {
             const targetBatch = await db.selectFrom('planning.ppc_batch')
               .select('batch_number')
@@ -1010,7 +1020,11 @@ export class PPCImportService {
       .executeTakeFirst();
 
     if (!existing) {
-      const pendingMatch = await this.findMatchingPendingBatch(trx, rollingRowToSchemaInput(row));
+      const pendingMatch = await this.findMatchingPendingBatch(
+        trx,
+        rollingRowToSchemaInput(row),
+        importBatchId,
+      );
       if (pendingMatch) existing = { batch_id: pendingMatch.batch_id };
     }
 

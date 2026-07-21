@@ -130,11 +130,7 @@ router.get('/', async (req, res) => {
       }
 
       const { resolveShiftLogMachines } = await import('../auth/machineAccessPolicy');
-      const machines = await resolveShiftLogMachines({
-         shift_log_id: log.id,
-         process_id: log.processId,
-         mill_type: log.millType,
-      } as any);
+      const machines = await resolveShiftLogMachines(String(log.id));
 
       return {
         id: String(log.id),

@@ -275,6 +275,63 @@ ${batchNo},2026-06-01,B,6HI,ROLLING,C-REIMP,ACME,D,1250,1.2,10`;
       });
     });
 
+    describe('same-file identity + different batch_number must insert both', () => {
+      it('loads both rows when identity matches but batch_numbers differ in one file', async () => {
+        const { PPCImportService } = await import('../src/services/PPCImportService');
+        const ts = Date.now();
+        const coil = `C-SAMEID-${ts}`;
+        const bn1 = `SAMEID-A-${ts}`;
+        const bn2 = `SAMEID-B-${ts}`;
+        const hdr = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt`;
+        const csv = `${hdr}
+${bn1},2026-06-01,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10
+${bn2},2026-06-01,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`;
+
+        const result = await PPCImportService.importFromCsvText('same-id.csv', csv, testUserId());
+        expect(result.loaded).toBe(2);
+        expect(result.updated).toBe(0);
+
+        const rows = await db.selectFrom('planning.ppc_batch')
+          .select('batch_number')
+          .where('batch_number', 'in', [bn1, bn2])
+          .execute();
+        expect(rows.map((r) => r.batch_number).sort()).toEqual([bn1, bn2].sort());
+      });
+
+      it('still merges into older pending batch on a later re-import', async () => {
+        const { PPCImportService } = await import('../src/services/PPCImportService');
+        const ts = Date.now();
+        const coil = `C-REMERGE-${ts}`;
+        const bn1 = `REMERGE-A-${ts}`;
+        const bn2 = `REMERGE-B-${ts}`;
+        const hdr = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt`;
+
+        const first = await PPCImportService.importFromCsvText(
+          'remerge-1.csv',
+          `${hdr}\n${bn1},2026-06-01,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`,
+          testUserId(),
+        );
+        expect(first.loaded).toBe(1);
+
+        const second = await PPCImportService.importFromCsvText(
+          'remerge-2.csv',
+          `${hdr}\n${bn2},2026-06-15,B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`,
+          testUserId(),
+        );
+        expect(second.loaded).toBe(0);
+        expect(second.updated).toBe(1);
+
+        const rows = await db.selectFrom('planning.ppc_batch')
+          .select(['batch_number', 'plan_date', 'ppc_thk_mm'])
+          .where('coil_no', '=', coil)
+          .execute();
+        expect(rows).toHaveLength(1);
+        expect(rows[0].batch_number).toBe(bn1);
+        expect(formatDateOnly(rows[0].plan_date)).toBe('2026-06-15');
+        expect(Number(rows[0].ppc_thk_mm)).toBeCloseTo(1.2, 2);
+      });
+    });
+
     describe('Bug 11 — queue_seq continues from existing max', () => {
       it('assigns queue_seq after existing entries for machine/date/shift', async () => {
         const { PPCImportService } = await import('../src/services/PPCImportService');
