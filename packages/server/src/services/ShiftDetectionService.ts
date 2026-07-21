@@ -198,7 +198,7 @@ async function findActiveSession(
       ])
       .where('s.machine_code', '=', machineCode)
       .where('s.status', '=', 'ACTIVE')
-      .where('s.prod_date', '>=', parsePlantDateOnly(addPlantDays(currentPlantDate(), -1)))
+      .where('s.prod_date', '>=', postgresDateOnly(addPlantDays(currentPlantDate(), -1)) as any)
       .orderBy('s.started_at', 'desc');
 
   const live = (row: SessionRow | undefined | null) =>

@@ -9,7 +9,7 @@ import {
   resolveShiftSinceTime,
   formatDurationMinutes,
 } from '../validation/manufacturingValidation';
-import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
+import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import { getOrderSourceStrategy } from './handover/OrderSource';
 import type { SixHiQueueCard } from '@m1/shared-validation';
@@ -737,7 +737,8 @@ export class MachineHandoverService {
 
     const acceptedAt = new Date();
     const incomingShiftCode = handover.incoming_shift_code;
-    const incomingProdDate = parsePlantDateOnly(
+    // DATE column: string YYYY-MM-DD — Date objects shift a day on UTC hosts.
+    const incomingProdDate = postgresDateOnly(
       formatProdDate(handover.incoming_prod_date as Date | string),
     );
 
@@ -1042,7 +1043,7 @@ export class MachineHandoverService {
       .values({
         machine_code: machineCode,
         shift_code: shift.shiftCode,
-        prod_date: parsePlantDateOnly(shift.prodDate),
+        prod_date: postgresDateOnly(shift.prodDate) as any,
         operator_user_id: operatorUserId,
         status: 'ACTIVE',
         shift_log_id: shiftLogId as any,

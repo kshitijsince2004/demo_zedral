@@ -8,7 +8,7 @@ import importRoutes from '../../src/routes/importRoutes';
 import shiftLogRoutes from '../../src/routes/shiftLogRoutes';
 import { getIntegrationTestUserId } from '../helpers/integrationFixtures';
 import { ShiftDetectionService } from '../../src/services/ShiftDetectionService';
-import { parsePlantDateOnly } from '../../src/utils/dateOnly';
+import { postgresDateOnly } from '@m1/shared-validation';
 
 // Mock authentication middleware
 let currentUser: any = null;
@@ -112,7 +112,8 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
       .values({
         machine_code: machineCode,
         shift_code: shift.shiftCode,
-        prod_date: parsePlantDateOnly(shift.prodDate),
+        // YYYY-MM-DD string — Date at IST midnight truncates a day on UTC CI hosts.
+        prod_date: postgresDateOnly(shift.prodDate) as any,
         operator_user_id: operatorUserId,
         status: 'ACTIVE',
       })
