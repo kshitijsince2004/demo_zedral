@@ -138,7 +138,7 @@ router.get('/', async (req, res) => {
 
       return {
         id: String(log.id),
-        shiftDate: log.shiftDate,
+        shiftDate: formatPlantDate(log.shiftDate as Date | string),
         shiftCode: log.shiftCode,
         processLine: log.processLine,
         submittedBy: log.submittedBy || 'Unknown',

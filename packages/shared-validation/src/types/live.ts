@@ -275,6 +275,8 @@ export interface HandoverOverviewRow {
   batchNumber: string | null;
   machineStatus: string;
   status: string;
+  /** Production date of the outgoing shift (YYYY-MM-DD). */
+  prodDate?: string;
   outgoingShiftCode: string;
   incomingShiftCode: string;
   createdAt: string;

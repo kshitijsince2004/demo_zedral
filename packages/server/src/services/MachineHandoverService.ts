@@ -689,6 +689,7 @@ export class MachineHandoverService {
         batchNumber: h.batch_number,
         machineStatus: h.machine_status,
         status: h.status,
+        prodDate,
         handoverPriority: h.handover_priority,
         outgoingShiftCode: h.outgoing_shift_code,
         incomingShiftCode: h.incoming_shift_code,

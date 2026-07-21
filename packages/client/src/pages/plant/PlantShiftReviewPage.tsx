@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
-import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDateTime, formatShiftDate } from '../../lib/dateFormat';
+import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../components/primitives/ZButton';
@@ -254,14 +255,31 @@ export function PlantShiftReviewPage() {
   const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
-  // Default to plant "today" so active shift data for the current day is front-and-center.
-  const [filterDate, setFilterDate] = useState(currentPlantDate);
+  const [filterDate, setFilterDate] = useState(() => currentPlantDate());
   const [filterShift, setFilterShift] = useState('');
   const [filterMachine, setFilterMachine] = useState('');
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ALL');
+  const [currentShiftLabel, setCurrentShiftLabel] = useState<string | null>(null);
 
   const machineAccess = useAuthStore((s) => s.machineAccess);
   const role = useAuthStore((s) => s.role);
+  const shiftBootstrapped = useRef(false);
+
+  useEffect(() => {
+    if (shiftBootstrapped.current) return;
+    shiftBootstrapped.current = true;
+    const machine = machineAccess[0];
+    void bootstrapShiftContext(machine)
+      .then((shift) => {
+        const prodDate = formatShiftDate(shift.prodDate);
+        setFilterDate(prodDate);
+        setFilterShift(shift.shiftCode);
+        setCurrentShiftLabel(`${prodDate} · Shift ${shift.shiftCode}`);
+      })
+      .catch(() => {
+        setCurrentShiftLabel(`${currentPlantDate()} · Shift detection unavailable`);
+      });
+  }, [machineAccess]);
 
   const machineOptions = useMemo(() => {
     if (role === 'MACHINE_HEAD') return machineAccess;
@@ -275,7 +293,8 @@ export function PlantShiftReviewPage() {
   const logsByDay = useMemo(() => {
     const map = new Map<string, ShiftLogRow[]>();
     for (const log of logs) {
-      const day = String(log.shiftDate).slice(0, 10);
+      const day = formatShiftDate(log.shiftDate);
+      if (day === '—') continue;
       const bucket = map.get(day) ?? [];
       bucket.push(log);
       map.set(day, bucket);
@@ -348,9 +367,20 @@ export function PlantShiftReviewPage() {
   return (
     <MachineHeadShell
       title="Shift Review"
-      subtitle="Active and completed shifts by production day — open a row for production summary"
+      subtitle={
+        currentShiftLabel
+          ? `Current shift: ${currentShiftLabel} — open a row for production summary and handover details`
+          : 'Active and completed shifts by production day — open a row for production summary'
+      }
     >
       <div className="flex flex-col gap-6 max-w-5xl">
+        {currentShiftLabel && (
+          <div className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-foreground">
+            <span className="font-semibold">Today&apos;s shift:</span>{' '}
+            <span className="font-mono">{currentShiftLabel}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 rounded-2xl border border-border bg-white p-4">
           <label className="text-xs font-medium text-muted-foreground">
             Date

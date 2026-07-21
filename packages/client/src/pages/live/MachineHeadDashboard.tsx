@@ -129,9 +129,15 @@ function liveRowFromRejected(r: NonNullable<MachineHeadDashboardData['rejectedOr
   };
 }
 
-function tabLabel(base: string, count?: number) {
-  return count != null && count > 0 ? `${base} (${count})` : base;
-}
+const DASHBOARD_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'stoppages', label: 'Stoppages' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'production', label: 'Production' },
+  { id: 'rejected', label: 'Order Hold' },
+  { id: 'handover', label: 'Handover' },
+] as const;
 
 export function MachineHeadDashboard() {
   const machineAccess = useAuthStore((s) => s.machineAccess);
@@ -298,18 +304,11 @@ export function MachineHeadDashboard() {
       ...(dashboard?.handoverOverview?.pending ?? []),
       ...(dashboard?.handoverOverview?.recent ?? []),
     ];
-    return [...new Map(rows.map((h) => [h.handoverId, h])).values()];
-  }, [dashboard?.handoverOverview]);
-
-  const tabs = useMemo(() => [
-    { id: 'overview', label: 'Overview' },
-    { id: 'orders', label: tabLabel('Orders', filteredQueue.length) },
-    { id: 'stoppages', label: tabLabel('Stoppages', filteredStoppages.length) },
-    { id: 'completed', label: tabLabel('Completed', completedOrders.length) },
-    { id: 'production', label: tabLabel('Production', filteredProduction.length) },
-    { id: 'rejected', label: tabLabel('Order Hold', dashboard?.rejectedOrderCount ?? filteredRejected.length) },
-    { id: 'handover', label: tabLabel('Handover', filteredHandover.length) },
-  ], [dashboard?.rejectedOrderCount, filteredQueue.length, filteredProduction.length, filteredStoppages.length, filteredRejected.length, filteredHandover.length, completedOrders.length]);
+    const deduped = [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+    const prodDate = dashboard?.shiftSummary.prodDate;
+    if (!prodDate) return deduped;
+    return deduped.filter((h) => !h.prodDate || h.prodDate === prodDate);
+  }, [dashboard?.handoverOverview, dashboard?.shiftSummary.prodDate]);
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
@@ -846,14 +845,22 @@ export function MachineHeadDashboard() {
       case 'handover':
         return (
           <Panel className="h-full">
-            <PanelHeader title="Shift Handover Logs" />
+            <PanelHeader
+              title={
+                dashboard?.shiftSummary
+                  ? `Shift Handover · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}`
+                  : 'Shift Handover Logs'
+              }
+            />
             <PanelBody empty={filteredHandover.length === 0}>
               <ul className="divide-y divide-border text-xs">
                 {filteredHandover.map((h) => (
                   <li key={h.handoverId} className="px-4 py-3 hover:bg-secondary/50">
                     <div className="flex justify-between mb-1">
                       <span className="font-bold">{h.machineCode}</span>
-                      <span className="text-muted-foreground font-mono">Shift {h.outgoingShiftCode} → {h.incomingShiftCode}</span>
+                      <span className="text-muted-foreground font-mono">
+                        {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
+                      </span>
                     </div>
                     {h.batchNumber ? (
                       <div className="mb-1">
@@ -925,7 +932,7 @@ export function MachineHeadDashboard() {
         <div className="z-card shrink-0 flex flex-col gap-2.5 p-2.5">
           <div className="overflow-x-auto">
             <ZPillTabs
-              tabs={tabs}
+              tabs={DASHBOARD_TABS}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as DashboardTab)}
               className="min-w-max"
