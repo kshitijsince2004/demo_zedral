@@ -31,3 +31,19 @@ e2e/node_modules/
 *.~lock.*
 *.tmp
 packages/server/tmp/
+
+# Android generated (belt-and-suspenders; android/.gitignore also covers these)
+packages/client/android/build/
+packages/client/android/app/build/
+packages/client/android/.gradle/
+packages/client/android/.kotlin/
+packages/client/android/local.properties
+packages/client/android/*.log
+packages/client/android/**/hs_err_pid*.log
+packages/client/android/**/replay_pid*.log
+packages/client/android/keystore.credentials.local
+
+# OS / archive junk
+__MACOSX/
+._*
+.DS_Store
