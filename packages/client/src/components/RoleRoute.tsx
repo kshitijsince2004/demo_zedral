@@ -48,7 +48,8 @@ function RoleCheck({ minRole, children }: RoleRouteProps) {
   const userRank = ROLE_RANK[role as UserRole];
   const requiredRank = ROLE_RANK[minRole as UserRole];
 
-  if (userRank < requiredRank) {
+  // Unknown / legacy roles must not slip past (undefined < n is false in JS).
+  if (userRank == null || requiredRank == null || userRank < requiredRank) {
     return <AccessDenied minRole={minRole} role={role} />;
   }
 

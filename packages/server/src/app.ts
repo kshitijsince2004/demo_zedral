@@ -5,8 +5,7 @@ import Session from 'supertokens-node/recipe/session';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
 import { middleware as stMiddleware, errorHandler as stErrorHandler } from 'supertokens-node/framework/express';
 import { getSuperTokensConfig } from './config/authConfig';
-import { getAuthUserBySuperTokensId } from './services/authService';
-
+import { resolveSessionAuthUser } from './services/authService';
 import authRoutes from './routes/authRoutes';
 import shiftLogRoutes from './routes/shiftLogRoutes';
 import shiftRoutes from './routes/shiftRoutes';
@@ -79,7 +78,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
             return {
               ...originalImplementation,
               createNewSession: async function (input) {
-                const user = await getAuthUserBySuperTokensId(input.userId);
+                const user = await resolveSessionAuthUser(input.userId, input.accessTokenPayload ?? {});
                 if (user) {
                   input.accessTokenPayload = {
                     ...input.accessTokenPayload,

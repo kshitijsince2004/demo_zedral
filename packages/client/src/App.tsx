@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from './lib/authStore';
 import { getRoleHomePath } from './lib/roleHome';
+import { pickPrimaryRole } from '@m1/shared-validation';
 
 import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
@@ -64,12 +65,26 @@ function SuperTokensSync() {
     if (session.loading) return;
     
     if (session.doesSessionExist) {
-      const payload = session.accessTokenPayload;
-      if (token !== 'st-session') {
-        const role = payload.roles?.[0] ?? 'OPERATOR';
-        const lines = payload.lineAccess || [];
-        const username = payload.username as string | undefined;
-        login('st-session', role, lines, undefined, payload.machineAccess || [], username);
+      const payload = session.accessTokenPayload as Record<string, unknown>;
+      const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
+      const role = pickPrimaryRole(roles) ?? 'OPERATOR';
+      const lines = Array.isArray(payload.lineAccess) ? (payload.lineAccess as string[]) : [];
+      const machines = Array.isArray(payload.machineAccess)
+        ? (payload.machineAccess as string[])
+        : [];
+      const username = typeof payload.username === 'string' ? payload.username : undefined;
+
+      // Always re-hydrate from the live access-token claims (stale sessionStorage
+      // role alone was enough to open MH UI while /live/* returned 403).
+      const store = useAuthStore.getState();
+      const same =
+        token === 'st-session' &&
+        store.role === role &&
+        JSON.stringify(store.lineAccess) === JSON.stringify(lines) &&
+        JSON.stringify(store.machineAccess) === JSON.stringify(machines) &&
+        store.username === (username ?? null);
+      if (!same) {
+        login('st-session', role, lines, undefined, machines, username);
       }
     } else {
       const existingLegacy = sessionStorage.getItem('mock_jwt');

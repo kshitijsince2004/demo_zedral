@@ -104,7 +104,11 @@ router.get('/', async (req, res) => {
       query = query.where('p.code', 'in', effectiveLines);
     }
 
-    const logs = await query.orderBy('sl.submitted_at', 'desc').execute();
+    const logs = await query
+      .orderBy('sl.prod_date', 'desc')
+      .orderBy('sl.shift_code', 'asc')
+      .orderBy('sl.submitted_at', 'desc')
+      .execute();
 
     const result = await Promise.all(logs.map(async (log) => {
       const overrides = await db.selectFrom('txn.validation_overrides')

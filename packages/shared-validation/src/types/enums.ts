@@ -34,6 +34,6 @@ export enum CrewRole {
   SHIFT_MANAGER = 'SHIFT_MANAGER',
 }
 
-export { UserRole, ROLE_RANK, ROLE_LABELS } from './roles';
+export { UserRole, ROLE_RANK, ROLE_LABELS, normalizeRoleName, normalizeRoles, pickPrimaryRole } from './roles';
 
 export type ProcessLine = string;

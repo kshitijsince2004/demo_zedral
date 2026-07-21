@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
-import { formatPlantDateTime } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 
@@ -43,7 +43,19 @@ interface ShiftReviewData {
   stoppages: { id: string; batchNumber: string; categoryLabel: string; startAt: string; endAt?: string; durationMin?: number; remarks?: string }[];
 }
 
+/** In-progress / open shift logs (operators still writing). */
+const ACTIVE_STATES = new Set(['DRAFT', 'REOPENED']);
+/** Submitted archive (Task 4 completed definition). */
 const COMPLETED_STATES = new Set(['SUBMITTED', 'APPROVED']);
+const VISIBLE_STATES = new Set([...ACTIVE_STATES, ...COMPLETED_STATES]);
+
+const SHIFT_ORDER: Record<string, number> = { A: 0, B: 1, C: 2 };
+
+type StatusFilter = 'ALL' | 'ACTIVE' | 'COMPLETED';
+
+function isActiveState(state: string): boolean {
+  return ACTIVE_STATES.has(state);
+}
 
 function ReviewMetric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -59,6 +71,21 @@ function formatMinutes(min?: number): string {
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function StateBadge({ state }: { state: string }) {
+  const active = isActiveState(state);
+  return (
+    <span
+      className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg ${
+        active
+          ? 'text-amber-800 bg-amber-500/15'
+          : 'text-success bg-success/10'
+      }`}
+    >
+      {active ? `Active · ${state}` : state}
+    </span>
+  );
 }
 
 function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
@@ -152,6 +179,14 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
   );
 }
 
+function sortLogsForDay(a: ShiftLogRow, b: ShiftLogRow): number {
+  const activeDelta = Number(isActiveState(b.state)) - Number(isActiveState(a.state));
+  if (activeDelta !== 0) return activeDelta;
+  const shiftDelta = (SHIFT_ORDER[a.shiftCode] ?? 9) - (SHIFT_ORDER[b.shiftCode] ?? 9);
+  if (shiftDelta !== 0) return shiftDelta;
+  return a.processLine.localeCompare(b.processLine);
+}
+
 export function PlantShiftReviewPage() {
   const [logs, setLogs] = useState<ShiftLogRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,9 +196,11 @@ export function PlantShiftReviewPage() {
   const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
-  const [filterDate, setFilterDate] = useState('');
+  // Default to plant "today" so active shift data for the current day is front-and-center.
+  const [filterDate, setFilterDate] = useState(currentPlantDate);
   const [filterShift, setFilterShift] = useState('');
   const [filterMachine, setFilterMachine] = useState('');
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('ALL');
 
   const machineAccess = useAuthStore((s) => s.machineAccess);
   const role = useAuthStore((s) => s.role);
@@ -176,6 +213,20 @@ export function PlantShiftReviewPage() {
     }
     return [...all].sort();
   }, [logs, machineAccess, role]);
+
+  const logsByDay = useMemo(() => {
+    const map = new Map<string, ShiftLogRow[]>();
+    for (const log of logs) {
+      const day = String(log.shiftDate).slice(0, 10);
+      const bucket = map.get(day) ?? [];
+      bucket.push(log);
+      map.set(day, bucket);
+    }
+    for (const [, dayLogs] of map) {
+      dayLogs.sort(sortLogsForDay);
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [logs]);
 
   const toggleReview = useCallback(async (id: string) => {
     if (expandedId === id) {
@@ -204,7 +255,13 @@ export function PlantShiftReviewPage() {
 
       const rows = await apiClient.get<ShiftLogRow[]>(`/shift-logs?${qs.toString()}`);
 
-      let filtered = rows.filter((log) => COMPLETED_STATES.has(log.state));
+      let filtered = rows.filter((log) => VISIBLE_STATES.has(log.state));
+
+      if (filterStatus === 'ACTIVE') {
+        filtered = filtered.filter((log) => isActiveState(log.state));
+      } else if (filterStatus === 'COMPLETED') {
+        filtered = filtered.filter((log) => COMPLETED_STATES.has(log.state));
+      }
 
       if (role === 'MACHINE_HEAD') {
         filtered = filtered.filter((log) => {
@@ -224,16 +281,19 @@ export function PlantShiftReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [machineAccess, role, filterDate, filterShift, filterMachine]);
+  }, [machineAccess, role, filterDate, filterShift, filterMachine, filterStatus]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   return (
-    <MachineHeadShell title="Shift Review" subtitle="Browse completed shift logs and production summaries">
+    <MachineHeadShell
+      title="Shift Review"
+      subtitle="Active and completed shifts by production day — open a row for production summary"
+    >
       <div className="flex flex-col gap-6 max-w-5xl">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-2xl border border-border bg-white p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 rounded-2xl border border-border bg-white p-4">
           <label className="text-xs font-medium text-muted-foreground">
             Date
             <input
@@ -269,7 +329,34 @@ export function PlantShiftReviewPage() {
               ))}
             </select>
           </label>
+          <label className="text-xs font-medium text-muted-foreground">
+            Status
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+            >
+              <option value="ALL">Active + completed</option>
+              <option value="ACTIVE">Active only (DRAFT / REOPENED)</option>
+              <option value="COMPLETED">Completed only</option>
+            </select>
+          </label>
         </div>
+
+        {filterDate && (
+          <p className="text-xs text-muted-foreground -mt-3">
+            Showing plant day <span className="font-mono font-semibold text-foreground">{filterDate}</span>
+            {' · '}
+            clear the date field to browse all days.
+            <button
+              type="button"
+              className="ml-2 underline underline-offset-2 hover:text-foreground"
+              onClick={() => setFilterDate('')}
+            >
+              Clear date
+            </button>
+          </p>
+        )}
 
         {error && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -280,66 +367,89 @@ export function PlantShiftReviewPage() {
         {loading && (
           <div className="flex items-center justify-center rounded-2xl border border-border bg-white px-6 py-12 text-sm text-muted-foreground">
             <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
-            Loading completed shifts…
+            Loading shifts…
           </div>
         )}
 
         {!loading && logs.length === 0 && (
           <div className="rounded-2xl border border-border bg-white px-6 py-12 flex flex-col items-center justify-center text-center">
             <ClipboardList className="h-8 w-8 text-muted-foreground/30 mb-3" />
-            <p className="text-sm font-medium text-foreground">No completed shifts found</p>
+            <p className="text-sm font-medium text-foreground">No shifts found</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Try adjusting filters or check back after shifts are submitted.
+              Try another date, or switch status to include active DRAFT logs.
             </p>
           </div>
         )}
 
-        <ul className="space-y-3">
-          {logs.map((log) => (
-            <li key={log.id} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-              <button
-                type="button"
-                onClick={() => void toggleReview(log.id)}
-                className="w-full text-left"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-mono font-bold text-foreground flex items-center gap-1.5">
-                      {expandedId === log.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      {log.processLine} · Shift {log.shiftCode}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {String(log.shiftDate).slice(0, 10)} · Submitted by {log.submittedBy}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {log.submittedAt ? formatPlantDateTime(log.submittedAt) : '—'}
-                      {' · '}{log.entryCount} entries
-                      {log.overrideCount > 0 ? ` · ${log.overrideCount} overrides` : ''}
-                      {log.machines?.length ? ` · ${log.machines.join(', ')}` : ''}
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-success bg-success/10 px-2 py-1 rounded-lg">
-                    {log.state}
-                  </span>
+        <div className="space-y-6">
+          {logsByDay.map(([day, dayLogs]) => {
+            const activeCount = dayLogs.filter((l) => isActiveState(l.state)).length;
+            return (
+              <section key={day} className="space-y-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
+                  <h3 className="text-sm font-bold text-foreground font-mono">{day}</h3>
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                    {activeCount > 0 ? `${activeCount} active · ` : ''}
+                    {dayLogs.length} shift{dayLogs.length === 1 ? '' : 's'}
+                  </p>
                 </div>
-              </button>
+                <ul className="space-y-3">
+                  {dayLogs.map((log) => (
+                    <li
+                      key={log.id}
+                      className={`rounded-2xl border bg-white p-5 shadow-sm ${
+                        isActiveState(log.state) ? 'border-amber-500/40' : 'border-border'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void toggleReview(log.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-mono font-bold text-foreground flex items-center gap-1.5">
+                              {expandedId === log.id
+                                ? <ChevronDown className="w-4 h-4" />
+                                : <ChevronRight className="w-4 h-4" />}
+                              {log.processLine} · Shift {log.shiftCode}
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {isActiveState(log.state)
+                                ? `Open · ${log.submittedBy}`
+                                : `Submitted by ${log.submittedBy}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {log.submittedAt ? formatPlantDateTime(log.submittedAt) : 'Not submitted yet'}
+                              {' · '}{log.entryCount} entries
+                              {log.overrideCount > 0 ? ` · ${log.overrideCount} overrides` : ''}
+                              {log.machines?.length ? ` · ${log.machines.join(', ')}` : ''}
+                            </p>
+                          </div>
+                          <StateBadge state={log.state} />
+                        </div>
+                      </button>
 
-              {expandedId === log.id && (
-                <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
-                  {reviewLoadingId === log.id ? (
-                    <p className="text-sm text-muted-foreground">Loading shift summary…</p>
-                  ) : reviewError ? (
-                    <p className="text-sm text-destructive">{reviewError}</p>
-                  ) : reviewById[log.id] ? (
-                    <ShiftReviewPanel review={reviewById[log.id]} />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No summary available.</p>
-                  )}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                      {expandedId === log.id && (
+                        <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
+                          {reviewLoadingId === log.id ? (
+                            <p className="text-sm text-muted-foreground">Loading shift summary…</p>
+                          ) : reviewError ? (
+                            <p className="text-sm text-destructive">{reviewError}</p>
+                          ) : reviewById[log.id] ? (
+                            <ShiftReviewPanel review={reviewById[log.id]} />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No summary available.</p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       </div>
     </MachineHeadShell>
   );

@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { isAuthStrict } from '../config/authConfig';
 import { verifyPin } from './pinService';
+import { normalizeRoles } from '@m1/shared-validation';
 
 const JWT_EXPIRES_IN = '15m';
 const REFRESH_EXPIRES_IN = '7d';
@@ -221,7 +222,7 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
     .select('security.role.role_name')
     .where('security.user_role.user_id', '=', userId)
     .execute();
-  const roles = rolesRows.map(r => r.role_name);
+  const roles = normalizeRoles(rolesRows.map(r => r.role_name));
 
   const accessRows = await db.selectFrom('security.line_access')
     .innerJoin('master.process', 'security.line_access.process_id', 'master.process.process_id')
@@ -270,4 +271,29 @@ export async function getAuthUserBySuperTokensId(stUserId: string): Promise<Auth
     
   if (!user) return null;
   return await getUserWithRolesAndAccess(user.user_id, user.username);
+}
+
+/**
+ * Resolve app user for a SuperTokens session.
+ * Badge-PIN sessions use numeric recipe user ids that may not be stored in
+ * `supertokens_user_id` (EmailPassword stores UUIDs) — fall back to payload.id.
+ */
+export async function resolveSessionAuthUser(
+  stUserId: string,
+  payload: Record<string, unknown> = {},
+): Promise<AuthUser | null> {
+  const bySt = await getAuthUserBySuperTokensId(stUserId);
+  if (bySt) return bySt;
+
+  const rawId = payload.id ?? stUserId;
+  const numericId = typeof rawId === 'number' ? rawId : Number(rawId);
+  if (!Number.isFinite(numericId) || numericId <= 0) return null;
+
+  const user = await db
+    .selectFrom('security.app_user')
+    .select(['user_id', 'username'])
+    .where('user_id', '=', numericId)
+    .executeTakeFirst();
+  if (!user) return null;
+  return getUserWithRolesAndAccess(Number(user.user_id), user.username);
 }

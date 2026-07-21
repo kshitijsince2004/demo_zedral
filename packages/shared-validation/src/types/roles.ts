@@ -20,3 +20,35 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.PLANT_HEAD]: 'Plant head',
   [UserRole.ADMIN]: 'Admin',
 };
+
+/** Normalize DB/JWT role strings; map legacy SUPERVISOR → MACHINE_HEAD. */
+export function normalizeRoleName(role: string): string {
+  const upper = String(role ?? '').trim().toUpperCase();
+  if (upper === 'SUPERVISOR') return UserRole.MACHINE_HEAD;
+  return upper;
+}
+
+export function normalizeRoles(roles: string[] | undefined | null): string[] {
+  if (!roles?.length) return [];
+  const out: string[] = [];
+  for (const r of roles) {
+    const n = normalizeRoleName(r);
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+/** Highest-privilege role for client home / route guards. */
+export function pickPrimaryRole(roles: string[] | undefined | null): UserRole | null {
+  const normalized = normalizeRoles(roles);
+  let best: UserRole | null = null;
+  let bestRank = -1;
+  for (const r of normalized) {
+    const rank = ROLE_RANK[r as UserRole];
+    if (rank != null && rank > bestRank) {
+      best = r as UserRole;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
