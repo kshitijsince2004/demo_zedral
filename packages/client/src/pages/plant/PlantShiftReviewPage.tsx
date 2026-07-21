@@ -4,6 +4,7 @@ import { apiClient } from '../../lib/apiClient';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
+import { ZButton } from '../../components/primitives/ZButton';
 
 interface ShiftLogRow {
   id: string;
@@ -85,6 +86,63 @@ function StateBadge({ state }: { state: string }) {
     >
       {active ? `Active · ${state}` : state}
     </span>
+  );
+}
+
+function ShiftCompleteForm({
+  shiftLogId,
+  onCompleted,
+}: {
+  shiftLogId: string;
+  onCompleted: () => void;
+}) {
+  const [remarks, setRemarks] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleComplete = async () => {
+    const trimmed = remarks.trim();
+    if (!trimmed) {
+      setError('Remarks are required to mark this shift completed.');
+      return;
+    }
+    const confirmed = window.confirm(
+      'Mark this shift as completed? It will move to the completed archive for this production day.',
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      await apiClient.put(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed });
+      onCompleted();
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to complete shift');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/60 space-y-3">
+      <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        Mark shift completed
+      </h4>
+      <p className="text-xs text-muted-foreground">
+        Closes this active shift log (DRAFT → SUBMITTED). Add closure notes for the archive.
+      </p>
+      <textarea
+        value={remarks}
+        onChange={(e) => setRemarks(e.target.value)}
+        placeholder="Shift closure remarks (handover notes, open items, production summary…)"
+        rows={3}
+        className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm resize-y min-h-[4.5rem]"
+      />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <ZButton variant="accent" onClick={() => void handleComplete()} disabled={busy}>
+        {busy ? 'Completing…' : 'Mark completed'}
+      </ZButton>
+    </div>
   );
 }
 
@@ -437,7 +495,23 @@ export function PlantShiftReviewPage() {
                           ) : reviewError ? (
                             <p className="text-sm text-destructive">{reviewError}</p>
                           ) : reviewById[log.id] ? (
-                            <ShiftReviewPanel review={reviewById[log.id]} />
+                            <>
+                              <ShiftReviewPanel review={reviewById[log.id]} />
+                              {isActiveState(log.state) && (
+                                <ShiftCompleteForm
+                                  shiftLogId={log.id}
+                                  onCompleted={() => {
+                                    setExpandedId(null);
+                                    setReviewById((prev) => {
+                                      const next = { ...prev };
+                                      delete next[log.id];
+                                      return next;
+                                    });
+                                    void load();
+                                  }}
+                                />
+                              )}
+                            </>
                           ) : (
                             <p className="text-sm text-muted-foreground">No summary available.</p>
                           )}

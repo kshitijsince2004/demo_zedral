@@ -351,6 +351,19 @@ router.put('/:id/submit', async (req, res) => {
   }
 });
 
+router.put('/:id/complete', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
+    const remarks = typeof req.body?.remarks === 'string' ? req.body.remarks : undefined;
+    await ShiftLogService.completeFromReview(req.params.id, req.user!.id, remarks);
+    res.json({ success: true });
+  } catch (error: any) {
+    const status =
+      error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+});
+
 router.put('/:id/approve', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');

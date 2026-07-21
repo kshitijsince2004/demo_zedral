@@ -67,6 +67,48 @@ function resolveRequiredCrmMill(
   return machine;
 }
 
+/** Derive mill from order batch and enforce machine access (write routes that omit ?machine=). */
+async function authorizeOrderBatchMill(
+  req: import('express').Request,
+  res: import('express').Response,
+  batchNo: string,
+): Promise<CrmMillCode | null> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Unauthenticated' });
+    return null;
+  }
+  const millRow = await db
+    .selectFrom('txn.crm_order as o')
+    .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+    .select('pb.machine_code')
+    .where('o.batch_number', '=', batchNo)
+    .executeTakeFirst();
+
+  if (!millRow) {
+    res.status(404).json({ error: 'Order not found' });
+    return null;
+  }
+
+  if (millRow.machine_code) {
+    const mill = parseCrmMillCode(String(millRow.machine_code).toUpperCase());
+    if (mill) {
+      try {
+        assertMachineAccess(req.user, mill);
+        (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = mill;
+        return mill;
+      } catch (e: unknown) {
+        if (isMachineAccessForbidden(e)) {
+          res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
+          return null;
+        }
+        throw e;
+      }
+    }
+  }
+
+  return null;
+}
+
 // operation kept in the signature so the 42 call sites (requireSixHi('READ'|'WRITE')) don't change.
 function requireCrmMill(_operation: LineAccessLevel) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
@@ -816,13 +858,16 @@ router.post('/orders/:batchNo/reject', requireSixHi('WRITE'), async (req, res) =
   }
 });
 
-router.post('/orders/:batchNo/reinstate', requireSixHi('WRITE'), async (req, res) => {
+router.post('/orders/:batchNo/reinstate', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
   try {
+    await authorizeOrderBatchMill(req, res, req.params.batchNo);
+    if (res.headersSent) return;
     const rawTarget = req.body?.target;
     const target = rawTarget === 'PENDING' ? 'PENDING' : 'PREPARING';
     const order = await SixHiExecutionService.reinstateOrder(
       req.params.batchNo,
-      req.user!.id,
+      req.user.id,
       target,
     );
     res.json(order);

@@ -187,13 +187,10 @@ export function MachineHeadDashboard() {
   };
 
   useEffect(() => {
-    if (dashboard?.shiftSummary.shiftCode) {
+    if (dashboard?.shiftSummary.shiftCode && exportShift === '') {
       setExportShift(dashboard.shiftSummary.shiftCode);
     }
-    if (dashboard?.shiftSummary.prodDate) {
-      setExportDate(dashboard.shiftSummary.prodDate);
-    }
-  }, [dashboard?.shiftSummary.shiftCode, dashboard?.shiftSummary.prodDate]);
+  }, [dashboard?.shiftSummary.shiftCode, exportShift]);
 
   const dashFilters = useMemo(() => ({
     machine: machineFilter !== 'ALL' ? machineFilter : undefined,
@@ -207,8 +204,8 @@ export function MachineHeadDashboard() {
     setRejectedLoading(true);
     void liveService
       .getRejectedOrders({
-        date: exportDate,
-        shiftCode: exportShift || dashboard?.shiftSummary.shiftCode,
+        date: exportDate || undefined,
+        shiftCode: exportShift || undefined,
         machine: dashFilters.machine,
         limit: 100,
       })
@@ -221,9 +218,9 @@ export function MachineHeadDashboard() {
           : res.orders.filter((r) => matchesProcessFilter(r.subProcess, processFilter));
         setRejectedOrders(rows);
       })
-      .catch(() => setRejectedOrders(dashboard?.rejectedOrders ?? []))
+      .catch(() => setRejectedOrders([]))
       .finally(() => setRejectedLoading(false));
-  }, [activeTab, exportDate, exportShift, dashFilters.machine, debouncedSearch, processFilter, dashboard?.shiftSummary.shiftCode, dashboard?.rejectedOrders]);
+  }, [activeTab, exportDate, exportShift, dashFilters.machine, debouncedSearch, processFilter]);
 
   useEffect(() => {
     if (activeTab !== 'completed') return;
@@ -362,7 +359,12 @@ export function MachineHeadDashboard() {
     if (!confirmed) return;
     setReinstateBusy(true);
     try {
-      await apiClient.post(`/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}/reinstate`, {});
+      const machine = selectedOrder.machineCode?.toUpperCase();
+      const qs = machine ? `?machine=${encodeURIComponent(machine)}` : '';
+      await apiClient.post(
+        `/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}/reinstate${qs}`,
+        {},
+      );
       setSelectedOrder(null);
       setDetailOpen(false);
       await loadDashboard();

@@ -962,10 +962,18 @@ export class LiveService {
       q = q.where('pb.machine_code', 'in', machineFilter);
     }
     if (opts.dateFrom) {
-      q = q.where(sql`date(pb.plan_date)`, '>=', sql`${opts.dateFrom}::date`);
+      q = q.where(
+        sql`date(COALESCE(rej.created_at, o.prod_end_at))`,
+        '>=',
+        sql`${opts.dateFrom}::date`,
+      );
     }
     if (opts.dateTo) {
-      q = q.where(sql`date(pb.plan_date)`, '<=', sql`${opts.dateTo}::date`);
+      q = q.where(
+        sql`date(COALESCE(rej.created_at, o.prod_end_at))`,
+        '<=',
+        sql`${opts.dateTo}::date`,
+      );
     }
     if (opts.shiftCode) {
       q = q.where('pb.shift_code', '=', opts.shiftCode);

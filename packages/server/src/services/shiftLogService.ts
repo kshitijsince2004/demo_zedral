@@ -152,6 +152,59 @@ export class ShiftLogService {
     });
   }
 
+  /**
+   * Machine-head shift review closure — marks DRAFT/REOPENED as SUBMITTED without
+   * the operator validation gate (optional remarks stored in shift_event_audit).
+   */
+  static async completeFromReview(
+    id: string,
+    userId: number,
+    remarks?: string,
+  ): Promise<void> {
+    const shiftLogId = String(id);
+    const log = await this.getById(shiftLogId);
+    if (!log || (log.state !== ShiftLogState.DRAFT && log.state !== ShiftLogState.REOPENED)) {
+      throw new Error('Only active (DRAFT or REOPENED) shifts can be marked completed.');
+    }
+
+    const actualProd = await this.calculateActualProduction(shiftLogId, log.process_id);
+    const trimmedRemarks = remarks?.trim() || null;
+
+    await db
+      .updateTable('txn.shift_log')
+      .set({
+        state: ShiftLogState.SUBMITTED,
+        submitted_at: new Date(),
+        total_prod_mt: actualProd,
+        shift_manager_id: log.shift_manager_id ?? userId,
+      })
+      .where('shift_log_id', '=', shiftLogId)
+      .execute();
+
+    await db
+      .insertInto('txn.shift_event_audit')
+      .values({
+        event_type: 'SHIFT_COMPLETED',
+        entity_type: 'shift_log',
+        entity_id: shiftLogId,
+        user_id: userId,
+        payload: {
+          remarks: trimmedRemarks,
+          totalProdMt: actualProd,
+          fromState: log.state,
+        },
+      })
+      .execute();
+
+    void publishShiftClosed({
+      shiftLogId,
+      processId: log.process_id,
+      totalProdMt: actualProd,
+    }).catch((error) => {
+      console.error('[M1] failed to publish shift.closed', error);
+    });
+  }
+
   static async approve(id: string, approverId: number) {
     const shiftLogId = String(id);
     const log = await this.getById(shiftLogId);
