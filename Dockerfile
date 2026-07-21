@@ -49,8 +49,13 @@ COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
 COPY packages/server/package.json packages/server/
 COPY packages/shared-validation/package.json packages/shared-validation/
 
-RUN npm install -g npm@11.4.2 && npm ci --omit=dev --workspace=packages/server --include-workspace-root --ignore-scripts \
-  && rm -rf node_modules/esbuild node_modules/@esbuild
+# Install prod deps then remove npm — Trivy flags CVE-2026-59873 in npm's bundled tar
+# (not used at runtime; entrypoint runs node directly).
+RUN npm install -g npm@11.4.2 \
+  && npm ci --omit=dev --workspace=packages/server --include-workspace-root --ignore-scripts \
+  && rm -rf node_modules/esbuild node_modules/@esbuild \
+  && npm cache clean --force \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder /app/packages/server/dist packages/server/dist
 COPY --from=builder /app/packages/shared-validation/dist packages/shared-validation/dist
