@@ -176,10 +176,13 @@ function sessionMatchesOperational(
 /**
  * ACTIVE session for machine (prefer this operator), only if still within
  * shift-end + overtime grace. Stale overnight sessions are ignored.
+ * When requireCallerSession is true, never fall back to another operator's session
+ * (production writes must use the caller's own pin).
  */
 async function findActiveSession(
   machineCode: string,
   userId?: number,
+  opts?: { requireCallerSession?: boolean },
 ): Promise<SessionRow | null> {
   const sessionSelect = () =>
     db
@@ -214,6 +217,9 @@ async function findActiveSession(
       .executeTakeFirst();
     const r = live(userSession as SessionRow);
     if (r) return r;
+    if (opts?.requireCallerSession) return null;
+  } else if (opts?.requireCallerSession) {
+    return null;
   }
 
   const activeSession = await sessionSelect().executeTakeFirst();
@@ -250,14 +256,27 @@ export class ShiftDetectionService {
     machineCode: string,
     operatorUserId: number,
   ): Promise<number> {
-    const active = await db
+    return this.closeStaleSessionsOnMachine(machineCode, operatorUserId);
+  }
+
+  /**
+   * Close ACTIVE sessions past shift-end + overtime grace.
+   * When operatorUserId is omitted, closes stale sessions for any operator on the machine.
+   */
+  static async closeStaleSessionsOnMachine(
+    machineCode: string,
+    operatorUserId?: number,
+  ): Promise<number> {
+    let q = db
       .selectFrom('txn.machine_shift_session as s')
       .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
       .select(['s.session_id', 's.prod_date', 'w.start_time', 'w.end_time'])
       .where('s.machine_code', '=', machineCode)
-      .where('s.operator_user_id', '=', operatorUserId)
-      .where('s.status', '=', 'ACTIVE')
-      .execute();
+      .where('s.status', '=', 'ACTIVE');
+    if (operatorUserId != null) {
+      q = q.where('s.operator_user_id', '=', operatorUserId);
+    }
+    const active = await q.execute();
 
     const toClose = active.filter(
       (s) =>
@@ -283,14 +302,31 @@ export class ShiftDetectionService {
     return toClose.length;
   }
 
+  /** Sweep all machines: close non-live ACTIVE sessions (keeps overtime-grace pins). */
+  static async closeAllStaleActiveSessions(): Promise<number> {
+    const machines = await db
+      .selectFrom('txn.machine_shift_session')
+      .select('machine_code')
+      .where('status', '=', 'ACTIVE')
+      .distinct()
+      .execute();
+    let closed = 0;
+    for (const m of machines) {
+      closed += await this.closeStaleSessionsOnMachine(m.machine_code);
+    }
+    return closed;
+  }
+
   /**
    * Resolve the operator's shift for a machine.
    * Priority: ACTIVE session (any shift — pin until handover) → recent override → wall clock.
    * Without machineCode, returns clock/override only (used by shift-change watcher).
+   * Set requireCallerSession for production writes (no borrow of another operator's pin).
    */
   static async getCurrentShift(opts?: {
     userId?: number;
     machineCode?: string;
+    requireCallerSession?: boolean;
   }): Promise<DetectedShift> {
     const windows = await loadShiftWindows();
     const at = new Date();
@@ -298,7 +334,9 @@ export class ShiftDetectionService {
 
     // Machine-scoped: ACTIVE session wins even when clock has rolled (C still open after 06:00).
     if (opts?.machineCode) {
-      const activeSession = await findActiveSession(opts.machineCode, opts.userId);
+      const activeSession = await findActiveSession(opts.machineCode, opts.userId, {
+        requireCallerSession: opts.requireCallerSession,
+      });
       if (activeSession) {
         return {
           shiftCode: String(activeSession.shift_code).toUpperCase(),
@@ -309,6 +347,11 @@ export class ShiftDetectionService {
           detectedAt: at.toISOString(),
           source: 'SESSION',
         };
+      }
+      if (opts.requireCallerSession) {
+        throw new Error(
+          'NO_ACTIVE_SESSION: Start or resume your session on this machine before production.',
+        );
       }
     }
 
@@ -362,6 +405,8 @@ export class ShiftDetectionService {
     clock?: Date;
     userId?: number;
     processId?: number;
+    /** When true with machineCode, do not borrow another operator's ACTIVE session. */
+    requireCallerSession?: boolean;
   }): Promise<{ shiftLogId: string; shiftCode: string; prodDate: string; processId: number }> {
     const { ShiftLogService } = await import('./shiftLogService');
     const { parseDateOnly } = await import('../utils/dateOnly');
@@ -424,6 +469,7 @@ export class ShiftDetectionService {
       const detected = await this.getCurrentShift({
         userId: opts.userId,
         machineCode: opts.machineCode,
+        requireCallerSession: opts.requireCallerSession,
       });
       shiftCode = detected.shiftCode.toUpperCase();
       prodDate = detected.prodDate;

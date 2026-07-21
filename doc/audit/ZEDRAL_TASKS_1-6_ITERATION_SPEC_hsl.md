@@ -87,19 +87,13 @@ Monorepo layout: client = `packages/client`, server = `packages/server`, shared 
 
 ## Task 3 — Operator-only login in the APK / Android app
 
-### Context (verified in code)
-- `packages/client/src/pages/Login.tsx` has a mode toggle: **Operator (badge + PIN)** and **Staff (email/password via SuperTokens `EmailPassword`)**.
-- The operator APK is a **separate build** (`build:operator`, `vite.operator.config.ts`, `npm run android:sync`) whose entry is `packages/client/src/operator/OperatorApp.tsx`, which renders the **same** `Login` component at `<Route path="/login" element={<Login />} />` (line 48).
-- Native detection helper already exists: `isNative()` in `packages/client/src/operator/native/init.ts` (Capacitor).
-- The desktop web build must **keep** staff email login (Machine Head / Plant Head sign in that way).
+**Status: DONE** (verified 2026-07-21)
 
-### Changes
-- `packages/client/src/pages/Login.tsx`:
-  - Add prop `operatorOnly?: boolean`.
-  - When `operatorOnly` is true: force `mode = 'operator'`, **do not render** the mode-toggle buttons ("Operator · Staff" row) and **do not render** the staff `<form>` / email+password fields. Also hide the staff dev-credential hints from the `import.meta.env.DEV` block.
-- `packages/client/src/operator/OperatorApp.tsx` (line 48): pass the flag → `<Login operatorOnly />`.
-- Optional hardening: also default `operatorOnly` to `isNative()` so any native shell can never reach staff login even if reused elsewhere.
-- Do **not** change the web `App.tsx` login route — desktop staff login stays intact.
+### Implementation (in code)
+- `packages/client/src/pages/Login.tsx`: prop `operatorOnly?: boolean`; defaults to `isNative()` when omitted.
+  - When true: no Operator/Staff toggle, no staff email/password form, staff DEV hints hidden.
+- `packages/client/src/operator/OperatorApp.tsx` line 48: `<Login operatorOnly />`.
+- Web `App.tsx` still uses `<Login />` (both modes available on desktop).
 
 ### Acceptance
 - APK/tablet build shows **only** Badge + PIN entry; no email/password field, no Staff toggle. Desktop web still offers both operator and staff login.
@@ -141,24 +135,17 @@ Monorepo layout: client = `packages/client`, server = `packages/server`, shared 
 
 ## Task 5 — Handover & shift-logic audit (analyse first, then iterate)
 
-**This is an investigation task — produce findings before changing code.** There is existing history to build on: `HANDOVER_AND_DATEFILTER_INVESTIGATION.md`, `ZEDRAL_BUG_STALE_SHIFT_SESSION_SPEC.md`, `fix_shift_attribution.sql` / `_v2.sql`, and `MH_SHIFT_REVIEW_AND_COMBINED_ORDER_SPEC.md` (repo root).
+**Status: DONE (investigation)** — findings in [`TASK5_HANDOVER_SHIFT_AUDIT_FINDINGS.md`](./TASK5_HANDOVER_SHIFT_AUDIT_FINDINGS.md). **Do not change logic until review.**
 
-### What to audit (files verified present)
-- **Shift detection core:** `packages/server/src/services/ShiftDetectionService.ts` — `getCurrentShift()`, session pinning to `txn.machine_shift_session` (ACTIVE session), `isSessionLive`, `closeStaleOperatorSessions()`, `shiftEndDateTime()`, window start/end, `DetectedShift`.
-- **Handover flow:** `packages/server/src/services/MachineHandoverService.ts` — `resolveOutgoingShift()`, `buildOutgoingPreview()`, `createOutgoingHandover()`, draft/pending/accept lifecycle; routes in `packages/server/src/routes/machineHandoverRoutes.ts`.
-- **Shift aggregation / attribution:** `packages/server/src/services/sixHi/SixHiShiftService.ts`, and the shift-attribution rule (`reattributeOrderToActiveShift`, `crm6_order.shift_log_id`) used in `SixHiService.rejectOrder`/production start.
-- **Next-shift math:** `ShiftLogService.getNextShift()`.
-- **Client display:** `packages/client/src/components/live/HandoverOverviewPanel.tsx`, `HandoverAcceptPage.tsx`, and every place shift is shown (`getPlantClockParts`, `formatPlantDateTime`, `resolveShiftFromClock` in `shared-validation`).
+### Questions answered
+1. Display vs pinned session — **No** everywhere (operator/handover yes; MH/export/PPC clock)
+2. Stale sessions at boundaries — **Partial** (login cleanup; no sweeper)
+3. Handover A-B-C-A + midnight — **Mostly yes** (math correct; session.shift_log_id unset; 6HI re-parent gap)
+4. Attribution consistency — **Mostly yes** start/hold; complete/events gaps; SQL repair scripts missing from repo
+5. Exports vs UI shift — **No** for current-shift live context; **Yes** when keyed by shift_log_id
 
-### Questions the audit must answer
-1. Does the **displayed shift** everywhere match the **pinned session shift** (not just wall-clock)? Check dashboards, handover panels, exports, and the new completed-shifts list from Task 4.
-2. Are **stale sessions** reliably closed at shift boundaries (`closeStaleOperatorSessions`)? Any window where an order can attribute to the wrong shift?
-3. Does **handover close** the correct outgoing session and open the correct incoming one at A→B→C→A + date rollover (night shift crossing midnight)?
-4. Is **shift attribution** on production/hold/complete consistent (`shift_log_id` vs PPC `plan_date`)? Cross-check against `fix_shift_attribution_v2.sql` intent.
-5. Do **exports and reports** filter by the same shift definition the UI shows?
-
-### Deliverable for Task 5
-- A short findings doc: each issue = symptom, root-cause file/function, and proposed fix. **Do not change logic yet** — review findings together, then spec the iteration.
+### Deliverable
+- Findings doc: each issue = symptom, root-cause file/function, proposed fix + recommended iteration order.
 
 ---
 

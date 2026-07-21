@@ -760,6 +760,24 @@ export class MachineHandoverService {
         .where('status', '=', 'ACTIVE')
         .execute();
 
+      // Resolve incoming shift_log before session insert (fix 3.3)
+      let acceptProcessId: number | null = null;
+      const acceptMachineRow = await trx.selectFrom('master.machine').select(['process_code', 'process_id']).where('machine_code', '=', handover.machine_code).executeTakeFirst();
+      if (acceptMachineRow?.process_id) acceptProcessId = Number(acceptMachineRow.process_id);
+      else if (acceptMachineRow?.process_code) {
+        const pRow = await trx.selectFrom('master.process').select('process_id').where('code', '=', acceptMachineRow.process_code).executeTakeFirst();
+        if (pRow) acceptProcessId = pRow.process_id;
+      }
+
+      const acceptStrategy = getOrderSourceStrategy(handover.machine_code);
+      const incomingShiftLogIdForSession = await acceptStrategy.ensureActiveShiftLog(
+        incomingUserId,
+        formatProdDate(handover.incoming_prod_date as any),
+        handover.incoming_shift_code,
+        handover.machine_code,
+        acceptProcessId,
+      );
+
       const newSession = await trx
         .insertInto('txn.machine_shift_session')
         .values({
@@ -768,6 +786,7 @@ export class MachineHandoverService {
           prod_date: incomingProdDate,
           operator_user_id: incomingUserId,
           status: 'ACTIVE',
+          shift_log_id: incomingShiftLogIdForSession as any,
         })
         .returning('session_id')
         .executeTakeFirstOrThrow();
@@ -801,20 +820,10 @@ export class MachineHandoverService {
       // Generic open-work carry-forward (Phase 1.4)
       if (handover.outgoing_shift_code && handover.outgoing_prod_date && handover.incoming_shift_code && handover.incoming_prod_date) {
         let outgoingShiftLogId: string | null = null;
-        const machineRow = await trx.selectFrom('master.machine').select(['process_code', 'process_id']).where('machine_code', '=', handover.machine_code).executeTakeFirst();
-        
-        let processIdResolved: number | null = null;
-        if (machineRow) {
-          if (machineRow.process_id) processIdResolved = Number(machineRow.process_id);
-          else if (machineRow.process_code) {
-            const pRow = await trx.selectFrom('master.process').select('process_id').where('code', '=', machineRow.process_code).executeTakeFirst();
-            if (pRow) processIdResolved = pRow.process_id;
-          }
-        }
-        
+        const processIdResolved = acceptProcessId;
+
         try {
-          const strategy = getOrderSourceStrategy(handover.machine_code);
-          outgoingShiftLogId = await strategy.resolveShiftLogIdForPlan(
+          outgoingShiftLogId = await acceptStrategy.resolveShiftLogIdForPlan(
             formatProdDate(handover.outgoing_prod_date as any),
             handover.outgoing_shift_code,
             handover.machine_code,
@@ -824,28 +833,35 @@ export class MachineHandoverService {
           console.error('[acceptHandover] Failed to resolve outgoing shiftLogId:', err);
         }
 
-        if (outgoingShiftLogId) {
-          let incomingShiftLogId: string | null = null;
-          try {
-            const strategy = getOrderSourceStrategy(handover.machine_code);
-            incomingShiftLogId = await strategy.ensureActiveShiftLog(
-              incomingUserId,
-              formatProdDate(handover.incoming_prod_date as any),
-              handover.incoming_shift_code,
-              handover.machine_code,
-              processIdResolved
-            );
-          } catch (err) {
-            console.error('[acceptHandover] Failed to resolve incoming shiftLogId:', err);
-          }
+        const incomingShiftLogId = incomingShiftLogIdForSession;
 
-          if (incomingShiftLogId) {
+        if (outgoingShiftLogId && incomingShiftLogId) {
             // Carry forward open stoppages
             await trx.updateTable('txn.stoppage')
               .set({ shift_log_id: incomingShiftLogId as any })
               .where('shift_log_id', '=', outgoingShiftLogId as any)
               .where('end_at', 'is', null)
               .execute();
+
+            // Re-parent open 6HI / CRM orders (IN_PROGRESS + STOPPAGE)
+            const rollingProcess = await trx.selectFrom('master.process')
+              .select('process_id')
+              .where('code', 'in', ['ROLLING', 'CRM'])
+              .execute();
+            const rollingIds = new Set(rollingProcess.map((p) => Number(p.process_id)));
+            if (processIdResolved != null && rollingIds.has(processIdResolved)) {
+              await trx.updateTable('txn.crm_order')
+                .set({
+                  shift_log_id: incomingShiftLogId as any,
+                  shift_code: handover.incoming_shift_code,
+                  prod_date: incomingProdDate,
+                  production_day: incomingProdDate,
+                  updated_at: acceptedAt,
+                } as any)
+                .where('shift_log_id', '=', outgoingShiftLogId as any)
+                .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+                .execute();
+            }
 
             // Re-parent open processes based on processId
             if (processIdResolved === 4) {
@@ -891,7 +907,6 @@ export class MachineHandoverService {
                 .where('status', '=', 'IN_PROGRESS')
                 .execute();
             }
-          }
         }
       }
 
@@ -969,6 +984,9 @@ export class MachineHandoverService {
       // fall through to create a fresh session for the current clock shift
     }
 
+    // Close any other operator's non-live ACTIVE before conflict check (fix 2.2).
+    await ShiftDetectionService.closeStaleSessionsOnMachine(machineCode);
+
     const otherActive = await db
       .selectFrom('txn.machine_shift_session')
       .select('session_id')
@@ -986,7 +1004,8 @@ export class MachineHandoverService {
     // No open session — start one for the current clock/override shift.
     const shift = await ShiftDetectionService.getCurrentShift({
       userId: operatorUserId,
-      machineCode,
+      // Do not pass machineCode here: we already know there is no live session;
+      // machine pin would be empty and we want clock/override for the new row.
     });
 
     const machineRow = await db
@@ -1010,7 +1029,7 @@ export class MachineHandoverService {
     }
 
     const strategy = getOrderSourceStrategy(machineCode);
-    await strategy.ensureActiveShiftLog(
+    const shiftLogId = await strategy.ensureActiveShiftLog(
       operatorUserId,
       shift.prodDate,
       shift.shiftCode,
@@ -1026,6 +1045,7 @@ export class MachineHandoverService {
         prod_date: parsePlantDateOnly(shift.prodDate),
         operator_user_id: operatorUserId,
         status: 'ACTIVE',
+        shift_log_id: shiftLogId as any,
       })
       .returningAll()
       .executeTakeFirstOrThrow();

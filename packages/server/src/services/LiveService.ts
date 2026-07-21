@@ -459,6 +459,18 @@ export class LiveService {
       });
     }
 
+    // 3b. ACTIVE session shift per machine (prefer over event PPC shift)
+    const { ShiftDetectionService } = await import('./ShiftDetectionService');
+    const sessionShiftByMachine = new Map<string, string>();
+    await Promise.all(
+      machineCodes.map(async (code) => {
+        const detected = await ShiftDetectionService.getCurrentShift({ machineCode: code });
+        if (detected.source === 'SESSION') {
+          sessionShiftByMachine.set(code, detected.shiftCode);
+        }
+      }),
+    );
+
     // 4. Map to cards
     return machines.map((m): MachineStatusCard => {
       const ev = eventsByMachine.get(m.machine_code);
@@ -514,7 +526,7 @@ export class LiveService {
         rejectedWeightMt: rejects.weightMt,
         lastUpdateAt: orderStats?.updated_at ? new Date(orderStats.updated_at).toISOString() : undefined,
         processCode: m.process_code ?? undefined,
-        shiftCode: ev?.shift_code ?? undefined,
+        shiftCode: sessionShiftByMachine.get(m.machine_code) ?? ev?.shift_code ?? undefined,
         activeOrderCount: machineActiveOrders.length > 1 ? machineActiveOrders.length : undefined,
         activeOrders: machineActiveOrders.length > 1
           ? machineActiveOrders.map((o) => ({
@@ -719,15 +731,32 @@ export class LiveService {
       subProcess: row.sub_process ?? undefined,
     };
   }
-  static async getShiftQueueContext(userId: number): Promise<{ prodDate: string; shiftCode: string }> {
+  static async getShiftQueueContext(
+    userId: number,
+    machineCode?: string,
+  ): Promise<{ prodDate: string; shiftCode: string }> {
     const { ShiftDetectionService } = await import('./ShiftDetectionService');
-    const current = await ShiftDetectionService.getCurrentShift({ userId });
+    const current = await ShiftDetectionService.getCurrentShift({
+      userId,
+      machineCode: machineCode || undefined,
+    });
     return { prodDate: current.prodDate, shiftCode: current.shiftCode };
+  }
+
+  /** Prefer a concrete machine for session pin: explicit code, else sole scoped machine. */
+  private static resolveContextMachine(
+    machineFilter: string[] | null,
+    preferred?: string,
+  ): string | undefined {
+    if (preferred && preferred !== 'ALL') return preferred.toUpperCase();
+    if (machineFilter?.length === 1) return machineFilter[0];
+    return undefined;
   }
 
   static async getSnapshot(userId: number, roles: string[]): Promise<LiveSnapshot> {
     const machineFilter = await this.getMachineScope(userId, roles);
-    const { prodDate, shiftCode } = await this.getShiftQueueContext(userId);
+    const contextMachine = this.resolveContextMachine(machineFilter);
+    const { prodDate, shiftCode } = await this.getShiftQueueContext(userId, contextMachine);
     const machines = await this.getMachineCards(machineFilter);
     const orders = await this.getActiveOrders(machineFilter, prodDate, shiftCode);
 
@@ -1025,7 +1054,11 @@ export class LiveService {
       if (machineFilter === null) machineFilter = [code];
       else machineFilter = machineFilter.filter((m) => m === code);
     }
-    const ctx = await this.getShiftQueueContext(userId);
+    const contextMachine = this.resolveContextMachine(
+      machineFilter,
+      opts.machine && opts.machine !== 'ALL' ? opts.machine : undefined,
+    );
+    const ctx = await this.getShiftQueueContext(userId, contextMachine);
     const prodDate = ctx.prodDate;
     const shiftCode = opts.shift && opts.shift !== 'ALL' ? opts.shift.toUpperCase() : ctx.shiftCode;
     const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');

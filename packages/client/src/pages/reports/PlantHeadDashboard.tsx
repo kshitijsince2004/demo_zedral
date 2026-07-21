@@ -13,6 +13,7 @@ import { ExportProgressModal } from '../../components/export/ExportProgressModal
 import { ZButton } from '../../components/primitives/ZButton';
 import { Download } from 'lucide-react';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
+import { bootstrapShiftContext } from '../../lib/shiftDetection';
 
 function formatDuration(minutes?: number): string {
   if (minutes == null || minutes < 0) return '—';
@@ -56,11 +57,23 @@ export function PlantHeadDashboard() {
   const [selectedDetail, setSelectedDetail] = useState<LiveOrderDetail | null>(null);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
   const [exportDate, setExportDate] = useState(currentPlantDate());
-  const [exportShift, setExportShift] = useState('A');
+  const [exportShift, setExportShift] = useState('');
   const { snapshot } = useLiveSnapshot();
   const prevDataFpRef = useRef('');
   const prevHandoversFpRef = useRef('');
   const prevLiveOrdersFpRef = useRef('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void bootstrapShiftContext().then((shift) => {
+      if (cancelled) return;
+      setExportDate(shift.prodDate);
+      setExportShift(shift.shiftCode);
+    }).catch(() => {
+      if (!cancelled) setExportShift((s) => s || 'A');
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const startRejectedExport = async (mode: 'day' | 'shift') => {
     try {

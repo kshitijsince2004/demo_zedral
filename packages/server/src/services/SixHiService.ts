@@ -103,6 +103,7 @@ export class SixHiService {
       userId,
       machineCode,
       processId,
+      requireCallerSession: Boolean(machineCode),
     });
     const targetShiftLogId = resolved.shiftLogId;
     const prodDate = this.toPlanDate(resolved.prodDate);
@@ -1034,22 +1035,28 @@ export class SixHiService {
     }
     if (status === 'STOPPAGE') {
       await this.assertNoOpenStoppage(orderId);
+      // Resume after stoppage: reattribute to caller's active session (fix 4.3).
+      await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
       await db.updateTable('txn.crm_order')
         .set({ status: 'IN_PROGRESS', updated_at: new Date() })
         .where('order_id', '=', orderId)
         .execute();
-      const batch = await db.selectFrom('planning.ppc_batch')
-        .select(['machine_code', 'shift_code'])
-        .where('batch_number', '=', batchNumber)
+      const orderShift = await db.selectFrom('txn.crm_order')
+        .select('shift_code')
+        .where('order_id', '=', orderId)
         .executeTakeFirst();
-      if (batch) {
-        await MachineStateEventService.recordEvent(batch.machine_code, 'RUNNING_STARTED', {
-          orderId,
-          batchNumber,
-          operatorId: userId,
-          shiftCode: batch.shift_code,
-        }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
-      }
+      const sessionShift = orderShift?.shift_code
+        ?? (await ShiftDetectionService.getCurrentShift({
+          userId,
+          machineCode,
+          requireCallerSession: true,
+        })).shiftCode;
+      await MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
+        orderId,
+        batchNumber,
+        operatorId: userId,
+        shiftCode: sessionShift,
+      }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
       return this.getOrder(batchNumber, userId);
     }
     if (status !== 'PENDING' && status !== 'PREPARING') {
@@ -1074,12 +1081,17 @@ export class SixHiService {
     // Backlog orders planned for a previous shift are moved to today's shift here.
     await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
 
-    // Persist machine state event: IDLE_ENDED → RUNNING_STARTED
+    const attributed = await db.selectFrom('txn.crm_order')
+      .select('shift_code')
+      .where('order_id', '=', orderId)
+      .executeTakeFirst();
+
+    // Persist machine state event with post-reattribute / session shift (fix 4.4).
     MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
       orderId,
       batchNumber,
       operatorId: userId,
-      shiftCode: batch.shift_code,
+      shiftCode: attributed?.shift_code ?? batch.shift_code,
     }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
 
     return this.getOrder(batchNumber, userId);
@@ -1189,11 +1201,16 @@ export class SixHiService {
       // Attribute each order to the operator's actual active shift at production start.
       await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
 
+      const attributed = await db.selectFrom('txn.crm_order')
+        .select('shift_code')
+        .where('order_id', '=', orderId)
+        .executeTakeFirst();
+
       MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
         orderId,
         batchNumber,
         operatorId: userId,
-        shiftCode: first.shift_code,
+        shiftCode: attributed?.shift_code ?? first.shift_code,
         meta: { combinedRunBatchNumbers: uniqueBatchNumbers },
       }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
     }
@@ -1202,6 +1219,8 @@ export class SixHiService {
   }
 
   static async endProduction(batchNumber: string, userId: number, defectCodes?: string[]) {
+    // Task 5 / finding 4.2 (confirmed): do NOT reattribute at complete.
+    // Keep start-shift credit — overtime completes stay on the shift where production started.
     const batchPre = await db.selectFrom('planning.ppc_batch')
       .select(['machine_code', 'shift_code'])
       .where('batch_number', '=', batchNumber)
@@ -1820,6 +1839,11 @@ export class SixHiService {
       .executeTakeFirst();
     // Attribute hold to the operator's active shift (same rule as production start).
     await this.reattributeOrderToActiveShift(orderId, userId, ppc?.machine_code);
+    const holdShift = await db.selectFrom('txn.crm_order')
+      .select('shift_code')
+      .where('order_id', '=', orderId)
+      .executeTakeFirst();
+    const eventShift = holdShift?.shift_code ?? ppc?.shift_code;
 
     const reasonLabel = rejectionReason.trim().slice(0, 100);
 
@@ -1871,18 +1895,18 @@ export class SixHiService {
         orderId,
         batchNumber,
         operatorId: userId,
-        shiftCode: ppc.shift_code,
+        shiftCode: eventShift,
       })
       .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'IDLE_STARTED', {
-        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code
+        orderId, batchNumber, operatorId: userId, shiftCode: eventShift
       }))
       .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'ORDER_REJECTED', {
-        orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, reason: trimmedRemarks
+        orderId, batchNumber, operatorId: userId, shiftCode: eventShift, reason: trimmedRemarks
       }))
       .then(async () => {
         for (const defectCode of defectCodes) {
           await MachineStateEventService.recordEvent(ppc.machine_code, 'DEFECT_REPORTED', {
-            orderId, batchNumber, operatorId: userId, shiftCode: ppc.shift_code, categoryCode: defectCode, reason: 'Defect causing rejection'
+            orderId, batchNumber, operatorId: userId, shiftCode: eventShift, categoryCode: defectCode, reason: 'Defect causing rejection'
           });
         }
       })

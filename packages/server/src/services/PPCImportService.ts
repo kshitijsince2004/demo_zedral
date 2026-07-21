@@ -734,25 +734,8 @@ export class PPCImportService {
     for (const bn of allBatchNumbers) batchNumberCounts.set(bn, (batchNumberCounts.get(bn) ?? 0) + 1);
     const duplicatesInFile = new Set([...batchNumberCounts.entries()].filter(([, n]) => n > 1).map(([bn]) => bn));
 
-    const seenIdentityInFile = new Map<string, string[]>();
-    for (const row of parsed.rows) {
-      if (row.errors.length > 0 || !row.batchNumber) continue;
-      const identityKey = pendingMergeIdentityKey(rollingRowToSchemaInput(row));
-      const existing = seenIdentityInFile.get(identityKey) ?? [];
-      existing.push(row.batchNumber);
-      seenIdentityInFile.set(identityKey, existing);
-    }
-    for (const row of parsed.rows) {
-      if (row.errors.length > 0 || !row.batchNumber) continue;
-      const identityKey = pendingMergeIdentityKey(rollingRowToSchemaInput(row));
-      const batchNumbers = seenIdentityInFile.get(identityKey) ?? [];
-      if (batchNumbers.length > 1 && new Set(batchNumbers).size > 1) {
-        const others = batchNumbers.filter((bn) => bn !== row.batchNumber);
-        if (others.length > 0) {
-          row.errors.push(`Same coil/spec as batch ${others.join(', ')} — different batch number`);
-        }
-      }
-    }
+    // Same coil/spec with different batch_numbers is allowed — commit inserts
+    // each as its own batch (findMatchingPendingBatch excludes current import).
 
     // Bulk fetch existing batches with their order status
     const existingBatches = allBatchNumbers.length > 0

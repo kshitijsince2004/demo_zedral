@@ -39,7 +39,10 @@ router.get('/orders', async (req, res) => {
     const shiftCode = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const ctx = planDate && shiftCode
       ? { prodDate: planDate, shiftCode }
-      : await LiveDashboardService.getShiftQueueContext(req.user!.id);
+      : await LiveDashboardService.getShiftQueueContext(
+        req.user!.id,
+        machine,
+      );
     const orders = await LiveOrderService.getActiveOrders(filter, ctx.prodDate, ctx.shiftCode, {
       search,
       subProcess,
@@ -115,9 +118,12 @@ router.get('/machines', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
     const filter = await LiveDashboardService.getMachineScope(req.user!.id, roles);
-    const ctx = await LiveDashboardService.getShiftQueueContext(req.user!.id);
+    const machine = typeof req.query.machine === 'string' ? req.query.machine.toUpperCase() : undefined;
+    const contextMachine = machine
+      ?? (filter?.length === 1 ? filter[0] : undefined);
+    const ctx = await LiveDashboardService.getShiftQueueContext(req.user!.id, contextMachine);
     const machines = await LiveDashboardService.getMachineCards(filter);
-    res.json({ machines, refreshedAt: new Date().toISOString() });
+    res.json({ machines, prodDate: ctx.prodDate, shiftCode: ctx.shiftCode, refreshedAt: new Date().toISOString() });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to load machines';
     res.status(500).json({ error: msg });

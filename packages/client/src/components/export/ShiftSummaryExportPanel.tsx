@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChartPanel } from '../analytics/ChartPanel';
 import { ZButton } from '../primitives/ZButton';
 import { StatusBadge } from '../ui/StatusBadge';
 import { ExportJobPanel } from './ExportJobPanel';
 import { reportingService } from '../../lib/reportingService';
 import { currentPlantDate } from '../../lib/dateFormat';
+import { bootstrapShiftContext } from '../../lib/shiftDetection';
 
 type ExportStatus = 'IDLE' | 'EXPORTING' | 'SUCCESS' | 'ERROR';
 type ExportFormat = 'XLSX' | 'PDF' | 'CSV';
@@ -25,7 +26,7 @@ export function ShiftSummaryExportPanel({
   machineCodes,
 }: ShiftSummaryExportPanelProps) {
   const [date, setDate] = useState(currentPlantDate());
-  const [shiftCode, setShiftCode] = useState('A');
+  const [shiftCode, setShiftCode] = useState('');
   const [machine, setMachine] = useState(machineCodes?.[0] ?? '');
   const [format, setFormat] = useState<ExportFormat>('XLSX');
   const [status, setStatus] = useState<ExportStatus>('IDLE');
@@ -36,6 +37,21 @@ export function ShiftSummaryExportPanel({
     if (machineCodes?.length) return machineCodes;
     return ['6HI', '4HI', '2HI'];
   }, [machineCodes]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const seedMachine = machine || machineCodes?.[0];
+    void bootstrapShiftContext(seedMachine).then((shift) => {
+      if (cancelled) return;
+      setDate(shift.prodDate);
+      setShiftCode(shift.shiftCode);
+    }).catch(() => {
+      if (!cancelled && !shiftCode) setShiftCode('A');
+    });
+    return () => { cancelled = true; };
+    // Seed once on mount / when machine list identity changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machineCodes?.[0]]);
 
   const handleExport = async () => {
     setStatus('EXPORTING');
@@ -105,7 +121,7 @@ export function ShiftSummaryExportPanel({
                 Shift
               </label>
               <select
-                value={shiftCode}
+                value={shiftCode || 'A'}
                 onChange={(e) => setShiftCode(e.target.value)}
                 className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >

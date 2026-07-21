@@ -18,7 +18,7 @@ const DEV_STAFF = {
 
 export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boolean } = {}) {
   const operatorOnly = operatorOnlyProp ?? isNative();
-  const [mode, setMode] = useState<'operator' | 'staff'>(operatorOnly ? 'operator' : 'operator');
+  const [mode, setMode] = useState<'operator' | 'staff'>('operator');
   const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
   const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
   const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.machinehead : '');

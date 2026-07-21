@@ -7,6 +7,8 @@ import sixHiRoutes from '../../src/routes/sixHiRoutes';
 import importRoutes from '../../src/routes/importRoutes';
 import shiftLogRoutes from '../../src/routes/shiftLogRoutes';
 import { getIntegrationTestUserId } from '../helpers/integrationFixtures';
+import { ShiftDetectionService } from '../../src/services/ShiftDetectionService';
+import { parsePlantDateOnly } from '../../src/utils/dateOnly';
 
 // Mock authentication middleware
 let currentUser: any = null;
@@ -102,6 +104,21 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     await db.deleteFrom('coil.coil').execute();
   });
 
+  /** Seed a live ACTIVE session for the caller (production writes require it). */
+  async function seedActiveSession(machineCode: string, operatorUserId: number) {
+    const shift = await ShiftDetectionService.getCurrentShift();
+    await db
+      .insertInto('txn.machine_shift_session')
+      .values({
+        machine_code: machineCode,
+        shift_code: shift.shiftCode,
+        prod_date: parsePlantDateOnly(shift.prodDate),
+        operator_user_id: operatorUserId,
+        status: 'ACTIVE',
+      })
+      .execute();
+  }
+
   it('should run a complete 4HI production flow', async () => {
     // 1. Setup user as 4HI OPERATOR (must be a real app_user — crm_order.logged_in_user_id FK)
     const userId = getIntegrationTestUserId();
@@ -136,6 +153,9 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     let res = await request(app).get('/6hi/queue?machine=4HI');
     expect(res.status).toBe(200);
     expect(res.body.queue.some((o: any) => o.batchNumber === batchNo)).toBe(true);
+
+    // Operator must hold an ACTIVE session before production writes (Task 5 / 2.5).
+    await seedActiveSession('4HI', userId);
 
     // 4. Start order
     res = await request(app).post(`/6hi/orders/${batchNo}/start?machine=4HI`).send({});
@@ -198,6 +218,8 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     let res = await request(app).get('/6hi/queue?machine=2HI&subProcess=SKIN_PASS');
     expect(res.status).toBe(200);
     expect(res.body.queue.some((o: any) => o.batchNumber === batchNo)).toBe(true);
+
+    await seedActiveSession('2HI', userId);
 
     // 4. Start order
     res = await request(app).post(`/6hi/orders/${batchNo}/start?machine=2HI`).send({});
