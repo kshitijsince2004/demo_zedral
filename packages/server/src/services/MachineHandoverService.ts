@@ -109,10 +109,13 @@ export interface OutgoingHandoverInput {
 export class MachineHandoverService {
   static async listPendingForMachines(machineCodes: string[]) {
     if (machineCodes.length === 0) return [];
+    const { MachineRegistryService } = await import('./MachineRegistryService');
+    const operational = await MachineRegistryService.getOperationalMachineCodes(machineCodes);
+    if (operational.length === 0) return [];
     return db
       .selectFrom('txn.machine_handover')
       .selectAll()
-      .where('machine_code', 'in', machineCodes)
+      .where('machine_code', 'in', operational)
       .where('status', '=', 'PENDING')
       .orderBy('created_at', 'desc')
       .execute();
@@ -602,6 +605,14 @@ export class MachineHandoverService {
   }
 
   static async getHandoverOverview(machineFilter: string[] | null) {
+    const { MachineRegistryService } = await import('./MachineRegistryService');
+    // Never surface handovers for disabled (OFFLINE) machines on PH/MH screens.
+    const operationalFilter = await MachineRegistryService.getOperationalMachineCodes(machineFilter);
+    if (machineFilter !== null && operationalFilter.length === 0) {
+      return { pending: [], recent: [], awaitingAcceptance: 0 };
+    }
+    const scope = operationalFilter;
+
     const handoverSelect = [
       'h.handover_id',
       'h.machine_code',
@@ -609,6 +620,7 @@ export class MachineHandoverService {
       'h.machine_status',
       'h.status',
       'h.handover_priority',
+      'h.remarks',
       'h.outgoing_shift_code',
       'h.incoming_shift_code',
       'h.outgoing_operator_id',
@@ -616,7 +628,9 @@ export class MachineHandoverService {
       'h.created_at',
       'h.accepted_at',
       'h.created_by_boundary',
+      'ou.full_name as outgoing_full_name',
       'ou.username as outgoing_username',
+      'iu.full_name as incoming_full_name',
       'iu.username as incoming_username',
     ] as const;
 
@@ -627,14 +641,8 @@ export class MachineHandoverService {
       .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
       .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
       .where('h.status', '=', 'PENDING')
+      .where('h.machine_code', 'in', scope.length > 0 ? scope : ['__NONE__'])
       .orderBy('h.created_at', 'desc');
-
-    if (machineFilter !== null) {
-      if (machineFilter.length === 0) {
-        return { pending: [], recent: [], awaitingAcceptance: 0 };
-      }
-      pendingQ = pendingQ.where('h.machine_code', 'in', machineFilter);
-    }
 
     const pending = await pendingQ.limit(20).execute();
 
@@ -645,14 +653,9 @@ export class MachineHandoverService {
       .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
       .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
       .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED'])
+      .where('h.machine_code', 'in', scope.length > 0 ? scope : ['__NONE__'])
       .orderBy('h.created_at', 'desc')
       .limit(15);
-
-    if (machineFilter !== null && machineFilter.length > 0) {
-      recentQ = recentQ.where('h.machine_code', 'in', machineFilter);
-    } else if (machineFilter !== null) {
-      return { pending: [], recent: [], awaitingAcceptance: 0 };
-    }
 
     const recent = await recentQ.execute();
 
@@ -683,6 +686,14 @@ export class MachineHandoverService {
 
       const coilNo = h.coil_no?.trim() || undefined;
       const slitId = h.slit_id?.trim() || undefined;
+      const outgoingName = (h.outgoing_full_name as string | null)?.trim()
+        || (h.outgoing_username as string | null)?.trim()
+        || undefined;
+      const incomingName = (h.incoming_full_name as string | null)?.trim()
+        || (h.incoming_username as string | null)?.trim()
+        || undefined;
+      const remarks = typeof h.remarks === 'string' ? h.remarks.trim() : '';
+
       return {
         handoverId: String(h.handover_id),
         machineCode: h.machine_code,
@@ -691,6 +702,7 @@ export class MachineHandoverService {
         status: h.status,
         prodDate,
         handoverPriority: h.handover_priority,
+        remarks: remarks || undefined,
         outgoingShiftCode: h.outgoing_shift_code,
         incomingShiftCode: h.incoming_shift_code,
         createdAt: new Date(h.created_at as Date).toISOString(),
@@ -699,8 +711,8 @@ export class MachineHandoverService {
         shiftEndAt,
         shiftDurationMinutes,
         shiftDurationLabel: shiftDurationMinutes != null ? formatDurationMinutes(shiftDurationMinutes) : undefined,
-        outgoingUsername: h.outgoing_username ?? undefined,
-        incomingUsername: h.incoming_username ?? undefined,
+        outgoingUsername: outgoingName,
+        incomingUsername: incomingName,
         createdByBoundary: h.created_by_boundary,
         subProcess: h.sub_process ?? undefined,
         coilNo,

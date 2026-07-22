@@ -97,9 +97,11 @@ export class MachineAccessService {
   }
 
   static async getForUser(userId: number): Promise<string[]> {
-    const rows = await db.selectFrom('security.machine_access')
-      .select('machine_code')
-      .where('user_id', '=', userId as any)
+    const rows = await db.selectFrom('security.machine_access as ma')
+      .innerJoin('master.machine as m', 'm.machine_code', 'ma.machine_code')
+      .select('ma.machine_code')
+      .where('ma.user_id', '=', userId as any)
+      .where('m.machine_status', '!=', 'OFFLINE')
       .execute();
     return rows.map((r) => r.machine_code);
   }
@@ -112,8 +114,13 @@ export class MachineAccessService {
       : await db.selectFrom('master.machine')
           .select('machine_code')
           .where('machine_code', 'in', machineCodes)
+          .where('machine_status', '!=', 'OFFLINE')
           .execute();
     const validCodes = valid.map((v) => v.machine_code);
+    const rejected = machineCodes.filter((c) => !validCodes.includes(c));
+    if (rejected.length > 0) {
+      throw new Error(`Unknown or disabled machine(s): ${rejected.join(', ')}`);
+    }
 
     if (validCodes.length > 0) {
       await db.insertInto('security.machine_access')

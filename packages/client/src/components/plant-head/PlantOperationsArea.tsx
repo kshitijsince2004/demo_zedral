@@ -2,6 +2,7 @@ import React from 'react';
 import type { LiveOrderRow, MachineStatusCard } from '@m1/shared-validation';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { machineStatusLabel } from '../../hooks/useLiveSnapshot';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { DataUnavailable } from './DataUnavailable';
 import { ZBadge } from '../primitives/ZBadge';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
@@ -17,7 +18,9 @@ interface PlantOperationsAreaProps {
 function liveStatusTone(status: ReturnType<typeof machineStatusLabel>) {
   if (status === 'Running') return 'success' as const;
   if (status === 'Stopped') return 'warning' as const;
+  if (status === 'Breakdown') return 'destructive' as const;
   if (status === 'Maintenance') return 'info' as const;
+  if (status === 'Offline') return 'muted' as const;
   return 'muted' as const;
 }
 
@@ -30,6 +33,13 @@ function orderStatusTone(status: LiveOrderRow['status']) {
   if (status === 'STOPPAGE') return 'warning' as const;
   if (status === 'COMPLETED') return 'muted' as const;
   return 'info' as const;
+}
+
+function MachineStateDuration({ m }: { m: MachineStatusCard }) {
+  const active = !!m.stateSinceAt;
+  const { formatted } = useLiveTimer(m.stateSinceAt, active);
+  if (!active) return <span className="text-muted-foreground">—</span>;
+  return <span className="font-mono tabular-nums">{formatted || '—'}</span>;
 }
 
 export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrdersError, onOrderClick }: PlantOperationsAreaProps) {
@@ -52,6 +62,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
                 <tr>
                   <th className="px-5 py-3 font-medium">Machine</th>
                   <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Duration</th>
                   <th className="px-5 py-3 font-medium text-right">Shift progress</th>
                 </tr>
               </thead>
@@ -66,6 +77,9 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
                       </td>
                       <td className="px-5 py-3 align-middle">
                         <ZBadge tone={liveStatusTone(status)} label={status} />
+                      </td>
+                      <td className="px-5 py-3 align-middle text-sm text-foreground">
+                        <MachineStateDuration m={m} />
                       </td>
                       <td className="px-5 py-3 align-middle text-right text-sm font-semibold text-foreground">
                         {progress != null ? `${Math.round(progress)}%` : '—'}

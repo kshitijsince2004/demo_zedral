@@ -7,6 +7,7 @@ import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
+import { formatPlantDate } from '../../lib/dateFormat';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -174,7 +175,7 @@ export function PlantOrderTracking({ standalone = false }: { standalone?: boolea
                   ['Process', result.orderInfo.subProcess],
                   ['Machine', result.orderInfo.machineAllocated ? result.orderInfo.machineCode : 'Unassigned'],
                   ['Weight', `${result.orderInfo.weightMt} MT`],
-                  ['Plan Date', String(result.orderInfo.planDate).slice(0, 10)],
+                  ['Plan Date', formatPlantDate(result.orderInfo.planDate)],
                   ['Shift', result.orderInfo.shiftCode],
                   ...(result.orderInfo.sapOrderNo ? [['SAP Order', result.orderInfo.sapOrderNo] as const] : []),
                 ].map(([label, value]) => (

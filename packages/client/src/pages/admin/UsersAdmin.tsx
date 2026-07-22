@@ -11,11 +11,13 @@ import { UserRole } from '@m1/shared-validation';
 import { adminService, type UserAccess, type UserStatus } from '../../services/adminService';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { hasImplicitAllMachines, MACHINE_OPTIONS, resolveMachineAccess } from '../../lib/accessOptions';
+import { fetchMachineRegistry } from '../../lib/machineRegistry';
 
 export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   const [users, setUsers] = useState<UserAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [machineOptions, setMachineOptions] = useState<string[]>([...MACHINE_OPTIONS]);
 
   const [editingUser, setEditingUser] = useState<UserAccess | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -36,6 +38,17 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    void fetchMachineRegistry()
+      .then((machines) => {
+        const codes = machines.map((m) => m.machineCode);
+        if (codes.length > 0) setMachineOptions(codes);
+      })
+      .catch(() => {
+        // Keep MACHINE_OPTIONS fallback when registry is unavailable.
+      });
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -283,7 +296,7 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                     Select mills/lines for this user. Login opens the first assigned machine — 6HI is not the default.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {MACHINE_OPTIONS.map((code) => {
+                    {machineOptions.map((code) => {
                       const selected = (editingUser.machine_access ?? []).includes(code);
                       return (
                         <button

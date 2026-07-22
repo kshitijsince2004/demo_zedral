@@ -160,10 +160,11 @@ export interface CoilTraceabilityResult {
 
 export interface OpsFeedEvent {
   id: string;
+  /** ISO timestamp when possible; UI formats for display. */
   timestamp: string;
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
   machine: string;
-  order: string;
+  order?: string;
   description: string;
 }
 
@@ -389,7 +390,9 @@ export const reportingService = {
   },
 
   /**
-   * Maps real plant-head API data into the command-center layout (no mock values).
+   * Maps plant-head API data into the command-center layout.
+   * Derives ops feed / alerts / MT metrics from real downtime & quality series —
+   * never hardcodes empty arrays or zeros that wipe live overlays.
    */
   async getExtendedPlantHeadDashboard(
     windowDays?: 1 | 7 | 30 | 90,
@@ -403,6 +406,7 @@ export const reportingService = {
   ): Promise<ExtendedPlantHeadDashboardData> {
     const base = await this.getPlantHeadDashboard(windowDays, filters);
     const strip = base.kpiStrip;
+    const days = windowDays ?? base.window ?? 7;
 
     const productionVsTarget = base.dailyProduction;
 
@@ -431,6 +435,40 @@ export const reportingService = {
     const totalActual = base.productionVsPlan.reduce((sum, row) => sum + row.actual, 0);
     const totalPlanned = base.productionVsPlan.reduce((sum, row) => sum + row.planned, 0);
 
+    const totalStoppageMin = base.downtimeDrivers.reduce((sum, d) => sum + d.totalMinutes, 0);
+    const totalOccurrences = base.downtimeDrivers.reduce((sum, d) => sum + d.occurrences, 0);
+    const mttrHours = totalOccurrences > 0
+      ? Math.round((totalStoppageMin / totalOccurrences / 60) * 10) / 10
+      : 0;
+    const windowHours = days * 24;
+    const mtbfHours = totalOccurrences > 0
+      ? Math.round((windowHours / totalOccurrences) * 10) / 10
+      : 0;
+
+    const unplanned = base.downtimeDrivers.filter((d) => d.type === 'UNPLANNED');
+    const criticalAlerts = unplanned.slice(0, 8).map(
+      (d) => `${d.reason}: ${d.totalMinutes} min across ${d.occurrences} incident(s)`,
+    );
+
+    const generatedAt = base.generatedAt || new Date().toISOString();
+    const opsFeed: OpsFeedEvent[] = base.downtimeDrivers.slice(0, 25).map((d, i) => ({
+      id: `downtime-${i}-${d.reason}`,
+      timestamp: generatedAt,
+      priority: d.type === 'UNPLANNED'
+        ? (d.totalMinutes >= 60 ? 'Critical' : 'High')
+        : 'Medium',
+      machine: 'Plant',
+      description: `${d.reason} · ${d.totalMinutes} min · ${d.occurrences} incidents (${d.type})`,
+    }));
+
+    const windowLabel = days === 1 ? 'Last 24h' : `Last ${days}d`;
+    const weeklyProduction = totalPlanned > 0 || totalActual > 0
+      ? [{ week: windowLabel, actual: Math.round(totalActual), target: Math.round(totalPlanned) }]
+      : [];
+    const monthlyProduction = days >= 30
+      ? [{ month: windowLabel, actual: Math.round(totalActual), target: Math.round(totalPlanned) }]
+      : [];
+
     return {
       ...base,
       productionToday: strip.productionTodayMt,
@@ -445,16 +483,13 @@ export const reportingService = {
       shiftProductionMt: Math.round(strip.productionTodayMt),
       overallUtilizationPct: Math.round(strip.availabilityPct),
       oeePct: Math.round(strip.oeePct),
+      // Reporting-window proxies — live merge overlays real machine counts when available.
       runningMachines: runningLines,
-      breakdownMachines: 0,
+      breakdownMachines: unplanned.length,
       utilizationPct: strip.availabilityPct,
       availabilityPct: strip.availabilityPct,
-      mttrHours: (() => {
-        const totalMin = base.downtimeDrivers.reduce((sum, d) => sum + d.totalMinutes, 0);
-        const totalOcc = base.downtimeDrivers.reduce((sum, d) => sum + d.occurrences, 0);
-        return totalOcc > 0 ? Math.round((totalMin / totalOcc / 60) * 10) / 10 : 0;
-      })(),
-      mtbfHours: 0,
+      mttrHours,
+      mtbfHours,
       runningOrders: runningLines,
       delayedOrders: delayedLines,
       defectsToday: base.topDefects.reduce((sum, d) => sum + d.count, 0),
@@ -463,16 +498,16 @@ export const reportingService = {
         date: q.date,
         defects: q.rejectionRatePct,
       })),
-      activeAlerts: base.downtimeDrivers.length,
-      criticalAlerts: [],
-      opsFeed: [],
+      activeAlerts: unplanned.length,
+      criticalAlerts,
+      opsFeed,
       dailyProduction: productionVsTarget.map((row) => ({
         date: row.date,
         actual: row.actualMt,
         target: row.targetMt,
       })),
-      weeklyProduction: [],
-      monthlyProduction: [],
+      weeklyProduction,
+      monthlyProduction,
       productionVsTarget,
       defectsByCategory,
       downtimeByCategory,

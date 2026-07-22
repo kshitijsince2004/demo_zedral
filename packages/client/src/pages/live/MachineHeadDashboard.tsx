@@ -8,9 +8,11 @@ import { MachineHeadOrderSidePanel } from '../../components/machinehead/MachineH
 import { MachineHeadOrderDetailModal } from '../../components/machinehead/MachineHeadOrderDetailModal';
 import { ZPillTabs } from '../../components/ui/operator/ZPillTabs';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { liveService } from '../../lib/liveService';
 import { useAuthStore } from '../../lib/authStore';
 import { ZButton } from '../../components/primitives/ZButton';
+import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 import { Download, AlertTriangle } from 'lucide-react';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
@@ -28,6 +30,9 @@ type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
 const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected', 'completed'];
 const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
 
+/** Active shopfloor statuses that belong on the Orders tab (includes stoppage). */
+const ACTIVE_ORDER_STATUSES = new Set(['PREPARING', 'IN_PROGRESS', 'RUNNING', 'STOPPAGE']);
+
 function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
   if (filter === 'ALL') return true;
   if (!subProcess) return allowUnknown;
@@ -39,6 +44,21 @@ function formatDuration(minutes?: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** Live HH:MM:SS for active stoppages; static minutes for ended ones. */
+function StoppageDurationCell({
+  startAt,
+  active,
+  durationMin,
+}: {
+  startAt?: string;
+  active: boolean;
+  durationMin?: number;
+}) {
+  const { formatted } = useLiveTimer(startAt, active && !!startAt);
+  if (active && startAt) return <>{formatted || '—'}</>;
+  return <>{formatDuration(durationMin)}</>;
 }
 
 function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -140,7 +160,8 @@ const DASHBOARD_TABS = [
 ] as const;
 
 export function MachineHeadDashboard() {
-  const machineAccess = useAuthStore((s) => s.machineAccess);
+  const role = useAuthStore((s) => s.role);
+  const assignedMachines = useOperationalMachineAccess();
   const { snapshot, loading, error, refresh } = useLiveSnapshot();
   const [dashboard, setDashboard] = useState<MachineHeadDashboardData | null>(null);
   const [dashError, setDashError] = useState<string | null>(null);
@@ -179,7 +200,11 @@ export function MachineHeadDashboard() {
         dateTo: exportDate,
       };
       if (mode === 'shift') {
-        scope.shiftCode = exportShift || dashboard?.shiftSummary.shiftCode || 'A';
+        scope.shiftCode = exportShift || dashboard?.shiftSummary.shiftCode || '';
+        if (!scope.shiftCode) {
+          alert('Select a shift before exporting by shift.');
+          return;
+        }
       }
       const job = await reportingService.createExport({
         type: 'REJECTED_ORDERS',
@@ -197,6 +222,12 @@ export function MachineHeadDashboard() {
       setExportShift(dashboard.shiftSummary.shiftCode);
     }
   }, [dashboard?.shiftSummary.shiftCode, exportShift]);
+
+  useEffect(() => {
+    if (dashboard?.shiftSummary.prodDate) {
+      setExportDate(dashboard.shiftSummary.prodDate);
+    }
+  }, [dashboard?.shiftSummary.prodDate]);
 
   const dashFilters = useMemo(() => ({
     machine: machineFilter !== 'ALL' ? machineFilter : undefined,
@@ -274,17 +305,18 @@ export function MachineHeadDashboard() {
   }, [loadDashboard]);
 
   const machines = useMemo(() => {
-    const all = snapshot?.machines ?? [];
-    if (machineAccess.length === 0) return all;
-    const allowed = new Set(machineAccess);
+    const all = (snapshot?.machines ?? []).filter((m) => m.status !== 'OFFLINE');
+    const plantWide = role === 'PLANT_HEAD' || role === 'ADMIN';
+    if (plantWide) return all;
+    if (assignedMachines.length === 0) return [];
+    const allowed = new Set(assignedMachines);
     return all.filter((m) => allowed.has(m.machineCode));
-  }, [snapshot?.machines, machineAccess]);
+  }, [snapshot?.machines, assignedMachines, role]);
 
+  const visibleMachineAccess = assignedMachines;
   // Server already applies machine/search/subProcess — lists are API results.
   const filteredQueue = useMemo(() => {
-    return (dashboard?.orderQueue ?? []).filter(o => 
-      o.status === 'PREPARING' || o.status === 'IN_PROGRESS' || o.status === 'RUNNING'
-    );
+    return (dashboard?.orderQueue ?? []).filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
   }, [dashboard?.orderQueue]);
   const filteredProduction = dashboard?.productionHistory ?? [];
   const stoppageCategories = useMemo(
@@ -304,11 +336,8 @@ export function MachineHeadDashboard() {
       ...(dashboard?.handoverOverview?.pending ?? []),
       ...(dashboard?.handoverOverview?.recent ?? []),
     ];
-    const deduped = [...new Map(rows.map((h) => [h.handoverId, h])).values()];
-    const prodDate = dashboard?.shiftSummary.prodDate;
-    if (!prodDate) return deduped;
-    return deduped.filter((h) => !h.prodDate || h.prodDate === prodDate);
-  }, [dashboard?.handoverOverview, dashboard?.shiftSummary.prodDate]);
+    return [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+  }, [dashboard?.handoverOverview]);
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
@@ -651,7 +680,11 @@ export function MachineHeadDashboard() {
                             {s.startAt ? formatPlantDateTime(s.startAt) : '—'}
                           </td>
                           <td className={`px-4 py-3 text-sm font-mono tabular-nums ${isActive ? 'text-warning' : 'text-muted-foreground'}`}>
-                            {formatDuration(s.durationMin)}
+                            <StoppageDurationCell
+                              startAt={s.startAt}
+                              active={isActive}
+                              durationMin={s.durationMin}
+                            />
                           </td>
                           <td className="px-4 py-3 text-sm font-medium">
                             {isActive ? (
@@ -856,12 +889,18 @@ export function MachineHeadDashboard() {
               <ul className="divide-y divide-border text-xs">
                 {filteredHandover.map((h) => (
                   <li key={h.handoverId} className="px-4 py-3 hover:bg-secondary/50">
-                    <div className="flex justify-between mb-1">
+                    <div className="flex justify-between mb-1 gap-2">
                       <span className="font-bold">{h.machineCode}</span>
-                      <span className="text-muted-foreground font-mono">
+                      <span className="text-muted-foreground font-mono shrink-0">
                         {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
+                        {h.status === 'PENDING' ? ' · Pending' : ''}
                       </span>
                     </div>
+                    <p className="text-muted-foreground mb-1">
+                      Out: {h.outgoingUsername ?? '—'}
+                      {' · '}
+                      In: {h.incomingUsername ?? (h.status === 'PENDING' ? 'Awaiting accept' : '—')}
+                    </p>
                     {h.batchNumber ? (
                       <div className="mb-1">
                         <OrderIdentityDisplay order={identityFromRow({
@@ -884,6 +923,9 @@ export function MachineHeadDashboard() {
                       {h.shiftEndAt ? ` · End ${formatPlantDateTime(h.shiftEndAt)}` : ''}
                       {h.shiftDurationMinutes != null ? ` · ${h.shiftDurationLabel ?? formatDuration(h.shiftDurationMinutes)}` : ''}
                     </p>
+                    {h.remarks && (
+                      <p className="mt-1 text-foreground/80 whitespace-pre-wrap">{h.remarks}</p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -900,8 +942,8 @@ export function MachineHeadDashboard() {
     <MachineHeadShell
       title="Machine Dashboard"
       subtitle={
-        machineAccess.length > 0
-          ? `Assigned: ${machineAccess.join(', ')}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
+        assignedMachines.length > 0
+          ? `Assigned: ${visibleMachineAccess.join(', ') || '—'}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
           : 'No machines assigned — contact Plant Head'
       }
       onRefresh={() => { void refresh(); void loadDashboard(); }}
@@ -914,9 +956,15 @@ export function MachineHeadDashboard() {
           </div>
         )}
 
-        {machineAccess.length === 0 && (
+        {assignedMachines.length === 0 && (
           <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning shrink-0">
             No machines assigned to your profile. Contact Plant Head for access.
+          </div>
+        )}
+
+        {assignedMachines.length > 0 && visibleMachineAccess.length === 0 && (
+          <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning shrink-0">
+            Assigned machines are currently disabled. Contact an admin to enable them.
           </div>
         )}
 

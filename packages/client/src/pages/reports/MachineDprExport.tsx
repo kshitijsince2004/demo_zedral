@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
-import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { DprExportPanel } from '../../components/export/DprExportPanel';
 import { ShiftSummaryExportPanel } from '../../components/export/ShiftSummaryExportPanel';
+import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 
 type ExportTab = 'dpr' | 'shift-summary';
 
 export function MachineDprExport() {
-  const machineAccess = useAuthStore((s) => s.machineAccess);
+  const machineAccess = useOperationalMachineAccess();
   const [tab, setTab] = useState<ExportTab>('dpr');
 
   const scopeHint = useMemo(() => {

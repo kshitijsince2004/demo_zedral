@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 /**
  * useElapsedTimer
@@ -13,14 +13,12 @@ import { useState, useEffect, useRef } from 'react';
 export function useElapsedTimer(sinceIso: string | undefined): string {
   const [elapsed, setElapsed] = useState('');
 
-  const sinceRef = useRef(sinceIso);
-  sinceRef.current = sinceIso;
-
   useEffect(() => {
     const compute = () => {
-      const since = sinceRef.current;
-      if (!since) return setElapsed('—');
-      const diffMs = Date.now() - new Date(since).getTime();
+      if (!sinceIso) return setElapsed('—');
+      const sinceMs = new Date(sinceIso).getTime();
+      if (!Number.isFinite(sinceMs)) return setElapsed('—');
+      const diffMs = Date.now() - sinceMs;
       if (diffMs < 0) return setElapsed('—');
       const totalSeconds = Math.floor(diffMs / 1000);
       const h = Math.floor(totalSeconds / 3600);
@@ -34,7 +32,7 @@ export function useElapsedTimer(sinceIso: string | undefined): string {
     compute();
     const id = setInterval(compute, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [sinceIso]);
 
   return elapsed;
 }

@@ -15,6 +15,7 @@ import {
   parsePlantHeadDrilldownMetric,
 } from '../reporting/plantHeadDrilldown';
 import { currentPlantDate } from '../utils/dateOnly';
+import { MachineRegistryService } from '../services/MachineRegistryService';
 
 const router = Router();
 router.use(require('express').json());
@@ -22,11 +23,15 @@ router.use(requireAuth);
 
 router.get('/machine-head', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
-    const machines = req.user!.machineAccess ?? [];
-    if (machines.length === 0 && !req.user!.roles.includes(UserRole.ADMIN as string)) {
+    const raw = req.user!.machineAccess ?? [];
+    const isAdmin = req.user!.roles.includes(UserRole.ADMIN as string);
+    // Admin with empty access = all operational; MH = assigned ∩ operational.
+    const machines = await MachineRegistryService.getOperationalMachineCodes(
+      raw.length === 0 && isAdmin ? null : raw,
+    );
+    if (machines.length === 0 && !isAdmin) {
        return res.json({ lineStatuses: [], pendingReviewCount: 0, lineOee: [], downtimePareto: [], yieldPct: 0, rejectionRatePct: 0 });
     }
-    // Admin gets everything if machines is empty
     const data = await DashboardReportingService.getMachineHeadDashboard(machines);
     res.json(data);
   } catch (error: any) {

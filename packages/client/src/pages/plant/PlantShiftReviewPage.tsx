@@ -6,6 +6,7 @@ import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../components/primitives/ZButton';
+import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 
 interface ShiftLogRow {
   id: string;
@@ -261,7 +262,7 @@ export function PlantShiftReviewPage() {
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ALL');
   const [currentShiftLabel, setCurrentShiftLabel] = useState<string | null>(null);
 
-  const machineAccess = useAuthStore((s) => s.machineAccess);
+  const machineAccess = useOperationalMachineAccess();
   const role = useAuthStore((s) => s.role);
   const shiftBootstrapped = useRef(false);
 

@@ -89,6 +89,15 @@ describe('LiveService machine status resolution', () => {
     ).toBe('IDLE');
   });
 
+  it('maps master OFFLINE ahead of live events/orders', () => {
+    expect(
+      resolveMachineLiveStatus('OFFLINE', { event_type: 'RUNNING_STARTED' }, {
+        status: 'IN_PROGRESS',
+        stoppage_category: null,
+      }),
+    ).toBe('OFFLINE');
+  });
+
   it('uses stoppage start for stoppage timer', () => {
     const since = resolveStateSinceAt('STOPPAGE', undefined, {
       stoppage_start_at: '2026-06-10T10:00:00.000Z',

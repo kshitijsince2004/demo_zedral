@@ -9,10 +9,12 @@ export const LIVE_POLL_MS = 8_000;
 
 export function machineStatusLabel(
   status: MachineLiveStatus,
-): 'Running' | 'Stopped' | 'Idle' | 'Maintenance' {
+): 'Running' | 'Stopped' | 'Breakdown' | 'Idle' | 'Maintenance' | 'Offline' {
   if (status === 'RUNNING') return 'Running';
-  if (status === 'STOPPAGE' || status === 'BREAKDOWN') return 'Stopped';
+  if (status === 'BREAKDOWN') return 'Breakdown';
+  if (status === 'STOPPAGE') return 'Stopped';
   if (status === 'MAINTENANCE') return 'Maintenance';
+  if (status === 'OFFLINE') return 'Offline';
   return 'Idle';
 }
 

@@ -1,50 +1,35 @@
-import { useEffect, useState } from 'react';
-import { reportingService, type ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { Brain, AlertCircle } from 'lucide-react';
+import { usePlantHeadReportData } from '../../hooks/usePlantHeadReportData';
+import { PlantReportWindowSelect } from '../../components/plant-head/PlantReportWindowSelect';
 
 export function PlantDefects() {
-  const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { windowDays, setWindowDays, data, loading, error } = usePlantHeadReportData(7);
 
-  useEffect(() => {
-    let active = true;
-    reportingService.getExtendedPlantHeadDashboard(7)
-      .then(res => {
-        if (active) {
-          setData(res);
-          setError(null);
-        }
-      })
-      .catch(err => {
-        if (active) setError(err.message || 'Failed to load defect data');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  if (loading) {
+  if (loading && !data) {
     return <div className="p-8 text-muted-foreground text-center animate-pulse">Loading defect metrics...</div>;
   }
 
-  if (error) {
+  if (error && !data) {
     return <div className="p-8 text-destructive text-center">Error: {error}</div>;
   }
 
   if (!data) return null;
 
+  const windowLabel = windowDays === 1 ? '24 Hours' : `${windowDays} Days`;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Brain className="h-6 w-6 text-primary" />
-        <h1 className="text-xl font-bold text-foreground">Defect Analysis</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Brain className="h-6 w-6 text-primary" />
+          <h1 className="text-xl font-bold text-foreground">Defect Intelligence</h1>
+        </div>
+        <PlantReportWindowSelect value={windowDays} onChange={setWindowDays} />
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Defects Today</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Defects in Window</p>
           <p className="text-2xl font-mono mt-1 font-bold text-destructive">{data.defectsToday}</p>
         </div>
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
@@ -59,9 +44,9 @@ export function PlantDefects() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4">Top Defects (Last 7 Days)</h2>
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4">Top Defects (Last {windowLabel})</h2>
           <div className="space-y-4">
-            {data.topDefects.length > 0 ? data.topDefects.map(defect => (
+            {data.topDefects.length > 0 ? data.topDefects.map((defect) => (
               <div key={defect.defectCode} className="flex items-center gap-3">
                 <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                 <div className="flex-1 min-w-0">

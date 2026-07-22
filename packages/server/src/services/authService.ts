@@ -240,13 +240,16 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
   if (roles.includes('PLANT_HEAD') || roles.includes('ADMIN')) {
     const allMachines = await db.selectFrom('master.machine')
       .select('machine_code')
+      .where('machine_status', '!=', 'OFFLINE')
       .orderBy('machine_code', 'asc')
       .execute();
     machineAccess = allMachines.map((m) => m.machine_code);
   } else {
-    const machineRows = await db.selectFrom('security.machine_access')
-      .select('machine_code')
-      .where('user_id', '=', userId as any)
+    const machineRows = await db.selectFrom('security.machine_access as ma')
+      .innerJoin('master.machine as m', 'm.machine_code', 'ma.machine_code')
+      .select('ma.machine_code')
+      .where('ma.user_id', '=', userId as any)
+      .where('m.machine_status', '!=', 'OFFLINE')
       .execute();
     machineAccess = machineRows.map((m) => m.machine_code);
   }

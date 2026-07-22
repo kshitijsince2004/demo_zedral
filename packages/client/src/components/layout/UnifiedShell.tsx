@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { Activity, ArrowRightLeft, Brain, FileSpreadsheet, LayoutDashboard, Search, Settings, Shield, Timer, Users } from 'lucide-react';
+import { Activity, ArrowRightLeft, Bell, Brain, Factory, FileSpreadsheet, LayoutDashboard, Search, Settings, Shield, Timer, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from './shared/DeskSideNav';
 import { deskNavOffsetClass } from './shared/deskNavLayout';
 import { OfflineBanner } from '../ui/OfflineBanner';
@@ -39,14 +39,28 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     label: 'Defect Intelligence',
     icon: Brain,
     path: '/plant/defect-intelligence',
-    match: (p) => p === '/plant/defect-intelligence',
+    match: (p) => p === '/plant/defect-intelligence' || p === '/plant/defects',
   },
   {
     id: 'downtime-intelligence',
     label: 'Downtime Intelligence',
     icon: Timer,
     path: '/plant/downtime-intelligence',
-    match: (p) => p === '/plant/downtime-intelligence',
+    match: (p) => p === '/plant/downtime-intelligence' || p === '/plant/stoppages',
+  },
+  {
+    id: 'alerts',
+    label: 'Alerts & Ops Feed',
+    icon: Bell,
+    path: '/plant/alerts',
+    match: (p) => p === '/plant/alerts',
+  },
+  {
+    id: 'production',
+    label: 'Production',
+    icon: Factory,
+    path: '/plant/production',
+    match: (p) => p === '/plant/production',
   },
   {
     id: 'dpr-export',

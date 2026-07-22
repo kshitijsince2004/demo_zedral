@@ -5,17 +5,25 @@ import type { MachineAccessEntry } from '@m1/shared-validation';
 import { ZButton } from '../../components/primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
 import { MACHINE_OPTIONS } from '../../lib/accessOptions';
+import { fetchMachineRegistry } from '../../lib/machineRegistry';
 
 export function MachineAssignmentPage() {
   const [entries, setEntries] = useState<MachineAccessEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string[]>>({});
+  const [machineOptions, setMachineOptions] = useState<string[]>([...MACHINE_OPTIONS]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiClient.get<MachineAccessEntry[]>('/machine-access');
+      const [data, machines] = await Promise.all([
+        apiClient.get<MachineAccessEntry[]>('/machine-access'),
+        fetchMachineRegistry().catch(() => []),
+      ]);
+      if (machines.length > 0) {
+        setMachineOptions(machines.map((m) => m.machineCode));
+      }
       setEntries(data);
       const d: Record<string, string[]> = {};
       for (const e of data) {
@@ -88,7 +96,7 @@ export function MachineAssignmentPage() {
                 </ZButton>
               </div>
               <div className="flex flex-wrap gap-2">
-                {MACHINE_OPTIONS.map((code) => {
+                {machineOptions.map((code) => {
                   const selected = (draft[entry.userId] ?? []).includes(code);
                   return (
                     <button

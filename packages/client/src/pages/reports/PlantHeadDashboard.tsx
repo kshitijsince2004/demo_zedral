@@ -37,11 +37,6 @@ import { jsonFingerprint } from '../../lib/silentRefresh';
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
-  const [appliedFilters] = useState<{
-    grades?: string[];
-    customers?: string[];
-    coils?: string[];
-  }>({});
   const [opsFeedOpen, setOpsFeedOpen] = useState(false);
   const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +65,7 @@ export function PlantHeadDashboard() {
       setExportDate(shift.prodDate);
       setExportShift(shift.shiftCode);
     }).catch(() => {
-      if (!cancelled) setExportShift((s) => s || 'A');
+      // Keep empty shift — do not invent Shift A when detection fails.
     });
     return () => { cancelled = true; };
   }, []);
@@ -103,8 +98,6 @@ export function PlantHeadDashboard() {
     }
   }, []);
 
-  const dashFilters = appliedFilters;
-
   const load = useCallback(async (silent = false) => {
     if (!silent) {
       setLoading(true);
@@ -112,7 +105,7 @@ export function PlantHeadDashboard() {
     }
     setError(null);
     try {
-      const result = await reportingService.getExtendedPlantHeadDashboard(windowDays, dashFilters);
+      const result = await reportingService.getExtendedPlantHeadDashboard(windowDays);
       const fingerprint = jsonFingerprint(result);
       if (!silent || fingerprint !== prevDataFpRef.current) {
         prevDataFpRef.current = fingerprint;
@@ -128,15 +121,20 @@ export function PlantHeadDashboard() {
     // Handover logs are supplemental — failure must not block the command center.
     try {
       const hResult = await machineHandoverService.getOverview();
-      const handoverFp = jsonFingerprint(hResult.recent || []);
+      const rows = [
+        ...(hResult.pending ?? []),
+        ...(hResult.recent ?? []),
+      ];
+      const deduped = [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+      const handoverFp = jsonFingerprint(deduped);
       if (!silent || handoverFp !== prevHandoversFpRef.current) {
         prevHandoversFpRef.current = handoverFp;
-        setHandovers(hResult.recent || []);
+        setHandovers(deduped);
       }
     } catch {
       if (!silent) setHandovers([]);
     }
-  }, [windowDays, dashFilters]);
+  }, [windowDays]);
 
   useEffect(() => {
     load(false);
@@ -174,7 +172,10 @@ export function PlantHeadDashboard() {
   }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
-  const liveMachines = useMemo(() => snapshot?.machines ?? [], [snapshot?.machines]);
+  const liveMachines = useMemo(
+    () => (snapshot?.machines ?? []).filter((m) => m.status !== 'OFFLINE'),
+    [snapshot?.machines],
+  );
 
   const displayData = useMemo(
     () => (data ? mergePlantHeadWithLive(data, liveKpis, liveMachines, liveOrders) : null),
@@ -364,13 +365,21 @@ export function PlantHeadDashboard() {
                   <ul className="text-sm divide-y divide-border">
                     {handovers.map((h) => (
                       <li key={h.handoverId} className="px-5 py-3 hover:bg-white transition-colors">
-                        <div className="flex justify-between items-center mb-1">
+                        <div className="flex justify-between items-center mb-1 gap-2">
                           <span className="font-bold text-foreground">{h.machineCode}</span>
-                          <span className="text-muted-foreground font-mono text-xs bg-muted/30 px-2 py-0.5 rounded">
-                            Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
+                          <span className="text-muted-foreground font-mono text-xs bg-muted/30 px-2 py-0.5 rounded shrink-0">
+                            {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
+                            {h.status === 'PENDING' ? ' · Pending' : ''}
                           </span>
                         </div>
                         <div className="space-y-1 text-xs text-muted-foreground mt-2">
+                          <div>
+                            <span className="font-medium">Outgoing:</span>{' '}
+                            {h.outgoingUsername ?? '—'}
+                            {' · '}
+                            <span className="font-medium">Incoming:</span>{' '}
+                            {h.incomingUsername ?? (h.status === 'PENDING' ? 'Awaiting accept' : '—')}
+                          </div>
                           <div>
                             <span className="font-medium">Shift Start Time:</span>{' '}
                             {formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}
@@ -385,6 +394,12 @@ export function PlantHeadDashboard() {
                             <div>
                               <span className="font-medium">Duration:</span>{' '}
                               {h.shiftDurationLabel ?? formatDuration(h.shiftDurationMinutes)}
+                            </div>
+                          )}
+                          {h.remarks && (
+                            <div className="text-foreground/80 whitespace-pre-wrap pt-0.5">
+                              <span className="font-medium text-muted-foreground">Remarks:</span>{' '}
+                              {h.remarks}
                             </div>
                           )}
                         </div>

@@ -75,7 +75,7 @@ export function LiveDashboard() {
   }
 
   const kpis = snapshot?.kpis;
-  const machines = snapshot?.machines ?? [];
+  const machines = (snapshot?.machines ?? []).filter((m) => m.status !== 'OFFLINE');
   const refreshedAt = snapshot?.refreshedAt
     ? new Date(snapshot.refreshedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null;

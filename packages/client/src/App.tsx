@@ -26,7 +26,6 @@ import { PlantOrderTracking } from './pages/reports/PlantOrderTracking';
 import { PlantDefects } from './pages/reports/PlantDefects';
 import { PlantStoppages } from './pages/reports/PlantStoppages';
 import { PlantAlerts } from './pages/reports/PlantAlerts';
-import { IntelligenceComingSoon } from './pages/reports/IntelligenceComingSoon';
 import { AuditTrailView } from './pages/audit/AuditTrailView';
 
 // Admin
@@ -141,12 +140,12 @@ function App() {
           <Route path="live" element={<LiveDashboard />} />
           <Route path="production" element={<PlantProduction />} />
           <Route path="orders" element={<PlantOrderTracking />} />
-          <Route path="defect-intelligence" element={<IntelligenceComingSoon title="Defect Intelligence" />} />
-          <Route path="downtime-intelligence" element={<IntelligenceComingSoon title="Downtime Intelligence" />} />
+          <Route path="defect-intelligence" element={<PlantDefects />} />
+          <Route path="downtime-intelligence" element={<PlantStoppages />} />
           <Route path="audit" element={<AuditTrailView />} />
           <Route path="users" element={<UsersAdmin embedded />} />
-          <Route path="defects" element={<PlantDefects />} />
-          <Route path="stoppages" element={<PlantStoppages />} />
+          <Route path="defects" element={<Navigate to="/plant/defect-intelligence" replace />} />
+          <Route path="stoppages" element={<Navigate to="/plant/downtime-intelligence" replace />} />
           <Route path="alerts" element={<PlantAlerts />} />
           <Route path="order-assignment" element={<OrderAssignmentPanel />} />
           <Route path="setup" element={<SetupPage embedded />} />

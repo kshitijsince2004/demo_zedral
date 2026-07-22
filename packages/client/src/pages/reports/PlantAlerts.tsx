@@ -1,36 +1,24 @@
-import { useEffect, useState } from 'react';
-import { reportingService, type ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { Bell, AlertCircle, Info } from 'lucide-react';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import { usePlantHeadReportData } from '../../hooks/usePlantHeadReportData';
+import { PlantReportWindowSelect } from '../../components/plant-head/PlantReportWindowSelect';
+
+function formatFeedTime(value: string): string {
+  // Live merge uses ISO; reporting fallback may already be ISO (generatedAt).
+  if (/^\d{4}-\d{2}-\d{2}/.test(value) || value.includes('T')) {
+    return formatPlantDateTime(value);
+  }
+  return value;
+}
 
 export function PlantAlerts() {
-  const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { windowDays, setWindowDays, data, loading, error } = usePlantHeadReportData(7);
 
-  useEffect(() => {
-    let active = true;
-    reportingService.getExtendedPlantHeadDashboard(7)
-      .then(res => {
-        if (active) {
-          setData(res);
-          setError(null);
-        }
-      })
-      .catch(err => {
-        if (active) setError(err.message || 'Failed to load alerts data');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  if (loading) {
+  if (loading && !data) {
     return <div className="p-8 text-muted-foreground text-center animate-pulse">Loading alerts...</div>;
   }
 
-  if (error) {
+  if (error && !data) {
     return <div className="p-8 text-destructive text-center">Error: {error}</div>;
   }
 
@@ -38,11 +26,14 @@ export function PlantAlerts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Bell className="h-6 w-6 text-primary" />
-        <h1 className="text-xl font-bold text-foreground">Active Alerts & Ops Feed</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Bell className="h-6 w-6 text-primary" />
+          <h1 className="text-xl font-bold text-foreground">Active Alerts & Ops Feed</h1>
+        </div>
+        <PlantReportWindowSelect value={windowDays} onChange={setWindowDays} />
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-destructive/10 border border-destructive/20 rounded-xl shadow-sm p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-destructive">Critical Alerts</p>
@@ -53,7 +44,7 @@ export function PlantAlerts() {
           <p className="text-2xl font-mono mt-1 font-bold text-warning">{data.activeAlerts}</p>
         </div>
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Ops Events (7d)</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Ops Events</p>
           <p className="text-2xl font-mono mt-1 font-bold text-info">{data.opsFeed.length}</p>
         </div>
       </div>
@@ -95,8 +86,8 @@ export function PlantAlerts() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
-                      <span className="font-semibold text-sm">{event.machine} · {event.order}</span>
-                      <span className="text-xs text-muted-foreground font-mono">{formatPlantDateTime(event.timestamp)}</span>
+                      <span className="font-semibold text-sm">{event.machine}{event.order ? ` · ${event.order}` : ''}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{formatFeedTime(event.timestamp)}</span>
                     </div>
                     <p className="text-sm text-muted-foreground">{event.description}</p>
                   </div>

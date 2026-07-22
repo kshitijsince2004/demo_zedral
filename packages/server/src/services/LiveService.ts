@@ -9,6 +9,7 @@ import type {
   MachineCommandCenterData,
   OrderJourneyView,
 } from '@m1/shared-validation';
+import { normalizeRoles } from '@m1/shared-validation';
 import { sql } from 'kysely';
 import { db } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
@@ -71,6 +72,9 @@ function resolveMachineLiveStatus(
     stoppage_category?: string | null;
   } | undefined,
 ): MachineLiveStatus {
+  if (masterStatus === 'OFFLINE') {
+    return 'OFFLINE';
+  }
   if (masterStatus === 'MAINTENANCE' || event?.event_type === 'MAINTENANCE_STARTED') {
     return 'MAINTENANCE';
   }
@@ -119,7 +123,7 @@ function resolveStateSinceAt(
       : activeOrder?.prod_start_at;
     return raw ? new Date(raw) : undefined;
   }
-  if (status === 'IDLE' || status === 'MAINTENANCE') {
+  if (status === 'IDLE' || status === 'MAINTENANCE' || status === 'OFFLINE') {
     return event?.occurred_at ? new Date(event.occurred_at) : undefined;
   }
   return undefined;
@@ -183,13 +187,14 @@ export { resolveMachineLiveStatus, resolveStateSinceAt, statusFromActiveOrder };
 
 export class LiveService {
   static async getMachineScope(userId: number, roles: string[]): Promise<string[] | null> {
-    if (roles.includes('PLANT_HEAD') || roles.includes('ADMIN')) return null;
-    if (roles.includes('MACHINE_HEAD')) {
+    const normalized = normalizeRoles(roles);
+    if (normalized.includes('PLANT_HEAD') || normalized.includes('ADMIN')) return null;
+    if (normalized.includes('MACHINE_HEAD')) {
       const rows = await db.selectFrom('security.machine_access')
         .select('machine_code')
         .where('user_id', '=', userId as any)
         .execute();
-      return rows.map((r) => r.machine_code);
+      return MachineRegistryService.getOperationalMachineCodes(rows.map((r) => r.machine_code));
     }
     return [];
   }
@@ -211,7 +216,9 @@ export class LiveService {
     } else if (machineFilter.length === 0) {
       return [];
     } else {
-      machines = machineFilter;
+      // Always intersect with operational registry so disabled machines disappear from queues.
+      machines = await MachineRegistryService.getOperationalMachineCodes(machineFilter);
+      if (machines.length === 0) return [];
     }
 
     let q = db.selectFrom('planning.ppc_batch as pb')
@@ -341,7 +348,11 @@ export class LiveService {
   static async getMachineCards(
     machineFilter: string[] | null,
   ): Promise<MachineStatusCard[]> {
-    let machinesQ = db.selectFrom('master.machine').selectAll().orderBy('machine_code', 'asc');
+    let machinesQ = db
+      .selectFrom('master.machine')
+      .selectAll()
+      .where('machine_status', '!=', 'OFFLINE')
+      .orderBy('machine_code', 'asc');
     if (machineFilter !== null) {
       if (machineFilter.length === 0) return [];
       machinesQ = machinesQ.where('machine_code', 'in', machineFilter);
@@ -936,6 +947,9 @@ export class LiveService {
     opts: { dateFrom?: string; dateTo?: string; shiftCode?: string; limit?: number } = {},
   ) {
     const limit = opts.limit ?? 50;
+    const machines = await MachineRegistryService.getOperationalMachineCodes(machineFilter);
+    if (machineFilter !== null && machines.length === 0) return [];
+
     let q = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .leftJoin('txn.order_rejection as rej', 'rej.order_id', 'o.order_id')
@@ -954,13 +968,10 @@ export class LiveService {
         'pb.ppc_weight_mt',
       ])
       .where('o.status', '=', 'REJECTED')
+      .where('pb.machine_code', 'in', machines.length > 0 ? machines : ['__NONE__'])
       .orderBy('o.prod_end_at', 'desc')
       .limit(limit);
 
-    if (machineFilter !== null) {
-      if (machineFilter.length === 0) return [];
-      q = q.where('pb.machine_code', 'in', machineFilter);
-    }
     if (opts.dateFrom) {
       q = q.where(
         sql`date(COALESCE(rej.created_at, o.prod_end_at))`,

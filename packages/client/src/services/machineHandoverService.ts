@@ -203,7 +203,10 @@ export interface HandoverOverviewRow {
   batchNumber: string | null;
   machineStatus: string;
   status: string;
+  /** Production date of the outgoing shift (YYYY-MM-DD). */
+  prodDate?: string;
   handoverPriority?: string;
+  remarks?: string;
   outgoingShiftCode: string;
   incomingShiftCode: string;
   createdAt: string;
@@ -212,9 +215,14 @@ export interface HandoverOverviewRow {
   shiftEndAt?: string;
   shiftDurationMinutes?: number;
   shiftDurationLabel?: string;
+  /** Display name (full_name preferred, else username). */
   outgoingUsername?: string;
   incomingUsername?: string;
   createdByBoundary?: boolean;
+  subProcess?: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
 }
 
 export interface HandoverOverview {

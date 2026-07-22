@@ -48,6 +48,7 @@ describe('machineRouting', () => {
   it('grants plant head and admin all machines', () => {
     expect(getEffectiveMachineAccess('PLANT_HEAD', [])).toEqual([...MACHINE_OPTIONS]);
     expect(getEffectiveMachineAccess('ADMIN', [])).toEqual([...MACHINE_OPTIONS]);
+    expect(getEffectiveMachineAccess('ADMIN', ['6HI', '4HI'])).toEqual(['6HI', '4HI']);
     expect(canAccessMachine('PLANT_HEAD', [], '4HI')).toBe(true);
     expect(canAccessMachine('OPERATOR', ['4HI'], '6HI')).toBe(false);
   });

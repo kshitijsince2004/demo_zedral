@@ -46,10 +46,10 @@ export function pathForMachine(
   return `/capture/${machineCode}`;
 }
 
-/** Plant head / admin: all assignable machines without DB rows. */
+/** Plant head / admin: prefer live JWT/DB machine list; fall back to static options. */
 export function getEffectiveMachineAccess(role: Role | null, machineAccess: string[]): string[] {
   if (role === 'PLANT_HEAD' || role === 'ADMIN') {
-    return [...MACHINE_OPTIONS];
+    return machineAccess.length > 0 ? machineAccess : [...MACHINE_OPTIONS];
   }
   return machineAccess;
 }

@@ -53,7 +53,8 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     const stUserId = session.getUserId();
     const liveUser = await resolveSessionAuthUser(stUserId, payload);
     if (liveUser) {
-      // Prefer live DB grants; keep JWT roles if DB unexpectedly returns none
+      // Prefer live DB grants for access lists (including empty = revoked).
+      // Keep JWT roles/line scopes only if the DB unexpectedly returns none
       // (avoids wiping MACHINE_HEAD mid-session and 403'ing /live/*).
       user = ensureLineScopes({
         ...user,
@@ -62,8 +63,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
         roles: liveUser.roles.length > 0 ? liveUser.roles : user.roles,
         lineAccess: liveUser.lineAccess.length > 0 ? liveUser.lineAccess : user.lineAccess,
         lineScopes: liveUser.lineScopes.length > 0 ? liveUser.lineScopes : user.lineScopes,
-        machineAccess:
-          liveUser.machineAccess.length > 0 ? liveUser.machineAccess : user.machineAccess,
+        machineAccess: liveUser.machineAccess,
       });
     }
 

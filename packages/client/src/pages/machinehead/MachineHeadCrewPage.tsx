@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../components/primitives/ZButton';
-import { useAuthStore } from '../../lib/authStore';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
 import { ApiError } from '../../lib/apiClient';
+import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message;
@@ -12,12 +12,9 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-const DEFAULT_MACHINES = ['6HI', '4HI', '2HI'];
-
 export function MachineHeadCrewPage() {
-  const machineAccess = useAuthStore((s) => s.machineAccess);
-  const machines = machineAccess.length > 0 ? machineAccess : DEFAULT_MACHINES;
-  const [machineCode, setMachineCode] = useState(machines[0] ?? '6HI');
+  const machines = useOperationalMachineAccess();
+  const [machineCode, setMachineCode] = useState(machines[0] ?? '');
   const [crew, setCrew] = useState<MachineCrewMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +23,22 @@ export function MachineHeadCrewPage() {
   const [roleLabel, setRoleLabel] = useState('');
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (machines.length === 0) {
+      setMachineCode('');
+      return;
+    }
+    if (!machines.includes(machineCode)) {
+      setMachineCode(machines[0]);
+    }
+  }, [machines, machineCode]);
+
   const load = useCallback(async () => {
+    if (!machineCode) {
+      setCrew([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -107,15 +119,21 @@ export function MachineHeadCrewPage() {
           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">
             Machine
           </label>
-          <select
-            value={machineCode}
-            onChange={(e) => setMachineCode(e.target.value)}
-            className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
-          >
-            {machines.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+          {machines.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No machines assigned. Ask an admin to grant machine access for this account.
+            </p>
+          ) : (
+            <select
+              value={machineCode}
+              onChange={(e) => setMachineCode(e.target.value)}
+              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
+            >
+              {machines.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -169,7 +187,7 @@ export function MachineHeadCrewPage() {
           />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
-            <ZButton variant="primary" onClick={() => void handleSave()} disabled={busy}>
+            <ZButton variant="primary" onClick={() => void handleSave()} disabled={busy || !machineCode}>
               <Plus className="h-4 w-4" />
               {editingId ? 'Update Member' : 'Add Member'}
             </ZButton>

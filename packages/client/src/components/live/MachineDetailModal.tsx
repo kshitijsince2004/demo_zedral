@@ -31,6 +31,7 @@ function statusCardClass(status: string) {
     case 'STOPPAGE': return 'bg-warning/10 border-warning/30 text-warning';
     case 'BREAKDOWN': return 'bg-destructive/10 border-destructive/30 text-destructive';
     case 'MAINTENANCE': return 'bg-info/10 border-info/30 text-info';
+    case 'OFFLINE': return 'bg-muted border-border text-muted-foreground';
     default: return 'bg-muted border-border text-muted-foreground';
   }
 }
@@ -55,8 +56,20 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
   const [error, setError] = useState<string | null>(null);
 
   const status = detail?.currentStatus ?? machineData?.status ?? 'IDLE';
-  const stateSince = machineData?.stateSinceAt ?? detail?.currentOrder?.runningSinceAt;
-  const { formatted: liveDuration } = useLiveTimer(stateSince, status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN');
+  // Prefer card stateSinceAt (covers IDLE / MAINTENANCE / RUNNING / STOPPAGE).
+  // Fall back to stoppage start or order run start only for active production states.
+  const stateSince =
+    machineData?.stateSinceAt
+    ?? detail?.activeStoppage?.startAt
+    ?? (status === 'RUNNING' ? detail?.currentOrder?.runningSinceAt : undefined);
+  const timerActive =
+    !!stateSince
+    && (status === 'RUNNING'
+      || status === 'IDLE'
+      || status === 'STOPPAGE'
+      || status === 'BREAKDOWN'
+      || status === 'MAINTENANCE');
+  const { formatted: liveDuration } = useLiveTimer(stateSince, timerActive);
 
   useEffect(() => {
     if (!open || !machineCode) {
@@ -179,7 +192,7 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
                           {o.weightMt != null ? ` · ${o.weightMt} MT` : ''}
                         </p>
                         {thk && <p className="text-[11px] font-mono text-muted-foreground mt-1">{thk}</p>}
-                        {'runtimeMin' in o && o.runtimeMin != null && (
+                        {'runtimeMin' in o && o.runtimeMin != null && !('runningSinceAt' in o && o.runningSinceAt) && (
                           <p className="text-[11px] text-muted-foreground mt-0.5">Runtime {o.runtimeMin} min</p>
                         )}
                       </div>

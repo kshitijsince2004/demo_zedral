@@ -10,6 +10,8 @@ import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { apiClient } from '../../lib/apiClient';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
+import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 
 interface OrderDetailModalProps {
   order: LiveOrderDetail | null;
@@ -26,6 +28,40 @@ function statusTone(status: string) {
   return 'muted' as const;
 }
 
+function OrderRuntimeDisplay({
+  sixHiOrder,
+  fallbackMin,
+}: {
+  sixHiOrder: SixHiOrderDetail | null;
+  fallbackMin?: number;
+}) {
+  const isStoppage = !!sixHiOrder?.activeStoppage;
+  const isRunning = sixHiOrder?.status === 'IN_PROGRESS' && !!sixHiOrder.prodStartAt && !isStoppage;
+  const startAt = isStoppage ? sixHiOrder?.activeStoppage?.startAt : sixHiOrder?.prodStartAt;
+  const { formatted } = useLiveTimer(startAt, isRunning || isStoppage);
+
+  if ((isRunning || isStoppage) && startAt) {
+    return (
+      <div className="pt-2 mt-2 border-t border-border">
+        <span className="text-muted-foreground text-xs block mb-1">
+          {isStoppage ? 'Stoppage Duration' : 'Runtime'}
+        </span>
+        <span className={`font-mono text-lg ${isStoppage ? 'text-warning' : 'text-primary'}`}>
+          {formatted || '—'}
+        </span>
+      </div>
+    );
+  }
+
+  if (fallbackMin == null) return null;
+  return (
+    <div className="pt-2 mt-2 border-t border-border">
+      <span className="text-muted-foreground text-xs block mb-1">Runtime</span>
+      <span className="font-mono text-lg text-primary">{fallbackMin} min</span>
+    </div>
+  );
+}
+
 export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailModalProps) {
   const [sixHiOrder, setSixHiOrder] = useState<SixHiOrderDetail | null>(null);
   const [sixHiLoading, setSixHiLoading] = useState(false);
@@ -36,20 +72,26 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
       return;
     }
     let cancelled = false;
+    const load = () => {
+      void apiClient
+        .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(order.batchNumber)}`)
+        .then((loaded) => {
+          if (!cancelled) setSixHiOrder(loaded);
+        })
+        .catch(() => {
+          if (!cancelled) setSixHiOrder(null);
+        })
+        .finally(() => {
+          if (!cancelled) setSixHiLoading(false);
+        });
+    };
+
     setSixHiLoading(true);
-    void apiClient
-      .get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(order.batchNumber)}`)
-      .then((loaded) => {
-        if (!cancelled) setSixHiOrder(loaded);
-      })
-      .catch(() => {
-        if (!cancelled) setSixHiOrder(null);
-      })
-      .finally(() => {
-        if (!cancelled) setSixHiLoading(false);
-      });
+    load();
+    const id = setInterval(load, LIVE_POLL_MS);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, [open, order?.batchNumber]);
 
@@ -141,7 +183,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                   <section className="bg-background rounded-2xl border border-border p-5 shadow-sm">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-warning flex items-center gap-2 mb-4">
                       <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
-                      Stoppages ({order.stoppages.length})
+                      Stoppages
                     </h3>
                     <ul className="space-y-3">
                       {order.stoppages.map((s) => (
@@ -190,12 +232,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                         <span className="font-mono">{order.shiftCode ?? '—'}</span>
                       </div>
                     </div>
-                    {order.runtimeMin != null && (
-                      <div className="pt-2 mt-2 border-t border-border">
-                        <span className="text-muted-foreground text-xs block mb-1">Runtime</span>
-                        <span className="font-mono text-lg text-primary">{order.runtimeMin} min</span>
-                      </div>
-                    )}
+                    <OrderRuntimeDisplay sixHiOrder={sixHiOrder} fallbackMin={order.runtimeMin} />
                   </div>
                 </section>
 
@@ -213,7 +250,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                 {order.remarks.length > 0 && (
                   <section className="bg-background rounded-2xl border border-border p-4 shadow-sm">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-                      Remarks ({order.remarks.length})
+                      Remarks
                     </h3>
                     <ul className="space-y-3">
                       {order.remarks.map((r) => (

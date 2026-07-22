@@ -975,6 +975,14 @@ export class ReportingService {
           eb('o.status', 'not in', ['COMPLETED', 'REJECTED']),
         ]),
       )
+      // Hide batches on disabled machines from Plant Head backlog.
+      .where((eb) =>
+        eb.or([
+          eb('pb.machine_code', 'is', null),
+          eb('m.machine_status', 'is', null),
+          eb('m.machine_status', '!=', 'OFFLINE'),
+        ]),
+      )
       .orderBy('pb.plan_date', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();

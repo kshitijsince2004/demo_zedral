@@ -8,7 +8,8 @@ export type MachineLiveStatus =
   | 'IDLE'
   | 'STOPPAGE'
   | 'BREAKDOWN'
-  | 'MAINTENANCE';
+  | 'MAINTENANCE'
+  | 'OFFLINE';
 
 // ---------------------------------------------------------------------------
 // Machine State Event
@@ -277,6 +278,9 @@ export interface HandoverOverviewRow {
   status: string;
   /** Production date of the outgoing shift (YYYY-MM-DD). */
   prodDate?: string;
+  handoverPriority?: string;
+  /** Outgoing operator remarks (handover notes). */
+  remarks?: string;
   outgoingShiftCode: string;
   incomingShiftCode: string;
   createdAt: string;
@@ -287,7 +291,9 @@ export interface HandoverOverviewRow {
   shiftEndAt?: string;
   shiftDurationMinutes?: number;
   shiftDurationLabel?: string;
+  /** Display name (full_name preferred, else username). */
   outgoingUsername?: string;
+  /** Display name (full_name preferred, else username). Null until accepted. */
   incomingUsername?: string;
   createdByBoundary?: boolean;
   subProcess?: string;

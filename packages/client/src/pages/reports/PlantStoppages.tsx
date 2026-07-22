@@ -1,35 +1,15 @@
-import { useEffect, useState } from 'react';
-import { reportingService, type ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
 import { Timer, AlertTriangle } from 'lucide-react';
+import { usePlantHeadReportData } from '../../hooks/usePlantHeadReportData';
+import { PlantReportWindowSelect } from '../../components/plant-head/PlantReportWindowSelect';
 
 export function PlantStoppages() {
-  const [data, setData] = useState<ExtendedPlantHeadDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { windowDays, setWindowDays, data, loading, error } = usePlantHeadReportData(7);
 
-  useEffect(() => {
-    let active = true;
-    reportingService.getExtendedPlantHeadDashboard(7)
-      .then(res => {
-        if (active) {
-          setData(res);
-          setError(null);
-        }
-      })
-      .catch(err => {
-        if (active) setError(err.message || 'Failed to load stoppage data');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  if (loading) {
+  if (loading && !data) {
     return <div className="p-8 text-muted-foreground text-center animate-pulse">Loading downtime metrics...</div>;
   }
 
-  if (error) {
+  if (error && !data) {
     return <div className="p-8 text-destructive text-center">Error: {error}</div>;
   }
 
@@ -37,27 +17,30 @@ export function PlantStoppages() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Timer className="h-6 w-6 text-primary" />
-        <h1 className="text-xl font-bold text-foreground">Downtime Analysis</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Timer className="h-6 w-6 text-primary" />
+          <h1 className="text-xl font-bold text-foreground">Downtime Intelligence</h1>
+        </div>
+        <PlantReportWindowSelect value={windowDays} onChange={setWindowDays} />
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MTTR</p>
           <p className="text-2xl font-mono mt-1 font-bold text-warning">{data.mttrHours} <span className="text-sm text-muted-foreground">hrs</span></p>
         </div>
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MTBF</p>
+          <p className="text-2xl font-mono mt-1 font-bold">{data.mtbfHours} <span className="text-sm text-muted-foreground">hrs</span></p>
+        </div>
+        <div className="bg-white border border-border rounded-xl shadow-sm p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Availability</p>
           <p className="text-2xl font-mono mt-1 font-bold text-success">{data.availabilityPct}%</p>
         </div>
         <div className="bg-white border border-border rounded-xl shadow-sm p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Alerts</p>
-          <p className="text-2xl font-mono mt-1 font-bold text-destructive">{data.activeAlerts}</p>
-        </div>
-        <div className="bg-white border border-border rounded-xl shadow-sm p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Breakdown Machines</p>
-          <p className="text-2xl font-mono mt-1 font-bold">{data.breakdownMachines}</p>
+          <p className="text-2xl font-mono mt-1 font-bold text-destructive">{data.breakdownMachines}</p>
         </div>
       </div>
 
