@@ -1,4 +1,5 @@
 import { apiClient } from '../lib/apiClient';
+import { postQueued } from '../lib/sync/queuedApi';
 
 export interface PendingHandover {
   handover_id: string;
@@ -252,29 +253,42 @@ export const machineHandoverService = {
       `/machines/handover/${encodeURIComponent(machineCode)}/preview`,
     ),
 
-  ensureSession: (machineCode: string) =>
-    apiClient.post<{ session: unknown; pendingHandover: PendingHandover | null }>(
+  ensureSession: async (machineCode: string) => {
+    const result = await postQueued<{ session: unknown; pendingHandover: PendingHandover | null }>(
       `/machines/handover/${encodeURIComponent(machineCode)}/session`,
       {},
-    ),
+      `handover:${machineCode}`,
+    );
+    return result.data ?? { session: null, pendingHandover: null };
+  },
 
-  saveDraft: (machineCode: string, payload: Partial<HandoverSubmitPayload>) =>
-    apiClient.post<PendingHandover>(
+  saveDraft: async (machineCode: string, payload: Partial<HandoverSubmitPayload>) => {
+    const result = await postQueued<PendingHandover>(
       `/machines/handover/${encodeURIComponent(machineCode)}/draft`,
       payload,
-    ),
+      `handover:${machineCode}`,
+    );
+    return result.data ?? ({ ...payload, machine_code: machineCode } as PendingHandover);
+  },
 
-  submitOutgoing: (machineCode: string, payload: HandoverSubmitPayload) =>
-    apiClient.post<PendingHandover>(
+  submitOutgoing: async (machineCode: string, payload: HandoverSubmitPayload) => {
+    const result = await postQueued<PendingHandover>(
       `/machines/handover/${encodeURIComponent(machineCode)}/outgoing`,
       payload,
-    ),
+      `handover:${machineCode}`,
+    );
+    return result.data ?? ({ ...payload, machine_code: machineCode } as PendingHandover);
+  },
 
-  accept: (handoverId: string) =>
-    apiClient.post(`/machines/handover/accept/${encodeURIComponent(handoverId)}`, {}),
+  accept: async (handoverId: string) => {
+    await postQueued(`/machines/handover/accept/${encodeURIComponent(handoverId)}`, {}, `handover:${handoverId}`);
+  },
 
-  requestClarification: (handoverId: string, notes: string) =>
-    apiClient.post(`/machines/handover/clarification/${encodeURIComponent(handoverId)}`, {
-      notes,
-    }),
+  requestClarification: async (handoverId: string, notes: string) => {
+    await postQueued(
+      `/machines/handover/clarification/${encodeURIComponent(handoverId)}`,
+      { notes },
+      `handover:${handoverId}`,
+    );
+  },
 };

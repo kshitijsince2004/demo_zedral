@@ -7,7 +7,7 @@ import { useSixHiStore } from '../../../store/sixHiStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
 import { ZBadge } from '../../primitives/ZBadge';
 import { GloveModeToggle } from '../../ui/GloveModeToggle';
-import { SyncStatusBadge } from '../../../operator/sync/SyncStatusBadge';
+import { SyncStatusBadge } from '../../../lib/sync/SyncStatusBadge';
 import { DeviceStatusIndicators } from './DeviceStatusIndicators';
 import type { Tone } from '../../../lib/tones';
 

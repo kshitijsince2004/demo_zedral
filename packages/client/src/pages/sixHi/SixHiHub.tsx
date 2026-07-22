@@ -15,6 +15,12 @@ import { SixHiBatchDetailPanel } from '../../components/sixHi/SixHiBatchDetailPa
 import { MachineAllocationModal, type CrmMillCode, type MachineAllocationMode } from '../../components/sixHi/MachineAllocationModal';
 import { invalidateMachineRegistryCache } from '../../lib/machineRegistry';
 import { apiClient, ApiError } from '../../lib/apiClient';
+import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
+import {
+  allocateMachine,
+  startCombinedOrders,
+  transferMachines,
+} from '../../lib/sync/sixHiWrites';
 import { useAuthStore } from '../../lib/authStore';
 import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore } from '../../store/sixHiStore';
@@ -406,17 +412,16 @@ export function SixHiHub() {
     const primaryBatch = anchorBatch && cards.some((c) => c.batchNumber === anchorBatch)
       ? anchorBatch
       : cards[0].batchNumber;
-    const response = await apiClient.post<{ orders: unknown[] }>('/6hi/orders/start-combined', { batchNumbers });
+    await startCombinedOrders(batchNumbers);
     const combined = buildCombinedRunFromCards(cards, primaryBatch);
     if (combined) {
       useSixHiStore.getState().setCombinedRun(combined);
     }
     setAutoCombinedBatchNumbers(new Set());
     useSixHiStore.getState().requestQueueRefresh();
+    invalidateAfterWrite();
     await loadQueue();
-    if (response.orders.length > 0) {
-      openProductionForCard(cards.find((c) => c.batchNumber === primaryBatch) ?? cards[0]);
-    }
+    openProductionForCard(cards.find((c) => c.batchNumber === primaryBatch) ?? cards[0]);
   };
 
   const moveSelectedToProduction = () => {
@@ -478,12 +483,10 @@ export function SixHiHub() {
 
     if (allocMode === 'production') {
       for (const batch of allocBatches) {
-        await apiClient.post(
-          `/6hi/orders/${encodeURIComponent(batch.batchNumber)}/allocate-machine`,
-          { machineCode },
-        );
+        await allocateMachine(batch.batchNumber, machineCode);
       }
       invalidateMachineRegistryCache();
+      invalidateAfterWrite();
       const targetBatch = allocBatches[0]?.batchNumber;
       setAllocOpen(false);
       setAllocBatches([]);
@@ -501,11 +504,12 @@ export function SixHiHub() {
       return;
     }
 
-    await apiClient.post(
-      '/6hi/orders/transfer-machines',
-      { machineCode, batchNumbers: allocBatches.map((b) => b.batchNumber) },
+    await transferMachines(
+      machineCode,
+      allocBatches.map((b) => b.batchNumber),
     );
     invalidateMachineRegistryCache();
+    invalidateAfterWrite();
     setAllocOpen(false);
     setIsTransferMode(false);
     setSelectedForTransfer(new Set());

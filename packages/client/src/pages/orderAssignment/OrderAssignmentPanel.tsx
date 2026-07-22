@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
+import { transferOrderAssignment } from '../../lib/sync/sixHiWrites';
+import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
@@ -180,18 +182,16 @@ export function OrderAssignmentPanel() {
     setBusy(true);
     setActionError(null);
     try {
-      const res = await apiClient.post<{ ok: boolean; results?: { batchNumber: string; ok: boolean; error?: string }[] }>(
-        '/6hi/order-assignment/transfer',
-        {
-          batchNumbers: selectedOrders.map((o) => o.batchNumber),
-          machineCode: targetMachine,
-          reason: reason.trim() || undefined,
-        },
-      );
-      const failed = res.results?.filter((r) => !r.ok) ?? [];
+      const res = await transferOrderAssignment({
+        batchNumbers: selectedOrders.map((o) => o.batchNumber),
+        machineCode: targetMachine,
+        reason: reason.trim() || undefined,
+      });
+      const failed = res.data?.results?.filter((r) => !r.ok) ?? [];
       if (failed.length > 0) {
         setActionError(failed.map((f) => `${f.batchNumber}: ${f.error}`).join('; '));
       }
+      invalidateAfterWrite();
       setReason('');
       setSelectedBatches(new Set());
       setBulkMode(false);

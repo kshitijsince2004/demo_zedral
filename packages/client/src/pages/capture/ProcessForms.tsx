@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from 'react';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
-import { submitOrQueue } from '../../operator/sync/submitOrQueue';
+import { submitOrQueue } from '../../lib/sync/submitOrQueue';
 import { useManualDraft } from '../../lib/useFormDraft';
 
 interface CaptureFormProps {

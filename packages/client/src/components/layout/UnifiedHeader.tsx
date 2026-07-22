@@ -1,4 +1,5 @@
 import { Breadcrumbs } from './Breadcrumbs';
+import { SyncStatusBadge } from '../../lib/sync/SyncStatusBadge';
 
 interface UnifiedHeaderProps {
   title: string;
@@ -12,10 +13,11 @@ export function UnifiedHeader({ title, subtitle }: UnifiedHeaderProps) {
         <Breadcrumbs />
         <div className="flex items-stretch gap-3">
           <span className="w-1 rounded-full bg-accent shrink-0" aria-hidden />
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold tracking-tight text-nav">{title}</h1>
             {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
           </div>
+          <SyncStatusBadge />
         </div>
       </div>
     </header>

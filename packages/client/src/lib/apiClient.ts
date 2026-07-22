@@ -5,6 +5,7 @@
  *   still handles the empty-host web case).
  * - Sends cookies (`credentials: 'include'`); SuperTokens' fetch interceptor
  *   attaches/refreshes the session cookie.
+ * - Per-request timeout + bounded GET retry for weak-network zones.
  * - Unwraps the `{ data, meta, errors }` envelope when present, otherwise
  *   returns the raw JSON body (the current backend returns bare objects).
  * - Surfaces a typed ApiError so callers can branch on status / offline.
@@ -12,6 +13,10 @@
 
 import { useAuthStore } from './authStore';
 import { getActiveCrmMill } from './crmMillContext';
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 400;
 
 /** Web: `/api` via nginx. APK/native: `VITE_API_URL` host + `/api` (see M1-10). */
 function resolveApiBase(): string {
@@ -29,13 +34,15 @@ export class ApiError extends Error {
   status: number;
   body: unknown;
   isOffline: boolean;
+  preventRetry?: boolean;
 
-  constructor(message: string, status: number, body: unknown, isOffline = false) {
+  constructor(message: string, status: number, body: unknown, isOffline = false, preventRetry = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
     this.isOffline = isOffline;
+    this.preventRetry = preventRetry;
   }
 }
 
@@ -53,11 +60,16 @@ interface RequestOptions {
   body?: unknown;
   /** Skip throwing on non-2xx; return the parsed body instead. */
   raw?: boolean;
+  timeoutMs?: number;
 }
 
 interface ApiEnvelope<T> {
   data: T;
   errors: unknown;
+}
+
+export interface ApiFetchOptions extends RequestInit {
+  timeoutMs?: number;
 }
 
 function isRecord(value: unknown): boolean {
@@ -87,6 +99,39 @@ function formatApiError(parsed: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
+function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return { signal: ctrl.signal, cancel: () => clearTimeout(t) };
+}
+
+function mergeAbortSignals(a?: AbortSignal | null, b?: AbortSignal | null): AbortSignal | undefined {
+  if (!a && !b) return undefined;
+  if (!a) return b ?? undefined;
+  if (!b) return a;
+  const ctrl = new AbortController();
+  const abort = () => ctrl.abort();
+  if (a.aborted || b.aborted) {
+    ctrl.abort();
+    return ctrl.signal;
+  }
+  a.addEventListener('abort', abort);
+  b.addEventListener('abort', abort);
+  return ctrl.signal;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGetError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.preventRetry || err.status === 401) return false;
+  if (err.isOffline || err.status === 0) return true;
+  if (err.status >= 500) return true;
+  return false;
+}
+
 /** Bumped on login/logout so stale 401 responses cannot clear a fresh session. */
 let authGeneration = 0;
 
@@ -106,17 +151,17 @@ function isPublicAuthPath(path: string): boolean {
   );
 }
 
-export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
   const generationAtStart = authGeneration;
   const tokenAtStart = getAuthToken();
-  const headers = new Headers(options.headers);
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...fetchOpts } = options;
+  const headers = new Headers(fetchOpts.headers);
 
-  if (!headers.has('Content-Type') && options.body !== undefined) {
+  if (!headers.has('Content-Type') && fetchOpts.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
   headers.set('X-App-Version', APP_VERSION);
 
-  // Inject machine code into /6hi/ API requests (path mill or active CRM context).
   let finalPath = path;
   if (typeof window !== 'undefined' && path.startsWith('/6hi/') && !path.includes('machine=')) {
     const pathname = window.location.pathname.toLowerCase();
@@ -130,13 +175,17 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     }
   }
 
+  const { signal: timeoutSignal, cancel } = withTimeout(timeoutMs);
+  const signal = mergeAbortSignals(callerSignal, timeoutSignal);
+
   let res: Response;
   try {
     const url = `${API_BASE}${finalPath}`;
     res = await fetch(url, {
-      ...options,
+      ...fetchOpts,
       headers,
       credentials: 'include',
+      signal,
     });
 
     if (res.status === 401 && !isPublicAuthPath(path)) {
@@ -144,18 +193,17 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
         Object.fromEntries(res.headers.entries()));
     }
   } catch (networkErr) {
+    const isAbort = networkErr instanceof Error && networkErr.name === 'AbortError';
     let msg = 'Network unavailable or request blocked by CORS';
     if (networkErr instanceof Error) {
-      if (networkErr.name === 'AbortError') msg = 'Request aborted';
+      if (isAbort) msg = 'Request timed out';
       else if (networkErr.message) msg = `Network error: ${networkErr.message}`;
     }
-    const apiErr = new ApiError(msg, 0, networkErr, true);
-    // Attach flag to hint SWR or other fetchers to avoid endless retries on hard network failures
-    Object.assign(apiErr, { preventRetry: true });
-    throw apiErr;
+    throw new ApiError(msg, 0, networkErr, true, true);
+  } finally {
+    cancel();
   }
 
-  // ST fetch interceptor refreshes the session; a remaining 401 means the session is dead.
   if (res.status === 401 && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {
     const sameSession =
       authGeneration === generationAtStart && getAuthToken() === tokenAtStart;
@@ -172,12 +220,13 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   return res;
 }
 
-async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, raw = false } = options;
+async function requestOnce<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, raw = false, timeoutMs } = options;
 
   const res = await apiFetch(path, {
     method,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    timeoutMs,
   });
 
   let parsed: unknown = null;
@@ -199,6 +248,27 @@ async function request<T = unknown>(path: string, options: RequestOptions = {}):
     return parsed.data as T;
   }
   return parsed as T;
+}
+
+async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? 'GET';
+  const isGet = method === 'GET';
+  const maxAttempts = isGet ? MAX_RETRIES + 1 : 1;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await requestOnce<T>(path, options);
+    } catch (err) {
+      lastErr = err;
+      if (!isGet || attempt >= maxAttempts - 1) throw err;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) throw err;
+      if (!isRetryableGetError(err)) throw err;
+      const backoff = RETRY_BASE_MS * 2 ** attempt + Math.random() * 100;
+      await sleep(backoff);
+    }
+  }
+  throw lastErr;
 }
 
 export const apiClient = {

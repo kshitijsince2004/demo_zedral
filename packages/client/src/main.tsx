@@ -12,6 +12,8 @@ import { getAuthToken } from './lib/apiClient'
 import { SuperTokensWrapper } from 'supertokens-auth-react'
 import { registerSW } from 'virtual:pwa-register'
 import { AnalyticErrorBoundary } from './components/shared/AnalyticErrorBoundary'
+import { AppSWRConfig } from './lib/swrDefaults'
+import { startSyncEngine } from './lib/sync/engine'
 
 const updateSW = registerSW({
   immediate: true,
@@ -31,11 +33,15 @@ if (existingToken) {
   scheduleAccessTokenRefresh(existingToken)
 }
 
+startSyncEngine()
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AnalyticErrorBoundary analyticName="Application">
       <SuperTokensWrapper>
-        <App />
+        <AppSWRConfig>
+          <App />
+        </AppSWRConfig>
       </SuperTokensWrapper>
     </AnalyticErrorBoundary>
   </StrictMode>,

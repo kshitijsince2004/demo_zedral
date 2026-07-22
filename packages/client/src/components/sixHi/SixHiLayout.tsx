@@ -8,6 +8,21 @@ import { OperatorShell } from '../layout/operator/OperatorShell';
 import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore, shouldShowProductionPanel } from '../../store/sixHiStore';
 import { apiClient, ApiError } from '../../lib/apiClient';
+import {
+  addOrderRemark,
+  endManualStoppage,
+  endOrder,
+  endStoppage,
+  patchManualStoppage,
+  rejectOrder,
+  rollChange,
+  startCombinedOrders,
+  startManualStoppage,
+  startOrder,
+  startStoppage,
+  updateStoppage,
+} from '../../lib/sync/sixHiWrites';
+import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { useAuthStore } from '../../lib/authStore';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { formatShiftDate } from '../../lib/dateFormat';
@@ -161,8 +176,8 @@ export function SixHiLayout() {
     try {
       await runOrderAction(activeBatch, async () =>
         combinedRun?.batchNumbers.length
-          ? apiClient.post('/6hi/orders/start-combined', { batchNumbers: combinedRun.batchNumbers })
-          : apiClient.post(`/6hi/orders/${encodeURIComponent(activeBatch)}/start`, {}),
+          ? startCombinedOrders(combinedRun.batchNumbers)
+          : startOrder(activeBatch),
       );
       if (shiftLogId) await loadShiftSummary(shiftLogId);
     } catch (err) {
@@ -259,7 +274,7 @@ export function SixHiLayout() {
               const endTargets = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [activeBatch];
               await runOrderAction(activeBatch, async () =>
                 Promise.all(endTargets.map((batchNumber) =>
-                  apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/end`, { defectCodes }),
+                  endOrder(batchNumber, defectCodes),
                 )),
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);
@@ -293,11 +308,7 @@ export function SixHiLayout() {
           }
           await runOrderAction(targets[0], async () =>
             Promise.all(targets.map((batchNumber) =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/reject`, {
-                rejectionReason,
-                defectCodes,
-                remarks,
-              }),
+              rejectOrder(batchNumber, { rejectionReason, defectCodes, remarks }),
             )),
           );
           if (shiftLogId) await loadShiftSummary(shiftLogId);
@@ -353,11 +364,7 @@ export function SixHiLayout() {
             const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'start', stoppageBatch);
             await runOrderAction(stoppageBatch, async () =>
               Promise.all(targets.map((batchNumber) =>
-                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages`, {
-                  categoryCode,
-                  breakdownCode,
-                  remarks,
-                }),
+                startStoppage(batchNumber, { categoryCode, breakdownCode, remarks }),
               )),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
@@ -370,7 +377,7 @@ export function SixHiLayout() {
                   ? stoppageId
                   : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
                 if (!targetStoppageId) return null;
-                return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}`, {
+                return updateStoppage(batchNumber, targetStoppageId, {
                   categoryCode, breakdownCode, remarks,
                 });
               })),
@@ -385,10 +392,10 @@ export function SixHiLayout() {
                   ? stoppageId
                   : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
                 if (!targetStoppageId) return null;
-                await apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}`, {
+                await updateStoppage(batchNumber, targetStoppageId, {
                   categoryCode, breakdownCode, remarks,
                 });
-                return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/stoppages/${encodeURIComponent(targetStoppageId)}/end`, {});
+                return endStoppage(batchNumber, targetStoppageId);
               }));
               return null;
             });
@@ -396,7 +403,7 @@ export function SixHiLayout() {
           }}
           onRollChange={async (data) => {
             await runOrderAction(stoppageBatch, () =>
-              apiClient.post(`/6hi/orders/${encodeURIComponent(stoppageBatch)}/roll-change`, data)
+              rollChange(stoppageBatch, data),
             );
           }}
         />
@@ -416,44 +423,32 @@ export function SixHiLayout() {
         rollChangeTiming="before"
         onClose={() => setManualStoppageOpen(false)}
         onStart={async (categoryCode, breakdownCode, remarks) => {
-          await apiClient.post('/6hi/manual-stoppage/start', {
-            machine: pathMill,
-            categoryCode,
-            breakdownCode,
-            remarks,
-          });
+          await startManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
           await refreshMachineState();
+          invalidateAfterWrite();
         }}
         onUpdate={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
-          await apiClient.patch('/6hi/manual-stoppage', {
-            machine: pathMill,
-            categoryCode,
-            breakdownCode,
-            remarks,
-          });
+          await patchManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
           await refreshMachineState();
+          invalidateAfterWrite();
         }}
         onEnd={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
-          await apiClient.patch('/6hi/manual-stoppage', {
-            machine: pathMill,
-            categoryCode,
-            breakdownCode,
-            remarks,
-          });
-          await apiClient.post('/6hi/manual-stoppage/end', { machine: pathMill });
+          await patchManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
+          await endManualStoppage(pathMill);
           await refreshMachineState();
+          invalidateAfterWrite();
         }}
         onRollChange={async (data) => {
           const active = useSixHiStore.getState().manualStoppage?.active;
           if (!active) return;
-          await apiClient.patch('/6hi/manual-stoppage', {
-            machine: pathMill,
+          await patchManualStoppage(pathMill, {
             categoryCode: active.categoryCode ?? '',
             breakdownCode: active.breakdownCode,
             remarks: active.reason,
             rollChange: data,
           });
           await refreshMachineState();
+          invalidateAfterWrite();
         }}
       />
 
@@ -487,7 +482,7 @@ export function SixHiLayout() {
           onSave={async (text, defects) => {
             await runOrderAction(activeBatch, async () =>
               Promise.all(actionBatchNumbers.map((batchNumber) =>
-                apiClient.post(`/6hi/orders/${encodeURIComponent(batchNumber)}/remarks`, { text, defects }),
+                addOrderRemark(batchNumber, text, defects),
               )),
             );
             setRemarkOpen(false);

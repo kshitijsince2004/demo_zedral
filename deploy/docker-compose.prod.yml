@@ -40,6 +40,21 @@ services:
     networks:
       - zedral
 
+  redis:
+    image: redis:7-alpine
+    container_name: zedral-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - zedral
+
   backend:
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to a GHCR tag (sha or vX.Y.Z)}
     container_name: zedral-backend
@@ -61,6 +76,8 @@ services:
       EXPORT_WORKER_ENABLED: ${EXPORT_WORKER_ENABLED:-true}
       DPR_SCHEDULER_ENABLED: ${DPR_SCHEDULER_ENABLED:-true}
       SHIFT_BOUNDARY_SCHEDULER_ENABLED: ${SHIFT_BOUNDARY_SCHEDULER_ENABLED:-false}
+      CACHE_DRIVER: ${CACHE_DRIVER:-memory}
+      REDIS_URL: ${REDIS_URL:-}
       SUPERTOKENS_CORE_URI: http://supertokens:3567
       SUPERTOKENS_API_KEY: ${SUPERTOKENS_API_KEY}
       API_DOMAIN: ${API_DOMAIN}
@@ -70,6 +87,8 @@ services:
         condition: service_healthy
       supertokens:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       test: [ "CMD", "curl", "-fsS", "http://localhost:3005/health" ]
       interval: 30s
@@ -99,3 +118,4 @@ networks:
 
 volumes:
   pg_data:
+  redis_data:

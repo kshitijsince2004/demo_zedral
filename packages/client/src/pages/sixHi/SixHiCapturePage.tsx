@@ -15,6 +15,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { apiClient, ApiError } from '../../lib/apiClient';
+import { networkAwareRefreshInterval, shouldPauseLivePolling } from '../../lib/networkAwareInterval';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
@@ -68,12 +69,17 @@ export function SixHiCapturePage() {
   useEffect(() => {
     refreshMachineState();
     if (shiftLogId) loadShiftSummary(shiftLogId);
-    const id = setInterval(() => {
+
+    let id: ReturnType<typeof setInterval> | undefined;
+    const tick = async () => {
+      if (await shouldPauseLivePolling()) return;
       const store = useSixHiStore.getState();
       void store.refreshMachineState();
       const { shiftLogId: sid } = useShiftStore.getState();
       if (sid) void store.loadShiftSummary(sid);
-    }, 15000);
+    };
+    void tick();
+    id = setInterval(() => void tick(), 15000);
     return () => clearInterval(id);
   }, [shiftLogId, refreshMachineState, loadShiftSummary]);
 
@@ -97,7 +103,7 @@ export function SixHiCapturePage() {
       return merged;
     },
     {
-      refreshInterval: 15000,
+      refreshInterval: networkAwareRefreshInterval(15000),
       revalidateOnFocus: false,
       compare: (a, b) => jsonEqual(a, b),
     },
@@ -160,7 +166,7 @@ export function SixHiCapturePage() {
     shiftLogId ? `/6hi/shift/${shiftLogId}/stoppages?machine=${machineCode}` : null,
     async (url) => apiClient.get(url),
     {
-      refreshInterval: 15000,
+      refreshInterval: networkAwareRefreshInterval(15000),
       revalidateOnFocus: false,
       compare: (a, b) => jsonEqual(a, b),
     },

@@ -1,20 +1,28 @@
 import { Kysely } from 'kysely';
 import { DB } from '../db-types';
 import { ValidationRule, EffectiveRuleset, isKnownField } from '@m1/shared-validation';
-import NodeCache from 'node-cache';
+import { getAppCache } from '../cache';
+import { getTenantId } from '../context';
+import { tenantCacheKey } from '../cache/types';
 
 export class ValidationConfigService {
-  private cache = new NodeCache({ stdTTL: 60 }); // 1 min TTL
-
   constructor(private db: Kysely<DB>) {}
+
+  private cacheKey(...parts: string[]): string {
+    return tenantCacheKey(getTenantId(), 'validation', ...parts);
+  }
+
+  private async invalidateCache(): Promise<void> {
+    await getAppCache().del(this.cacheKey());
+  }
 
   /**
    * Fetch all rules that are defined in the database by configurers.
    * Only returns active rules unless includeInactive is true.
    */
   async getConfiguredRules(includeInactive = false): Promise<ValidationRule[]> {
-    const cacheKey = `rules_includeInactive_${includeInactive}`;
-    const cached = this.cache.get<ValidationRule[]>(cacheKey);
+    const cacheKey = this.cacheKey('rules', `includeInactive_${includeInactive}`);
+    const cached = await getAppCache().get<ValidationRule[]>(cacheKey);
     if (cached) return cached;
 
     let query = this.db.selectFrom('config.validation_rule').selectAll();
@@ -38,7 +46,7 @@ export class ValidationConfigService {
       appliesWhen: row.applies_when as any ?? undefined,
     }));
 
-    this.cache.set(cacheKey, result);
+    await getAppCache().set(cacheKey, result, 60);
     return result;
   }
 
@@ -46,8 +54,8 @@ export class ValidationConfigService {
    * Get the current published ruleset version
    */
   async getVersion(): Promise<number> {
-    const cacheKey = `rules_version`;
-    const cached = this.cache.get<number>(cacheKey);
+    const cacheKey = this.cacheKey('rules_version');
+    const cached = await getAppCache().get<number>(cacheKey);
     if (cached) return cached;
 
     const row = await this.db
@@ -58,7 +66,7 @@ export class ValidationConfigService {
       .executeTakeFirst();
     
     const version = row?.version ?? 1;
-    this.cache.set(cacheKey, version);
+    await getAppCache().set(cacheKey, version, 60);
     return version;
   }
 
@@ -159,7 +167,7 @@ export class ValidationConfigService {
     });
 
     // Invalidate cache
-    this.cache.flushAll();
+    await this.invalidateCache();
   }
 
   async getFieldHistory(fieldId: string): Promise<any[]> {
@@ -224,7 +232,7 @@ export class ValidationConfigService {
       }
     });
 
-    this.cache.flushAll();
+    await this.invalidateCache();
   }
 
   /**

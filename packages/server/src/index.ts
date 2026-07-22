@@ -5,6 +5,8 @@ import { ExportScheduler } from './export/jobs/ExportScheduler';
 import { ShiftBoundaryScheduler } from './jobs/ShiftBoundaryScheduler';
 import { checkElasticHealth } from './elastic/elasticClient';
 import { ensureIndex } from './elastic/traceabilityIndex';
+import { initAppCache } from './cache';
+import { checkRedisHealth } from './cache/health';
 import { db } from './db';
 import { validateAuthConfigAtStartup } from './config/authConfig';
 import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
@@ -41,6 +43,15 @@ server = app.listen(port, host, async () => {
   ShiftBoundaryScheduler.start();
 
   // Elasticsearch — non-fatal; traceability falls back to PostgreSQL if unavailable
+  void initAppCache().catch((err) => {
+    console.error('[cache] Failed to initialize cache layer:', err);
+  });
+
+  checkRedisHealth().then((ok) => {
+    if (ok) console.info('[cache] Redis health check passed');
+    else if (process.env.REDIS_URL) console.warn('[cache] Redis health check failed; using memory fallback');
+  }).catch(() => { /* non-fatal */ });
+
   checkElasticHealth().then(async (ok) => {
     if (ok) await ensureIndex();
   }).catch(() => { /* already logged in checkElasticHealth */ });

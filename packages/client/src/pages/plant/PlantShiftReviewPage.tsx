@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
+import { putQueued } from '../../lib/sync/queuedApi';
 import { currentPlantDate, formatPlantDateTime, formatShiftDate } from '../../lib/dateFormat';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useAuthStore } from '../../lib/authStore';
@@ -116,7 +117,7 @@ function ShiftCompleteForm({
     setBusy(true);
     setError(null);
     try {
-      await apiClient.put(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed });
+      await putQueued(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed }, `shift-log:${shiftLogId}`);
       onCompleted();
     } catch (err: unknown) {
       setError((err as Error)?.message ?? 'Failed to complete shift');

@@ -20,6 +20,9 @@ import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
+import { deleteOrder } from '../../lib/sync/sixHiWrites';
+import { postQueued } from '../../lib/sync/queuedApi';
+import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 import { formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
 import type { MachineStatusCard } from '@m1/shared-validation';
@@ -367,7 +370,8 @@ export function MachineHeadDashboard() {
     if (!confirmed) return;
     setDeleteBusy(true);
     try {
-      await apiClient.delete(`/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}`);
+      await deleteOrder(selectedOrder.batchNumber);
+      invalidateAfterWrite({ batchNumber: selectedOrder.batchNumber });
       setSelectedOrder(null);
       setDetailOpen(false);
       await loadDashboard();
@@ -389,9 +393,10 @@ export function MachineHeadDashboard() {
     try {
       const machine = selectedOrder.machineCode?.toUpperCase();
       const qs = machine ? `?machine=${encodeURIComponent(machine)}` : '';
-      await apiClient.post(
+      await postQueued(
         `/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}/reinstate${qs}`,
         {},
+        `6hi-order:${selectedOrder.batchNumber}`,
       );
       setSelectedOrder(null);
       setDetailOpen(false);

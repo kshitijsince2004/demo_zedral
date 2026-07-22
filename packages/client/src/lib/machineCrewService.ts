@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { postQueued, putQueued, deleteQueued } from './sync/queuedApi';
 
 export interface MachineCrewMember {
   id: string;
@@ -13,12 +14,19 @@ export const machineCrewService = {
       `/machine-crew?machineCode=${encodeURIComponent(machineCode)}`,
     ),
 
-  create: (payload: { machineCode: string; memberName: string; roleLabel: string }) =>
-    apiClient.post<{ id: string }>('/machine-crew', payload),
+  create: async (payload: { machineCode: string; memberName: string; roleLabel: string }) => {
+    const result = await postQueued<{ id: string }>('/machine-crew', payload, `crew:${payload.machineCode}`);
+    return result.data ?? { id: result.id };
+  },
 
-  update: (crewId: string, payload: { machineCode: string; memberName?: string; roleLabel?: string }) =>
-    apiClient.put(`/machine-crew/${encodeURIComponent(crewId)}`, payload),
+  update: async (crewId: string, payload: { machineCode: string; memberName?: string; roleLabel?: string }) => {
+    await putQueued(`/machine-crew/${encodeURIComponent(crewId)}`, payload, `crew:${payload.machineCode}`);
+  },
 
-  remove: (crewId: string, machineCode: string) =>
-    apiClient.delete(`/machine-crew/${encodeURIComponent(crewId)}?machineCode=${encodeURIComponent(machineCode)}`),
+  remove: async (crewId: string, machineCode: string) => {
+    await deleteQueued(
+      `/machine-crew/${encodeURIComponent(crewId)}?machineCode=${encodeURIComponent(machineCode)}`,
+      `crew:${machineCode}`,
+    );
+  },
 };

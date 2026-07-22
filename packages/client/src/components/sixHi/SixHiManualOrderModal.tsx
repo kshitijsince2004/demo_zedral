@@ -4,7 +4,9 @@ import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { currentPlantDate } from '../../lib/dateFormat';
 import { millSupportsRolling } from '../../lib/millConfig';
-import { apiClient, ApiError } from '../../lib/apiClient';
+import { ApiError } from '../../lib/apiClient';
+import { createManualOrder } from '../../lib/sync/sixHiWrites';
+import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
@@ -78,8 +80,9 @@ export function SixHiManualOrderModal() {
         sap_order_no: form.sap_order_no.trim() || undefined,
       };
 
-      await apiClient.post('/6hi/orders/manual', payload);
+      await createManualOrder(payload, machineCode);
       requestQueueRefresh();
+      invalidateAfterWrite();
       handleClose();
     } catch (err) {
       const msg = err instanceof ApiError

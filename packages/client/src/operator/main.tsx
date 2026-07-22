@@ -10,6 +10,7 @@ import '../index.css';
 import { AnalyticErrorBoundary } from '../components/shared/AnalyticErrorBoundary';
 import OperatorApp from './OperatorApp';
 import { initNative } from './native/init';
+import { AppSWRConfig } from '../lib/swrDefaults';
 
 const root = createRoot(document.getElementById('root')!);
 
@@ -26,7 +27,9 @@ async function bootstrap() {
     <StrictMode>
       <AnalyticErrorBoundary analyticName="OperatorApp">
         <SuperTokensWrapper>
-          <OperatorApp />
+          <AppSWRConfig>
+            <OperatorApp />
+          </AppSWRConfig>
         </SuperTokensWrapper>
       </AnalyticErrorBoundary>
     </StrictMode>,

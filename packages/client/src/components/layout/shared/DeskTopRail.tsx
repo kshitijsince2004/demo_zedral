@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { ZBadge } from '../../primitives/ZBadge';
 import { ZButton } from '../../primitives/ZButton';
-import { SyncStatusBadge } from '../../../operator/sync/SyncStatusBadge';
+import { SyncStatusBadge } from '../../../lib/sync/SyncStatusBadge';
 import type { Tone } from '../../../lib/tones';
 
 interface DeskTopRailProps {

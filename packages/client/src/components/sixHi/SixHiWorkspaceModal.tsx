@@ -3,6 +3,7 @@ import { X, AlertCircle } from 'lucide-react';
 import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
 import { useSixHiStore, isPreparing } from '../../store/sixHiStore';
 import { apiClient } from '../../lib/apiClient';
+import { patchQueued } from '../../lib/sync/queuedApi';
 import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
@@ -126,7 +127,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   ) => {
     if (!isCombined || !combinedRun) {
       await Promise.all(actionBatchNumbers.map((batchNumber) =>
-        apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, data),
+        patchQueued(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, data, `6hi-order:${batchNumber}`),
       ));
       return;
     }
@@ -144,7 +145,11 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
         ...data,
         actualWeightMt: allocation?.get(batchNumber) ?? data.actualWeightMt,
       };
-      return apiClient.patch(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, payload);
+      return patchQueued(
+        `/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`,
+        payload,
+        `6hi-order:${batchNumber}`,
+      );
     }));
   };
 

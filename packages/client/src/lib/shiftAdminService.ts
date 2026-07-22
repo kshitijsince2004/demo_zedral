@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { putQueued } from './sync/queuedApi';
 
 export interface ShiftWindow {
   shift_code: string;
@@ -22,11 +23,14 @@ export const shiftAdminService = {
   getWindows: () =>
     apiClient.get<{ windows: ShiftWindow[]; timezone: string }>('/shifts/windows'),
 
-  updateWindow: (shiftCode: string, startTime: string, endTime: string) =>
-    apiClient.put<{ windows: ShiftWindow[]; timezone: string }>(
+  updateWindow: async (shiftCode: string, startTime: string, endTime: string) => {
+    const result = await putQueued<{ windows: ShiftWindow[]; timezone: string }>(
       `/shifts/windows/${encodeURIComponent(shiftCode)}`,
       { startTime, endTime },
-    ),
+      `shift-window:${shiftCode}`,
+    );
+    return result.data ?? { windows: [], timezone: 'Asia/Kolkata' };
+  },
 
   getAudit: (opts?: { limit?: number; eventType?: string }) => {
     const params = new URLSearchParams();

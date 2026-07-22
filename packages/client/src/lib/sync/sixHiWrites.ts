@@ -1,0 +1,115 @@
+import { deleteQueued, patchQueued, postQueued } from './queuedApi';
+
+const enc = encodeURIComponent;
+
+export function orderAggregateKey(batchNumber: string): string {
+  return `6hi-order:${batchNumber}`;
+}
+
+export function machineAggregateKey(machineCode: string): string {
+  return `6hi-machine:${machineCode}`;
+}
+
+export function postOrder(batchNumber: string, suffix: string, payload: unknown = {}) {
+  return postQueued(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload, orderAggregateKey(batchNumber));
+}
+
+export function patchOrder(batchNumber: string, suffix: string, payload: unknown) {
+  return patchQueued(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload, orderAggregateKey(batchNumber));
+}
+
+export function deleteOrder(batchNumber: string) {
+  return deleteQueued(`/6hi/orders/${enc(batchNumber)}`, orderAggregateKey(batchNumber));
+}
+
+export function startOrder(batchNumber: string) {
+  return postOrder(batchNumber, 'start');
+}
+
+export function startCombinedOrders(batchNumbers: string[]) {
+  const key = `6hi-combined:${[...batchNumbers].sort().join(',')}`;
+  return postQueued('/6hi/orders/start-combined', { batchNumbers }, key);
+}
+
+export function endOrder(batchNumber: string, defectCodes: unknown) {
+  return postOrder(batchNumber, 'end', { defectCodes });
+}
+
+export function rejectOrder(
+  batchNumber: string,
+  payload: { rejectionReason: string; defectCodes: unknown; remarks?: string },
+) {
+  return postOrder(batchNumber, 'reject', payload);
+}
+
+export function addOrderRemark(batchNumber: string, text: string, defects: unknown) {
+  return postOrder(batchNumber, 'remarks', { text, defects });
+}
+
+export function startStoppage(
+  batchNumber: string,
+  payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
+) {
+  return postOrder(batchNumber, 'stoppages', payload);
+}
+
+export function updateStoppage(
+  batchNumber: string,
+  stoppageId: string,
+  payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
+) {
+  return patchOrder(batchNumber, `stoppages/${enc(stoppageId)}`, payload);
+}
+
+export function endStoppage(batchNumber: string, stoppageId: string) {
+  return patchOrder(batchNumber, `stoppages/${enc(stoppageId)}/end`, {});
+}
+
+export function rollChange(batchNumber: string, data: unknown) {
+  return postOrder(batchNumber, 'roll-change', data);
+}
+
+export function allocateMachine(batchNumber: string, machineCode: string) {
+  return postQueued(
+    `/6hi/orders/${enc(batchNumber)}/allocate-machine`,
+    { machineCode },
+    orderAggregateKey(batchNumber),
+  );
+}
+
+export function transferMachines(machineCode: string, batchNumbers: string[]) {
+  return postQueued(
+    '/6hi/orders/transfer-machines',
+    { machineCode, batchNumbers },
+    `6hi-transfer:${machineCode}`,
+  );
+}
+
+export async function transferOrderAssignment(
+  payload: { batchNumbers: string[]; machineCode: string; reason?: string },
+) {
+  return postQueued<{ ok: boolean; results?: { batchNumber: string; ok: boolean; error?: string }[] }>(
+    '/6hi/order-assignment/transfer',
+    payload,
+    `order-assignment:${payload.machineCode}`,
+  );
+}
+
+export function createManualOrder(payload: unknown, machineCode: string) {
+  return postQueued('/6hi/orders/manual', payload, machineAggregateKey(machineCode));
+}
+
+export function startManualStoppage(
+  machine: string,
+  payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
+) {
+  return postQueued('/6hi/manual-stoppage/start', { machine, ...payload }, machineAggregateKey(machine));
+}
+
+export function patchManualStoppage(machine: string, payload: Record<string, unknown>) {
+  return patchQueued('/6hi/manual-stoppage', { machine, ...payload }, machineAggregateKey(machine));
+}
+
+export function endManualStoppage(machine: string) {
+  return postQueued('/6hi/manual-stoppage/end', { machine }, machineAggregateKey(machine));
+}
