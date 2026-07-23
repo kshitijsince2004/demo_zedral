@@ -11,7 +11,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Loads packages/client/.env.operator when --mode operator (see package.json scripts).
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, 'VITE_');
-  const apiProxyTarget = env.VITE_API_URL?.replace(/\/$/, '') || 'http://localhost:3005';
+  const rootEnv = loadEnv(mode, path.resolve(__dirname, '../..'), '');
+  const apiProxyTarget =
+    env.VITE_API_URL?.replace(/\/$/, '') ||
+    `http://127.0.0.1:${rootEnv.PORT || 3005}`;
 
   return {
   resolve: {

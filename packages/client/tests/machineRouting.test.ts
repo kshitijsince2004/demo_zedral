@@ -46,6 +46,7 @@ describe('machineRouting', () => {
   });
 
   it('grants plant head and admin all machines', () => {
+    expect(getEffectiveMachineAccess('SUPERVISOR', [])).toEqual([...MACHINE_OPTIONS]);
     expect(getEffectiveMachineAccess('PLANT_HEAD', [])).toEqual([...MACHINE_OPTIONS]);
     expect(getEffectiveMachineAccess('ADMIN', [])).toEqual([...MACHINE_OPTIONS]);
     expect(getEffectiveMachineAccess('ADMIN', ['6HI', '4HI'])).toEqual(['6HI', '4HI']);

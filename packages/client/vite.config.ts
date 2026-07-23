@@ -9,6 +9,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, 'VITE_');
+  const rootEnv = loadEnv(mode, path.resolve(__dirname, '../..'), '');
+  const apiProxyTarget =
+    (env.VITE_API_URL ?? '').replace(/\/$/, '') ||
+    `http://127.0.0.1:${rootEnv.PORT || 3005}`;
   const swApiReadCache = env.VITE_SW_API_READ_CACHE !== 'false';
 
   const runtimeCaching = swApiReadCache
@@ -183,12 +187,12 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api': {
-          target: 'http://localhost:3005',
+          target: apiProxyTarget,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         },
         '/auth': {
-          target: 'http://localhost:3005',
+          target: apiProxyTarget,
           changeOrigin: true,
         },
       },

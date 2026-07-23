@@ -19,6 +19,56 @@ function serializeValue(value: unknown): string | null {
   return String(value);
 }
 
+/** Prefer stored PK; if blank (legacy stub fn_audit), recover from row JSON. */
+const PK_JSON_KEYS = [
+  'shift_log_id',
+  'entry_id',
+  'field_id',
+  'defect_code',
+  'stoppage_code',
+  'coil_no',
+  'charge_no',
+  'stoppage_id',
+  'defect_id',
+  'override_id',
+  'customer_id',
+  'grade_code',
+  'coil_plan_id',
+  'plan_order_id',
+  'import_batch_id',
+  'order_id',
+  'export_id',
+  'user_id',
+  'process_id',
+  'machine_code',
+  'tenant_id',
+] as const;
+
+function resolveRecordId(
+  recordPk: unknown,
+  newValue: string | null,
+  oldValue: string | null,
+): string {
+  const raw = recordPk == null ? '' : String(recordPk).trim();
+  if (raw && raw !== 'UNKNOWN') return raw;
+
+  for (const blob of [newValue, oldValue]) {
+    if (!blob) continue;
+    try {
+      const obj = JSON.parse(blob) as Record<string, unknown>;
+      for (const key of PK_JSON_KEYS) {
+        const v = obj[key];
+        if (v !== null && v !== undefined && String(v).trim() !== '') {
+          return String(v);
+        }
+      }
+    } catch {
+      // not JSON — ignore
+    }
+  }
+  return raw;
+}
+
 /**
  * Application-level audit writer for explicit events (e.g. last-writer conflict snapshots).
  * Routine DML is captured by DB triggers (audit.fn_audit) in the same transaction.
@@ -82,17 +132,21 @@ export class AuditTrailService {
     const countRow = await countQ.executeTakeFirst();
     const total = Number(countRow?.total ?? 0);
 
-    const records = rows.map((r: any) => ({
-      id: Number(r.audit_id),
-      table_name: r.table_name,
-      record_id: r.record_pk, // mapping record_pk -> record_id
-      action: r.action,
-      field: r.column_name ?? null, // mapping column_name -> field, present as null for INSERT/DELETE
-      old_value: r.old_value ?? null,
-      new_value: r.new_value ?? null,
-      user_id: r.user_id ? Number(r.user_id) : null,
-      timestamp: new Date(r.ts).toISOString(), // tz-aware timestamp
-    }));
+    const records = rows.map((r: any) => {
+      const old_value = r.old_value ?? null;
+      const new_value = r.new_value ?? null;
+      return {
+        id: Number(r.audit_id),
+        table_name: r.table_name,
+        record_id: resolveRecordId(r.record_pk, new_value, old_value),
+        action: r.action,
+        field: r.column_name ?? null, // null for whole-row INSERT/DELETE
+        old_value,
+        new_value,
+        user_id: r.user_id ? Number(r.user_id) : null,
+        timestamp: new Date(r.ts).toISOString(),
+      };
+    });
 
     return { records, total, page, pageSize };
   }

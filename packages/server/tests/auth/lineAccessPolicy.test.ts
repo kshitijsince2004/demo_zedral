@@ -11,6 +11,15 @@ const plantHead = {
   machineAccess: [],
 } as const;
 
+const supervisor = {
+  id: 12,
+  username: 'sup',
+  roles: ['SUPERVISOR'],
+  lineAccess: [],
+  lineScopes: [],
+  machineAccess: [],
+} as const;
+
 const MACHINE_HEAD = {
   id: 11,
   username: 'sup',
@@ -49,4 +58,18 @@ describe('lineAccessPolicy — Plant Head read-only', () => {
   it('allows MACHINE_HEAD APPROVE on scoped line', () => {
     expect(() => assertLineOperation(MACHINE_HEAD as any, 'HRS', 'APPROVE')).not.toThrow();
   });
+});
+
+describe('lineAccessPolicy — Supervisor capability scope', () => {
+  it('allows READ on any line without per-line scope', () => {
+    expect(() => assertLineOperation(supervisor as any, 'PKL', 'READ')).not.toThrow();
+    expect(() => assertLineOperation(supervisor as any, '6HI', 'READ')).not.toThrow();
+  });
+
+  it.each(['WRITE', 'SUBMIT', 'CORRECT', 'APPROVE', 'OVERRIDE'] as const)(
+    'denies %s for Supervisor',
+    (op) => {
+      expect(() => assertLineOperation(supervisor as any, 'HRS', op)).toThrow(AuthError);
+    },
+  );
 });

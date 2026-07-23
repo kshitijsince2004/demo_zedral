@@ -1,14 +1,18 @@
-import { Activity, ArrowRightLeft, FileSpreadsheet, Upload, ClipboardCheck } from 'lucide-react';
-import { Users } from 'lucide-react';
+import { Activity, ArrowRightLeft, ClipboardCheck, FileSpreadsheet, Upload, Users } from 'lucide-react';
+import { useSessionContext } from 'supertokens-auth-react/recipe/session';
+import { pickPrimaryRole } from '@m1/shared-validation';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
+import { useAuthStore } from '../../../lib/authStore';
 
-const NAV_ITEMS: DeskNavItem[] = [
+const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'import', 'traceability']);
+
+const ALL_NAV_ITEMS: DeskNavItem[] = [
   {
     id: 'live',
     label: 'Live Dashboard',
     icon: Activity,
-    path: '/machine-head-dashboard',
-    match: (p) => p === '/machine-head-dashboard',
+    path: '/live',
+    match: (p) => p === '/live' || p === '/machine-head-dashboard',
   },
   {
     id: 'crew',
@@ -48,19 +52,40 @@ const NAV_ITEMS: DeskNavItem[] = [
   {
     id: 'traceability',
     label: 'Order Tracing',
-    icon: Activity, // Reuse an icon or import a specific one like Search, but Activity is already imported
+    icon: Activity,
     path: '/machine-head/traceability',
     match: (p) => p.startsWith('/machine-head/traceability'),
   },
 ];
 
+/** Prefer JWT primary role so stale sessionStorage MACHINE_HEAD cannot show MH-only nav. */
+function useEffectiveDeskRole(): string | null {
+  const storeRole = useAuthStore((s) => s.role);
+  const session = useSessionContext();
+  if (!session.loading && session.doesSessionExist) {
+    const payload = session.accessTokenPayload as Record<string, unknown>;
+    const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
+    const jwtRole = pickPrimaryRole(roles);
+    if (jwtRole) return jwtRole;
+  }
+  return storeRole;
+}
+
 export function MachineHeadNav() {
+  const role = useEffectiveDeskRole();
+  const isSupervisor = role === 'SUPERVISOR';
+  const items = isSupervisor
+    ? ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id))
+    : role
+      ? ALL_NAV_ITEMS
+      : ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id)); // role unknown: never flash MH-only links
+
   return (
     <DeskSideNav
-      brandLabel="MACHINE"
-      brandSubtitle="Head overview"
-      items={NAV_ITEMS}
-      ariaLabel="Machine head navigation"
+      brandLabel={isSupervisor ? 'SUPERVISOR' : 'MACHINE'}
+      brandSubtitle={isSupervisor ? 'Oversight console' : 'Head overview'}
+      items={items}
+      ariaLabel={isSupervisor ? 'Supervisor navigation' : 'Machine head navigation'}
     />
   );
 }

@@ -1,7 +1,7 @@
 import { Client } from '@elastic/elasticsearch';
 
 // ── Configuration ───────────────────────────────────────────────────────────
-const ELASTICSEARCH_URL = process.env.ELASTICSEARCH_URL || 'http://localhost:9200';
+const ELASTICSEARCH_URL = process.env.ELASTICSEARCH_URL || 'http://127.0.0.1:9200';
 const ELASTICSEARCH_API_KEY = process.env.ELASTICSEARCH_API_KEY;
 const ELASTICSEARCH_USERNAME = process.env.ELASTICSEARCH_USERNAME;
 const ELASTICSEARCH_PASSWORD = process.env.ELASTICSEARCH_PASSWORD;

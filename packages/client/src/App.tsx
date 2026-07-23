@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from './lib/authStore';
 import { getRoleHomePath } from './lib/roleHome';
@@ -10,6 +10,7 @@ import { SetupPage } from './pages/SetupPage';
 import { RoleHomeRedirect } from './components/RoleHomeRedirect';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
+import { UserRole } from '@m1/shared-validation';
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from './pages/sixHi/SixHiOrderPage';
@@ -38,7 +39,6 @@ import { ValidationRulesAdmin } from './pages/admin/ValidationRulesAdmin';
 import { MachineAssignmentPage } from './pages/admin/MachineAssignmentPage';
 import { RollingImportPage } from './pages/import/RollingImportPage';
 import { OrderAssignmentPage } from './pages/orderAssignment/OrderAssignmentPage';
-import { OrderAssignmentPanel } from './pages/orderAssignment/OrderAssignmentPanel';
 import { MachineComingSoon } from './pages/MachineComingSoon';
 import { GenericCapturePage } from './pages/capture/GenericCapturePage';
 import { UserScopeShell } from './components/UserScopeShell';
@@ -51,9 +51,39 @@ import { UnifiedShell } from './components/layout/UnifiedShell';
 import { PlantShiftReviewPage } from './pages/plant/PlantShiftReviewPage';
 
 function UnknownRouteRedirect() {
+  const session = useSessionContext();
   const { role, lineAccess, machineAccess, username, token } = useAuthStore();
   if (!token) return <Navigate to="/login" replace />;
+  if (!session.loading && session.doesSessionExist) {
+    const payload = session.accessTokenPayload as Record<string, unknown>;
+    const jwtRole = pickPrimaryRole(Array.isArray(payload.roles) ? (payload.roles as string[]) : []);
+    if (jwtRole && role !== jwtRole) {
+      return null; // SuperTokensSync still catching up
+    }
+    if (jwtRole) {
+      const jwtLines = Array.isArray(payload.lineAccess) ? (payload.lineAccess as string[]) : lineAccess;
+      const jwtMachines = Array.isArray(payload.machineAccess)
+        ? (payload.machineAccess as string[])
+        : machineAccess;
+      const jwtUsername = typeof payload.username === 'string' ? payload.username : username;
+      return <Navigate to={getRoleHomePath(jwtRole, jwtLines, jwtMachines, jwtUsername)} replace />;
+    }
+  }
   return <Navigate to={getRoleHomePath(role, lineAccess, machineAccess, username)} replace />;
+}
+
+/** Supervisor home is /live — never leave them on the MH URL. */
+function RedirectSupervisorFromMachineHeadHome({ children }: { children: ReactNode }) {
+  const session = useSessionContext();
+  const storeRole = useAuthStore((s) => s.role);
+  let role = storeRole;
+  if (!session.loading && session.doesSessionExist) {
+    const payload = session.accessTokenPayload as Record<string, unknown>;
+    const jwtRole = pickPrimaryRole(Array.isArray(payload.roles) ? (payload.roles as string[]) : []);
+    if (jwtRole) role = jwtRole;
+  }
+  if (role === 'SUPERVISOR') return <Navigate to="/live" replace />;
+  return <>{children}</>;
 }
 
 function SuperTokensSync() {
@@ -147,7 +177,6 @@ function App() {
           <Route path="defects" element={<Navigate to="/plant/defect-intelligence" replace />} />
           <Route path="stoppages" element={<Navigate to="/plant/downtime-intelligence" replace />} />
           <Route path="alerts" element={<PlantAlerts />} />
-          <Route path="order-assignment" element={<OrderAssignmentPanel />} />
           <Route path="setup" element={<SetupPage embedded />} />
           <Route path="dpr-export" element={<PlantDprExport />} />
           <Route path="exports/history" element={<ExportHistory embedded />} />
@@ -157,15 +186,25 @@ function App() {
         <Route path="/reports/exports/history" element={<PlantRoute><Navigate to="/plant/exports/history" replace /></PlantRoute>} />
         <Route path="/reports/dpr" element={<PlantRoute><Navigate to="/plant/dpr-export" replace /></PlantRoute>} />
 
-        <Route path="/import/rolling" element={<MachineHeadRoute><RollingImportPage /></MachineHeadRoute>} />
-        <Route path="/order-assignment" element={<MachineHeadRoute><OrderAssignmentPage /></MachineHeadRoute>} />
+        <Route path="/import/rolling" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><RollingImportPage /></MachineHeadRoute>} />
+        <Route path="/order-assignment" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><OrderAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
-        <Route path="/machine-head-dashboard" element={<MachineHeadRoute><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route path="/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route
+          path="/machine-head-dashboard"
+          element={(
+            <MachineHeadRoute allow={[UserRole.SUPERVISOR]}>
+              <RedirectSupervisorFromMachineHeadHome>
+                <MachineHeadDashboard />
+              </RedirectSupervisorFromMachineHeadHome>
+            </MachineHeadRoute>
+          )}
+        />
         <Route path="/machine-head/shift-review" element={<MachineHeadRoute><PlantShiftReviewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
         <Route path="/machine-head/exports/history" element={<MachineHeadRoute><ExportHistory embedded /></MachineHeadRoute>} />
-        <Route path="/machine-head/traceability" element={<MachineHeadRoute><PlantOrderTracking standalone /></MachineHeadRoute>} />
+        <Route path="/machine-head/traceability" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><PlantOrderTracking standalone /></MachineHeadRoute>} />
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />

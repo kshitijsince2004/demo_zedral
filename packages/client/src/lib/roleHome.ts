@@ -19,6 +19,8 @@ export function getRoleHomePath(
   const machines = machineAccess ?? [];
 
   switch (role) {
+    case 'SUPERVISOR':
+      return '/live';
     case 'MACHINE_HEAD':
       return '/machine-head-dashboard';
     case 'OPERATOR': {

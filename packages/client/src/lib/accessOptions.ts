@@ -7,7 +7,7 @@ import type { UserAccess } from '../services/adminService';
 export const MACHINE_OPTIONS = ['6HI', '4HI', '2HI', 'PKL', 'ANN', 'RWD', 'CRS', 'CTL', 'HRS'] as const;
 
 export function hasImplicitAllMachines(role: UserAccess['role']): boolean {
-  return role === 'PLANT_HEAD' || role === 'ADMIN';
+  return role === 'SUPERVISOR' || role === 'PLANT_HEAD' || role === 'ADMIN';
 }
 
 /** Prefer machine_access; fall back to legacy line_access for edit form. */

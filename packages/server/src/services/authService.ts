@@ -237,7 +237,11 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
   const lineAccess = lineScopes.map((s) => s.code);
 
   let machineAccess: string[];
-  if (roles.includes('PLANT_HEAD') || roles.includes('ADMIN')) {
+  if (
+    roles.includes('PLANT_HEAD') ||
+    roles.includes('ADMIN') ||
+    roles.includes('SUPERVISOR')
+  ) {
     const allMachines = await db.selectFrom('master.machine')
       .select('machine_code')
       .where('machine_status', '!=', 'OFFLINE')
@@ -267,12 +271,18 @@ export async function getUserWithRolesAndAccess(userId: number, username: string
 export { assertLineWriteAccess, assertLineOperation } from '../auth/lineAccessPolicy';
 
 export async function getAuthUserBySuperTokensId(stUserId: string): Promise<AuthUser | null> {
-  const user = await db.selectFrom('security.app_user')
+  const users = await db.selectFrom('security.app_user')
     .select(['user_id', 'username'])
     .where('supertokens_user_id', '=', stUserId)
-    .executeTakeFirst();
-    
-  if (!user) return null;
+    .execute();
+
+  if (users.length === 0) return null;
+  if (users.length > 1) {
+    console.error(
+      `[auth] Ambiguous SuperTokens link ${stUserId} → ${users.map((u) => u.username).join(', ')}`,
+    );
+  }
+  const user = users[0];
   return await getUserWithRolesAndAccess(user.user_id, user.username);
 }
 

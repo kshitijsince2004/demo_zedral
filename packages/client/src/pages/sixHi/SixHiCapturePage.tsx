@@ -70,7 +70,6 @@ export function SixHiCapturePage() {
     refreshMachineState();
     if (shiftLogId) loadShiftSummary(shiftLogId);
 
-    let id: ReturnType<typeof setInterval> | undefined;
     const tick = async () => {
       if (await shouldPauseLivePolling()) return;
       const store = useSixHiStore.getState();
@@ -79,7 +78,7 @@ export function SixHiCapturePage() {
       if (sid) void store.loadShiftSummary(sid);
     };
     void tick();
-    id = setInterval(() => void tick(), 15000);
+    const id = setInterval(() => void tick(), 15000);
     return () => clearInterval(id);
   }, [shiftLogId, refreshMachineState, loadShiftSummary]);
 

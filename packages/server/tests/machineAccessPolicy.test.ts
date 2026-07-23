@@ -36,6 +36,15 @@ const plantHead: AuthUser = {
   machineAccess: [],
 };
 
+const supervisor: AuthUser = {
+  id: 4,
+  username: 'sup',
+  roles: ['SUPERVISOR'],
+  lineAccess: [],
+  lineScopes: [],
+  machineAccess: [],
+};
+
 describe('machineAccessPolicy', () => {
   it('allows operator on assigned machine', () => {
     expect(() => assertMachineAccess(operator6Hi, '6HI')).not.toThrow();
@@ -92,5 +101,10 @@ describe('machineAccessPolicy', () => {
 
   it('PLANT_HEAD bypasses machine scope', () => {
     expect(() => assertMachineAccess(plantHead, '2HI')).not.toThrow();
+  });
+
+  it('SUPERVISOR bypasses machine scope for READ only', () => {
+    expect(() => assertMachineAccess(supervisor, '2HI', { mode: 'READ' })).not.toThrow();
+    expect(() => assertMachineAccess(supervisor, '2HI', { mode: 'WRITE' })).toThrow(MachineAccessForbiddenError);
   });
 });

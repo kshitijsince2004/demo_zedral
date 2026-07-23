@@ -139,9 +139,10 @@ ${coil},CUST_TATA,CRCA`;
     it('first PPC batch on empty queue starts queue_seq at 1', async () => {
       const { PPCImportService } = await import('../src/services/PPCImportService');
       const batchNo = `PRES-Q1-${Date.now()}`;
+      const coil = `C-QFIRST-${Date.now()}`;
       const planDate = `2099-12-${String(Date.now() % 28 + 1).padStart(2, '0')}`;
       const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,ppc_thk_mm,ppc_weight_mt
-${batchNo},${planDate},B,6HI,ROLLING,C-QFIRST,ACME,D,1250,1.2,10`;
+${batchNo},${planDate},B,6HI,ROLLING,${coil},ACME,D,1250,1.2,10`;
 
       const result = await PPCImportService.importFromCsvText('pres-q.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');
@@ -156,8 +157,9 @@ ${batchNo},${planDate},B,6HI,ROLLING,C-QFIRST,ACME,D,1250,1.2,10`;
     it('valid 6HI PPC CSV import writes ppc_batch', async () => {
       const { PPCImportService } = await import('../src/services/PPCImportService');
       const batchNo = `PRES-PPC-${Date.now()}`;
+      const coil = `C-PPC-${Date.now()}`;
       const csv = `batch_number,plan_date,shift_code,machine_code,sub_process,coil_no,customer_name,grade_code,width_mm,input_thk_mm,ppc_thk_mm,ppc_weight_mt
-${batchNo},2026-06-01,B,6HI,SKIN_PASS,C-PPC,ACME,D,1250,1.15,1.0,8`;
+${batchNo},2026-06-01,B,6HI,SKIN_PASS,${coil},ACME,D,1250,1.15,1.0,8`;
 
       const result = await PPCImportService.importFromCsvText('pres-ppc.csv', csv, testUserId());
       expect(result.status).toBe('LOADED');

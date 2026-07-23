@@ -177,18 +177,20 @@ export class ValidationConfigService {
       .where('table_name', '=', 'config.validation_rule')
       .orderBy('ts', 'desc')
       .execute();
-      
-    return history.filter(h => {
+
+    // fn_audit uses field_id as record_pk for validation_rule; column-level UPDATEs
+    // store scalar new_value (not whole-row JSON), so also match record_pk.
+    return history.filter((h) => {
+      if (h.record_pk === fieldId) return true;
       try {
-        if (h.new_value) {
-          const p = JSON.parse(h.new_value);
-          if (p.field_id === fieldId) return true;
+        for (const raw of [h.new_value, h.old_value]) {
+          if (!raw || !String(raw).trimStart().startsWith('{')) continue;
+          const p = JSON.parse(String(raw));
+          if (p?.field_id === fieldId) return true;
         }
-        if (h.old_value) {
-          const p = JSON.parse(h.old_value);
-          if (p.field_id === fieldId) return true;
-        }
-      } catch (e) {}
+      } catch {
+        /* ignore non-JSON audit payloads */
+      }
       return false;
     });
   }

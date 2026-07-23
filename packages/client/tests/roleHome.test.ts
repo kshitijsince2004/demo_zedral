@@ -19,9 +19,15 @@ describe('getRoleHomePath', () => {
     expect(getRoleHomePath(UserRole.OPERATOR, ['HRS'], ['HRS'])).toBe('/capture/HRS');
   });
 
+  it('maps SUPERVISOR to /live (not machine-head-dashboard)', () => {
+    expect(getRoleHomePath(UserRole.SUPERVISOR)).toBe('/live');
+    expect(getRoleHomePath(UserRole.SUPERVISOR)).not.toBe('/machine-head-dashboard');
+  });
+
   it('maps every role to a non-login path', () => {
     const paths = [
       getRoleHomePath(UserRole.OPERATOR, ['HRS'], ['HRS'], 'operator'),
+      getRoleHomePath(UserRole.SUPERVISOR),
       getRoleHomePath(UserRole.MACHINE_HEAD, [], ['4HI'], 'machinehead'),
 
       getRoleHomePath(UserRole.PLANT_HEAD),

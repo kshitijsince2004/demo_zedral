@@ -30,11 +30,18 @@ const PREVIEW_STATUS_LABELS: Record<PpcPreviewRowStatus, { label: string; classN
   'in-production':        { label: 'In Production',      className: 'bg-destructive/15 text-destructive' },
   'completed':            { label: 'Completed',          className: 'bg-muted text-muted-foreground' },
   'duplicate-in-file':    { label: 'Duplicate',          className: 'bg-destructive/15 text-destructive' },
+  'duplicate-skipped':    { label: 'Dup skipped',        className: 'bg-muted text-muted-foreground' },
   'will-merge':           { label: 'Will Merge',         className: 'bg-warning/15 text-warning' },
 };
 
 /** Rows that must never be imported — checkboxes disabled, excluded from auto-select */
-const DANGEROUS_STATUSES: PpcPreviewRowStatus[] = ['in-production', 'completed', 'duplicate-in-file', 'allocation-protected'];
+const DANGEROUS_STATUSES: PpcPreviewRowStatus[] = [
+  'in-production',
+  'completed',
+  'duplicate-in-file',
+  'duplicate-skipped',
+  'allocation-protected',
+];
 
 function isRowImportable(row: PpcRollingPreviewRow): boolean {
   return row.errors.length === 0 && !DANGEROUS_STATUSES.includes(row.previewStatus);
@@ -263,9 +270,9 @@ export function PpcRollingImportPanel() {
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex gap-2 items-start">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>
-                <strong>{duplicatesInFile} duplicate batch number{duplicatesInFile === 1 ? '' : 's'}</strong> detected in this file.
-                Duplicate rows are highlighted below and will be rejected if committed.
-                Please correct the source file and re-upload.
+                <strong>{duplicatesInFile} duplicate row{duplicatesInFile === 1 ? '' : 's'}</strong> found in this file.
+                The first occurrence of each batch number stays importable; later copies are marked
+                &quot;Dup skipped&quot; and excluded from commit.
               </span>
             </div>
           )}

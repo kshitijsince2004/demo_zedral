@@ -13,6 +13,7 @@ const DEV_STAFF_PASSWORD = 'Password123!';
 const DEV_STAFF = {
   admin: 'admin@zedral.local',
   machinehead: 'machinehead@zedral.local',
+  supervisor: 'supervisor@zedral.local',
   planthead: 'planthead@zedral.local',
 } as const;
 
@@ -21,7 +22,7 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
   const [mode, setMode] = useState<'operator' | 'staff'>('operator');
   const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
   const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
-  const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.machinehead : '');
+  const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.supervisor : '');
   const [password, setPassword] = useState(import.meta.env.DEV ? DEV_STAFF_PASSWORD : '');
   const [error, setError] = useState('');
   const sessionExpired = new URLSearchParams(window.location.search).get('session') === 'expired';
@@ -86,6 +87,12 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
         setError(res.formFields.map((f) => f.error).join(' '));
         return;
       }
+      // Drop stale role from a previous login before reload/hydration.
+      sessionStorage.removeItem('mock_role');
+      sessionStorage.removeItem('mock_jwt');
+      sessionStorage.removeItem('mock_username');
+      sessionStorage.removeItem('mock_line_access');
+      sessionStorage.removeItem('mock_machine_access');
       // Session cookie is set; reload so SuperTokensSync hydrates the store + routes by role.
       window.location.href = '/';
     } catch (err: unknown) {
@@ -209,10 +216,25 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
           </div>
 
           {import.meta.env.DEV && !operatorOnly && (
-            <div className="mt-3 space-y-1 text-center text-[10px] text-muted-foreground font-mono">
+            <div className="mt-3 space-y-2 text-center text-[10px] text-muted-foreground font-mono">
               <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
-              <p>Staff ({DEV_STAFF_PASSWORD}):</p>
-              <p>{DEV_STAFF.admin} · {DEV_STAFF.machinehead} · {DEV_STAFF.planthead}</p>
+              <p>Staff ({DEV_STAFF_PASSWORD}) — click to fill:</p>
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {(Object.keys(DEV_STAFF) as (keyof typeof DEV_STAFF)[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setMode('staff');
+                      setEmail(DEV_STAFF[key]);
+                      setPassword(DEV_STAFF_PASSWORD);
+                    }}
+                    className="rounded border border-border bg-background px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-muted/40"
+                  >
+                    {key}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

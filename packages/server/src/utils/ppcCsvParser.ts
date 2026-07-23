@@ -106,9 +106,9 @@ function normalizeDestination(raw?: string): string | undefined {
 function normalizeRollFinish(raw?: string): string | undefined {
   if (!raw) return undefined;
   const v = raw.trim().toUpperCase();
-  if (v === 'M' || v === 'MATT' || v === 'MATTE') return 'MATT';
-  if (v === 'B' || v === 'BRIGHT') return 'BRIGHT';
+  if (v === 'MIRROR' || v === 'B' || v === 'BRIGHT') return 'BRIGHT';
   if (v.includes('LOW')) return 'LOW_MATT';
+  if (v === 'M' || v === 'MATT' || v === 'MATTE') return 'MATT';
   return v;
 }
 

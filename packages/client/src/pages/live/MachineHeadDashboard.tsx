@@ -309,7 +309,7 @@ export function MachineHeadDashboard() {
 
   const machines = useMemo(() => {
     const all = (snapshot?.machines ?? []).filter((m) => m.status !== 'OFFLINE');
-    const plantWide = role === 'PLANT_HEAD' || role === 'ADMIN';
+    const plantWide = role === 'PLANT_HEAD' || role === 'ADMIN' || role === 'SUPERVISOR';
     if (plantWide) return all;
     if (assignedMachines.length === 0) return [];
     const allowed = new Set(assignedMachines);
@@ -419,7 +419,11 @@ export function MachineHeadDashboard() {
 
   if (loading && !snapshot) {
     return (
-      <MachineHeadShell title="Machine Dashboard" subtitle="Loading…" fillViewport>
+      <MachineHeadShell
+        title={role === 'SUPERVISOR' ? 'Supervisor Live Dashboard' : 'Machine Dashboard'}
+        subtitle="Loading…"
+        fillViewport
+      >
         <div className="py-16 text-center text-muted-foreground text-sm">Loading…</div>
       </MachineHeadShell>
     );
@@ -945,11 +949,13 @@ export function MachineHeadDashboard() {
 
   return (
     <MachineHeadShell
-      title="Machine Dashboard"
+      title={role === 'SUPERVISOR' ? 'Supervisor Live Dashboard' : 'Machine Dashboard'}
       subtitle={
-        assignedMachines.length > 0
-          ? `Assigned: ${visibleMachineAccess.join(', ') || '—'}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
-          : 'No machines assigned — contact Plant Head'
+        role === 'SUPERVISOR'
+          ? `Plant-wide oversight${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
+          : assignedMachines.length > 0
+            ? `Assigned: ${visibleMachineAccess.join(', ') || '—'}${dashboard?.shiftSummary ? ` · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}` : ''}`
+            : 'No machines assigned — contact Plant Head'
       }
       onRefresh={() => { void refresh(); void loadDashboard(); }}
       fillViewport

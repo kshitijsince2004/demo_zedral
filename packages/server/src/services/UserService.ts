@@ -35,7 +35,7 @@ export interface UpsertUserInput {
 }
 
 function isStaffRole(role: string): boolean {
-  return ['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'].includes(role.toUpperCase());
+  return ['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD', 'SUPERVISOR'].includes(role.toUpperCase());
 }
 
 function genTempPassword(): string {

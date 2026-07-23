@@ -21,6 +21,8 @@
     "seed:pilot": "node scripts/seed-pilot.mjs",
     "seed:users": "node scripts/seed-pilot-users.mjs",
     "seed:profiles": "node scripts/seed-login-profiles.mjs",
+    "seed:supervisor": "node scripts/seed-login-profiles.mjs",
+    "smoke:supervisor": "node scripts/smoke-supervisor.mjs",
     "seed:machines": "node scripts/seed-machines.mjs",
     "ensure:crew-table": "node scripts/ensure-crew-table.mjs",
     "repair:migrations": "node scripts/repair-migration-history.mjs",

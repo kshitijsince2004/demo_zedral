@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { Activity, ArrowRightLeft, Bell, Brain, Factory, FileSpreadsheet, LayoutDashboard, Search, Settings, Shield, Timer, Users } from 'lucide-react';
+import { Activity, Bell, Brain, Factory, FileSpreadsheet, LayoutDashboard, Search, Settings, Shield, Timer, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from './shared/DeskSideNav';
 import { deskNavOffsetClass } from './shared/deskNavLayout';
 import { OfflineBanner } from '../ui/OfflineBanner';
@@ -19,13 +19,6 @@ const SIDEBAR_ITEMS: DeskNavItem[] = [
     icon: Activity,
     path: '/plant/live',
     match: (p) => p === '/plant/live',
-  },
-  {
-    id: 'order-assignment',
-    label: 'Order Assignment',
-    icon: ArrowRightLeft,
-    path: '/plant/order-assignment',
-    match: (p) => p === '/plant/order-assignment',
   },
   {
     id: 'traceability',

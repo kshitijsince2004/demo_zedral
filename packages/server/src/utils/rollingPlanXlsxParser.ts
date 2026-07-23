@@ -188,9 +188,9 @@ function num(val: unknown): number | undefined {
 function normalizeFinish(raw?: string): string | undefined {
   if (!raw) return undefined;
   const v = raw.trim().toUpperCase();
-  if ((v === 'M' || v.includes('MATT')) && !v.includes('LO')) return 'MATT';
+  if (v === 'MIRROR' || v === 'B' || v.includes('BRIGHT')) return 'BRIGHT';
   if (v.includes('LO')) return 'LOW_MATT';
-  if (v === 'B' || v.includes('BRIGHT')) return 'BRIGHT';
+  if (v === 'M' || v.includes('MATT')) return 'MATT';
   return undefined;
 }
 

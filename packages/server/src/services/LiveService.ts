@@ -188,7 +188,7 @@ export { resolveMachineLiveStatus, resolveStateSinceAt, statusFromActiveOrder };
 export class LiveService {
   static async getMachineScope(userId: number, roles: string[]): Promise<string[] | null> {
     const normalized = normalizeRoles(roles);
-    if (normalized.includes('PLANT_HEAD') || normalized.includes('ADMIN')) return null;
+    if (normalized.includes('PLANT_HEAD') || normalized.includes('ADMIN') || normalized.includes('SUPERVISOR')) return null;
     if (normalized.includes('MACHINE_HEAD')) {
       const rows = await db.selectFrom('security.machine_access')
         .select('machine_code')

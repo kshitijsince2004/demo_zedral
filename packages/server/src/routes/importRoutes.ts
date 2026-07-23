@@ -21,7 +21,7 @@ router.use(requireAuth);
  */
 router.post(
   '/',
-  requireRole([UserRole.ADMIN]),
+  requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]),
   upload.single('file'),
   async (req, res) => {
     try {
@@ -73,7 +73,7 @@ router.get('/plans/:processId/:date', async (req, res) => {
   }
 });
 
-router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN]), async (req, res) => {
+router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), async (req, res) => {
   try {
     const csv = await ImportService.getErrorRowsCsv(req.params.batchId);
     if (!csv) {
@@ -90,7 +90,7 @@ router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN]), async (req, re
   }
 });
 
-router.get('/:batchId', requireRole([UserRole.ADMIN]), async (req, res) => {
+router.get('/:batchId', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), async (req, res) => {
   try {
     const batch = await ImportService.getBatch(req.params.batchId);
     if (!batch) {

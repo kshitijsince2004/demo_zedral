@@ -96,6 +96,8 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     await db.deleteFrom('txn.crm_order').execute();
     await db.deleteFrom('txn.machine_shift_session').execute();
     await db.deleteFrom('txn.machine_handover').execute();
+    // Local/QA DBs may retain annealing rows that FK to shift_log.
+    await db.deleteFrom('txn.ann_charge').execute();
     await db.deleteFrom('txn.shift_log').execute();
     await db.deleteFrom('planning.queue_handoff').execute();
     await db.deleteFrom('planning.order_journey_step').execute();

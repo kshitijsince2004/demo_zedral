@@ -48,6 +48,7 @@ const USERS = [
   { username: 'operator4hi', emp_code: '3004', full_name: '4HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['4HI'] },
   { username: 'operator2hi', emp_code: '3002', full_name: '2HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['2HI'] },
   { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
+  { username: 'supervisor', emp_code: '4500', full_name: 'Supervisor', role_id: 2, lines: [], machines: [], staff: true },
   { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
 ];
 
@@ -80,10 +81,13 @@ async function seedRoles(client) {
   await client.query(`
     INSERT INTO security.role (role_id, role_name, description) VALUES
       (1, 'OPERATOR', 'Line Operator: Can submit shift logs'),
+      (2, 'SUPERVISOR', 'Oversight: live dashboards, import, traceability, assignment'),
       (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
       (4, 'ADMIN', 'System Administrator: Manage master data'),
       (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines')
-    ON CONFLICT (role_id) DO NOTHING;
+    ON CONFLICT (role_id) DO UPDATE
+      SET role_name = EXCLUDED.role_name,
+          description = EXCLUDED.description;
   `);
 }
 
@@ -113,8 +117,21 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
 
     let userId;
     let stUserId = existing.rows[0]?.supertokens_user_id ?? null;
-    if (u.staff && !stUserId) {
+    if (u.staff) {
+      // Always resolve by email so re-seed repairs wrong/shared SuperTokens links.
       stUserId = await ensureStaffSuperTokensUser(u.username);
+      if (!stUserId) {
+        console.warn(`Warning: could not resolve SuperTokens user for ${staffEmail(u.username)}`);
+      } else {
+        // Enforce 1:1 — clear this ST id from any other app_user first.
+        await client.query(
+          `UPDATE security.app_user
+           SET supertokens_user_id = NULL
+           WHERE supertokens_user_id = $1
+             AND emp_code IS DISTINCT FROM $2`,
+          [stUserId, u.emp_code],
+        );
+      }
     }
 
     if (existing.rows.length > 0) {
@@ -138,11 +155,23 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
       console.log(`Created user ${u.emp_code} (${u.username})${u.staff ? ` → ${staffEmail(u.username)}` : ''}`);
     }
 
+    let roleId = u.role_id;
+    if (u.role_name) {
+      const roleRow = await client.query(
+        `SELECT role_id FROM security.role WHERE role_name = $1`,
+        [u.role_name],
+      );
+      roleId = roleRow.rows[0]?.role_id;
+      if (!roleId) {
+        throw new Error(`Role not found: ${u.role_name} — run migrations first`);
+      }
+    }
+
+    // Replace role so re-seed corrects stale assignments (e.g. SUPERVISOR mistaken for MACHINE_HEAD).
+    await client.query(`DELETE FROM security.user_role WHERE user_id = $1`, [userId]);
     await client.query(
-      `INSERT INTO security.user_role (user_id, role_id)
-       VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
-      [userId, u.role_id],
+      `INSERT INTO security.user_role (user_id, role_id) VALUES ($1, $2)`,
+      [userId, roleId],
     );
 
     for (const line of u.lines) {

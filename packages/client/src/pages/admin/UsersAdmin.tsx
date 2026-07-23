@@ -265,6 +265,7 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="OPERATOR">OPERATOR</option>
+                  <option value="SUPERVISOR">Supervisor</option>
                   <option value="MACHINE_HEAD">MACHINE_HEAD</option>
                   <option value="PLANT_HEAD">PLANT_HEAD</option>
                   <option value="ADMIN">ADMIN</option>
@@ -288,7 +289,7 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
               <label className="block text-xs font-medium text-foreground mb-2">Access</label>
               {hasImplicitAllMachines(editingUser.role) ? (
                 <p className="text-sm text-muted-foreground">
-                  Plant Head and Admin accounts automatically have access to all machines. No assignment needed.
+                  Plant Head, Admin, and Supervisor accounts automatically have access to all machines. No assignment needed.
                 </p>
               ) : (
                 <>

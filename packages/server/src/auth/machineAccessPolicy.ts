@@ -17,9 +17,17 @@ export function isMachineAccessForbidden(error: unknown): boolean {
   return false;
 }
 
-export function assertMachineAccess(user: AuthUser, machineCode: string): void {
+export function assertMachineAccess(
+  user: AuthUser,
+  machineCode: string,
+  opts?: { mode?: 'READ' | 'WRITE' },
+): void {
   const code = machineCode.toUpperCase();
+  const mode = opts?.mode ?? 'WRITE';
   if (user.roles.includes(UserRole.ADMIN as string) || user.roles.includes(UserRole.PLANT_HEAD as string)) {
+    return;
+  }
+  if (mode === 'READ' && user.roles.includes(UserRole.SUPERVISOR as string)) {
     return;
   }
   const allowed = (user.machineAccess ?? []).map((m) => m.toUpperCase());

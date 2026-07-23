@@ -36,6 +36,7 @@ async function main() {
   console.log('\nStaff (email tab):');
   console.log(`  admin@zedral.local / ${staffPassword} → Admin`);
   console.log(`  machinehead@zedral.local / ${staffPassword} → Machine Head`);
+  console.log(`  supervisor@zedral.local / ${staffPassword} → Supervisor`);
   console.log(`  planthead@zedral.local / ${staffPassword} → Plant Head`);
   console.log('\nOperator (badge tab):');
   console.log(`  Badge 3000 / PIN ${pin} → Operator (/operator.operator → 6HI)`);

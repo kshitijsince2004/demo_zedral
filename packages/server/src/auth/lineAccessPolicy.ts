@@ -32,7 +32,10 @@ export function getScopedLineCodes(
     return null;
   }
 
-  if (minLevel === 'READ' && user.roles.includes(UserRole.PLANT_HEAD as string)) {
+  if (minLevel === 'READ' && (
+    user.roles.includes(UserRole.PLANT_HEAD as string) ||
+    user.roles.includes(UserRole.SUPERVISOR as string)
+  )) {
     return null;
   }
 
@@ -72,7 +75,10 @@ export function assertLineOperation(
   }
 
   if (operation === 'READ') {
-    if (user.roles.includes(UserRole.PLANT_HEAD as string)) {
+    if (
+      user.roles.includes(UserRole.PLANT_HEAD as string) ||
+      user.roles.includes(UserRole.SUPERVISOR as string)
+    ) {
       return;
     }
     const scope = findLineScope(user, code);

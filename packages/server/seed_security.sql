@@ -1,6 +1,7 @@
 -- Roles (Security Schema)
 INSERT INTO security.role (role_id, role_name, description) VALUES
 (1, 'OPERATOR', 'Line Operator: Can submit shift logs'),
+(2, 'SUPERVISOR', 'Oversight: live dashboards, import, traceability, assignment'),
 (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
 (4, 'ADMIN', 'System Administrator: Manage master data'),
 (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines')

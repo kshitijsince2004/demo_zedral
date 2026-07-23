@@ -24,6 +24,7 @@ import type { Role } from '../src/lib/authStore';
 
 const ROLE_RANK: Record<Role, number> = {
   OPERATOR: 0,
+  SUPERVISOR: 0,
   MACHINE_HEAD: 1,
   PLANT_HEAD: 2,
   ADMIN: 3,
@@ -74,7 +75,7 @@ const ROUTE_TABLE: RouteSpec[] = [
 // Arbitraries
 // ---------------------------------------------------------------------------
 
-const roleArb = fc.constantFrom<Role>('OPERATOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN');
+const roleArb = fc.constantFrom<Role>('OPERATOR', 'SUPERVISOR', 'MACHINE_HEAD', 'PLANT_HEAD', 'ADMIN');
 const routeArb = fc.constantFrom(...ROUTE_TABLE);
 
 // ---------------------------------------------------------------------------

@@ -7,9 +7,9 @@ import { useAuthStore } from '../../lib/authStore';
 
 export function RollingImportPage() {
   const role = useAuthStore((s) => s.role);
-  const isMachineHead = role === 'MACHINE_HEAD';
+  const useMachineHeadShell = role === 'MACHINE_HEAD' || role === 'SUPERVISOR';
 
-  if (isMachineHead) {
+  if (useMachineHeadShell) {
     return (
       <MachineHeadShell
         title="PPC Plan Import"

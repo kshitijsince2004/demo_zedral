@@ -301,15 +301,14 @@ export function SixHiLayout() {
           setRejectionBatch(null);
         }}
         onReject={async (batchNo, rejectionReason, defectCodes, remarks) => {
-          const targets = rejectActionBatchNumbers.length > 0 ? rejectActionBatchNumbers : batchNo ? [batchNo] : [];
-          if (targets.length === 0) {
+          const target = rejectActionBatchNumbers[0] ?? batchNo;
+          if (!target) {
             setActionError('No order selected for hold');
             throw new Error('No order selected for hold');
           }
-          await runOrderAction(targets[0], async () =>
-            Promise.all(targets.map((batchNumber) =>
-              rejectOrder(batchNumber, { rejectionReason, defectCodes, remarks }),
-            )),
+          // Server cascades hold across combined_group_id — post once for the triggered batch.
+          await runOrderAction(target, async () =>
+            rejectOrder(target, { rejectionReason, defectCodes, remarks }),
           );
           if (shiftLogId) await loadShiftSummary(shiftLogId);
           setCombinedRun(null);

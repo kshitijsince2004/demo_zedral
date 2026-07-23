@@ -10,7 +10,6 @@ import {
 } from '@m1/shared-validation';
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
-import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
 import type { LineAccessLevel } from '../services/authService';
@@ -93,7 +92,9 @@ async function authorizeOrderBatchMill(
     const mill = parseCrmMillCode(String(millRow.machine_code).toUpperCase());
     if (mill) {
       try {
-        assertMachineAccess(req.user, mill);
+        // Supervisor may reinstate / act on held orders without mill WRITE grants.
+        const mode = req.user.roles.includes(UserRole.SUPERVISOR as string) ? 'READ' : 'WRITE';
+        assertMachineAccess(req.user, mill, { mode });
         (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = mill;
         return mill;
       } catch (e: unknown) {
@@ -110,13 +111,40 @@ async function authorizeOrderBatchMill(
 }
 
 // operation kept in the signature so the 42 call sites (requireSixHi('READ'|'WRITE')) don't change.
-function requireCrmMill(_operation: LineAccessLevel) {
+function requireCrmMill(operation: LineAccessLevel) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
       const machine = resolveRequiredCrmMill(req, res);
       if (!machine) return;
       // Machine-wise scope: security.machine_access holds 6HI/4HI/2HI; ADMIN/PLANT_HEAD bypass inside.
+      assertMachineAccess(req.user, machine, { mode: operation === 'READ' ? 'READ' : 'WRITE' });
+      (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
+      next();
+    } catch (e: unknown) {
+      res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
+    }
+  };
+}
+
+/** Order allocation — supervisor may assign without per-machine rows (role-gated separately). */
+function requireCrmMillAssignment() {
+  return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+    try {
+      // allocate-machine client sends body.machineCode (not body.machine).
+      const raw = req.body?.machine ?? req.query?.machine ?? req.body?.machineCode;
+      if (raw == null || String(raw).trim() === '') {
+        return res.status(400).json({ error: 'machine param required' });
+      }
+      const machine = parseCrmMillCode(String(raw).toUpperCase());
+      if (!machine) {
+        return res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
+      }
+      if (req.user.roles.includes(UserRole.SUPERVISOR as string)) {
+        (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
+        return next();
+      }
       assertMachineAccess(req.user, machine);
       (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
       next();
@@ -130,7 +158,7 @@ const requireSixHi = requireCrmMill; // keep name to minimize churn across 42 ha
 
 router.use(requireAuth);
 
-router.post('/import/ppc', requireRole([UserRole.ADMIN]), upload.single('file'), async (req, res) => {
+router.post('/import/ppc', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'CSV file required' });
     const result = await PPCImportService.importFromCsvText(
@@ -146,7 +174,7 @@ router.post('/import/ppc', requireRole([UserRole.ADMIN]), upload.single('file'),
   }
 });
 
-router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), upload.single('file'), async (req, res) => {
+router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'XLSX file required' });
     const sheetTypeRaw = String(req.body?.sheetType ?? 'ROLLING').toUpperCase();
@@ -168,7 +196,7 @@ router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole(
   }
 });
 
-router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREVIEW_MACHINES'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), async (req, res) => {
+router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREVIEW_MACHINES'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
   try {
     const assignments = req.body?.assignments as { batchNumber: string; machineCode: string }[] | undefined;
     if (!Array.isArray(assignments) || assignments.length === 0) {
@@ -190,7 +218,7 @@ router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREV
   }
 });
 
-router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVIEW_COMMIT'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), async (req, res) => {
+router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVIEW_COMMIT'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
   try {
     const batchNumbers = Array.isArray(req.body?.batchNumbers)
       ? (req.body.batchNumbers as unknown[]).map((b) => String(b).trim()).filter(Boolean)
@@ -207,7 +235,7 @@ router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVI
   }
 });
 
-router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), async (req, res) => {
+router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
   try {
     const batchNumbers = req.body?.batchNumbers as string[] | undefined;
     const targetMachine = String(req.body?.targetMachine ?? '').toUpperCase();
@@ -591,18 +619,29 @@ router.delete(
   async (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     const roles = req.user.roles;
+    const isSupervisor = roles.includes(UserRole.SUPERVISOR);
     const mayDelete =
       roles.includes(UserRole.ADMIN) ||
       roles.includes(UserRole.PLANT_HEAD) ||
-      roles.includes(UserRole.MACHINE_HEAD);
+      roles.includes(UserRole.MACHINE_HEAD) ||
+      isSupervisor;
     if (!mayDelete) return res.status(403).json({ error: 'Forbidden' });
-    if (roles.includes(UserRole.MACHINE_HEAD) && !roles.includes(UserRole.ADMIN) && !roles.includes(UserRole.PLANT_HEAD)) {
-      try {
-        assertLineOperation(req.user, '6HI', 'WRITE');
-      } catch (e: unknown) {
-        return res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
+
+    // Mill access is machine-scoped (6HI/4HI/2HI), not process-line ROLLING.
+    // Legacy assertLineOperation(user, '6HI', WRITE) wrongly treated the mill as a line.
+    if (!roles.includes(UserRole.ADMIN) && !roles.includes(UserRole.PLANT_HEAD)) {
+      const mill = await authorizeOrderBatchMill(req, res, req.params.batchNo);
+      if (res.headersSent) return;
+      if (!mill) {
+        // Unallocated order: allow if user can reach any CRM mill (MH machine list / supervisor all-mills).
+        const allowed = (req.user.machineAccess ?? []).map((m) => m.toUpperCase());
+        const hasCrm = allowed.some((m) => m === '6HI' || m === '4HI' || m === '2HI');
+        if (!hasCrm && !isSupervisor) {
+          return res.status(403).json({ error: 'Forbidden: No access to CRM mills' });
+        }
       }
     }
+
     try {
       const result = await SixHiExecutionService.deleteOrder(req.params.batchNo, req.user.id);
       res.json(result);
@@ -612,7 +651,19 @@ router.delete(
   },
 );
 
-router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (req, res) => {
+router.post(
+  '/orders/:batchNo/allocate-machine',
+  // Operators allocate during CRM start flow; MH/Supervisor assign from the board.
+  // Mill WRITE still required for non-supervisors via requireCrmMillAssignment.
+  requireRole([
+    UserRole.OPERATOR,
+    UserRole.MACHINE_HEAD,
+    UserRole.PLANT_HEAD,
+    UserRole.ADMIN,
+    UserRole.SUPERVISOR,
+  ]),
+  requireCrmMillAssignment(),
+  async (req, res) => {
   try {
     const machineCode = String(req.body?.machineCode ?? '').trim();
     if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
@@ -630,7 +681,7 @@ router.post('/orders/:batchNo/allocate-machine', requireSixHi('WRITE'), async (r
 
 router.get(
   '/order-assignment',
-  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN, UserRole.SUPERVISOR]),
   async (req, res) => {
     try {
       const board = await SixHiQueueService.getOrderAssignmentBoard();
@@ -643,7 +694,7 @@ router.get(
 
 router.post(
   '/order-assignment/transfer',
-  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN, UserRole.SUPERVISOR]),
   async (req, res) => {
     try {
       const batchNumbers: string[] = Array.isArray(req.body?.batchNumbers)

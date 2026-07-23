@@ -53,7 +53,7 @@ export interface Apps {
 
 export interface AuditAuditLog {
   action: string;
-  audit_id: Generated<Int8>;
+  audit_id: Generated<Int8>;
   column_name: string | null;
   new_value: string | null;
   old_value: string | null;
@@ -670,7 +670,7 @@ export interface SamlRelayState {
   tenant_id: Generated<string>;
 }
 
-export interface SecurityAppUser {
+export interface SecurityAppUser {
   created_at: Generated<Timestamp>;
   email: string | null;
   emp_code: string | null;
@@ -907,6 +907,7 @@ export interface TxnCrmOrder {
   batch_id: Int8;
   batch_number: string;
   coil_no: string;
+  combined_group_id: string | null;
   created_at: Generated<Timestamp>;
   customer_name: string;
   grade_code: string;

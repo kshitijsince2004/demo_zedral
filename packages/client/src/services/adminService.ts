@@ -25,6 +25,7 @@ export type PpcPreviewRowStatus =
   | 'in-production'
   | 'completed'
   | 'duplicate-in-file'
+  | 'duplicate-skipped'
   | 'will-merge';
 
 export interface PpcRollingPreviewRow {

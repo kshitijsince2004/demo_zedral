@@ -6,6 +6,7 @@ type OrderIdentitySource = Pick<
 > & {
   rollFinish?: SixHiQueueCard['rollFinish'];
   ppcRollFinish?: SixHiOrderDetail['ppcRollFinish'];
+  coilNo?: string;
 };
 
 export function selectIdOf(order: { slitId?: string }): string {
@@ -71,28 +72,21 @@ export function finishOf(order: Partial<Pick<SixHiQueueCard, 'rollFinish'>> & Pa
   return order.rollFinish ?? order.ppcRollFinish ?? '—';
 }
 
-/** Thickness used to validate combined-run compatibility (process-aware). */
-export function combinedRunThicknessKey(order: {
-  subProcess?: string;
-  inputThkMm?: number;
-  finishThkMm?: number;
-  targetThkMm?: number;
-}): string {
-  if (order.subProcess === 'SKIN_PASS') {
-    return String(order.inputThkMm ?? '');
-  }
-  return String(order.finishThkMm ?? order.targetThkMm ?? '');
+/** Finish-surface family: LOW_MATT ≡ MATT, MIRROR ≡ BRIGHT (must match server finishGroup). */
+export function finishGroupOf(value: string | null | undefined): string {
+  const s = (value?.trim() || '').toUpperCase().replace(/[\s-]+/g, '_');
+  if (s === 'M' || s === 'MATTE' || s.includes('MATT')) return 'MATT';
+  if (s === 'B' || s === 'BRIGHT' || s === 'MIRROR') return 'BRIGHT';
+  return s;
 }
 
+/** Combined-run identity: Mother Coil + Slit + Finish-family (thickness excluded). */
 export function combinedRunKey(
   order: OrderIdentitySource & { subProcess?: string; inputThkMm?: number },
 ): string {
-  return [
-    primaryOrderId(order),
-    selectIdOf(order),
-    finishOf(order),
-    combinedRunThicknessKey(order),
-  ].join('|');
+  const coil = (order.motherCoil ?? order.coilNo ?? order.batchNumber)?.trim() || '';
+  const slit = order.slitId?.trim() || '';
+  return [coil, slit, finishGroupOf(finishOf(order))].join('|');
 }
 
 export function isCompatibleCombinedRunOrder(base: OrderIdentitySource, candidate: OrderIdentitySource): boolean {

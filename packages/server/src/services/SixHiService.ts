@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { randomUUID } from 'node:crypto';
 import type {
   SixHiOrderDetail,
   SixHiQueueCard,
@@ -37,6 +38,13 @@ import {
   assertShiftLogRuntimeAccounting,
 } from '../validation/crm6ProductionValidation';
 
+/** Finish-surface family for combined-run matching: LOW_MATT ≡ MATT, MIRROR ≡ BRIGHT. */
+function finishGroup(value: string | null | undefined): string {
+  const s = (value?.trim() || '').toUpperCase().replace(/[\s-]+/g, '_');
+  if (s === 'M' || s === 'MATTE' || s.includes('MATT')) return 'MATT';
+  if (s === 'B' || s === 'BRIGHT' || s === 'MIRROR') return 'BRIGHT';
+  return s;
+}
 
 const SIX_HI_PROCESS_CODE = 'ROLLING';
 
@@ -1125,19 +1133,8 @@ export class SixHiService {
     }
 
     const first = batches[0];
-    const thicknessKey = (row: typeof first) => (
-      row.sub_process === 'SKIN_PASS'
-        ? String(row.input_thk_mm ?? '')
-        : String(row.finish_thk_mm ?? row.ppc_thk_mm)
-    );
-    const thicknessLabel = first.sub_process === 'SKIN_PASS' ? 'Pre-Stage Thickness' : 'Final Output Thickness';
     const normalized = (value: string | null | undefined) => value?.trim() || '';
-    const baseKey = [
-      first.coil_no,
-      normalized(first.slit_id),
-      normalized(first.roll_finish),
-      thicknessKey(first),
-    ].join('|');
+    const baseKey = [first.coil_no, normalized(first.slit_id), finishGroup(first.roll_finish)].join('|');
 
     for (const batch of batches) {
       if (!batch.machine_allocated) {
@@ -1149,14 +1146,9 @@ export class SixHiService {
       if (batch.sub_process !== first.sub_process) {
         throw new Error('Combined production orders must use the same subprocess');
       }
-      const key = [
-        batch.coil_no,
-        normalized(batch.slit_id),
-        normalized(batch.roll_finish),
-        thicknessKey(batch),
-      ].join('|');
+      const key = [batch.coil_no, normalized(batch.slit_id), finishGroup(batch.roll_finish)].join('|');
       if (key !== baseKey) {
-        throw new Error(`Selected orders must share Mother Coil, Slit ID, Finish, and ${thicknessLabel}`);
+        throw new Error('Selected orders must share Mother Coil, Slit ID, and Finish surface');
       }
     }
 
@@ -1213,6 +1205,14 @@ export class SixHiService {
         shiftCode: attributed?.shift_code ?? first.shift_code,
         meta: { combinedRunBatchNumbers: uniqueBatchNumbers },
       }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+    }
+
+    if (uniqueBatchNumbers.length > 1) {
+      const groupId = randomUUID();
+      await db.updateTable('txn.crm_order')
+        .set({ combined_group_id: groupId })
+        .where('batch_number', 'in', uniqueBatchNumbers)
+        .execute();
     }
 
     return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
@@ -1833,23 +1833,92 @@ export class SixHiService {
     }
 
     const orderId = await this.ensureOrder(batchNumber, userId);
-    const ppc = await db.selectFrom('planning.ppc_batch')
-      .select(['machine_code', 'shift_code'])
-      .where('batch_number', '=', batchNumber)
-      .executeTakeFirst();
-    // Attribute hold to the operator's active shift (same rule as production start).
-    await this.reattributeOrderToActiveShift(orderId, userId, ppc?.machine_code);
-    const holdShift = await db.selectFrom('txn.crm_order')
-      .select('shift_code')
+    const current = await db.selectFrom('txn.crm_order')
+      .select(['order_id', 'status', 'combined_group_id', 'batch_number'])
       .where('order_id', '=', orderId)
-      .executeTakeFirst();
-    const eventShift = holdShift?.shift_code ?? ppc?.shift_code;
+      .executeTakeFirstOrThrow();
+
+    // Re-holding an already-REJECTED order (with no active group mates) is a no-op.
+    if (current.status === 'REJECTED' && !current.combined_group_id) {
+      return this.getOrder(batchNumber, userId);
+    }
+
+    let targets: Array<{ order_id: string | number; batch_number: string }> = [
+      { order_id: orderId, batch_number: batchNumber },
+    ];
+    if (current.combined_group_id) {
+      targets = await db.selectFrom('txn.crm_order')
+        .select(['order_id', 'batch_number'])
+        .where('combined_group_id', '=', current.combined_group_id)
+        .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'PENDING', 'PREPARING'])
+        .execute();
+      if (targets.length === 0) {
+        return this.getOrder(batchNumber, userId);
+      }
+    } else if (current.status === 'REJECTED') {
+      return this.getOrder(batchNumber, userId);
+    }
 
     const reasonLabel = rejectionReason.trim().slice(0, 100);
 
-    await db.insertInto('txn.order_rejection')
+    // Attribute each target to the operator's active shift before the hold write txn.
+    for (const target of targets) {
+      const ppc = await db.selectFrom('planning.ppc_batch')
+        .select('machine_code')
+        .where('batch_number', '=', String(target.batch_number))
+        .executeTakeFirst();
+      await this.reattributeOrderToActiveShift(target.order_id as any, userId, ppc?.machine_code);
+    }
+
+    await db.transaction().execute(async (trx) => {
+      for (const target of targets) {
+        await this.rejectSingleOrder(
+          trx as any,
+          String(target.batch_number),
+          String(target.order_id),
+          reasonLabel,
+          defectCodes,
+          trimmedRemarks,
+          userId,
+        );
+      }
+    });
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  /** Hold a single CRM order. Caller owns the transaction when cascading a combined group. */
+  private static async rejectSingleOrder(
+    trx: typeof db,
+    batchNumber: string,
+    orderId: string,
+    reasonLabel: string,
+    defectCodes: string[],
+    trimmedRemarks: string,
+    userId: number,
+  ) {
+    const existing = await trx.selectFrom('txn.crm_order')
+      .select('status')
+      .where('order_id', '=', orderId as any)
+      .executeTakeFirst();
+    if (!existing || existing.status === 'REJECTED') {
+      return;
+    }
+
+    const ppc = await trx.selectFrom('planning.ppc_batch')
+      .select(['machine_code', 'shift_code'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+
+    const holdShift = await trx.selectFrom('txn.crm_order')
+      .select('shift_code')
+      .where('order_id', '=', orderId as any)
+      .executeTakeFirst();
+    const eventShift = holdShift?.shift_code ?? ppc?.shift_code;
+
+    await trx.insertInto('txn.order_rejection')
       .values({
-        order_id: orderId,
+        order_id: orderId as any,
         rejection_reason: reasonLabel,
         defect_codes: defectCodes.length ? JSON.stringify(defectCodes) : null,
         remarks: trimmedRemarks,
@@ -1858,62 +1927,58 @@ export class SixHiService {
       })
       .execute();
 
-    // End active stoppage if any
-    const activeStoppage = await db.selectFrom('txn.stoppage')
+    const activeStoppage = await trx.selectFrom('txn.stoppage')
       .select('stoppage_id')
-      .where('order_id', '=', orderId)
+      .where('order_id', '=', orderId as any)
       .where('end_at', 'is', null)
       .executeTakeFirst();
-    
+
     if (activeStoppage) {
-      const stop = await db.selectFrom('txn.stoppage')
+      const stop = await trx.selectFrom('txn.stoppage')
         .selectAll()
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .executeTakeFirstOrThrow();
       const endAt = new Date();
-      await validateOrderStoppageInterval(orderId, stop.start_at, endAt, String(activeStoppage.stoppage_id));
+      await validateOrderStoppageInterval(orderId as any, stop.start_at, endAt, String(activeStoppage.stoppage_id));
       const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
-      await db.updateTable('txn.stoppage')
+      await trx.updateTable('txn.stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
         .execute();
     }
 
-    // Set order status to REJECTED
-    await db.updateTable('txn.crm_order')
-      .set({ 
-        status: 'REJECTED', 
+    await trx.updateTable('txn.crm_order')
+      .set({
+        status: 'REJECTED',
         updated_at: new Date(),
-        prod_end_at: new Date() // End production duration
+        prod_end_at: new Date(),
       })
-      .where('order_id', '=', orderId)
+      .where('order_id', '=', orderId as any)
       .execute();
 
-    // Persist machine state event: RUNNING_ENDED -> IDLE + ORDER_REJECTED
     if (ppc) {
       MachineStateEventService.recordEvent(ppc.machine_code, 'RUNNING_ENDED', {
-        orderId,
+        orderId: orderId as any,
         batchNumber,
         operatorId: userId,
         shiftCode: eventShift,
       })
-      .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'IDLE_STARTED', {
-        orderId, batchNumber, operatorId: userId, shiftCode: eventShift
-      }))
-      .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'ORDER_REJECTED', {
-        orderId, batchNumber, operatorId: userId, shiftCode: eventShift, reason: trimmedRemarks
-      }))
-      .then(async () => {
-        for (const defectCode of defectCodes) {
-          await MachineStateEventService.recordEvent(ppc.machine_code, 'DEFECT_REPORTED', {
-            orderId, batchNumber, operatorId: userId, shiftCode: eventShift, categoryCode: defectCode, reason: 'Defect causing rejection'
-          });
-        }
-      })
-      .catch((err) => console.error('[MachineStateEvent] REJECT events failed:', err));
+        .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'IDLE_STARTED', {
+          orderId: orderId as any, batchNumber, operatorId: userId, shiftCode: eventShift,
+        }))
+        .then(() => MachineStateEventService.recordEvent(ppc.machine_code, 'ORDER_REJECTED', {
+          orderId: orderId as any, batchNumber, operatorId: userId, shiftCode: eventShift, reason: trimmedRemarks,
+        }))
+        .then(async () => {
+          for (const defectCode of defectCodes) {
+            await MachineStateEventService.recordEvent(ppc.machine_code, 'DEFECT_REPORTED', {
+              orderId: orderId as any, batchNumber, operatorId: userId, shiftCode: eventShift,
+              categoryCode: defectCode, reason: 'Defect causing rejection',
+            });
+          }
+        })
+        .catch((err) => console.error('[MachineStateEvent] REJECT events failed:', err));
     }
-
-    return this.getOrder(batchNumber, userId);
   }
 
   static async reinstateOrder(
@@ -1928,18 +1993,55 @@ export class SixHiService {
     if (!batch) throw new Error('Order not found');
 
     const order = await db.selectFrom('txn.crm_order')
-      .select(['order_id', 'status', 'coil_no'])
+      .select(['order_id', 'status', 'coil_no', 'combined_group_id'])
       .where('batch_id', '=', batch.batch_id)
       .executeTakeFirst();
 
     if (!order) throw new Error('No production record exists for this order');
-    if (order.status !== 'REJECTED') throw new Error('Order is not on hold');
+    if (order.status !== 'REJECTED' && !order.combined_group_id) {
+      throw new Error('Order is not on hold');
+    }
 
-    const orderId = order.order_id;
+    let targets: Array<{ order_id: string | number; batch_number: string; coil_no: string | null }> = [
+      { order_id: order.order_id, batch_number: batchNumber, coil_no: order.coil_no ?? batch.coil_no },
+    ];
+    if (order.combined_group_id) {
+      targets = await db.selectFrom('txn.crm_order')
+        .select(['order_id', 'batch_number', 'coil_no'])
+        .where('combined_group_id', '=', order.combined_group_id)
+        .where('status', '=', 'REJECTED')
+        .execute();
+    } else if (order.status !== 'REJECTED') {
+      throw new Error('Order is not on hold');
+    }
 
+    for (const t of targets) {
+      await this.reinstateSingleOrder(
+        String(t.batch_number),
+        String(t.order_id),
+        t.coil_no ?? batch.coil_no,
+        batch.machine_code,
+        batch.shift_code,
+        userId,
+        target,
+      );
+    }
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  private static async reinstateSingleOrder(
+    batchNumber: string,
+    orderId: string,
+    coilNo: string | null,
+    machineCode: string | null | undefined,
+    shiftCode: string | null | undefined,
+    userId: number,
+    target: 'PREPARING' | 'PENDING',
+  ) {
     const latestRejection = await db.selectFrom('txn.order_rejection')
       .select('rejection_id')
-      .where('order_id', '=', String(orderId))
+      .where('order_id', '=', orderId as any)
       .orderBy('created_at', 'desc')
       .executeTakeFirst();
 
@@ -1955,10 +2057,9 @@ export class SixHiService {
         prod_end_at: null,
         updated_at: new Date(),
       })
-      .where('order_id', '=', orderId)
+      .where('order_id', '=', orderId as any)
       .execute();
 
-    const coilNo = order.coil_no ?? batch.coil_no;
     if (coilNo) {
       await db.updateTable('coil.coil')
         .set({ status: 'PLANNED' })
@@ -1966,23 +2067,21 @@ export class SixHiService {
         .execute();
     }
 
-    if (batch.machine_code) {
-      MachineStateEventService.recordEvent(batch.machine_code, 'ORDER_REINSTATED', {
-        orderId,
+    if (machineCode) {
+      MachineStateEventService.recordEvent(machineCode, 'ORDER_REINSTATED', {
+        orderId: orderId as any,
         batchNumber,
         operatorId: userId,
-        shiftCode: batch.shift_code,
+        shiftCode: shiftCode ?? undefined,
       })
-        .then(() => MachineStateEventService.recordEvent(batch.machine_code!, 'IDLE_STARTED', {
-          orderId,
+        .then(() => MachineStateEventService.recordEvent(machineCode!, 'IDLE_STARTED', {
+          orderId: orderId as any,
           batchNumber,
           operatorId: userId,
-          shiftCode: batch.shift_code,
+          shiftCode: shiftCode ?? undefined,
         }))
         .catch((err) => console.error('[MachineStateEvent] REINSTATE events failed:', err));
     }
-
-    return this.getOrder(batchNumber, userId);
   }
 
   private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {

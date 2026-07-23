@@ -201,7 +201,7 @@ const DEFAULT_INACTIVITY_TIMEOUT = 15 * 60 * 1000;
 const DESK_INACTIVITY_TIMEOUT = 60 * 60 * 1000;
 
 function getInactivityTimeout(role: Role | null): number {
-  return role === 'MACHINE_HEAD' || role === 'PLANT_HEAD'
+  return role === 'MACHINE_HEAD' || role === 'PLANT_HEAD' || role === 'SUPERVISOR'
     ? DESK_INACTIVITY_TIMEOUT
     : DEFAULT_INACTIVITY_TIMEOUT;
 }

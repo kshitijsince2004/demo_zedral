@@ -7,6 +7,7 @@ import { MachineStateEventService } from '../services/MachineStateEventService';
 const router = Router();
 router.use(requireAuth);
 router.use(requireRole([
+  UserRole.SUPERVISOR,
   UserRole.MACHINE_HEAD,
   UserRole.PLANT_HEAD,
   UserRole.ADMIN,

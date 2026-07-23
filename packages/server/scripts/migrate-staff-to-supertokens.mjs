@@ -34,7 +34,7 @@ async function main() {
       FROM security.app_user u
       JOIN security.user_role ur ON u.user_id = ur.user_id
       JOIN security.role r ON ur.role_id = r.role_id
-      WHERE r.role_name IN ('ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD')
+      WHERE r.role_name IN ('ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD', 'SUPERVISOR')
         AND u.supertokens_user_id IS NULL
     `);
 

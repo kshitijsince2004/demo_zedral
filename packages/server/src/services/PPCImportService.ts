@@ -48,6 +48,7 @@ export type PreviewRowStatus =
   | 'in-production'
   | 'completed'
   | 'duplicate-in-file'
+  | 'duplicate-skipped'
   | 'will-merge';
 
 interface PpcRow {
@@ -479,7 +480,7 @@ export class PPCImportService {
     trx: DbConn,
     row: PpcRow,
     importBatchId: number,
-  ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; reason?: string }> {
+  ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; batchNumber: string; reason?: string }> {
     let existing = await trx.selectFrom('planning.ppc_batch')
       .select('batch_id')
       .where('batch_number', '=', row.batch_number)
@@ -526,6 +527,7 @@ export class PPCImportService {
     };
 
     let batchId: number;
+    let storedBatchNumber = row.batch_number;
     if (existing) {
       batchId = Number(existing.batch_id);
       const safety = await this.checkProductionSafety(trx, batchId);
@@ -539,11 +541,17 @@ export class PPCImportService {
         throw new ProductionSafetyError(safety.skipReason!);
       }
 
-      // Safe unallocated update — no order or PENDING
+      // Safe unallocated update — keep existing batch_number (pending merge identity).
       await trx.updateTable('planning.ppc_batch')
         .set(batchValues)
         .where('batch_id', '=', String(batchId))
         .execute();
+      const kept = await trx
+        .selectFrom('planning.ppc_batch')
+        .select('batch_number')
+        .where('batch_id', '=', String(batchId))
+        .executeTakeFirstOrThrow();
+      storedBatchNumber = kept.batch_number;
     } else {
       const inserted = await trx.insertInto('planning.ppc_batch')
         .values({ batch_number: row.batch_number, ...batchValues })
@@ -571,7 +579,10 @@ export class PPCImportService {
       );
     }
 
-    return { action: existing ? 'updated' : 'inserted' };
+    return {
+      action: existing ? 'updated' : 'inserted',
+      batchNumber: storedBatchNumber,
+    };
   }
 
   static async importFromCsvText(fileName: string, csvText: string, userId: number) {
@@ -581,32 +592,24 @@ export class PPCImportService {
       return { headerError: parsed.headerError, batchId: null, status: 'FAILED' as const, loaded: 0, updated: 0, skipped: 0, skippedDuplicates: 0, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0, errors: [] };
     }
 
-    // ── Phase 1: In-file duplicate detection (hard fail per policy) ──────────
-    const seenInFile = new Map<string, number[]>(); // batchNumber → rowNums
+    // ── Phase 1: In-file duplicate handling — keep first occurrence, skip the rest ──
+    const seenBatch = new Set<string>();
+    const dedupedRows: { row: (typeof parsed.rows)[number]; rowNum: number }[] = [];
+    const skippedDuplicateRows: number[] = [];
     for (let i = 0; i < parsed.rows.length; i++) {
       const bn = String(parsed.rows[i]?.batch_number ?? '').trim();
-      if (!bn) continue;
       const rowNum = ppcDataRowNumber(i);
-      const existing = seenInFile.get(bn);
-      if (existing) existing.push(rowNum);
-      else seenInFile.set(bn, [rowNum]);
+      if (bn && seenBatch.has(bn)) {
+        skippedDuplicateRows.push(rowNum);
+        continue;
+      }
+      if (bn) seenBatch.add(bn);
+      dedupedRows.push({ row: parsed.rows[i], rowNum });
     }
-    const duplicateEntries = [...seenInFile.entries()].filter(([, rows]) => rows.length > 1);
-    if (duplicateEntries.length > 0) {
-      const report = duplicateEntries
-        .map(([bn, rows]) => `${bn} (rows ${rows.join(', ')})`)
-        .join('; ');
-      return {
-        headerError: `Import rejected — duplicate batch_numbers detected in file: ${report}. Please correct the source file and re-import.`,
-        batchId: null,
-        status: 'FAILED' as const,
-        loaded: 0, updated: 0, skipped: 0, merged: 0, skippedDuplicates: duplicateEntries.length, skippedAllocated: 0, skippedProduction: 0, skippedCompleted: 0,
-        errors: [],
-      };
-    }
+    const skippedDuplicates = skippedDuplicateRows.length;
 
     const batch = await db.insertInto('planning.import_batch')
-      .values({ source: 'CSV', file_name: fileName, row_count: parsed.rows.length, status: 'PENDING', imported_by: userId })
+      .values({ source: 'CSV', file_name: fileName, row_count: dedupedRows.length, status: 'PENDING', imported_by: userId })
       .returning('import_batch_id')
       .executeTakeFirstOrThrow();
 
@@ -618,9 +621,7 @@ export class PPCImportService {
     let skippedCompleted = 0;
     const queueCounters = new Map<string, number>();
 
-    for (let i = 0; i < parsed.rows.length; i++) {
-      const row = parsed.rows[i];
-      const rowNum = ppcDataRowNumber(i);
+    for (const { row, rowNum } of dedupedRows) {
       const validation = PPCImportRowSchema.safeParse(row);
       if (!validation.success) {
         errors.push({ row: rowNum, message: validation.error.errors.map((e) => e.message).join('; ') });
@@ -644,11 +645,11 @@ export class PPCImportService {
         if (result.action === 'inserted') {
           loaded++;
           const { SixHiConfigService } = await import('./sixHi');
-          await SixHiConfigService.ensureOrder(row.batch_number, userId);
+          await SixHiConfigService.ensureOrder(result.batchNumber, userId);
         } else {
           updated++;
           const { SixHiConfigService } = await import('./sixHi');
-          await SixHiConfigService.ensureOrder(row.batch_number, userId);
+          await SixHiConfigService.ensureOrder(result.batchNumber, userId);
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Insert failed';
@@ -667,7 +668,7 @@ export class PPCImportService {
     const skipped = skippedAllocated + skippedProduction + skippedCompleted;
     const status = totalLoaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
-      .set({ status, error_count: errors.length, row_count: parsed.rows.length })
+      .set({ status, error_count: errors.length, row_count: dedupedRows.length })
       .where('import_batch_id', '=', batch.import_batch_id)
       .execute();
 
@@ -693,7 +694,7 @@ export class PPCImportService {
       updated,
       merged: 0,
       skipped,
-      skippedDuplicates: 0,
+      skippedDuplicates,
       skippedAllocated,
       skippedProduction,
       skippedCompleted,
@@ -729,10 +730,18 @@ export class PPCImportService {
     // ── Enrich rows with production status for preview display ───────────────
     const allBatchNumbers = parsed.rows.map((r) => r.batchNumber).filter(Boolean);
 
-    // Detect duplicates within the file
-    const batchNumberCounts = new Map<string, number>();
-    for (const bn of allBatchNumbers) batchNumberCounts.set(bn, (batchNumberCounts.get(bn) ?? 0) + 1);
-    const duplicatesInFile = new Set([...batchNumberCounts.entries()].filter(([, n]) => n > 1).map(([bn]) => bn));
+    // Keep-first: first occurrence of each batch_number stays importable; later copies are skipped.
+    const firstOccurrenceBatch = new Set<string>();
+    const duplicateSkippedRows = new Set<number>();
+    for (const row of parsed.rows) {
+      if (!row.batchNumber) continue;
+      if (firstOccurrenceBatch.has(row.batchNumber)) {
+        duplicateSkippedRows.add(row.rowNum);
+      } else {
+        firstOccurrenceBatch.add(row.batchNumber);
+      }
+    }
+    const duplicatesInFileCount = duplicateSkippedRows.size;
 
     // Same coil/spec with different batch_numbers is allowed — commit inserts
     // each as its own batch (findMatchingPendingBatch excludes current import).
@@ -760,8 +769,8 @@ export class PPCImportService {
       let previewStatus: PreviewRowStatus = 'new';
       let mergeTargetBatchNumber: string | undefined;
 
-      if (duplicatesInFile.has(row.batchNumber)) {
-        previewStatus = 'duplicate-in-file';
+      if (duplicateSkippedRows.has(row.rowNum)) {
+        previewStatus = 'duplicate-skipped';
       } else {
         const ex = existingMap.get(row.batchNumber);
         if (ex) {
@@ -816,7 +825,7 @@ export class PPCImportService {
       shiftCode: effectiveShift,
       sheetType: parsed.sheetType ?? sheetType,
       sheetName: parsed.sheetName ?? '',
-      duplicatesInFile: duplicatesInFile.size,
+      duplicatesInFile: duplicatesInFileCount,
     };
   }
 
@@ -851,28 +860,25 @@ export class PPCImportService {
       throw new Error('No rows selected for import');
     }
 
-    // ── Phase 1: In-file duplicate detection (hard fail per policy) ──────────
-    const seenInFile = new Map<string, number[]>(); // batchNumber → rowNums
+    // ── Phase 1: In-file duplicate handling — keep first occurrence, skip the rest ──
+    const seenBatch = new Set<string>();
+    const dedupedRows: typeof rowsToCommit = [];
+    const skippedDuplicateRows: number[] = [];
     for (const row of rowsToCommit) {
-      const existing = seenInFile.get(row.batchNumber);
-      if (existing) existing.push(row.rowNum);
-      else seenInFile.set(row.batchNumber, [row.rowNum]);
+      if (row.batchNumber && seenBatch.has(row.batchNumber)) {
+        skippedDuplicateRows.push(row.rowNum);
+        continue;
+      }
+      if (row.batchNumber) seenBatch.add(row.batchNumber);
+      dedupedRows.push(row);
     }
-    const duplicateEntries = [...seenInFile.entries()].filter(([, rows]) => rows.length > 1);
-    if (duplicateEntries.length > 0) {
-      const report = duplicateEntries
-        .map(([bn, rows]) => `${bn} (rows ${rows.join(', ')})`)
-        .join('; ');
-      throw new Error(
-        `Import rejected — duplicate batch_numbers detected in selected rows: ${report}. Please correct the source file and re-import.`,
-      );
-    }
+    const skippedDuplicates = skippedDuplicateRows.length;
 
     const batch = await db.insertInto('planning.import_batch')
       .values({
         source: 'XLSX',
         file_name: session.fileName,
-        row_count: rowsToCommit.length,
+        row_count: dedupedRows.length,
         status: 'PENDING',
         imported_by: userId,
       })
@@ -887,7 +893,7 @@ export class PPCImportService {
     let skippedProduction = 0;
     let skippedCompleted = 0;
 
-    for (const row of rowsToCommit) {
+    for (const row of dedupedRows) {
       if (row.errors.length > 0) {
         errors.push({ row: row.rowNum, message: row.errors.join('; ') });
         continue;
@@ -937,7 +943,7 @@ export class PPCImportService {
     const skipped = skippedAllocated + skippedProduction + skippedCompleted;
     const status = totalLoaded === 0 && loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
-      .set({ status, error_count: errors.length, row_count: rowsToCommit.length })
+      .set({ status, error_count: errors.length, row_count: dedupedRows.length })
       .where('import_batch_id', '=', batch.import_batch_id)
       .execute();
 
@@ -946,7 +952,7 @@ export class PPCImportService {
     }
 
     // Only newly inserted rows trigger shift log provisioning and Elasticsearch indexing
-    const syncedRows = rowsToCommit.filter((r) =>
+    const syncedRows = dedupedRows.filter((r) =>
       r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
     );
     const syncedBatchNumbers = syncedRows.map((r) => r.batchNumber);
@@ -973,7 +979,7 @@ export class PPCImportService {
       updated,
       merged,
       skipped,
-      skippedDuplicates: 0,
+      skippedDuplicates,
       skippedAllocated,
       skippedProduction,
       skippedCompleted,

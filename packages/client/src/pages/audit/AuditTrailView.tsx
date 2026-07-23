@@ -2,6 +2,38 @@ import { useEffect, useState } from 'react';
 import { auditService, type AuditRecord } from '../../services/auditService';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 
+/** Render stored audit values as plain text (not raw JSON). */
+function formatAuditValue(value: string | null): string {
+  if (value == null || value === '') return '—';
+  const trimmed = value.trim();
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return value;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed === null || typeof parsed !== 'object') {
+      return String(parsed);
+    }
+    if (Array.isArray(parsed)) {
+      return parsed.length === 0
+        ? '—'
+        : parsed.map((item, i) => `${i + 1}. ${formatPlainLeaf(item)}`).join('\n');
+    }
+    const lines = Object.entries(parsed as Record<string, unknown>)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => `${k}: ${formatPlainLeaf(v)}`);
+    return lines.length > 0 ? lines.join('\n') : '—';
+  } catch {
+    return value;
+  }
+}
+
+function formatPlainLeaf(value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 export function AuditTrailView() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,15 +84,26 @@ export function AuditTrailView() {
               </tr>
             </thead>
             <tbody>
+              {records.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                    No audit records in the selected window.
+                  </td>
+                </tr>
+              )}
               {records.map((row) => (
-                <tr key={row.id} className="border-t border-border">
-                  <td className="px-3 py-2">{row.table_name}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{row.record_id}</td>
+                <tr key={row.id} className="border-t border-border align-top">
+                  <td className="px-3 py-2 whitespace-nowrap">{row.table_name}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{row.record_id || '—'}</td>
                   <td className="px-3 py-2">{row.action}</td>
                   <td className="px-3 py-2">{row.field ?? '—'}</td>
-                  <td className="px-3 py-2">{row.old_value ?? '—'}</td>
-                  <td className="px-3 py-2">{row.new_value ?? '—'}</td>
-                  <td className="px-3 py-2">{formatPlantDateTime(row.timestamp)}</td>
+                  <td className="px-3 py-2 text-xs max-w-[14rem] whitespace-pre-wrap break-words">
+                    {formatAuditValue(row.old_value)}
+                  </td>
+                  <td className="px-3 py-2 text-xs max-w-[20rem] whitespace-pre-wrap break-words">
+                    {formatAuditValue(row.new_value)}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatPlantDateTime(row.timestamp)}</td>
                 </tr>
               ))}
             </tbody>

@@ -48,46 +48,13 @@ describe('ValidationConfigService Integration Tests', () => {
     
     service = new ValidationConfigService(db);
 
+    // Ensure trigger only — do not replace audit.fn_audit (shared DB / migrations own it).
     const { sql } = await import('kysely');
     await db.executeQuery(
       sql`
-        CREATE OR REPLACE FUNCTION audit.fn_audit() RETURNS trigger AS $$
-        DECLARE
-            pk TEXT;
-            uid INTEGER;
-            cr_id BIGINT;
-            tbl TEXT;
-        BEGIN
-            tbl := TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME;
-        
-            pk := COALESCE(
-                NULLIF(to_jsonb(NEW)->>'entry_id', ''),
-                NULLIF(to_jsonb(OLD)->>'entry_id', ''),
-                NULLIF(to_jsonb(NEW)->>'field_id', ''),
-                NULLIF(to_jsonb(OLD)->>'field_id', ''),
-                ''
-            );
-
-            uid := NULLIF(to_jsonb(NEW)->>'user_id', '')::integer;
-
-            IF (TG_OP = 'UPDATE') THEN
-                INSERT INTO audit.audit_log(table_name, record_pk, action, new_value, old_value, user_id, ts)
-                VALUES (tbl, pk, 'UPDATE', row_to_json(NEW)::text, row_to_json(OLD)::text, uid, now());
-                RETURN NEW;
-            ELSIF (TG_OP = 'INSERT') THEN
-                INSERT INTO audit.audit_log(table_name, record_pk, action, new_value, user_id, ts)
-                VALUES (tbl, pk, 'INSERT', row_to_json(NEW)::text, uid, now());
-                RETURN NEW;
-            ELSE
-                INSERT INTO audit.audit_log(table_name, record_pk, action, old_value, ts)
-                VALUES (tbl, pk, 'DELETE', row_to_json(OLD)::text, now());
-                RETURN OLD;
-            END IF;
-        END $$ LANGUAGE plpgsql;
-
         DROP TRIGGER IF EXISTS trg_audit_validation_rule ON config.validation_rule;
-        CREATE TRIGGER trg_audit_validation_rule 
-        AFTER INSERT OR UPDATE OR DELETE ON config.validation_rule 
+        CREATE TRIGGER trg_audit_validation_rule
+        AFTER INSERT OR UPDATE OR DELETE ON config.validation_rule
         FOR EACH ROW EXECUTE FUNCTION audit.fn_audit();
       `.compile(db)
     ).catch(() => {});

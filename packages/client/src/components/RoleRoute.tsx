@@ -11,6 +11,8 @@ import { ZButton } from './primitives/ZButton';
 interface RoleRouteProps {
   /** Minimum role required to access this route. */
   minRole: Role;
+  /** Explicit roles that bypass the rank check (capability-scoped access). */
+  allow?: UserRole[];
   children: React.ReactNode;
 }
 
@@ -22,22 +24,21 @@ interface RoleRouteProps {
  * - Authenticated users who meet or exceed `minRole` see the children.
  *
  * Role hierarchy (ascending privilege):
- *   OPERATOR < MACHINE_HEAD < PLANT_HEAD < ADMIN
+ *   OPERATOR ≈ SUPERVISOR (rank 0) < MACHINE_HEAD < PLANT_HEAD < ADMIN
  *
- * Note: ADMIN is treated as a superuser and always passes any role check
- * (consistent with authStore.hasRole).
- *
+ * SUPERVISOR is capability-scoped via optional `allow` — it does NOT inherit
+ * Machine Head / Plant Head routes by rank.
  * Requirements: 7.6, 8.3
  */
-export function RoleRoute({ minRole, children }: RoleRouteProps) {
+export function RoleRoute({ minRole, allow, children }: RoleRouteProps) {
   return (
     <ProtectedRoute>
-      <RoleCheck minRole={minRole}>{children}</RoleCheck>
+      <RoleCheck minRole={minRole} allow={allow}>{children}</RoleCheck>
     </ProtectedRoute>
   );
 }
 
-function RoleCheck({ minRole, children }: RoleRouteProps) {
+function RoleCheck({ minRole, allow, children }: RoleRouteProps) {
   const { role } = useAuthStore();
 
   if (!role) {
@@ -47,9 +48,10 @@ function RoleCheck({ minRole, children }: RoleRouteProps) {
 
   const userRank = ROLE_RANK[role as UserRole];
   const requiredRank = ROLE_RANK[minRole as UserRole];
+  const passesRank = userRank != null && requiredRank != null && userRank >= requiredRank;
+  const passesAllow = allow?.includes(role as UserRole) ?? false;
 
-  // Unknown / legacy roles must not slip past (undefined < n is false in JS).
-  if (userRank == null || requiredRank == null || userRank < requiredRank) {
+  if (!passesRank && !passesAllow) {
     return <AccessDenied minRole={minRole} role={role} />;
   }
 
@@ -93,9 +95,19 @@ export function PlantRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute minRole={UserRole.MACHINE_HEAD}>{children}</RoleRoute>;
 }
 
-/** Requires MACHINE_HEAD or higher (machine-scoped ops). */
-export function MachineHeadRoute({ children }: { children: React.ReactNode }) {
-  return <RoleRoute minRole={UserRole.MACHINE_HEAD}>{children}</RoleRoute>;
+/** Requires MACHINE_HEAD or higher (machine-scoped ops), or explicit allow list. */
+export function MachineHeadRoute({
+  children,
+  allow,
+}: {
+  children: React.ReactNode;
+  allow?: UserRole[];
+}) {
+  return (
+    <RoleRoute minRole={UserRole.MACHINE_HEAD} allow={allow}>
+      {children}
+    </RoleRoute>
+  );
 }
 
 /** Requires ADMIN (admin routes). */

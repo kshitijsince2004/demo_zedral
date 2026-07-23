@@ -1,4 +1,4 @@
-import { getElasticClient, isElasticAvailable } from './elasticClient';
+import { getElasticClient, isElasticAvailable, checkElasticHealth } from './elasticClient';
 import { TRACEABILITY_INDEX } from './traceabilityIndex';
 import { db } from '../db';
 import { formatPlantDate } from '@m1/shared-validation';
@@ -131,7 +131,10 @@ export async function removeBatch(batchId: number | string): Promise<void> {
  */
 export async function reindexAll(): Promise<{ total: number; indexed: number; errors: number }> {
   if (!isElasticAvailable()) {
-    throw new Error('Elasticsearch is not available');
+    const ok = await checkElasticHealth();
+    if (!ok) {
+      throw new Error('Elasticsearch is not available');
+    }
   }
 
   const PAGE_SIZE = 1000;
