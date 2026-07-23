@@ -6,8 +6,7 @@ let sharedCache: AppCache | null = null;
 
 async function createRedisClient(url: string): Promise<RedisClient | null> {
   try {
-    // ioredis is an optional runtime dependency (see package.json optionalDependencies).
-    // @ts-expect-error optional dependency - memory cache is used when Redis is unavailable.
+    // ioredis is optional at runtime (package.json optionalDependencies); catch falls back to memory.
     const ioredis = await import('ioredis');
     const Redis = ioredis.default ?? ioredis;
     const client = new Redis(url, {

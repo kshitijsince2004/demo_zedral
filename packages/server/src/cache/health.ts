@@ -7,7 +7,6 @@ export async function checkRedisHealth(): Promise<boolean> {
   if (!redisUrl) return false;
 
   try {
-    // @ts-expect-error optional dependency - health check is skipped when Redis is unavailable.
     const ioredis = await import('ioredis');
     const Redis = ioredis.default ?? ioredis;
     const client = new Redis(redisUrl, {
