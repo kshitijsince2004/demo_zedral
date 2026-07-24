@@ -38,6 +38,7 @@ import { SixHiManualOrderModal } from './SixHiManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
+import { CrewCaptureModal, CREW_CAPTURE_SNOOZE_MS } from './CrewCaptureModal';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { resolveCombinedStoppageTargets } from '../../lib/combinedProductionRun';
 
@@ -89,6 +90,11 @@ export function SixHiLayout() {
   const [manualStoppageOpen, setManualStoppageOpen] = useState(false);
   const [startError, setStartError] = useState<{ message: string; activeBatch?: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [crewPrompt, setCrewPrompt] = useState<{ sessionId: string } | null>(null);
+  const [crewSnoozeUntil, setCrewSnoozeUntil] = useState(0);
+  // Keep session id after first create so snooze can re-prompt (live reuse returns needsCrew=false)
+  const [crewPendingSessionId, setCrewPendingSessionId] = useState<string | null>(null);
+  const [sessionRecovering, setSessionRecovering] = useState(false);
 
   // Suppress the automatic shift-end prompt while the operator is already on the
   // handover / summary pages (they are actively completing the handover there).
@@ -96,15 +102,62 @@ export function SixHiLayout() {
   const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
   const handoverPath = basePath ? `${basePath}/handover` : null;
 
+  const recoverSession = async (opts?: { forceCrew?: boolean }) => {
+    if (sessionRecovering) return;
+    setSessionRecovering(true);
+    try {
+      const sess = await machineHandoverService.ensureSession(pathMill);
+      const sid = sess?.session
+        ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
+        : '';
+      if ((sess?.created || opts?.forceCrew) && sid) {
+        setCrewPendingSessionId(sid);
+        if (Date.now() >= crewSnoozeUntil) setCrewPrompt({ sessionId: sid });
+      }
+      await bootstrapShiftContext(pathMill);
+      await refreshMachineState();
+      setActionError(null);
+      setStartError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to recover session';
+      setActionError(message);
+    } finally {
+      setSessionRecovering(false);
+    }
+  };
+
+  const maybeRecoverFromSessionError = async (message: string) => {
+    if (/NO_ACTIVE_SESSION|ACTIVE_SESSION_CONFLICT/i.test(message)) {
+      await recoverSession({ forceCrew: /NO_ACTIVE_SESSION/i.test(message) });
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     setMachineCode(pathMill);
+    setCrewPendingSessionId(null);
+    setCrewPrompt(null);
+    setCrewSnoozeUntil(0);
   }, [pathMill, setMachineCode]);
 
   useEffect(() => {
     async function init() {
       try {
         // Ensure session first so /shifts/current?machine= pins to ACTIVE (not clock).
-        await machineHandoverService.ensureSession(pathMill).catch(() => undefined);
+        const sess = await machineHandoverService.ensureSession(pathMill).catch(() => null);
+        const sid = sess?.session
+          ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
+          : '';
+        if (sess?.created && sid) {
+          setCrewPendingSessionId(sid);
+        }
+        const pendingSid = (sess?.created && sid) ? sid : crewPendingSessionId;
+        if (pendingSid && Date.now() >= crewSnoozeUntil) {
+          setCrewPrompt({ sessionId: pendingSid });
+        } else {
+          setCrewPrompt(null);
+        }
         await bootstrapShiftContext(pathMill);
         const { shiftDate, shiftCode } = useShiftStore.getState();
         const qs = `?date=${encodeURIComponent(shiftDate)}&shift=${encodeURIComponent(shiftCode)}`;
@@ -124,7 +177,19 @@ export function SixHiLayout() {
       await refreshMachineState();
     }
     init();
-  }, [pathMill, activeMachine, loadShiftSummary, refreshMachineState, logout]);
+  }, [pathMill, activeMachine, loadShiftSummary, refreshMachineState, logout, crewSnoozeUntil, crewPendingSessionId]);
+
+  // Tablet left open past grace: re-ensure session when the tab becomes visible again.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void recoverSession();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recover on visibility only
+  }, [pathMill]);
 
   useEffect(() => {
     const openBatch = searchParams.get('open');
@@ -194,7 +259,9 @@ export function SixHiLayout() {
           : err instanceof Error
             ? err.message
             : 'Failed to start production';
-        setStartError({ message });
+        const recovered = await maybeRecoverFromSessionError(message);
+        if (!recovered) setStartError({ message });
+        else setStartError({ message: `${message} — session refreshed. Retry the action.` });
       }
     }
   };
@@ -337,6 +404,14 @@ export function SixHiLayout() {
                 Open {startError.activeBatch}
               </ZButton>
             )}
+            <button
+              type="button"
+              className="underline text-xs"
+              disabled={sessionRecovering}
+              onClick={() => void recoverSession({ forceCrew: true })}
+            >
+              {sessionRecovering ? 'Recovering…' : 'Recover session'}
+            </button>
             <button type="button" className="underline text-xs" onClick={() => setStartError(null)}>Dismiss</button>
           </div>
         </div>
@@ -345,7 +420,17 @@ export function SixHiLayout() {
       {actionError && (
         <div className="fixed top-20 left-20 right-24 z-[105] max-w-lg mx-auto bg-destructive/10 border border-destructive text-destructive rounded-xl px-4 py-3 text-sm font-medium">
           <p>{actionError}</p>
-          <button type="button" className="underline text-xs mt-2" onClick={() => setActionError(null)}>Dismiss</button>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              className="underline text-xs"
+              disabled={sessionRecovering}
+              onClick={() => void recoverSession({ forceCrew: true })}
+            >
+              {sessionRecovering ? 'Recovering…' : 'Recover session'}
+            </button>
+            <button type="button" className="underline text-xs" onClick={() => setActionError(null)}>Dismiss</button>
+          </div>
         </div>
       )}
 
@@ -467,6 +552,21 @@ export function SixHiLayout() {
         onRemindLater={shiftWatcher.remindLater}
         onHandover={() => {
           if (handoverPath) navigate(handoverPath);
+        }}
+      />
+
+      <CrewCaptureModal
+        open={!!crewPrompt && !shiftWatcher.visible}
+        machineCode={pathMill}
+        sessionId={crewPrompt?.sessionId ?? ''}
+        onDone={() => {
+          setCrewPrompt(null);
+          setCrewPendingSessionId(null);
+        }}
+        onSnooze={() => {
+          setCrewSnoozeUntil(Date.now() + CREW_CAPTURE_SNOOZE_MS);
+          setCrewPrompt(null);
+          window.setTimeout(() => setCrewSnoozeUntil(0), CREW_CAPTURE_SNOOZE_MS);
         }}
       />
 

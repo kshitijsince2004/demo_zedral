@@ -63,9 +63,6 @@ export interface DetectedShift {
   overrideReason?: string;
 }
 
-/** @deprecated Import DEFAULT_PLANT_SHIFT_WINDOWS from @m1/shared-validation */
-export const DEFAULT_SHIFT_WINDOWS = DEFAULT_PLANT_SHIFT_WINDOWS;
-
 /** @deprecated Import resolveShiftFromClock from @m1/shared-validation */
 export { resolveShiftFromClock } from '@m1/shared-validation';
 
@@ -259,6 +256,53 @@ export class ShiftDetectionService {
     return this.closeStaleSessionsOnMachine(machineCode, operatorUserId);
   }
 
+  /** ACTIVE sessions past shift-end + overtime grace (not yet closed). */
+  static async listStaleActiveSessions(machineCode?: string): Promise<
+    Array<{
+      session_id: string;
+      machine_code: string;
+      shift_code: string;
+      prod_date: Date | string;
+      operator_user_id: number;
+      shift_log_id: string | null;
+    }>
+  > {
+    let q = db
+      .selectFrom('txn.machine_shift_session as s')
+      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+      .select([
+        's.session_id',
+        's.machine_code',
+        's.shift_code',
+        's.prod_date',
+        's.operator_user_id',
+        's.shift_log_id',
+        'w.start_time',
+        'w.end_time',
+      ])
+      .where('s.status', '=', 'ACTIVE');
+    if (machineCode) q = q.where('s.machine_code', '=', machineCode);
+
+    const active = await q.execute();
+    return active
+      .filter(
+        (s) =>
+          !isSessionLive({
+            prod_date: s.prod_date,
+            start_time: String(s.start_time).slice(0, 5),
+            end_time: String(s.end_time).slice(0, 5),
+          }),
+      )
+      .map((s) => ({
+        session_id: String(s.session_id),
+        machine_code: s.machine_code,
+        shift_code: String(s.shift_code).toUpperCase(),
+        prod_date: s.prod_date,
+        operator_user_id: Number(s.operator_user_id),
+        shift_log_id: s.shift_log_id != null ? String(s.shift_log_id) : null,
+      }));
+  }
+
   /**
    * Close ACTIVE sessions past shift-end + overtime grace.
    * When operatorUserId is omitted, closes stale sessions for any operator on the machine.
@@ -267,35 +311,19 @@ export class ShiftDetectionService {
     machineCode: string,
     operatorUserId?: number,
   ): Promise<number> {
-    let q = db
-      .selectFrom('txn.machine_shift_session as s')
-      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
-      .select(['s.session_id', 's.prod_date', 'w.start_time', 'w.end_time'])
-      .where('s.machine_code', '=', machineCode)
-      .where('s.status', '=', 'ACTIVE');
-    if (operatorUserId != null) {
-      q = q.where('s.operator_user_id', '=', operatorUserId);
-    }
-    const active = await q.execute();
-
-    const toClose = active.filter(
-      (s) =>
-        !isSessionLive({
-          prod_date: s.prod_date,
-          start_time: String(s.start_time).slice(0, 5),
-          end_time: String(s.end_time).slice(0, 5),
-        }),
-    );
+    const stale = await this.listStaleActiveSessions(machineCode);
+    const toClose = operatorUserId != null
+      ? stale.filter((s) => s.operator_user_id === operatorUserId)
+      : stale;
     if (toClose.length === 0) return 0;
 
-    const closedAt = new Date();
     await db
       .updateTable('txn.machine_shift_session')
-      .set({ status: 'CLOSED', closed_at: closedAt })
+      .set({ status: 'CLOSED', closed_at: new Date() })
       .where(
         'session_id',
         'in',
-        toClose.map((s) => String(s.session_id)),
+        toClose.map((s) => s.session_id),
       )
       .execute();
 
@@ -304,17 +332,18 @@ export class ShiftDetectionService {
 
   /** Sweep all machines: close non-live ACTIVE sessions (keeps overtime-grace pins). */
   static async closeAllStaleActiveSessions(): Promise<number> {
-    const machines = await db
-      .selectFrom('txn.machine_shift_session')
-      .select('machine_code')
-      .where('status', '=', 'ACTIVE')
-      .distinct()
+    const stale = await this.listStaleActiveSessions();
+    if (stale.length === 0) return 0;
+    await db
+      .updateTable('txn.machine_shift_session')
+      .set({ status: 'CLOSED', closed_at: new Date() })
+      .where(
+        'session_id',
+        'in',
+        stale.map((s) => s.session_id),
+      )
       .execute();
-    let closed = 0;
-    for (const m of machines) {
-      closed += await this.closeStaleSessionsOnMachine(m.machine_code);
-    }
-    return closed;
+    return stale.length;
   }
 
   /**
@@ -477,7 +506,7 @@ export class ShiftDetectionService {
       shiftCode = opts.shiftCode.toUpperCase();
       prodDate =
         typeof opts.planDate === 'string'
-          ? opts.planDate.slice(0, 10)
+          ? formatPlantDate(opts.planDate)
           : formatDbDate(opts.planDate);
     } else {
       const windows = await loadShiftWindows();

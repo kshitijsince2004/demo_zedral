@@ -903,6 +903,7 @@ export function MachineHeadDashboard() {
                       <span className="text-muted-foreground font-mono shrink-0">
                         {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
                         {h.status === 'PENDING' ? ' · Pending' : ''}
+                        {h.status === 'AUTO_COMPLETED' || h.createdByBoundary ? ' · Auto / system' : ''}
                       </span>
                     </div>
                     <p className="text-muted-foreground mb-1">

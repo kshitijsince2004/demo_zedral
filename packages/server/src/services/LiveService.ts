@@ -17,7 +17,7 @@ import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { MachineCrewService } from './MachineCrewService';
-import { currentPlantDate, startOfDateFilter } from '../utils/dateOnly';
+import { currentPlantDate, formatPlantDate, startOfDateFilter } from '../utils/dateOnly';
 /** Live shopfloor queue — no COMPLETED (those belong in production history). */
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 const ORDER_STATUS_PRIORITY: Record<string, number> = {
@@ -1002,7 +1002,7 @@ export class LiveService {
         rejectedBy: r.operator,
         weightMt: Number(r.ppc_weight_mt),
         shiftCode: r.shift_code ?? undefined,
-        planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+        planDate: r.plan_date ? formatPlantDate(r.plan_date) : undefined,
         subProcess: r.sub_process ?? undefined,
         coilNo,
         motherCoil: coilNo,
@@ -1394,7 +1394,7 @@ export class LiveService {
           rejectedBy: r.operator || 'Unknown',
           weightMt: Number(r.ppc_weight_mt || 0),
           shiftCode: r.shift_code ?? undefined,
-          planDate: r.plan_date ? String(r.plan_date).slice(0, 10) : undefined,
+          planDate: r.plan_date ? formatPlantDate(r.plan_date) : undefined,
           subProcess: r.sub_process ?? undefined,
           coilNo,
           motherCoil: coilNo,

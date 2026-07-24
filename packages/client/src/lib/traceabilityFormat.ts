@@ -1,3 +1,5 @@
+import { formatPlantDate, formatPlantDateTime } from './dateFormat';
+
 const SKIP_KEYS = new Set([
   'order_id',
   'coil_no',
@@ -7,6 +9,25 @@ const SKIP_KEYS = new Set([
   'updated_at',
   'created_by',
   'updated_by',
+]);
+
+const DATE_KEYS = new Set([
+  'plan_date',
+  'prod_date',
+  'production_day',
+  'outgoing_prod_date',
+  'incoming_prod_date',
+]);
+
+const DATETIME_KEYS = new Set([
+  'created_at',
+  'updated_at',
+  'prod_start_at',
+  'prod_end_at',
+  'start_at',
+  'end_at',
+  'rejected_at',
+  'occurred_at',
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
@@ -47,9 +68,15 @@ function humanizeKey(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatValue(value: unknown): string | null {
+function formatValue(key: string, value: unknown): string | null {
   if (value == null || value === '') return null;
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (DATE_KEYS.has(key) && (value instanceof Date || typeof value === 'string')) {
+    return formatPlantDate(value);
+  }
+  if (DATETIME_KEYS.has(key) && (value instanceof Date || typeof value === 'string')) {
+    return formatPlantDateTime(value);
+  }
   if (typeof value === 'number' || typeof value === 'string') return String(value);
   if (Array.isArray(value)) return value.length > 0 ? `${value.length} item(s)` : null;
   return null;
@@ -66,7 +93,7 @@ export function formatTraceabilityRecordDetails(
   const priorityKeys = PROCESS_FIELDS[process] ?? [];
 
   for (const key of priorityKeys) {
-    const value = formatValue(record[key]);
+    const value = formatValue(key, record[key]);
     if (!value) continue;
     pairs.push({ label: FIELD_LABELS[key] ?? humanizeKey(key), value });
   }
@@ -75,7 +102,7 @@ export function formatTraceabilityRecordDetails(
     for (const [key, raw] of Object.entries(record)) {
       if (pairs.length >= 5) break;
       if (SKIP_KEYS.has(key) || priorityKeys.includes(key)) continue;
-      const value = formatValue(raw);
+      const value = formatValue(key, raw);
       if (!value) continue;
       pairs.push({ label: FIELD_LABELS[key] ?? humanizeKey(key), value });
     }

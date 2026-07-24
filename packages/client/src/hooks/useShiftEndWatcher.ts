@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { useShiftStore } from '../store/shiftStore';
 import type { DetectedShift } from '../lib/shiftDetection';
-import { addPlantDays, IST_OFFSET } from '@m1/shared-validation';
+import { addPlantDays, formatPlantDate, IST_OFFSET } from '@m1/shared-validation';
 
 /**
  * Default interval used when the operator postpones the shift-end prompt via
@@ -45,10 +45,6 @@ function toMinutes(hhmm: string): number | null {
   return h * 60 + m;
 }
 
-function addDays(isoDate: string, days: number): string {
-  return addPlantDays(isoDate, days);
-}
-
 /**
  * Resolve the absolute instant (epoch ms) at which the pinned shift ends, in IST.
  * Handles the overnight shift (windowEnd <= windowStart rolls to the next day).
@@ -63,7 +59,7 @@ export function resolveShiftEndInstant(
   const endMin = toMinutes(windowEnd);
   if (endMin == null) return null;
   const overnight = startMin != null && endMin <= startMin;
-  const endDate = overnight ? addDays(prodDate, 1) : prodDate.slice(0, 10);
+  const endDate = overnight ? addPlantDays(prodDate, 1) : formatPlantDate(prodDate);
   const ts = Date.parse(`${endDate}T${windowEnd.slice(0, 5)}:00${IST_OFFSET}`);
   return Number.isNaN(ts) ? null : ts;
 }

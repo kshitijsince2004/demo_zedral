@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { currentPlantDate, formatShiftDate } from '../lib/dateFormat';
+import { currentPlantDate, formatPlantTime, formatShiftDate } from '../lib/dateFormat';
 import type { DetectedShiftSource } from '../lib/shiftDetection';
 
 export type CoilStatus = 'planned' | 'open' | 'done';
@@ -162,7 +162,7 @@ export const useShiftStore = create<ShiftState>((set) => ({
 
   endStoppage: (id) => set((s) => ({
     stoppages: s.stoppages.map((st) =>
-      st.id === id ? { ...st, toTime: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }), durationMins: 0 } : st
+      st.id === id ? { ...st, toTime: formatPlantTime(new Date()), durationMins: 0 } : st
     ),
     runningStoppage: s.runningStoppage?.id === id ? null : s.runningStoppage,
   })),

@@ -1,11 +1,14 @@
 import type { MachineAccessEntry } from '@m1/shared-validation';
+import type { Kysely } from 'kysely';
 import { db } from '../db';
+import type { Database } from '../db';
 import type { LineAccessInput } from './UserService';
 
 const VALID_LEVELS = new Set(['READ', 'WRITE', 'APPROVE']);
+const CRM_MILLS = new Set(['6HI', '4HI', '2HI']);
 
-async function resolveProcessId(processCode: string): Promise<number> {
-  const process = await db
+async function resolveProcessId(processCode: string, executor: Kysely<Database>): Promise<number> {
+  const process = await executor
     .selectFrom('master.process')
     .select('process_id')
     .where('code', '=', processCode.toUpperCase())
@@ -14,23 +17,28 @@ async function resolveProcessId(processCode: string): Promise<number> {
   return process.process_id;
 }
 
-/** Derive security.line_access rows from assigned machines (mills map to 6HI process). */
+/** Derive security.line_access rows from assigned machines (CRM mills → ROLLING). */
 export function lineAccessFromMachines(machineCodes: string[]): LineAccessInput[] {
   const lines = new Set<string>();
-  for (const code of machineCodes) {
-    if (code === '4HI' || code === '2HI') lines.add('6HI');
+  for (const raw of machineCodes) {
+    const code = raw.toUpperCase();
+    if (CRM_MILLS.has(code)) lines.add('ROLLING');
     else lines.add(code);
   }
   return [...lines].map((line_id) => ({ line_id, level: 'WRITE' }));
 }
 
-async function replaceLineAccess(userId: number, lineAccess: LineAccessInput[]) {
-  await db.deleteFrom('security.line_access').where('user_id', '=', userId).execute();
+async function replaceLineAccess(
+  userId: number,
+  lineAccess: LineAccessInput[],
+  executor: Kysely<Database>,
+) {
+  await executor.deleteFrom('security.line_access').where('user_id', '=', userId).execute();
   for (const entry of lineAccess) {
     const level = entry.level.toUpperCase();
     if (!VALID_LEVELS.has(level)) throw new Error(`Invalid access level: ${entry.level}`);
-    const processId = await resolveProcessId(entry.line_id);
-    await db.insertInto('security.line_access').values({
+    const processId = await resolveProcessId(entry.line_id, executor);
+    await executor.insertInto('security.line_access').values({
       user_id: userId,
       process_id: processId,
       access_level: level,
@@ -107,32 +115,34 @@ export class MachineAccessService {
   }
 
   static async setForUser(userId: number, machineCodes: string[], assignedBy: number) {
-    await db.deleteFrom('security.machine_access').where('user_id', '=', userId as any).execute();
+    await db.transaction().execute(async (trx) => {
+      await trx.deleteFrom('security.machine_access').where('user_id', '=', userId as any).execute();
 
-    const valid = machineCodes.length === 0
-      ? []
-      : await db.selectFrom('master.machine')
-          .select('machine_code')
-          .where('machine_code', 'in', machineCodes)
-          .where('machine_status', '!=', 'OFFLINE')
+      const valid = machineCodes.length === 0
+        ? []
+        : await trx.selectFrom('master.machine')
+            .select('machine_code')
+            .where('machine_code', 'in', machineCodes)
+            .where('machine_status', '!=', 'OFFLINE')
+            .execute();
+      const validCodes = valid.map((v) => v.machine_code);
+      const rejected = machineCodes.filter((c) => !validCodes.includes(c));
+      if (rejected.length > 0) {
+        throw new Error(`Unknown or disabled machine(s): ${rejected.join(', ')}`);
+      }
+
+      if (validCodes.length > 0) {
+        await trx.insertInto('security.machine_access')
+          .values(validCodes.map((machine_code) => ({
+            user_id: userId as any,
+            machine_code,
+            access_level: 'MANAGE',
+            assigned_by: assignedBy as any,
+          })))
           .execute();
-    const validCodes = valid.map((v) => v.machine_code);
-    const rejected = machineCodes.filter((c) => !validCodes.includes(c));
-    if (rejected.length > 0) {
-      throw new Error(`Unknown or disabled machine(s): ${rejected.join(', ')}`);
-    }
+      }
 
-    if (validCodes.length > 0) {
-      await db.insertInto('security.machine_access')
-        .values(validCodes.map((machine_code) => ({
-          user_id: userId as any,
-          machine_code,
-          access_level: 'MANAGE',
-          assigned_by: assignedBy as any,
-        })))
-        .execute();
-    }
-
-    await replaceLineAccess(userId, lineAccessFromMachines(validCodes));
+      await replaceLineAccess(userId, lineAccessFromMachines(validCodes), trx);
+    });
   }
 }

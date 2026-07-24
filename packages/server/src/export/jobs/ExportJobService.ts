@@ -33,6 +33,7 @@ import type {
 } from '../types';
 
 import { formatExtension } from './artifactStore';
+import { endOfPlantDay, startOfPlantDay } from '../../utils/dateOnly';
 
 
 
@@ -341,16 +342,10 @@ export class ExportJobService {
 
     if (filters.type) q = q.where('export_type', '=', filters.type);
 
-    if (filters.from) q = q.where('created_at', '>=', new Date(filters.from));
+    if (filters.from) q = q.where('created_at', '>=', startOfPlantDay(filters.from));
 
     if (filters.to) {
-
-      const to = new Date(filters.to);
-
-      to.setHours(23, 59, 59, 999);
-
-      q = q.where('created_at', '<=', to);
-
+      q = q.where('created_at', '<=', endOfPlantDay(filters.to));
     }
 
 
@@ -373,16 +368,10 @@ export class ExportJobService {
 
     if (filters.type) countQ = countQ.where('export_type', '=', filters.type);
 
-    if (filters.from) countQ = countQ.where('created_at', '>=', new Date(filters.from));
+    if (filters.from) countQ = countQ.where('created_at', '>=', startOfPlantDay(filters.from));
 
     if (filters.to) {
-
-      const to = new Date(filters.to);
-
-      to.setHours(23, 59, 59, 999);
-
-      countQ = countQ.where('created_at', '<=', to);
-
+      countQ = countQ.where('created_at', '<=', endOfPlantDay(filters.to));
     }
 
     const countRow = await countQ.executeTakeFirst();

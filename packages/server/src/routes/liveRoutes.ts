@@ -3,6 +3,7 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { LiveDashboardService, LiveOrderService } from '../services/live';
 import { MachineStateEventService } from '../services/MachineStateEventService';
+import { formatPlantDate } from '../utils/dateOnly';
 
 const router = Router();
 router.use(requireAuth);
@@ -36,7 +37,7 @@ router.get('/orders', async (req, res) => {
     const search = typeof req.query.search === 'string' ? req.query.search : undefined;
     const subProcess = typeof req.query.subProcess === 'string' ? req.query.subProcess : undefined;
     // Live queue ignores plan date/shift (backlog + in-progress). date/shift kept for response metadata.
-    const planDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
+    const planDate = typeof req.query.date === 'string' ? formatPlantDate(req.query.date) : undefined;
     const shiftCode = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
     const ctx = planDate && shiftCode
       ? { prodDate: planDate, shiftCode }
@@ -64,9 +65,9 @@ router.get('/rejected-orders', async (req, res) => {
       if (filter === null) filter = [machine];
       else filter = filter.filter((m) => m === machine);
     }
-    const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom.slice(0, 10) : undefined;
-    const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo.slice(0, 10) : undefined;
-    const date = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
+    const dateFrom = typeof req.query.dateFrom === 'string' ? formatPlantDate(req.query.dateFrom) : undefined;
+    const dateTo = typeof req.query.dateTo === 'string' ? formatPlantDate(req.query.dateTo) : undefined;
+    const date = typeof req.query.date === 'string' ? formatPlantDate(req.query.date) : undefined;
     const shiftCode = typeof req.query.shiftCode === 'string' ? req.query.shiftCode.toUpperCase() : undefined;
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
     const orders = await LiveOrderService.getRejectedOrders(filter, {

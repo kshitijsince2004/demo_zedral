@@ -54,6 +54,12 @@ describe('machineRouting', () => {
     expect(canAccessMachine('OPERATOR', ['4HI'], '6HI')).toBe(false);
   });
 
+  it('normalizes machine codes case-insensitively', () => {
+    expect(getEffectiveMachineAccess('MACHINE_HEAD', ['4hi'])).toEqual(['4HI']);
+    expect(canAccessMachine('MACHINE_HEAD', ['4hi'], '4HI')).toBe(true);
+    expect(canAccessMachine('OPERATOR', ['6HI'], '6hi')).toBe(true);
+  });
+
   it('builds all-machine nav items with CRM first', () => {
     const items = getMachineNavItems('OPERATOR', ['4HI', '6HI', 'HRS'], ['HRS'], 'operator');
     expect(items.map((i) => i.code)).toEqual(['6HI', '4HI', 'HRS']);

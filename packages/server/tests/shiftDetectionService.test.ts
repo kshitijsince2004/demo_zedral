@@ -250,6 +250,7 @@ describe('ShiftDetectionService.closeStaleOperatorSessions', () => {
           prod_date: new Date('2026-07-08T00:00:00+05:30'),
           start_time: '06:00',
           end_time: '14:00',
+          operator_user_id: 1,
         },
         // C overnight still in overtime grace — keep
         {
@@ -257,6 +258,7 @@ describe('ShiftDetectionService.closeStaleOperatorSessions', () => {
           prod_date: new Date('2026-07-09T00:00:00+05:30'),
           start_time: '22:00',
           end_time: '06:00',
+          operator_user_id: 1,
         },
       ]),
     } as never);

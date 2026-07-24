@@ -19,6 +19,7 @@ import { SixHiService } from '../src/services/SixHiService';
 import { ShiftDetectionService } from '../src/services/ShiftDetectionService';
 import { ProductionMetricsService } from '../src/services/ProductionMetricsService';
 import { ReportingService } from '../src/services/ReportingService';
+import { addPlantDays } from '../src/utils/dateOnly';
 
 const USER_ID = 3; // operator
 const MACHINE = '6HI';
@@ -29,12 +30,7 @@ function assert(check: string, pass: boolean, detail = '') {
 }
 const round1 = (n: number) => Math.round(n * 10) / 10;
 function shiftDate(base: string, deltaDays: number): string {
-  const d = new Date(`${base}T00:00:00`);
-  d.setDate(d.getDate() + deltaDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return addPlantDays(base, deltaDays);
 }
 
 async function main() {

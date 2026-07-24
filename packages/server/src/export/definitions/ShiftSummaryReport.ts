@@ -5,7 +5,7 @@ import { ReportingService } from '../../services/ReportingService';
 import { SixHiService } from '../../services/SixHiService';
 import type { ExportFormat, ReportExecutionResult } from '../types';
 import type { ReportDefinition } from './ReportDefinition';
-import { currentPlantDate } from '../../utils/dateOnly';
+import { currentPlantDate, formatPlantDate, postgresDateOnly } from '../../utils/dateOnly';
 
 interface ShiftSummaryScope {
   date?: string;
@@ -29,9 +29,9 @@ function parseScope(scope: Record<string, unknown>): ShiftSummaryScope {
   }
 
   return {
-    date: date ? String(date).slice(0, 10) : undefined,
-    dateFrom: dateFrom ? String(dateFrom).slice(0, 10) : undefined,
-    dateTo: dateTo ? String(dateTo).slice(0, 10) : undefined,
+    date: date ? postgresDateOnly(String(date)) : undefined,
+    dateFrom: dateFrom ? postgresDateOnly(String(dateFrom)) : undefined,
+    dateTo: dateTo ? postgresDateOnly(String(dateTo)) : undefined,
     shiftCode: shiftRaw ? String(shiftRaw).toUpperCase() : undefined,
     machineCodes,
   };
@@ -76,12 +76,15 @@ export const ShiftSummaryReport: ReportDefinition = {
     return ['CSV', 'XLSX', 'PDF'];
   },
 
-  async estimateRowCount(scope: Record<string, unknown>, _user: AuthUser): Promise<number> {
+  async estimateRowCount(scope: Record<string, unknown>, user: AuthUser): Promise<number> {
     const parsed = parseScope(scope);
     if (!parsed.dateFrom || !parsed.shiftCode) return 0;
+    const machineCodes = applyMachineScope(user, parsed.machineCodes);
+    if (machineCodes && machineCodes.length === 0) return 0;
+    const machineFilter = machineCodes?.length === 1 ? machineCodes[0] : machineCodes;
     const shiftLogId = await SixHiService.resolveShiftLogIdForPlan(parsed.dateFrom, parsed.shiftCode);
     if (!shiftLogId) return 0;
-    const review = await ReportingService.getShiftReview(shiftLogId);
+    const review = await ReportingService.getShiftReview(shiftLogId, machineFilter);
     if (!review) return 0;
     return (review.completedOrders?.length ?? 0) + (review.ordersInProgress?.length ?? 0) + 5;
   },
@@ -111,7 +114,7 @@ export const ShiftSummaryReport: ReportDefinition = {
     }
 
     const [review, handover] = await Promise.all([
-      ReportingService.getShiftReview(shiftLogId),
+      ReportingService.getShiftReview(shiftLogId, machineFilter),
       ReportingService.getMachineHandoverSummary(shiftLogId).catch(() => null),
     ]);
     if (!review) throw new Error('Shift review data not available');
@@ -143,12 +146,15 @@ export const ShiftSummaryReport: ReportDefinition = {
       return machineCode === machineFilter;
     };
 
-    const completedOrders = (review.completedOrders ?? []).filter((o) =>
-      filterByMachine((o as { machineCode?: string }).machineCode),
-    );
-    const inProgressOrders = (review.ordersInProgress ?? []).filter((o) =>
-      filterByMachine(o.machineCode),
-    );
+    // When getShiftReview already scoped to a single machine, lists are pre-filtered.
+    // For multi-machine scope, filter completed/in-progress by machineCode.
+    const needsClientFilter = Array.isArray(machineFilter) && machineFilter.length > 1;
+    const completedOrders = needsClientFilter
+      ? (review.completedOrders ?? []).filter((o) => filterByMachine(o.machineCode))
+      : (review.completedOrders ?? []);
+    const inProgressOrders = needsClientFilter
+      ? (review.ordersInProgress ?? []).filter((o) => filterByMachine(o.machineCode))
+      : (review.ordersInProgress ?? []);
     const stoppages = review.stoppages ?? [];
 
     const summaryRows = [
@@ -174,6 +180,7 @@ export const ShiftSummaryReport: ReportDefinition = {
       Status: 'COMPLETED',
       Customer: o.customer ?? '—',
       Process: o.subProcess ?? '—',
+      Machine: o.machineCode ?? '—',
       'Weight (MT)': o.weightMt,
       'Duration (min)': o.durationMin ?? '—',
     }));

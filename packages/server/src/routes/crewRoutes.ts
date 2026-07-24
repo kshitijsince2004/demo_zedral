@@ -40,4 +40,21 @@ router.post('/', async (req, res) => {
   }
 });
 
+/** Attach machine roster crew_ids to the active session (crew-at-login). */
+router.post('/attach', async (req, res) => {
+  try {
+    const sessionId = req.body?.sessionId;
+    const crewIds = req.body?.crewIds;
+    if (!sessionId || !Array.isArray(crewIds)) {
+      return res.status(400).json({ error: 'sessionId and crewIds[] are required' });
+    }
+    const count = await CrewService.attachRosterToSession(String(sessionId), crewIds);
+    res.status(201).json({ attached: count });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to attach crew';
+    const status = error instanceof AuthError || message.includes('Forbidden') ? 403 : 400;
+    res.status(status).json({ error: message });
+  }
+});
+
 export default router;

@@ -24,7 +24,7 @@ import {
 import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
-import { currentPlantDate } from '../utils/dateOnly';
+import { currentPlantDate, formatPlantDate, startOfPlantDay, endOfPlantDay } from '../utils/dateOnly';
 import { SixHiService } from '../services/SixHiService';
 import { MachineCrewService } from '../services/MachineCrewService';
 import multer from 'multer';
@@ -418,7 +418,7 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
       machineCode: parsedMachine,
     });
     const viewDate = typeof req.query.date === 'string'
-      ? req.query.date.slice(0, 10)
+      ? formatPlantDate(req.query.date)
       : currentPlantDate();
     if (!['ROLLING', 'SKIN_PASS'].includes(subProcess)) {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
@@ -462,7 +462,7 @@ router.get('/orders/completed', async (req, res) => {
 
   try {
     const rawMachine = req.query.machine ? String(req.query.machine).toUpperCase() : undefined;
-    const date = req.query.date ? String(req.query.date).slice(0, 10) : undefined;
+    const date = req.query.date ? formatPlantDate(String(req.query.date)) : undefined;
     const shiftCode = req.query.shiftCode ? String(req.query.shiftCode).toUpperCase() : undefined;
     // Prefer resolved shift-log scoping so "completed this shift" matches the rest
     // of the dashboard (Overview / Completed count), not a raw calendar-day window.
@@ -538,8 +538,8 @@ router.get('/orders/completed', async (req, res) => {
       q = q.where('o.shift_log_id', 'in', shiftLogIds);
     } else {
       if (date) {
-        q = q.where('o.prod_end_at', '>=', new Date(`${date}T00:00:00Z`))
-          .where('o.prod_end_at', '<=', new Date(`${date}T23:59:59Z`));
+        q = q.where('o.prod_end_at', '>=', startOfPlantDay(date))
+          .where('o.prod_end_at', '<=', endOfPlantDay(date));
       }
       if (shiftCode && shiftCode !== 'ALL') {
         q = q.where('pb.shift_code', '=', shiftCode);

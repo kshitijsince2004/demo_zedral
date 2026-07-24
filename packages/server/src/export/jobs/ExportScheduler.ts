@@ -2,7 +2,7 @@ import { db } from '../../db';
 import { getUserWithRolesAndAccess } from '../../services/authService';
 import { ExportWorker } from './ExportWorker';
 import type { ExportRequest } from '../types';
-import { getPlantClockParts, addPlantDays, currentPlantDate } from '@m1/shared-validation';
+import { getPlantClockParts, addPlantDays, currentPlantDate, IST_OFFSET } from '@m1/shared-validation';
 
 const DEFAULT_CRON_HOUR = Number(process.env.DPR_SCHEDULE_HOUR ?? 7);
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
@@ -16,10 +16,10 @@ function msUntilNextRun(hour: number): number {
   const now = new Date();
   const today = currentPlantDate();
   let targetDay = today;
-  let next = new Date(`${targetDay}T${String(hour).padStart(2, '0')}:00:00+05:30`);
+  let next = new Date(`${targetDay}T${String(hour).padStart(2, '0')}:00:00${IST_OFFSET}`);
   if (next.getTime() <= now.getTime()) {
     targetDay = addPlantDays(today, 1);
-    next = new Date(`${targetDay}T${String(hour).padStart(2, '0')}:00:00+05:30`);
+    next = new Date(`${targetDay}T${String(hour).padStart(2, '0')}:00:00${IST_OFFSET}`);
   }
   return next.getTime() - now.getTime();
 }

@@ -46,9 +46,7 @@ function batchRowToDoc(row: any): TraceabilityDoc {
     weight_mt: Number(row.ppc_weight_mt),
     thk_mm: Number(row.ppc_thk_mm),
     input_thk_mm: row.input_thk_mm != null ? Number(row.input_thk_mm) : null,
-    plan_date: row.plan_date instanceof Date
-      ? formatPlantDate(row.plan_date)
-      : String(row.plan_date).slice(0, 10),
+    plan_date: formatPlantDate(row.plan_date),
     indexed_at: new Date().toISOString(),
     batch_number_suggest: row.batch_number,
     coil_no_suggest: row.coil_no,

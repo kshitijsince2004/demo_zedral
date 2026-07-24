@@ -17,7 +17,7 @@ import {
   AlertTriangle, CheckCircle2, Package, ChevronRight,
   Users, Wrench, Clock, AlertCircle, FileText,
 } from 'lucide-react';
-import { formatPlantDateTime } from '../../lib/dateFormat';
+import { formatPlantClock, formatPlantDateTime } from '../../lib/dateFormat';
 import { flattenHandoverQueue } from '../../lib/handoverQueue';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
@@ -310,7 +310,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
                     <div key={i} className="py-3 flex items-center justify-between">
                       <div>
                         <p className="font-bold text-amber-800 text-sm">{s.reason ?? 'Unknown reason'}</p>
-                        <p className="text-xs text-amber-600">{s.startAt ? new Date(s.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+                        <p className="text-xs text-amber-600">{formatPlantClock(s.startAt)}</p>
                       </div>
                       <span className="text-xs font-black bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">OPEN</span>
                     </div>

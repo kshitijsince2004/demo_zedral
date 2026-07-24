@@ -152,7 +152,7 @@ export const ValidationRulesAdmin: React.FC = () => {
     try {
       const payload = buildRulePayload(formState);
       if (!payload) return;
-      await validationConfigService.upsertRule(formState.ruleId, selectedField, payload);
+      await validationConfigService.updateRule(selectedField, payload);
       setDialogOpen(false);
       await loadData();
     } catch (err) {

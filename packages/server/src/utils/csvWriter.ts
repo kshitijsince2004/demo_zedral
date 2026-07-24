@@ -1,8 +1,10 @@
+import { formatPlantDateTime } from '@m1/shared-validation';
+
 export function escapeCsvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
   const text =
     value instanceof Date
-      ? value.toISOString()
+      ? formatPlantDateTime(value)
       : typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
@@ -43,22 +45,26 @@ export function rowsToSpreadsheetXml(rows: Record<string, unknown>[], sheetName 
       return `<Row>${cells}</Row>`;
     })
     .join('');
-
   return `<?xml version="1.0"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Worksheet ss:Name="${escapeXml(sheetName)}">
-<Table>
-<Row>${headerCells}</Row>
-${dataRows}
-</Table>
-</Worksheet>
+ <Worksheet ss:Name="${escapeXml(sheetName)}">
+  <Table>
+   <Row>${headerCells}</Row>
+   ${dataRows}
+  </Table>
+ </Worksheet>
 </Workbook>`;
 }
 
 function escapeXml(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  return String(value)
+  const text =
+    value instanceof Date
+      ? formatPlantDateTime(value)
+      : value == null
+        ? ''
+        : String(value);
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

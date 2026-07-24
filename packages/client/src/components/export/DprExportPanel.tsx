@@ -4,7 +4,7 @@ import { ZButton } from '../primitives/ZButton';
 import { StatusBadge } from '../ui/StatusBadge';
 import { ExportJobPanel } from './ExportJobPanel';
 import { reportingService } from '../../lib/reportingService';
-import { getPlantClockParts } from '@m1/shared-validation';
+import { getPlantClockParts, parsePlantDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
 
 function currentMonthValue(): string {
   const { year, month } = getPlantClockParts();
@@ -64,7 +64,11 @@ export function DprExportPanel({
   };
 
   const monthLabel = monthValid
-    ? new Date(`${month}-01`).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+    ? parsePlantDateOnly(`${month}-01`).toLocaleDateString('en-IN', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: PLANT_TIME_ZONE,
+      })
     : '—';
 
   return (

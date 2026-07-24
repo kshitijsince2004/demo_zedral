@@ -9,6 +9,7 @@ import { finishOf, displayMotherCoilId, selectIdOf, thicknessDisplayForProcess }
 import { apiClient } from '../../lib/apiClient';
 import { OrderProductionHistory } from './OrderProductionHistory';
 import { CombinedProductionHistory } from './CombinedProductionHistory';
+import { formatPlantDate } from '../../lib/dateFormat';
 
 interface SixHiBatchDetailPanelProps {
   batch: SixHiQueueCard | null;
@@ -128,7 +129,7 @@ export function SixHiBatchDetailPanel({
   ];
 
   if (batch.isBacklog && batch.planDate) {
-    fields.splice(1, 0, ['Planned Date', `${batch.planDate}${batch.shiftCode ? ` · Shift ${batch.shiftCode}` : ''}`]);
+    fields.splice(1, 0, ['Planned Date', `${formatPlantDate(batch.planDate)}${batch.shiftCode ? ` · Shift ${batch.shiftCode}` : ''}`]);
   }
 
   if (batch.machineAllocated === false) {

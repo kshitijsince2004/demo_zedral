@@ -5,6 +5,7 @@ import { FieldWrapper } from '../forms/FieldWrapper';
 import { StoppageCodeSelect } from './StoppageCodeSelect';
 import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode } from './SixHiStoppageCodes';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { formatPlantClock } from '../../lib/dateFormat';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
 
 export interface RollChangePayload {
@@ -206,7 +207,7 @@ export function OrderStoppageModal({
               <div className="text-left">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">Stoppage Active</p>
                 <p className="text-xs text-destructive/80 mt-0.5">
-                  Started {new Date(activeStoppage?.startAt || Date.now()).toLocaleTimeString()}
+                  Started {formatPlantClock(activeStoppage?.startAt || Date.now())}
                 </p>
               </div>
               <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>

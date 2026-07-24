@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, Play } from 'lucide-react';
 import useSWR from 'swr';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
-import { formatShiftDate } from '../../lib/dateFormat';
+import { formatPlantClock, formatShiftDate } from '../../lib/dateFormat';
 import { useShiftStore } from '../../store/shiftStore';
 import { subscribeProductionChanged } from '../../lib/productionSync';
 import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummaryPanel';
@@ -270,7 +270,7 @@ export function SixHiCapturePage() {
               Code {resolveStoppageDisplayCode(order.activeStoppage.categoryCode, order.activeStoppage.breakdownCode)} · {order.activeStoppage.categoryLabel}
             </p>
             <p className="text-xs text-destructive/80 mt-1">
-              Started {new Date(order.activeStoppage.startAt).toLocaleTimeString()}
+              Started {formatPlantClock(order.activeStoppage.startAt)}
               {order.activeStoppage.remarks ? ` · ${order.activeStoppage.remarks}` : ''}
             </p>
           </div>
@@ -328,7 +328,7 @@ export function SixHiCapturePage() {
                         ['Combined Target', `${targetMt.toFixed(3)} MT`],
                         ['Combined Produced', `${produced.toFixed(3)} MT`],
                         ['Balance', `${balance.toFixed(3)} MT`],
-                        ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
+                        ['Start Time', order.prodStartAt ? formatPlantClock(order.prodStartAt) : '—'],
                       ]
                       : [
                         ['Order', displayMotherCoilId(order)],
@@ -340,7 +340,7 @@ export function SixHiCapturePage() {
                         ['Target Quantity', `${targetMt.toFixed(3)} MT`],
                         ['Produced Quantity', `${produced.toFixed(3)} MT`],
                         ['Balance Quantity', `${balance.toFixed(3)} MT`],
-                        ['Start Time', order.prodStartAt ? new Date(order.prodStartAt).toLocaleTimeString() : '—'],
+                        ['Start Time', order.prodStartAt ? formatPlantClock(order.prodStartAt) : '—'],
                       ]
                     ).map(([label, value]) => (
                       <div key={label} className="bg-secondary rounded-xl px-3 py-3 min-h-[64px]">

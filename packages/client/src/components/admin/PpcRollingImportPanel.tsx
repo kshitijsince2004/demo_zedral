@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Upload } from 'lucide-react';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { useShiftStore } from '../../store/shiftStore';
-import { formatShiftDate } from '../../lib/dateFormat';
+import { formatPlantDate, formatShiftDate } from '../../lib/dateFormat';
 import {
   adminService,
   type PpcRollingPreviewRow,
@@ -236,7 +236,7 @@ export function PpcRollingImportPanel() {
           {commitResult.synced && commitResult.loaded > 0 && (
             <div className="text-xs text-muted-foreground space-y-1">
               <p>
-                Plan {commitResult.synced.planDate} · Shift {commitResult.synced.shiftCode}
+                Plan {formatPlantDate(commitResult.synced.planDate)} · Shift {commitResult.synced.shiftCode}
                 {commitResult.synced.machines.length > 0 && (
                   <> · Machines: {commitResult.synced.machines.join(', ')}</>
                 )}
@@ -345,7 +345,7 @@ export function PpcRollingImportPanel() {
                           <span className="font-semibold text-foreground">{row.machineCode}</span>
                         </td>
                         <td className="p-3">{row.subProcess ?? 'ROLLING'}</td>
-                        <td className="p-3 font-mono">{row.planDate}</td>
+                        <td className="p-3 font-mono">{formatPlantDate(row.planDate)}</td>
                         <td className="p-3 text-right font-mono">{row.rollingPassNo}</td>
                         <td className="p-3 text-right font-mono">{row.finishThkMm}</td>
                         <td className="p-3 font-mono text-[10px]">{row.processRouteRaw}</td>

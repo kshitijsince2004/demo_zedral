@@ -59,3 +59,19 @@ The incoming operator logs into the tablet and accesses the machine dashboard.
 
 ## Summary
 The system acts as a rigid state machine. An **Active Session** owns production data. The **Outgoing Handover** packages that state into a snapshot and suspends machine operations. The **Incoming Handover** unpacks that state, re-parents open work to a new shift log, and creates a fresh **Active Session** to resume production seamlessly.
+
+---
+
+## 4. Auto Boundary Handover (Tier 1)
+
+When an operator **forgets** to hand over and the session goes past shift-end + overtime grace, the scheduler runs Tier 1 instead of a bare session close:
+
+1. Finalize outgoing shift (attribution + summary + `shift.closed`).
+2. Ensure the incoming shift_log (same keys `ensureActiveSession` will use).
+3. `reparentOpenWork` — shared with manual `acceptHandover`.
+4. Close the stale session; insert `AUTO_COMPLETED` with `created_by_boundary=true` (no PENDING → machine not blocked).
+5. Incoming operator logs in normally and finds carried-forward work already on their shift_log.
+
+See `doc/audit/TIER1_AUTO_BOUNDARY_HANDOVER.md` for A→B→C→A lifecycle, rollout, rollback, and observability.
+
+**Flags:** `AUTO_BOUNDARY_HANDOVER=off|shadow|on`, optional `AUTO_BOUNDARY_HANDOVER_MACHINES`.

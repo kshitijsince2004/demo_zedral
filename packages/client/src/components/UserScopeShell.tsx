@@ -21,9 +21,10 @@ export function UserScopeShell() {
   const activeMachine = useAuthStore((s) => s.activeMachine);
   const setActiveMachine = useAuthStore((s) => s.setActiveMachine);
 
-  const machines = getEffectiveMachineAccess(role, machineAccess);
-  const machine = activeMachine && machines.includes(activeMachine)
-    ? activeMachine
+  const machines = getEffectiveMachineAccess(role, machineAccess).map((m) => m.toUpperCase());
+  const active = activeMachine?.toUpperCase() ?? null;
+  const machine = active && machines.includes(active)
+    ? active
     : machines[0] ?? null;
 
   useEffect(() => {

@@ -112,6 +112,42 @@ export class CrewService {
 
     return String(row.session_crew_id);
   }
+
+  /** Attach roster members to a session (crew-at-login). Idempotent on crew_id. */
+  static async attachRosterToSession(sessionId: string, crewIds: Array<string | number>) {
+    const ids = [...new Set(crewIds.map(Number).filter((n) => n > 0))];
+    if (ids.length === 0) throw new Error('At least one crew member is required');
+
+    const session = await db
+      .selectFrom('txn.machine_shift_session')
+      .select(['session_id', 'machine_code'])
+      .where('session_id', '=', String(sessionId))
+      .executeTakeFirst();
+    if (!session) throw new Error('Session not found');
+
+    const roster = await db
+      .selectFrom('master.machine_crew_roster')
+      .select('crew_id')
+      .where('machine_code', '=', session.machine_code)
+      .where('crew_id', 'in', ids.map(String))
+      .execute();
+    if (roster.length === 0) throw new Error('No matching roster members for this machine');
+
+    for (const r of roster) {
+      const existing = await db
+        .selectFrom('txn.session_crew')
+        .select('session_crew_id')
+        .where('session_id', '=', session.session_id)
+        .where('crew_id', '=', r.crew_id)
+        .executeTakeFirst();
+      if (existing) continue;
+      await db
+        .insertInto('txn.session_crew')
+        .values({ session_id: session.session_id, crew_id: r.crew_id })
+        .execute();
+    }
+    return roster.length;
+  }
 }
 
 export class DefectService {

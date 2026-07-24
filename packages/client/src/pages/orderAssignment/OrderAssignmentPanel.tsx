@@ -7,7 +7,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
-import { formatPlantDateTime } from '../../lib/dateFormat';
+import { formatPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
 
 type AssignmentOrder = {
@@ -309,7 +309,7 @@ export function OrderAssignmentPanel() {
                       <span>{order.quantityMt} MT</span>
                       <span className="font-semibold text-foreground">{machineLabel}</span>
                       <span className="font-mono col-span-2 md:col-span-4">
-                        Plan {order.planDate} · Shift {order.shiftCode}
+                        Plan {formatPlantDate(order.planDate)} · Shift {order.shiftCode}
                       </span>
                     </div>
                     {!canTransferOrder(order) && (

@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { apiClient } from '../../lib/apiClient';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
+import { formatPlantClock } from '../../lib/dateFormat';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 
@@ -193,7 +194,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                             {s.breakdownCode && <span className="text-muted-foreground"> · {s.breakdownCode}</span>}
                           </div>
                           <div className="text-right text-muted-foreground font-mono text-xs">
-                            {new Date(s.startAt).toLocaleTimeString()}
+                            {formatPlantClock(s.startAt)}
                             {s.durationMin != null && <span className="font-bold text-warning ml-2">{s.durationMin}m delay</span>}
                           </div>
                         </li>

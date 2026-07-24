@@ -27,7 +27,8 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
     setLoadError(null);
     // Don't reset pending→undefined on refresh — that flashes a z-200 overlay and blocks Logout.
     try {
-      if (!machineAccess.includes(machineCode)) {
+      const allowed = machineAccess.map((m) => m.toUpperCase());
+      if (!allowed.includes(machineCode.toUpperCase())) {
         setPending(null);
         return;
       }

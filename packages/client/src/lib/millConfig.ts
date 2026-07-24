@@ -16,7 +16,7 @@ export function crmMillFromPath(pathname: string): MillCode {
   return millCodeFromPath(pathname);
 }
 
-/** Shift logs and line auth use master.process code 6HI for all CRM mills. */
+/** Shift logs and line auth use master.process code ROLLING for all CRM mills. */
 export const CRM_SHIFT_PROCESS_CODE = 'ROLLING';
 
 export function millProcessTabs(machine: MillCode): MillProcessTab[] {

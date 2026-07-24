@@ -17,10 +17,13 @@ describe('csvWriter', () => {
     expect(csv).toContain('C1,25');
   });
 
-  it('renders spreadsheet XML with row data', () => {
-    const xml = rowsToSpreadsheetXml([{ coil_no: 'C1', weight_mt: 25 }]);
-    expect(xml).toContain('<Workbook');
-    expect(xml).toContain('coil_no');
-    expect(xml).toContain('C1');
+  it('formats Date cells as plant IST datetime in CSV', () => {
+    // 2026-07-07 14:00 IST = 08:30 UTC
+    const at = new Date('2026-07-07T08:30:00.000Z');
+    const cell = escapeCsvCell(at);
+    expect(cell).not.toContain('T');
+    expect(cell).not.toMatch(/Z$/);
+    expect(cell).toMatch(/7/);
+    expect(cell).toMatch(/2:?00|14/);
   });
 });

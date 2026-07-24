@@ -13,7 +13,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Package, Users, Wrench,
   ChevronRight, ChevronDown, Lock, Edit3, AlertCircle, Zap, BarChart2,
 } from 'lucide-react';
-import { formatPlantDateTime } from '../../lib/dateFormat';
+import { formatPlantClock, formatPlantDateTime } from '../../lib/dateFormat';
 import { flattenHandoverQueue } from '../../lib/handoverQueue';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
@@ -540,7 +540,7 @@ export function CrmOutgoingHandoverPage() {
                     <LockedField label="Customer" value={activeOrder.customer} />
                     <LockedField label="Grade" value={activeOrder.grade} />
                     <LockedField label="Process" value={activeOrder.subProcess?.replace(/_/g, ' ')} />
-                    <LockedField label="Start Time" value={activeOrder.startTime ? new Date(activeOrder.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined} />
+                    <LockedField label="Start Time" value={activeOrder.startTime ? formatPlantClock(activeOrder.startTime) : undefined} />
                     <LockedField label="Runtime" value={runtimeTimer} />
                     <LockedField label="Produced" value={activeOrder.producedWeightMt != null ? `${activeOrder.producedWeightMt} MT` : undefined} />
                     <LockedField label="Remaining" value={activeOrder.remainingWeightMt != null ? `${activeOrder.remainingWeightMt.toFixed(3)} MT` : undefined} />
@@ -704,7 +704,7 @@ export function CrmOutgoingHandoverPage() {
                     <div key={i} className="py-3 flex items-center justify-between text-sm">
                       <div>
                         <p className="font-semibold text-amber-800">{s.reason ?? 'Unknown reason'}</p>
-                        <p className="text-xs text-muted-foreground">{s.startAt ? new Date(s.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+                        <p className="text-xs text-muted-foreground">{formatPlantClock(s.startAt)}</p>
                       </div>
                       <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">OPEN</span>
                     </div>

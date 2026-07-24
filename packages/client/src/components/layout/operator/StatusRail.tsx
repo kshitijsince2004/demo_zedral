@@ -10,6 +10,7 @@ import { GloveModeToggle } from '../../ui/GloveModeToggle';
 import { SyncStatusBadge } from '../../../lib/sync/SyncStatusBadge';
 import { DeviceStatusIndicators } from './DeviceStatusIndicators';
 import type { Tone } from '../../../lib/tones';
+import { formatPlantClock } from '../../../lib/dateFormat';
 
 interface StatusRailProps {
   processCode?: string;
@@ -204,9 +205,9 @@ export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
           <CircleStop className="h-4 w-4 shrink-0" aria-hidden />
           <span className="truncate">
             {crmStoppageActive && panelOrder?.activeStoppage
-              ? `${panelOrder.activeStoppage.categoryLabel} — since ${new Date(panelOrder.activeStoppage.startAt).toLocaleTimeString()}`
+              ? `${panelOrder.activeStoppage.categoryLabel} — since ${formatPlantClock(panelOrder.activeStoppage.startAt)}`
               : manualStoppageActive
-                ? `Manual stoppage — since ${new Date(manualStoppage!.active!.startedAt).toLocaleTimeString()}`
+                ? `Manual stoppage — since ${formatPlantClock(manualStoppage!.active!.startedAt)}`
                 : runningStoppage
                 ? `${runningStoppage.reason} — since ${runningStoppage.fromTime}`
                 : 'Stoppage active'}

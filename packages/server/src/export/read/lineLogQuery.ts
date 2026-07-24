@@ -5,6 +5,7 @@ import { dbProcessCode, loadLineLogLayout } from '../layouts/line_log';
 import type { LineLogRdm, LineLogShiftBundle } from '../layouts/line_log/types';
 import { ExportReadRepository } from './ExportReadRepository';
 import type { ProcessRunRow } from './types';
+import { formatPlantDate, postgresDateOnly } from '../../utils/dateOnly';
 
 export interface LineLogScope {
   processCode: string;
@@ -92,8 +93,8 @@ export async function fetchLineLogRdm(
     .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
     .select(['sl.shift_log_id', 'sl.prod_date', 'sl.shift_code'])
     .where('p.code', '=', dbCode)
-    .where('sl.prod_date', '>=', new Date(parsed.dateFrom))
-    .where('sl.prod_date', '<=', new Date(parsed.dateTo))
+    .where('sl.prod_date', '>=', postgresDateOnly(parsed.dateFrom) as any)
+    .where('sl.prod_date', '<=', postgresDateOnly(parsed.dateTo) as any)
     .$if(!!parsed.shiftCode, (q) => q.where('sl.shift_code', '=', parsed.shiftCode!))
     .execute();
 
@@ -101,7 +102,7 @@ export async function fetchLineLogRdm(
 
   for (const sl of shiftLogs) {
     const sid = String(sl.shift_log_id);
-    const prodDate = String(sl.prod_date).slice(0, 10);
+    const prodDate = formatPlantDate(sl.prod_date);
     const bodyRows = runs
       .filter((r) => r.prodDate === prodDate && r.shiftCode === sl.shift_code)
       .map(runToBodyRow);

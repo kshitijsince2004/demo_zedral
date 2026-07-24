@@ -120,6 +120,17 @@ export function formatPlantDateTime(
   });
 }
 
+/** Chart / trend axis label on the plant calendar, e.g. "Wed, 23 Jul". */
+export function formatPlantChartDay(value: string | Date): string {
+  const plantDay = parsePlantDateOnly(formatPlantDate(value));
+  return plantDay.toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    timeZone: PLANT_TIME_ZONE,
+  });
+}
+
 /** HH:MM on the plant clock (24h). */
 export function formatPlantTime(
   at: Date = new Date(),

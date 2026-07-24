@@ -1607,9 +1607,13 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
-  static async getShiftStoppages(shiftLogId: string, machineCode?: string) {
+  static async getShiftStoppages(shiftLogId: string, machineCode?: string | string[]) {
     // Single source of truth: stoppages belong to the shift the order is attributed to
     // (crm6_order.shift_log_id), consistent with production attribution.
+    const machineCodes = machineCode == null
+      ? null
+      : Array.isArray(machineCode) ? machineCode.map((m) => m.toUpperCase()).filter(Boolean) : [machineCode.toUpperCase()];
+
     let query = db.selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1628,8 +1632,10 @@ export class SixHiService {
       .orderBy('os.start_at', 'desc')
       .where('o.shift_log_id', '=', shiftLogId);
 
-    if (machineCode) {
-      query = query.where('pb.machine_code', '=', machineCode);
+    if (machineCodes && machineCodes.length > 0) {
+      query = machineCodes.length === 1
+        ? query.where('pb.machine_code', '=', machineCodes[0])
+        : query.where('pb.machine_code', 'in', machineCodes);
     }
 
     const rows = await query.execute();
@@ -2375,6 +2381,7 @@ export class SixHiService {
         'o.prod_duration_min',
         'o.ppc_weight_mt',
         'pb.ppc_weight_mt as batch_ppc_weight_mt',
+        'pb.machine_code',
       ])
       .where('o.shift_log_id', 'in', logIds)
       .where('o.status', '!=', 'CANCELLED');
@@ -2459,6 +2466,7 @@ export class SixHiService {
           customer: o.customer_name,
           weightMt: wt,
           durationMin: o.prod_duration_min ?? undefined,
+          machineCode: o.machine_code ? String(o.machine_code).toUpperCase() : undefined,
         });
         targetCompletedMt += ppcWt;
         addWeight(o.sub_process, wt, 'completed');

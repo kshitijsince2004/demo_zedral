@@ -335,6 +335,8 @@ export interface SixHiShiftSummaryOrder {
 
   durationMin?: number;
 
+  machineCode?: string;
+
 }
 
 

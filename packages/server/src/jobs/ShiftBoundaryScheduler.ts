@@ -1,19 +1,29 @@
 /**
  * Closes non-live ACTIVE machine_shift_session rows (past shift-end + overtime grace).
- * Does NOT create handovers — operators submit those manually.
+ * When AUTO_BOUNDARY_HANDOVER=shadow|on, runs Tier-1 carry-forward for forgotten handovers.
  * Live overtime sessions (within SHIFT_OVERTIME_GRACE_HOURS) stay open.
  */
-import { ShiftDetectionService } from '../services/ShiftDetectionService';
+import {
+  getAutoBoundaryMode,
+  ShiftBoundaryService,
+} from '../services/ShiftBoundaryService';
 
 const SWEEP_INTERVAL_MS = Number(process.env.SHIFT_STALE_SWEEP_MS ?? 60_000);
 
 export class ShiftBoundaryScheduler {
   private static timer: ReturnType<typeof setInterval> | null = null;
+  /** Prevent overlapping ticks when a sweep runs longer than the interval. */
+  private static running = false;
 
   static start(): void {
     if (this.timer) return;
+    const mode = getAutoBoundaryMode();
     console.log(
-      `[ShiftBoundaryScheduler] Stale-session sweeper armed (every ${SWEEP_INTERVAL_MS}ms). Auto-handovers remain disabled.`,
+      JSON.stringify({
+        msg: 'shift_boundary_scheduler_armed',
+        intervalMs: SWEEP_INTERVAL_MS,
+        mode,
+      }),
     );
     void this.tick();
     this.timer = setInterval(() => {
@@ -30,15 +40,36 @@ export class ShiftBoundaryScheduler {
   }
 
   static async tick(): Promise<number> {
+    if (this.running) {
+      console.log(JSON.stringify({ msg: 'shift_boundary_scheduler_skip_overlap' }));
+      return 0;
+    }
+    this.running = true;
+    const started = Date.now();
+    const mode = getAutoBoundaryMode();
     try {
-      const closed = await ShiftDetectionService.closeAllStaleActiveSessions();
-      if (closed > 0) {
-        console.log(`[ShiftBoundaryScheduler] Closed ${closed} stale ACTIVE session(s)`);
-      }
+      const closed = await ShiftBoundaryService.processStaleSessions(mode);
+      console.log(
+        JSON.stringify({
+          msg: 'shift_boundary_scheduler_tick',
+          mode,
+          closed,
+          durationMs: Date.now() - started,
+        }),
+      );
       return closed;
     } catch (err) {
-      console.error('[ShiftBoundaryScheduler] Sweep failed:', err);
+      console.error(
+        JSON.stringify({
+          msg: 'shift_boundary_scheduler_failed',
+          mode,
+          durationMs: Date.now() - started,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
       return 0;
+    } finally {
+      this.running = false;
     }
   }
 }

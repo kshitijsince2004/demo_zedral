@@ -3,8 +3,10 @@ import {
   ShiftLogState,
   formatDbDate,
   formatPlantDate,
+  formatPlantTime,
   nextPlantShift,
   parsePlantDateOnly,
+  postgresDateOnly,
 } from '@m1/shared-validation';
 import {
   ShiftLogValidationService,
@@ -81,9 +83,13 @@ export class ShiftLogService {
    * Creates a new Shift Log in DRAFT state.
    */
   static async create(payload: ShiftLogPayload) {
+    // Always write calendar YYYY-MM-DD — Date objects at IST midnight become the previous
+    // UTC calendar day when Postgres casts timestamptz → DATE on UTC hosts.
+    const prodDate = postgresDateOnly(payload.productionDate) as any;
+
     let query = db.selectFrom('txn.shift_log')
       .selectAll()
-      .where('prod_date', '=', payload.productionDate)
+      .where('prod_date', '=', prodDate)
       .where('shift_code', '=', payload.shiftCode)
       .where('process_id', '=', payload.processId);
 
@@ -105,7 +111,7 @@ export class ShiftLogService {
       .insertInto('txn.shift_log')
       .values({
         process_id: payload.processId,
-        prod_date: payload.productionDate,
+        prod_date: prodDate,
         shift_code: payload.shiftCode,
         mill_type: payload.millType || null,
         shift_manager_id: shiftManagerId,
@@ -323,7 +329,7 @@ export class ShiftLogService {
       runningStoppages: runningStoppages.map((s) => ({
         id: String(s.id),
         reason: s.reason,
-        fromTime: s.start_at ? new Date(s.start_at).toISOString().substring(11, 16) : '',
+        fromTime: s.start_at ? formatPlantTime(new Date(s.start_at)) : '',
         remarks: s.remarks,
       })),
       runningStoppageCount: runningStoppages.length,

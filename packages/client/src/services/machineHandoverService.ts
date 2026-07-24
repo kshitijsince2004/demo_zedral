@@ -254,12 +254,17 @@ export const machineHandoverService = {
     ),
 
   ensureSession: async (machineCode: string) => {
-    const result = await postQueued<{ session: unknown; pendingHandover: PendingHandover | null }>(
+    const result = await postQueued<{
+      session: { session_id?: string; sessionId?: string } | null;
+      pendingHandover: PendingHandover | null;
+      needsCrew?: boolean;
+      created?: boolean;
+    }>(
       `/machines/handover/${encodeURIComponent(machineCode)}/session`,
       {},
       `handover:${machineCode}`,
     );
-    return result.data ?? { session: null, pendingHandover: null };
+    return result.data ?? { session: null, pendingHandover: null, needsCrew: false, created: false };
   },
 
   saveDraft: async (machineCode: string, payload: Partial<HandoverSubmitPayload>) => {

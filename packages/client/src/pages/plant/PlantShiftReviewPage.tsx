@@ -19,7 +19,12 @@ interface ShiftLogRow {
   state: string;
   entryCount: number;
   overrideCount: number;
+  millType?: string | null;
+  /** Canonical machine for this card (server: one machine · one shift · one card). */
+  machine?: string;
   machines?: string[];
+  /** When set, this row is a per-machine view of a shared shift log. */
+  reviewMachine?: string;
 }
 
 interface ShiftReviewData {
@@ -27,6 +32,7 @@ interface ShiftReviewData {
   prodDate: string;
   shiftCode: string;
   processLine?: string;
+  millType?: string | null;
   state: string;
   machines: string[];
   overview: {
@@ -45,6 +51,15 @@ interface ShiftReviewData {
   completedOrders: { batchNumber: string; subProcess?: string; customer?: string; weightMt: number; durationMin?: number }[];
   ordersInProgress: { batchNumber: string; status: string; subProcess?: string; machineCode?: string }[];
   stoppages: { id: string; batchNumber: string; categoryLabel: string; startAt: string; endAt?: string; durationMin?: number; remarks?: string }[];
+  crew?: { id: string; crewId: string; operatorName: string; roleCode: string }[];
+  crewMissing?: boolean;
+  autoClosed?: boolean;
+  autoHandover?: {
+    handoverId: string;
+    remarks: string;
+    machineCode: string;
+    pendingReview: boolean;
+  } | null;
 }
 
 /** In-progress / open shift logs (operators still writing). */
@@ -152,12 +167,35 @@ function ShiftCompleteForm({
 function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
   return (
     <div className="flex flex-col gap-4">
+      {(review.autoClosed || review.crewMissing) && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs space-y-1">
+          {review.autoClosed && (
+            <p className="font-semibold text-warning-foreground">
+              Auto-closed — no operator handover
+              {review.autoHandover?.pendingReview ? ' · awaiting MH sign-off' : ''}
+            </p>
+          )}
+          {review.autoHandover?.remarks && (
+            <p className="text-muted-foreground">{review.autoHandover.remarks}</p>
+          )}
+          {review.crewMissing && (
+            <p className="text-muted-foreground">Crew not recorded for this shift.</p>
+          )}
+        </div>
+      )}
+
       <div>
         <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Shift Overview</h4>
         <p className="text-xs text-muted-foreground mb-2">
-          {review.prodDate} · Shift {review.shiftCode}
-          {review.processLine ? ` · ${review.processLine}` : ''}
-          {review.machines.length > 0 ? ` · ${review.machines.join(', ')}` : ''}
+          {formatShiftDate(review.prodDate)} · Shift {review.shiftCode}
+          {review.machines.length === 1
+            ? ` · ${review.machines[0]}`
+            : review.millType
+              ? ` · ${review.millType}`
+              : review.processLine
+                ? ` · ${review.processLine}`
+                : ''}
+          {review.machines.length > 1 ? ` · ${review.machines.join(', ')}` : ''}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           <ReviewMetric label="Target MT" value={review.overview.targetMt} />
@@ -166,6 +204,24 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
           <ReviewMetric label="In Progress MT" value={review.overview.inProgressProdMt} />
           <ReviewMetric label="Attainment" value={`${review.overview.attainmentPct}%`} />
         </div>
+      </div>
+
+      <div>
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Crew this shift ({review.crew?.length ?? 0})
+        </h4>
+        {review.crew && review.crew.length > 0 ? (
+          <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
+            {review.crew.map((c) => (
+              <li key={c.id} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+                <span className="font-semibold">{c.operatorName}</span>
+                <span className="text-muted-foreground uppercase">{c.roleCode}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No crew recorded.</p>
+        )}
       </div>
 
       <div>
@@ -245,7 +301,65 @@ function sortLogsForDay(a: ShiftLogRow, b: ShiftLogRow): number {
   if (activeDelta !== 0) return activeDelta;
   const shiftDelta = (SHIFT_ORDER[a.shiftCode] ?? 9) - (SHIFT_ORDER[b.shiftCode] ?? 9);
   if (shiftDelta !== 0) return shiftDelta;
+  const machineA = a.reviewMachine ?? a.millType ?? a.machines?.[0] ?? '';
+  const machineB = b.reviewMachine ?? b.millType ?? b.machines?.[0] ?? '';
+  const machineDelta = machineA.localeCompare(machineB);
+  if (machineDelta !== 0) return machineDelta;
   return a.processLine.localeCompare(b.processLine);
+}
+
+/** Normalize API rows to exactly one machine · one shift · one card. */
+function expandMachineCards(logs: ShiftLogRow[], allowedMachines?: string[]): ShiftLogRow[] {
+  const allow = allowedMachines?.map((m) => m.toUpperCase());
+  const out: ShiftLogRow[] = [];
+
+  for (const log of logs) {
+    const fromServer = (log.machine || log.millType || '').toUpperCase();
+    let machines = fromServer
+      ? [fromServer]
+      : (log.machines ?? []).map((m) => m.toUpperCase()).filter(Boolean);
+
+    if (allow && allow.length > 0) {
+      machines = machines.filter((m) => allow.includes(m));
+      if (machines.length === 0) continue;
+    }
+
+    if (machines.length === 0) {
+      out.push({ ...log, reviewMachine: undefined, machines: [] });
+      continue;
+    }
+
+    for (const machine of machines) {
+      out.push({
+        ...log,
+        machine,
+        reviewMachine: machine,
+        machines: [machine],
+      });
+    }
+  }
+
+  // Dedupe: one card per plant-day + shift + machine.
+  const byKey = new Map<string, ShiftLogRow>();
+  for (const card of out) {
+    const day = formatShiftDate(card.shiftDate);
+    const machine = card.reviewMachine || card.machine || card.processLine;
+    const key = `${day}|${card.shiftCode}|${machine}`;
+    const prev = byKey.get(key);
+    if (!prev || card.entryCount > prev.entryCount) byKey.set(key, card);
+  }
+  return [...byKey.values()];
+}
+
+function cardKey(log: ShiftLogRow): string {
+  const machine = log.reviewMachine || log.machine;
+  return machine ? `${log.id}:${machine}` : log.id;
+}
+
+function cardTitle(log: ShiftLogRow): string {
+  const machine = log.reviewMachine || log.machine || log.millType;
+  if (machine) return `${machine} · Shift ${log.shiftCode}`;
+  return `${log.processLine} · Shift ${log.shiftCode}`;
 }
 
 export function PlantShiftReviewPage() {
@@ -274,8 +388,8 @@ export function PlantShiftReviewPage() {
     void bootstrapShiftContext(machine)
       .then((shift) => {
         const prodDate = formatShiftDate(shift.prodDate);
+        // Pin plant today only — keep "All shifts" so completed A/B still show during C.
         setFilterDate(prodDate);
-        setFilterShift(shift.shiftCode);
         setCurrentShiftLabel(`${prodDate} · Shift ${shift.shiftCode}`);
       })
       .catch(() => {
@@ -287,16 +401,24 @@ export function PlantShiftReviewPage() {
     if (role === 'MACHINE_HEAD') return machineAccess;
     const all = new Set<string>();
     for (const log of logs) {
+      if (log.machine) all.add(log.machine);
       for (const m of log.machines ?? []) all.add(m);
+      if (log.millType) all.add(log.millType);
     }
     return [...all].sort();
   }, [logs, machineAccess, role]);
 
   const logsByDay = useMemo(() => {
     const map = new Map<string, ShiftLogRow[]>();
-    for (const log of logs) {
+    const allowed = role === 'MACHINE_HEAD' ? machineAccess : undefined;
+    for (const log of expandMachineCards(logs, allowed)) {
+      if (filterMachine && log.reviewMachine !== filterMachine && !log.machines?.includes(filterMachine)) {
+        continue;
+      }
       const day = formatShiftDate(log.shiftDate);
       if (day === '—') continue;
+      // Hard pin: never show a different plant day than the date filter.
+      if (filterDate && day !== filterDate) continue;
       const bucket = map.get(day) ?? [];
       bucket.push(log);
       map.set(day, bucket);
@@ -305,20 +427,24 @@ export function PlantShiftReviewPage() {
       dayLogs.sort(sortLogsForDay);
     }
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-  }, [logs]);
+  }, [logs, machineAccess, role, filterMachine, filterDate]);
 
-  const toggleReview = useCallback(async (id: string) => {
-    if (expandedId === id) {
+  const toggleReview = useCallback(async (log: ShiftLogRow) => {
+    const key = cardKey(log);
+    if (expandedId === key) {
       setExpandedId(null);
       return;
     }
-    setExpandedId(id);
+    setExpandedId(key);
     setReviewError(null);
-    if (reviewById[id]) return;
-    setReviewLoadingId(id);
+    if (reviewById[key]) return;
+    setReviewLoadingId(key);
     try {
-      const data = await apiClient.get<ShiftReviewData>(`/shift-logs/${id}/review`);
-      setReviewById((prev) => ({ ...prev, [id]: data }));
+      const qs = log.reviewMachine
+        ? `?machine=${encodeURIComponent(log.reviewMachine)}`
+        : '';
+      const data = await apiClient.get<ShiftReviewData>(`/shift-logs/${log.id}/review${qs}`);
+      setReviewById((prev) => ({ ...prev, [key]: data }));
     } catch (err: unknown) {
       setReviewError((err as Error)?.message ?? 'Failed to load shift summary');
     } finally {
@@ -344,13 +470,24 @@ export function PlantShiftReviewPage() {
 
       if (role === 'MACHINE_HEAD') {
         filtered = filtered.filter((log) => {
-          if (!log.machines || log.machines.length === 0) return false;
-          return log.machines.some((m) => machineAccess.includes(m));
+          const codes = [
+            log.machine,
+            log.millType,
+            ...(log.machines ?? []),
+          ]
+            .filter(Boolean)
+            .map((m) => String(m).toUpperCase());
+          if (codes.length === 0) return false;
+          return codes.some((m) => machineAccess.includes(m));
         });
       }
 
       if (filterMachine) {
-        filtered = filtered.filter((log) => log.machines?.includes(filterMachine));
+        filtered = filtered.filter((log) => {
+          const code = (log.machine || log.millType || '').toUpperCase();
+          if (code === filterMachine) return true;
+          return log.machines?.includes(filterMachine);
+        });
       }
 
       setLogs(filtered);
@@ -461,12 +598,13 @@ export function PlantShiftReviewPage() {
           </div>
         )}
 
-        {!loading && logs.length === 0 && (
+        {!loading && logsByDay.length === 0 && (
           <div className="rounded-2xl border border-border bg-white px-6 py-12 flex flex-col items-center justify-center text-center">
             <ClipboardList className="h-8 w-8 text-muted-foreground/30 mb-3" />
             <p className="text-sm font-medium text-foreground">No shifts found</p>
             <p className="text-sm text-muted-foreground mt-1">
               Try another date, or switch status to include active DRAFT logs.
+              Closed shifts stay Active/DRAFT until a machine head marks them completed.
             </p>
           </div>
         )}
@@ -484,51 +622,56 @@ export function PlantShiftReviewPage() {
                   </p>
                 </div>
                 <ul className="space-y-3">
-                  {dayLogs.map((log) => (
+                  {dayLogs.map((log) => {
+                    const key = cardKey(log);
+                    return (
                     <li
-                      key={log.id}
+                      key={key}
                       className={`rounded-2xl border bg-white p-5 shadow-sm ${
                         isActiveState(log.state) ? 'border-amber-500/40' : 'border-border'
                       }`}
                     >
                       <button
                         type="button"
-                        onClick={() => void toggleReview(log.id)}
+                        onClick={() => void toggleReview(log)}
                         className="w-full text-left"
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <p className="font-mono font-bold text-foreground flex items-center gap-1.5">
-                              {expandedId === log.id
+                              {expandedId === key
                                 ? <ChevronDown className="w-4 h-4" />
                                 : <ChevronRight className="w-4 h-4" />}
-                              {log.processLine} · Shift {log.shiftCode}
+                              {cardTitle(log)}
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
+                              {log.processLine}
+                              {' · '}
                               {isActiveState(log.state)
                                 ? `Open · ${log.submittedBy}`
                                 : `Submitted by ${log.submittedBy}`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
+                              {formatShiftDate(log.shiftDate)}
+                              {' · '}
                               {log.submittedAt ? formatPlantDateTime(log.submittedAt) : 'Not submitted yet'}
                               {' · '}{log.entryCount} entries
                               {log.overrideCount > 0 ? ` · ${log.overrideCount} overrides` : ''}
-                              {log.machines?.length ? ` · ${log.machines.join(', ')}` : ''}
                             </p>
                           </div>
                           <StateBadge state={log.state} />
                         </div>
                       </button>
 
-                      {expandedId === log.id && (
+                      {expandedId === key && (
                         <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
-                          {reviewLoadingId === log.id ? (
+                          {reviewLoadingId === key ? (
                             <p className="text-sm text-muted-foreground">Loading shift summary…</p>
                           ) : reviewError ? (
                             <p className="text-sm text-destructive">{reviewError}</p>
-                          ) : reviewById[log.id] ? (
+                          ) : reviewById[key] ? (
                             <>
-                              <ShiftReviewPanel review={reviewById[log.id]} />
+                              <ShiftReviewPanel review={reviewById[key]} />
                               {isActiveState(log.state) && (
                                 <ShiftCompleteForm
                                   shiftLogId={log.id}
@@ -536,7 +679,7 @@ export function PlantShiftReviewPage() {
                                     setExpandedId(null);
                                     setReviewById((prev) => {
                                       const next = { ...prev };
-                                      delete next[log.id];
+                                      delete next[key];
                                       return next;
                                     });
                                     void load();
@@ -550,7 +693,8 @@ export function PlantShiftReviewPage() {
                         </div>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </section>
             );

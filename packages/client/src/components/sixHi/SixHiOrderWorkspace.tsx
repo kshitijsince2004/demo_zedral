@@ -5,6 +5,7 @@ import { SharedSkinPassForm } from './SharedSkinPassForm';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { millSupportsRolling } from '../../lib/millConfig';
+import { formatPlantClock } from '../../lib/dateFormat';
 
 interface SixHiOrderWorkspaceProps {
   order: SixHiOrderDetail;
@@ -62,7 +63,7 @@ export function SixHiOrderWorkspace({
               <div className={`font-semibold truncate ${compact ? 'text-sm' : 'text-base'}`}>
                 {isStoppageActive
                   ? `${order.activeStoppage?.categoryLabel ?? 'Stopped'} · ${order.activeStoppage?.remarks ?? 'No remarks'}`
-                  : `Running since ${new Date(order.prodStartAt!).toLocaleTimeString()}`}
+                  : `Running since ${formatPlantClock(order.prodStartAt!)}`}
               </div>
             </div>
           </div>

@@ -10,6 +10,7 @@ import 'dotenv/config';
 import { requestContext } from '../src/context';
 import { db } from '../src/db';
 import { SixHiService } from '../src/services/SixHiService';
+import { currentPlantDate } from '../src/utils/dateOnly';
 
 const USER_ID = 3;
 const MACHINE = (process.env.MACHINE ?? '6HI').toUpperCase();
@@ -45,7 +46,7 @@ async function main() {
   const createdLogs: string[] = [];
   try {
     await db.insertInto('planning.ppc_batch').values({
-      batch_number: batchNumber, plan_date: SixHiService.toPlanDate(new Date().toISOString().slice(0, 10)),
+      batch_number: batchNumber, plan_date: SixHiService.toPlanDate(currentPlantDate()),
       shift_code: 'A', machine_code: MACHINE, machine_allocated: true, sub_process: 'ROLLING',
       coil_no: coilNo, customer_name: template.customer_name, grade_code: template.grade_code,
       width_mm: template.width_mm, ppc_thk_mm: template.ppc_thk_mm, input_thk_mm: template.ppc_thk_mm,

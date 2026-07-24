@@ -7,6 +7,7 @@ import { reportingService, type PlantHeadBacklogOrder } from '../../lib/reportin
 import { liveService } from '../../lib/liveService';
 import { OrderDetailModal } from '../live/OrderDetailModal';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
+import { formatPlantDate } from '../../lib/dateFormat';
 
 interface BacklogDetailDrawerProps {
   open: boolean;
@@ -125,7 +126,7 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
                         />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div>{order.planDate}</div>
+                        <div>{formatPlantDate(order.planDate)}</div>
                         <div className="text-xs text-muted-foreground">Shift {order.shiftCode}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">

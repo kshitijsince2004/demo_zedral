@@ -12,6 +12,7 @@ import {
 import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
 import { getOrderSourceStrategy } from './handover/OrderSource';
+import { reparentOpenWork } from './handover/carryForward';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ShiftLogValidationService } from './shiftLogValidationService';
 import { publishShiftClosed } from '../platform/m1Events';
@@ -652,7 +653,7 @@ export class MachineHandoverService {
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
       .leftJoin('planning.ppc_batch as pb', 'pb.batch_number', 'h.batch_number')
       .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
-      .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED'])
+      .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED', 'AUTO_COMPLETED'])
       .where('h.machine_code', 'in', scope.length > 0 ? scope : ['__NONE__'])
       .orderBy('h.created_at', 'desc')
       .limit(15);
@@ -660,9 +661,7 @@ export class MachineHandoverService {
     const recent = await recentQ.execute();
 
     const mapRow = async (h: typeof pending[0]) => {
-      const prodDate = h.outgoing_prod_date instanceof Date
-        ? formatProdDate(h.outgoing_prod_date)
-        : String(h.outgoing_prod_date).slice(0, 10);
+      const prodDate = formatProdDate(h.outgoing_prod_date);
 
       const session = await db
         .selectFrom('txn.machine_shift_session')
@@ -850,77 +849,15 @@ export class MachineHandoverService {
         const incomingShiftLogId = incomingShiftLogIdForSession;
 
         if (outgoingShiftLogId && incomingShiftLogId) {
-            // Carry forward open stoppages
-            await trx.updateTable('txn.stoppage')
-              .set({ shift_log_id: incomingShiftLogId as any })
-              .where('shift_log_id', '=', outgoingShiftLogId as any)
-              .where('end_at', 'is', null)
-              .execute();
-
-            // Re-parent open 6HI / CRM orders (IN_PROGRESS + STOPPAGE)
-            const rollingProcess = await trx.selectFrom('master.process')
-              .select('process_id')
-              .where('code', 'in', ['ROLLING', 'CRM'])
-              .execute();
-            const rollingIds = new Set(rollingProcess.map((p) => Number(p.process_id)));
-            if (processIdResolved != null && rollingIds.has(processIdResolved)) {
-              await trx.updateTable('txn.crm_order')
-                .set({
-                  shift_log_id: incomingShiftLogId as any,
-                  shift_code: handover.incoming_shift_code,
-                  prod_date: incomingProdDate,
-                  production_day: incomingProdDate,
-                  updated_at: acceptedAt,
-                } as any)
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
-                .execute();
-            }
-
-            // Re-parent open processes based on processId
-            if (processIdResolved === 4) {
-              // ANN
-              await trx.updateTable('txn.prod_ann_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            } else if (processIdResolved === 2) {
-              // PKL
-              await trx.updateTable('txn.prod_pkl_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            } else if (processIdResolved === 5) {
-              // SKP
-              await trx.updateTable('txn.prod_skp_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            } else if (processIdResolved === 6) {
-              // RWD
-              await trx.updateTable('txn.prod_rwd_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            } else if (processIdResolved === 7) {
-              // CRS
-              await trx.updateTable('txn.prod_crs_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            } else if (processIdResolved === 8) {
-              // CTL
-              await trx.updateTable('txn.prod_ctl_entry' as any)
-                .set({ shift_log_id: incomingShiftLogId as any })
-                .where('shift_log_id', '=', outgoingShiftLogId as any)
-                .where('status', '=', 'IN_PROGRESS')
-                .execute();
-            }
+          await reparentOpenWork(trx, {
+            machineCode: handover.machine_code,
+            processId: processIdResolved,
+            outgoingShiftLogId,
+            incomingShiftLogId,
+            incomingShiftCode: handover.incoming_shift_code,
+            incomingProdDate,
+            updatedAt: acceptedAt,
+          });
         }
       }
 
@@ -976,7 +913,7 @@ export class MachineHandoverService {
   static async ensureActiveSession(machineCode: string, operatorUserId: number) {
     const pending = await this.getPendingForMachine(machineCode);
     if (pending) {
-      return { session: null, pendingHandover: pending };
+      return { session: null, pendingHandover: pending, needsCrew: false, created: false };
     }
 
     const existing = await db
@@ -991,7 +928,8 @@ export class MachineHandoverService {
     if (existing) {
       const existingLive = await ShiftDetectionService.isSessionLiveById(String(existing.session_id));
       if (existingLive) {
-        return { session: existing, pendingHandover: null }; // genuine live / overtime reuse
+        // ponytail: crew popup only on fresh create; empty crew flagged in Shift Review
+        return { session: existing, pendingHandover: null, needsCrew: false, created: false };
       }
       // Past shift-end + grace — close without asking getCurrentShift(machineCode) (circular pin).
       await ShiftDetectionService.closeStaleOperatorSessions(machineCode, operatorUserId);
@@ -1064,6 +1002,6 @@ export class MachineHandoverService {
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    return { session, pendingHandover: null };
+    return { session, pendingHandover: null, needsCrew: true, created: true };
   }
 }

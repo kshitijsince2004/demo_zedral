@@ -3,7 +3,7 @@ import { db } from '../../db';
 import type { AuthUser } from '../../services/authService';
 import type { ExportFormat, ReportExecutionResult } from '../types';
 import type { ReportDefinition } from './ReportDefinition';
-import { currentPlantDate } from '../../utils/dateOnly';
+import { currentPlantDate, formatPlantDate, formatPlantDateTime, postgresDateOnly } from '../../utils/dateOnly';
 
 interface RejectedOrdersScope {
   dateFrom?: string;
@@ -25,8 +25,8 @@ function parseScope(scope: Record<string, unknown>): RejectedOrdersScope {
   }
 
   return {
-    dateFrom: dateFrom ? String(dateFrom).slice(0, 10) : undefined,
-    dateTo: dateTo ? String(dateTo).slice(0, 10) : undefined,
+    dateFrom: dateFrom ? postgresDateOnly(String(dateFrom)) : undefined,
+    dateTo: dateTo ? postgresDateOnly(String(dateTo)) : undefined,
     shiftCode: shiftRaw ? String(shiftRaw) : undefined,
     machineCodes,
   };
@@ -122,10 +122,10 @@ export const RejectedOrdersReport: ReportDefinition = {
     const rows = resultRows.map((r) => ({
       ...r,
       'Hold Time': r['Hold Time']
-        ? new Date(r['Hold Time'] as Date).toISOString()
+        ? formatPlantDateTime(r['Hold Time'] as Date)
         : null,
       'Production Date': r['Production Date']
-        ? String(r['Production Date']).slice(0, 10)
+        ? formatPlantDate(r['Production Date'] as string | Date)
         : null,
     }));
 

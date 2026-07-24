@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { translatePpcRoute } from './PpcRouteTranslator';
-import { currentPlantDate, formatDateOnly } from './dateOnly';
+import { currentPlantDate, formatDateOnly, formatPlantDate } from './dateOnly';
 
 export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING';
 export type PpcMillCode = '6HI' | '4HI' | '2HI';
@@ -168,12 +168,14 @@ function findHeaderRowIndex(matrix: unknown[][]): number {
 function excelDateToIso(val: unknown): string | null {
   if (val == null || val === '') return null;
   if (typeof val === 'number') {
+    // Excel serials are timezone-naive calendar days; UTC day extract is intentional
+    // (do not use formatPlantDate — IST would shift UTC midnight to the prior plant day).
     const epoch = new Date(Date.UTC(1899, 11, 30));
     epoch.setUTCDate(epoch.getUTCDate() + val);
     return epoch.toISOString().slice(0, 10);
   }
   const s = String(val).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return formatPlantDate(s);
   const d = new Date(s);
   if (!isNaN(d.getTime())) return formatDateOnly(d);
   return null;

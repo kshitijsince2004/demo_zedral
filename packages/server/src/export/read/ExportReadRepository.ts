@@ -18,6 +18,7 @@ import {
   mapRwdRow,
 } from './processMappers';
 import { resolveCrm6AreaCode, resolveProcessArea, toDateString, toNumber } from './lineArea';
+import { postgresDateOnly } from '../../utils/dateOnly';
 
 function parseScope(scope: ExportReadScope) {
   if (!scope.dateFrom || !scope.dateTo) {
@@ -72,8 +73,8 @@ async function fetchShiftLogs(scope: ExportReadScope): Promise<ShiftRow[]> {
       'sl.mill_type',
       'p.code as process_code',
     ])
-    .where('sl.prod_date', '>=', new Date(scope.dateFrom))
-    .where('sl.prod_date', '<=', new Date(scope.dateTo));
+    .where('sl.prod_date', '>=', postgresDateOnly(scope.dateFrom) as any)
+    .where('sl.prod_date', '<=', postgresDateOnly(scope.dateTo) as any);
 
   if (scope.shiftCode) q = q.where('sl.shift_code', '=', scope.shiftCode);
   if (scope.processCode) q = q.where('p.code', '=', scope.processCode);
@@ -265,8 +266,8 @@ export class ExportReadRepository {
       .selectFrom('txn.shift_log as sl')
       .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
       .select(['sl.shift_log_id', 'sl.prod_date', 'sl.shift_code', 'sl.mill_type', 'p.code as process_code'])
-      .where('sl.prod_date', '>=', new Date(scope.dateFrom))
-      .where('sl.prod_date', '<=', new Date(scope.dateTo));
+      .where('sl.prod_date', '>=', postgresDateOnly(scope.dateFrom) as any)
+      .where('sl.prod_date', '<=', postgresDateOnly(scope.dateTo) as any);
 
     if (scope.shiftCode) shiftQ = shiftQ.where('sl.shift_code', '=', scope.shiftCode);
     if (scope.processCode) shiftQ = shiftQ.where('p.code', '=', scope.processCode);
@@ -350,8 +351,8 @@ export class ExportReadRepository {
         'bc.dpr_category as breakdown_dpr_category',
         'bc.agency_code as breakdown_agency',
       ])
-      .where('o.production_day', '>=', new Date(scope.dateFrom))
-      .where('o.production_day', '<=', new Date(scope.dateTo));
+      .where('o.production_day', '>=', postgresDateOnly(scope.dateFrom) as any)
+      .where('o.production_day', '<=', postgresDateOnly(scope.dateTo) as any);
 
     if (scope.coilNo) orderQ = orderQ.where('o.coil_no', '=', scope.coilNo);
 
@@ -426,8 +427,8 @@ export class ExportReadRepository {
     const rows = await db
       .selectFrom('planning.production_target')
       .select(['area_code', 'period', 'target_mt', 'target_rate'])
-      .where('period', '>=', new Date(dateFrom))
-      .where('period', '<=', new Date(dateTo))
+      .where('period', '>=', postgresDateOnly(dateFrom) as any)
+      .where('period', '<=', postgresDateOnly(dateTo) as any)
       .orderBy('area_code')
       .execute();
 

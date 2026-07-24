@@ -14,7 +14,7 @@ import {
 } from '../services/shiftLogValidationService';
 import { OverrideRequest } from '../services/overrideService';
 import { SixHiExecutionService, SixHiShiftService } from '../services/sixHi';
-import { formatPlantDate } from '@m1/shared-validation';
+import { formatPlantDate, formatPlantTime, postgresDateOnly } from '@m1/shared-validation';
 import { ReportingService } from '../services/ReportingService';
 
 function validationErrorResponse(error: unknown) {
@@ -72,20 +72,22 @@ router.get('/', async (req, res) => {
       }
     }
 
+    // Calendar DATE as text — do not run through timestamptz/Asia/Kolkata (off-by-one on DATE cols).
+    const plantDaySql = sql<string>`(sl.prod_date::date)::text`;
+
     let query = db.selectFrom('txn.shift_log as sl')
       .innerJoin('master.process as p', 'sl.process_id', 'p.process_id')
       .leftJoin('security.app_user as u', 'sl.shift_manager_id', 'u.user_id')
       .select([
         'sl.shift_log_id as id',
-        'sl.prod_date as shiftDate',
+        plantDaySql.as('shiftDate'),
         'sl.shift_code as shiftCode',
         'p.code as processLine',
         'u.full_name as submittedBy',
         'sl.submitted_at as submittedAt',
         'sl.state as state',
-        'sl.state as state',
         'sl.process_id as processId',
-        'sl.mill_type as millType'
+        'sl.mill_type as millType',
       ]);
 
     if (state) {
@@ -93,7 +95,20 @@ router.get('/', async (req, res) => {
     }
 
     if (shiftDate) {
-      query = query.where(sql`date(sl.prod_date)`, '=', shiftDate.slice(0, 10));
+      const day = postgresDateOnly(shiftDate);
+      // Match either corrected session plant day or shift_log.prod_date (pre-migration rows).
+      query = query.where((eb) =>
+        eb.or([
+          eb(sql`(sl.prod_date::date)`, '=', sql`${day}::date`),
+          eb.exists(
+            eb
+              .selectFrom('txn.machine_shift_session as mss')
+              .select(sql`1`.as('one'))
+              .whereRef('mss.shift_log_id', '=', 'sl.shift_log_id')
+              .where(sql`(mss.prod_date::date)`, '=', sql`${day}::date`),
+          ),
+        ]),
+      );
     }
 
     if (shiftCode) {
@@ -110,47 +125,227 @@ router.get('/', async (req, res) => {
       .orderBy('sl.submitted_at', 'desc')
       .execute();
 
-    const result = await Promise.all(logs.map(async (log) => {
-      const overrides = await db.selectFrom('txn.validation_overrides')
-        .select(db.fn.count<number>('override_id').as('count'))
-        .where('shift_log_id', '=', log.id)
-        .executeTakeFirst();
+    type CardRow = {
+      id: string;
+      shiftDate: string;
+      shiftCode: string;
+      processLine: string;
+      submittedBy: string;
+      submittedAt: Date | string | null;
+      state: string;
+      entryCount: number;
+      overrideCount: number;
+      millType: string | null;
+      machine: string;
+      machines: string[];
+    };
 
+    if (logs.length === 0) {
+      return res.json([]);
+    }
+
+    const logIds = logs.map((l) => l.id);
+
+    // Batch: session plant days, machines, overrides, CRM entry counts (avoids N+1).
+    const [sessionRows, orderMachineRows, overrideRows, crmCountRows, masterMachineRows] = await Promise.all([
+      db
+        .selectFrom('txn.machine_shift_session')
+        .select([
+          'shift_log_id',
+          'machine_code',
+          sql<string>`(prod_date::date)::text`.as('plantDay'),
+          'started_at',
+        ])
+        .where('shift_log_id', 'in', logIds as any)
+        .execute(),
+      db
+        .selectFrom('txn.crm_order as o')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+        .select(['o.shift_log_id', 'pb.machine_code'])
+        .where('o.shift_log_id', 'in', logIds as any)
+        .where('o.status', '!=', 'CANCELLED')
+        .execute(),
+      db
+        .selectFrom('txn.validation_overrides')
+        .select(['shift_log_id', db.fn.countAll<number>().as('count')])
+        .where('shift_log_id', 'in', logIds as any)
+        .groupBy('shift_log_id')
+        .execute(),
+      db
+        .selectFrom('txn.crm_order as o')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+        .select([
+          'o.shift_log_id',
+          'pb.machine_code',
+          db.fn.countAll<number>().as('count'),
+        ])
+        .where('o.shift_log_id', 'in', logIds as any)
+        .where('o.status', '!=', 'CANCELLED')
+        .groupBy(['o.shift_log_id', 'pb.machine_code'])
+        .execute(),
+      db
+        .selectFrom('master.machine')
+        .select(['process_id', 'machine_code'])
+        .where(
+          'process_id',
+          'in',
+          (() => {
+            const ids = [...new Set(logs.map((l) => l.processId).filter((id): id is number => id != null))];
+            return ids.length > 0 ? ids : [-1];
+          })(),
+        )
+        .execute(),
+    ]);
+
+    const sessionDayByLog = new Map<string, { day: string; startedAt: number }>();
+    const sessionMachinesByLog = new Map<string, Set<string>>();
+    for (const row of sessionRows) {
+      const id = String(row.shift_log_id);
+      const startedAt = row.started_at ? new Date(row.started_at).getTime() : 0;
+      if (row.plantDay) {
+        const prev = sessionDayByLog.get(id);
+        if (!prev || startedAt >= prev.startedAt) {
+          sessionDayByLog.set(id, { day: postgresDateOnly(row.plantDay), startedAt });
+        }
+      }
+      if (row.machine_code) {
+        const set = sessionMachinesByLog.get(id) ?? new Set<string>();
+        set.add(String(row.machine_code).toUpperCase());
+        sessionMachinesByLog.set(id, set);
+      }
+    }
+
+    const orderMachinesByLog = new Map<string, Set<string>>();
+    for (const row of orderMachineRows) {
+      const id = String(row.shift_log_id);
+      if (!row.machine_code) continue;
+      const set = orderMachinesByLog.get(id) ?? new Set<string>();
+      set.add(String(row.machine_code).toUpperCase());
+      orderMachinesByLog.set(id, set);
+    }
+
+    const overrideByLog = new Map<string, number>();
+    for (const row of overrideRows) {
+      overrideByLog.set(String(row.shift_log_id), Number(row.count || 0));
+    }
+
+    const crmCountByLogMachine = new Map<string, number>();
+    for (const row of crmCountRows) {
+      const key = `${row.shift_log_id}|${String(row.machine_code || '').toUpperCase()}`;
+      crmCountByLogMachine.set(key, Number(row.count || 0));
+    }
+
+    const masterByProcess = new Map<number, string[]>();
+    for (const row of masterMachineRows) {
+      if (row.process_id == null) continue;
+      const list = masterByProcess.get(row.process_id) ?? [];
+      if (row.machine_code) list.push(String(row.machine_code).toUpperCase());
+      masterByProcess.set(row.process_id, list);
+    }
+
+    // Non-CRM process entry totals (one query per distinct process table).
+    const nonCrmCountByLog = new Map<string, number>();
+    const byProcessTable = new Map<string, string[]>();
+    for (const log of logs) {
+      const table = ShiftLogService.getProcessTable(log.processId);
+      if (!table || table === 'txn.crm_order') continue;
+      const list = byProcessTable.get(table) ?? [];
+      list.push(String(log.id));
+      byProcessTable.set(table, list);
+    }
+    await Promise.all(
+      [...byProcessTable.entries()].map(async ([table, ids]) => {
+        const rows = await db
+          .selectFrom(table as any)
+          .select(['shift_log_id', db.fn.countAll<number>().as('count')])
+          .where('shift_log_id', 'in', ids as any)
+          .groupBy('shift_log_id')
+          .execute();
+        for (const row of rows) {
+          nonCrmCountByLog.set(String(row.shift_log_id), Number(row.count || 0));
+        }
+      }),
+    );
+
+    const expanded: CardRow[] = [];
+
+    for (const log of logs) {
+      const logId = String(log.id);
+      const plantDay = postgresDateOnly(
+        sessionDayByLog.get(logId)?.day || String(log.shiftDate).slice(0, 10),
+      );
+      const overrideCount = overrideByLog.get(logId) ?? 0;
       const processTable = ShiftLogService.getProcessTable(log.processId);
-      let entryCount = 0;
-      if (processTable === 'txn.crm_order') {
-        const countRes = await db.selectFrom('txn.crm_order')
-          .select(db.fn.count('order_id').as('count'))
-          .where('shift_log_id', '=', log.id)
-          .where('status', '!=', 'CANCELLED')
-          .executeTakeFirst();
-        entryCount = Number(countRes?.count || 0);
-      } else if (processTable) {
-        const countRes = await db.selectFrom(processTable as any)
-          .select(db.fn.count('entry_id').as('count'))
-          .where('shift_log_id', '=', log.id)
-          .executeTakeFirst();
-        entryCount = Number(countRes?.count || 0);
+      const isCrm = processTable === 'txn.crm_order';
+
+      let machines: string[] = [];
+      if (log.millType) {
+        machines = [String(log.millType).toUpperCase()];
+      } else {
+        const fromSessions = sessionMachinesByLog.get(logId);
+        const fromOrders = orderMachinesByLog.get(logId);
+        if (fromSessions) machines.push(...fromSessions);
+        if (fromOrders) {
+          for (const m of fromOrders) {
+            if (!machines.includes(m)) machines.push(m);
+          }
+        }
+        if (machines.length === 0 && log.processId) {
+          machines = [...(masterByProcess.get(log.processId) ?? [])];
+        }
       }
 
-      const { resolveShiftLogMachines } = await import('../auth/machineAccessPolicy');
-      const machines = await resolveShiftLogMachines(String(log.id));
+      // Non-CRM tables have no machine column — one card (avoid inflated duplicate counts).
+      if (!isCrm && machines.length > 1) {
+        machines = [machines[0]];
+      }
+      if (machines.length === 0) machines = [''];
 
-      return {
-        id: String(log.id),
-        shiftDate: formatPlantDate(log.shiftDate as Date | string),
-        shiftCode: log.shiftCode,
-        processLine: log.processLine,
-        submittedBy: log.submittedBy || 'Unknown',
-        submittedAt: log.submittedAt,
-        state: log.state,
-        entryCount,
-        overrideCount: Number(overrides?.count || 0),
-        machines
-      };
-    }));
+      for (const machine of machines) {
+        let entryCount = 0;
+        if (isCrm) {
+          entryCount = machine
+            ? (crmCountByLogMachine.get(`${logId}|${machine}`) ?? 0)
+            : [...crmCountByLogMachine.entries()]
+                .filter(([k]) => k.startsWith(`${logId}|`))
+                .reduce((s, [, n]) => s + n, 0);
+        } else if (processTable) {
+          entryCount = nonCrmCountByLog.get(logId) ?? 0;
+        }
 
-    res.json(result);
+        expanded.push({
+          id: logId,
+          shiftDate: plantDay,
+          shiftCode: String(log.shiftCode).toUpperCase(),
+          processLine: String(log.processLine),
+          submittedBy: log.submittedBy || 'Unknown',
+          submittedAt: log.submittedAt,
+          state: String(log.state),
+          entryCount,
+          overrideCount,
+          millType: log.millType ? String(log.millType).toUpperCase() : null,
+          machine,
+          machines: machine ? [machine] : [],
+        });
+      }
+    }
+
+    // One machine · one shift · one plant day — collapse duplicate shift_log siblings.
+    const byKey = new Map<string, CardRow>();
+    for (const card of expanded) {
+      if (shiftDate && card.shiftDate !== postgresDateOnly(shiftDate)) continue;
+      const key = `${card.shiftDate}|${card.shiftCode}|${card.machine || card.processLine}`;
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, card);
+        continue;
+      }
+      const prevScore = prev.entryCount * 10 + (prev.state === 'DRAFT' || prev.state === 'REOPENED' ? 1 : 0);
+      const nextScore = card.entryCount * 10 + (card.state === 'DRAFT' || card.state === 'REOPENED' ? 1 : 0);
+      if (nextScore > prevScore) byKey.set(key, card);
+    }
+
+    res.json([...byKey.values()]);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -162,7 +357,7 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
     const process = await db.selectFrom('master.process').select('process_id').where('code', '=', processCode).executeTakeFirst();
     if (!process) return res.status(404).json({ error: 'Process not found' });
 
-    const requestedDate = typeof req.query.date === 'string' ? req.query.date.slice(0, 10) : undefined;
+    const requestedDate = typeof req.query.date === 'string' ? formatPlantDate(req.query.date) : undefined;
     const requestedShift = typeof req.query.shift === 'string' ? req.query.shift.toUpperCase() : undefined;
 
     let activeLog;
@@ -213,6 +408,13 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     if (!activeLog) return res.status(404).json({ error: 'No active shift found' });
 
+    const sessionPlantDay = await db
+      .selectFrom('txn.machine_shift_session')
+      .select(sql<string>`(prod_date::date)::text`.as('plantDay'))
+      .where('shift_log_id', '=', activeLog.shift_log_id)
+      .orderBy('started_at', 'desc')
+      .executeTakeFirst();
+
     const stoppagesRaw = await db.selectFrom('txn.stoppage as se')
       .innerJoin('master.stoppage_code as sc', 'se.breakdown_code', 'sc.stoppage_code')
       .select([
@@ -249,7 +451,9 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
 
     res.json({
       shiftLogId: String(activeLog.shift_log_id),
-      shiftDate: formatPlantDate(activeLog.prod_date),
+      shiftDate: postgresDateOnly(
+        sessionPlantDay?.plantDay || formatPlantDate(activeLog.prod_date),
+      ),
       shiftCode: activeLog.shift_code,
       targetMt: Number(activeLog.target_mt || 0),
       producedMt: totalProducedMt,
@@ -257,8 +461,8 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
         id: String(s.id),
         code: s.code,
         reason: s.reason,
-        fromTime: s.start_at ? new Date(s.start_at).toISOString().substring(11, 16) : '',
-        toTime: s.end_at ? new Date(s.end_at).toISOString().substring(11, 16) : null,
+        fromTime: s.start_at ? formatPlantTime(new Date(s.start_at)) : '',
+        toTime: s.end_at ? formatPlantTime(new Date(s.end_at)) : null,
         durationMins: s.durationMins,
         remarks: s.remarks || ''
       }))
@@ -308,7 +512,11 @@ router.get('/:id/state', async (req, res) => {
 router.get('/:id/review', async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'READ');
-    const review = await ReportingService.getShiftReview(req.params.id);
+    const machine =
+      typeof req.query.machine === 'string' && req.query.machine.trim()
+        ? req.query.machine.trim().toUpperCase()
+        : undefined;
+    const review = await ReportingService.getShiftReview(req.params.id, machine);
     if (!review) {
       return res.status(404).json({ error: 'Shift log not found' });
     }

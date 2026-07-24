@@ -48,10 +48,11 @@ export function pathForMachine(
 
 /** Plant head / admin / supervisor: prefer live JWT/DB machine list; fall back to static options. */
 export function getEffectiveMachineAccess(role: Role | null, machineAccess: string[]): string[] {
+  const normalized = machineAccess.map((m) => m.toUpperCase());
   if (role === 'SUPERVISOR' || role === 'PLANT_HEAD' || role === 'ADMIN') {
-    return machineAccess.length > 0 ? machineAccess : [...MACHINE_OPTIONS];
+    return normalized.length > 0 ? normalized : [...MACHINE_OPTIONS];
   }
-  return machineAccess;
+  return normalized;
 }
 
 /** Operator landing: CRM mills first, then process capture for other assigned lines. */
@@ -81,7 +82,7 @@ export function canAccessMachine(
   machineAccess: string[],
   machineCode: string,
 ): boolean {
-  return getEffectiveMachineAccess(role, machineAccess).includes(machineCode);
+  return getEffectiveMachineAccess(role, machineAccess).includes(machineCode.toUpperCase());
 }
 
 export interface MachineNavItem {

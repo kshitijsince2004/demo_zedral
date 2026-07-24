@@ -20,16 +20,18 @@ import {
 } from '../reporting/plantHeadDrilldown';
 import {
   addPlantDays,
+  formatPlantChartDay,
   formatPlantDate,
   formatDbDate,
   currentPlantDate,
+  endOfPlantDay,
   parsePlantDateOnly,
   plantDaysBetween,
-  PLANT_TIME_ZONE,
   postgresDateOnly,
   startOfPlantDay,
 } from '@m1/shared-validation';
 import { ShiftLogService } from './shiftLogService';
+import { CrewService } from './ancillaryServices';
 import { CRM_MILL_CODES } from '../utils/machineAllocation';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,11 +64,9 @@ function toNum(value: unknown): number {
   return Number(value || 0);
 }
 
+/** Short plant-calendar axis label (IST), e.g. "Wed, 23 Jul". */
 function formatDayLabel(date: Date | string): string {
-  return new Date(parsePlantDateOnly(formatPlantDate(date))).toLocaleDateString('en-US', {
-    weekday: 'short',
-    timeZone: PLANT_TIME_ZONE,
-  });
+  return formatPlantChartDay(date);
 }
 
 function formatDateKey(date: Date): string {
@@ -515,17 +515,27 @@ export class ReportingService {
    * Pure aggregation — reuses SixHiService / ShiftAttributionService rather than
    * re-deriving production or stoppage math. Returns null if the log is unknown.
    */
-  static async getShiftReview(shiftLogId: string) {
+  static async getShiftReview(shiftLogId: string, machineCode?: string | string[]) {
     const { SixHiService } = await import('./SixHiService');
     const { ShiftAttributionService } = await import('./ShiftAttributionService');
 
     const log = await ShiftLogService.getById(shiftLogId);
     if (!log) return null;
 
-    const [summary, stoppages, metrics, procRow, machineRows] = await Promise.all([
-      SixHiService.getShiftSummary(shiftLogId),
-      SixHiService.getShiftStoppages(shiftLogId),
-      ShiftAttributionService.getShiftMetrics(shiftLogId),
+    const machineFilter: string | string[] | undefined = Array.isArray(machineCode)
+      ? machineCode.map((m) => m.trim().toUpperCase()).filter(Boolean)
+      : machineCode?.trim().toUpperCase() || undefined;
+    const singleMachine =
+      typeof machineFilter === 'string'
+        ? machineFilter
+        : Array.isArray(machineFilter) && machineFilter.length === 1
+          ? machineFilter[0]
+          : undefined;
+
+    const [summary, stoppages, metrics, procRow, machineRows, crew, autoHandover] = await Promise.all([
+      SixHiService.getShiftSummary(shiftLogId, machineFilter),
+      SixHiService.getShiftStoppages(shiftLogId, machineFilter),
+      ShiftAttributionService.getShiftMetrics(shiftLogId, singleMachine),
       reportingDb
         .selectFrom('master.process')
         .select(['code', 'name'])
@@ -538,18 +548,42 @@ export class ReportingService {
         .distinct()
         .where('o.shift_log_id', '=', shiftLogId)
         .execute(),
+      CrewService.listByShiftLog(shiftLogId).catch(() => []),
+      this.findAutoHandoverForShiftLog(shiftLogId, log, singleMachine),
     ]);
 
     const targetMt = summary.targetCompletedMt ?? 0;
     const completedProdMt = summary.completedProdMt ?? 0;
     const attainmentPct = targetMt > 0 ? round1((completedProdMt / targetMt) * 100) : 0;
-    const machines = machineRows.map((m) => m.machine_code).filter((m): m is string => !!m);
+    const allMachines = machineRows
+      .map((m) => m.machine_code)
+      .filter((m): m is string => !!m)
+      .map((m) => m.toUpperCase());
+    let machines = allMachines;
+    if (typeof machineFilter === 'string') {
+      machines = allMachines.filter((m) => m === machineFilter);
+      if (machines.length === 0) machines = [machineFilter];
+    } else if (Array.isArray(machineFilter) && machineFilter.length > 0) {
+      machines = allMachines.filter((m) => machineFilter.includes(m));
+      if (machines.length === 0) machines = [...machineFilter];
+    }
+
+    const sessionDayRow = await reportingDb
+      .selectFrom('txn.machine_shift_session')
+      .select(sql<string>`(prod_date::date)::text`.as('plantDay'))
+      .where('shift_log_id', '=', shiftLogId)
+      .orderBy('started_at', 'desc')
+      .executeTakeFirst();
+    const prodDate = postgresDateOnly(
+      sessionDayRow?.plantDay || formatPlantDate(log.prod_date as Date | string),
+    );
 
     return {
       shiftLogId,
-      prodDate: formatDbDate(log.prod_date as Date),
+      prodDate,
       shiftCode: String(log.shift_code).toUpperCase(),
-      processLine: procRow?.name ?? procRow?.code ?? undefined,
+      processLine: procRow?.code ?? procRow?.name ?? undefined,
+      millType: log.mill_type ? String(log.mill_type).toUpperCase() : null,
       state: log.state,
       machines,
       overview: {
@@ -568,7 +602,64 @@ export class ReportingService {
       completedOrders: summary.completedOrders ?? [],
       ordersInProgress: summary.ordersInProgress ?? [],
       stoppages,
+      crew,
+      crewMissing: crew.length === 0,
+      autoClosed: !!autoHandover,
+      autoHandover: autoHandover
+        ? {
+            handoverId: autoHandover.handover_id,
+            remarks: autoHandover.remarks,
+            machineCode: autoHandover.machine_code,
+            pendingReview: log.state === 'DRAFT' || log.state === 'REOPENED',
+          }
+        : null,
     };
+  }
+
+  /** Lookup AUTO_COMPLETED boundary handover for this shift log's outgoing keys. */
+  private static async findAutoHandoverForShiftLog(
+    _shiftLogId: string,
+    log: { shift_code: string; prod_date: Date | string; process_id: number },
+    machineFilter?: string,
+  ) {
+    const sessionDayRow = await reportingDb
+      .selectFrom('txn.machine_shift_session')
+      .select(sql<string>`(prod_date::date)::text`.as('plantDay'))
+      .where('shift_log_id', '=', _shiftLogId)
+      .orderBy('started_at', 'desc')
+      .executeTakeFirst();
+    const prodDateStr = postgresDateOnly(
+      sessionDayRow?.plantDay || formatPlantDate(log.prod_date as Date | string),
+    );
+    const sessionMachines = await reportingDb
+      .selectFrom('txn.machine_shift_session')
+      .select('machine_code')
+      .where('shift_log_id', '=', _shiftLogId)
+      .distinct()
+      .execute();
+    const codes = sessionMachines.map((m) => m.machine_code).filter(Boolean);
+    if (codes.length === 0) {
+      const byProcess = await reportingDb
+        .selectFrom('master.machine')
+        .select('machine_code')
+        .where('process_id', '=', log.process_id)
+        .execute();
+      codes.push(...byProcess.map((m) => m.machine_code));
+    }
+    const scoped = machineFilter
+      ? codes.filter((c) => String(c).toUpperCase() === machineFilter)
+      : codes;
+    if (scoped.length === 0) return null;
+
+    return reportingDb
+      .selectFrom('txn.machine_handover')
+      .select(['handover_id', 'remarks', 'machine_code', 'status'])
+      .where('machine_code', 'in', scoped)
+      .where('outgoing_shift_code', '=', String(log.shift_code).toUpperCase())
+      .where('outgoing_prod_date', '=', postgresDateOnly(prodDateStr) as any)
+      .where('status', '=', 'AUTO_COMPLETED')
+      .orderBy('created_at', 'desc')
+      .executeTakeFirst();
   }
 
   static async getMachineHeadDashboard(machines: string[]) {
@@ -740,7 +831,7 @@ export class ReportingService {
           totals.shiftMinutes,
         );
         return {
-          date: formatDayLabel(new Date(dateKey)),
+          date: formatDayLabel(dateKey),
           oee: round1(Math.min(Math.max(oee, 0), 100)),
         };
       });
@@ -776,7 +867,7 @@ export class ReportingService {
         const rejectionRatePct =
           totals.prod > 0 ? round1(Math.min((totals.loss / totals.prod) * 100, 100)) : 0;
         return {
-          date: formatDayLabel(new Date(dateKey)),
+          date: formatDayLabel(dateKey),
           yieldPct: Math.min(Math.max(yieldPct, 0), 100),
           rejectionRatePct: Math.min(Math.max(rejectionRatePct, 0), 100),
         };
@@ -900,7 +991,7 @@ export class ReportingService {
     const dailyProduction = Object.entries(oeeByDate)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([dateKey, totals]) => ({
-        date: formatDayLabel(new Date(dateKey)),
+        date: formatDayLabel(dateKey),
         targetMt: round1(totals.target),
         actualMt: round1(totals.prod),
       }));
@@ -1104,9 +1195,8 @@ export class ReportingService {
   }
 
   static async getDailyReport(date: string) {
-    const dayStart = new Date(date);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayStart = startOfPlantDay(date);
+    const dayEnd = endOfPlantDay(date);
 
     const shifts = await fetchShiftRows([], dayStart, dayEnd);
     const shiftIds = shifts.map((s) => s.shift_log_id);
@@ -1296,8 +1386,8 @@ export class ReportingService {
     shiftCode?: string;
     coilNo?: string;
   }) {
-    const from = scope.dateFrom ? new Date(scope.dateFrom) : new Date(Date.now() - 30 * DAY_MS);
-    const to = scope.dateTo ? new Date(scope.dateTo) : new Date();
+    const from = scope.dateFrom ? startOfPlantDay(scope.dateFrom) : new Date(Date.now() - 30 * DAY_MS);
+    const to = scope.dateTo ? endOfPlantDay(scope.dateTo) : new Date();
     const lines = scope.processId ? [scope.processId.toUpperCase()] : [];
 
     const shifts = await fetchShiftRows(lines, from, to);
@@ -1336,7 +1426,7 @@ export class ReportingService {
         coilNo: scope.coilNo || '—',
         processId: r.processId,
         shiftCode: r.shiftCode,
-        date: new Date(r.date).toISOString(),
+        date: formatPlantDate(r.date),
         value: toNum(r.value),
         unit: 'min',
       }));
@@ -1423,7 +1513,7 @@ export class ReportingService {
           .select('remarks')
           .where('machine_code', '=', machine.machine_code)
           .where('outgoing_shift_code', '=', log.shift_code)
-          .where((eb) => eb(eb.fn('date', [eb.ref('outgoing_prod_date')]), '=', eb.val(parsePlantDateOnly(prodDateStr))))
+          .where((eb) => eb(eb.fn('date', [eb.ref('outgoing_prod_date')]), '=', eb.val(postgresDateOnly(prodDateStr))))
           .orderBy('created_at', 'desc')
           .executeTakeFirst();
           

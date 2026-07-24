@@ -16,8 +16,8 @@ async function seedDemoState() {
     `);
 
     // 2. Create an ACTIVE Shift Log for John Doe (user_id = 1) on HRS
-    // Let's use today's date
-    const today = new Date().toISOString().split('T')[0];
+    // Plant calendar today (IST), not UTC.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     
     // Check if there is already an active shift log, if so delete it so we can create a clean one
     await client.query(`

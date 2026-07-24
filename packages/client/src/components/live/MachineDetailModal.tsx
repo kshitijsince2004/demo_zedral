@@ -4,6 +4,7 @@ import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { Activity, AlertTriangle, Power, ShieldAlert, X } from 'lucide-react';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
+import { formatPlantClock } from '../../lib/dateFormat';
 import { liveService } from '../../lib/liveService';
 
 interface MachineDetailModalProps {
@@ -320,7 +321,7 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-muted-foreground text-xs">
-                          {new Date(evt.occurredAt).toLocaleTimeString()}
+                          {formatPlantClock(evt.occurredAt)}
                         </td>
                         <td className="px-4 py-3 font-mono font-bold text-xs">
                           {evt.durationMin != null ? `${Math.round(evt.durationMin)}m` : '—'}

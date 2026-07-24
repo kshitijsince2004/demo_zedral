@@ -1,11 +1,10 @@
-import React from 'react';
+import { formatPlantClock } from '../../lib/dateFormat';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { AlertTriangle, Clock, Cpu, ShieldAlert, Wrench } from 'lucide-react';
 
 function formatUpdatedAt(iso?: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return formatPlantClock(iso);
 }
 
 type StatusCfg = {

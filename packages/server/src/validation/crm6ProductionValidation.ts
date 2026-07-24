@@ -2,6 +2,7 @@ import { db } from '../db';
 import { assertQuantityWithinProduction, assertRuntimeAccounting, ManufacturingValidationError } from './manufacturingValidation';
 import { resolveShiftWindowBounds } from './manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
+import { parsePlantDateOnly } from '@m1/shared-validation';
 
 export async function resolveOrderProductionMt(orderId: string | number): Promise<number> {
   const row = await db
@@ -79,7 +80,9 @@ export async function assertOrderRuntimeAccounting(
 
   const prodDateRaw = ctx.sl_prod_date ?? ctx.prod_date;
   if (!prodDateRaw) return;
-  const prodDate = prodDateRaw instanceof Date ? prodDateRaw : new Date(prodDateRaw);
+  const prodDate = prodDateRaw instanceof Date
+    ? prodDateRaw
+    : parsePlantDateOnly(String(prodDateRaw));
   const bounds = resolveShiftWindowBounds(
     prodDate,
     String(ctx.start_time).slice(0, 5),

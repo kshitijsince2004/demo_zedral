@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPlantClock } from '../../lib/dateFormat';
 
 interface Stoppage {
   id: string;
@@ -51,10 +52,10 @@ export function ShiftStoppageHistory({ stoppages }: ShiftStoppageHistoryProps) {
               {stoppages.map((s) => (
                 <tr key={s.id} className="hover:bg-muted/5 transition-colors">
                   <td className="px-4 py-2 font-mono text-foreground">
-                    {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatPlantClock(s.startTime)}
                   </td>
                   <td className="px-4 py-2 font-mono text-muted-foreground">
-                    {s.endTime ? new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Ongoing'}
+                    {s.endTime ? formatPlantClock(s.endTime) : 'Ongoing'}
                   </td>
                   <td className="px-4 py-2 font-mono text-warning font-medium">{formatDuration(s.durationMins)}</td>
                   <td className="px-4 py-2 font-mono font-bold text-foreground">{s.categoryCode || '—'}</td>

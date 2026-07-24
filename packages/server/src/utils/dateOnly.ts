@@ -5,6 +5,7 @@ export {
   formatPlantDate,
   formatPlantDateTime,
   formatPlantTime,
+  formatPlantChartDay,
   formatDbDate,
   addPlantDays,
   parsePlantDateOnly,
@@ -22,9 +23,10 @@ export {
 } from '@m1/shared-validation';
 
 import {
+  endOfPlantDay,
   formatPlantDate,
   parsePlantDateOnly,
-  postgresDateOnly,
+  startOfPlantDay,
 } from '@m1/shared-validation';
 
 /** @deprecated Use formatPlantDate */
@@ -38,10 +40,9 @@ export function parseDateOnly(value: string | Date): Date {
 }
 
 export function startOfDateFilter(value: string | Date): Date {
-  return parsePlantDateOnly(value);
+  return startOfPlantDay(value);
 }
 
 export function endOfDateFilter(value: string | Date): Date {
-  const raw = formatPlantDate(value);
-  return new Date(`${raw}T23:59:59.999+05:30`);
+  return endOfPlantDay(value);
 }
