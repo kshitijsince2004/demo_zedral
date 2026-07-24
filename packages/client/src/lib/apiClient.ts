@@ -175,33 +175,50 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
     }
   }
 
-  const { signal: timeoutSignal, cancel } = withTimeout(timeoutMs);
-  const signal = mergeAbortSignals(callerSignal, timeoutSignal);
-
-  let res: Response;
-  try {
-    const url = `${API_BASE}${finalPath}`;
-    res = await fetch(url, {
-      ...fetchOpts,
-      headers,
-      credentials: 'include',
-      signal,
-    });
-
-    if (res.status === 401 && !isPublicAuthPath(path)) {
-      console.warn(`[apiClient] 401 Unauthorized for ${path}. Auth Gen: ${generationAtStart}, Headers:`,
-        Object.fromEntries(res.headers.entries()));
+  const doFetch = async (): Promise<Response> => {
+    const { signal: timeoutSignal, cancel } = withTimeout(timeoutMs);
+    const signal = mergeAbortSignals(callerSignal, timeoutSignal);
+    try {
+      const url = `${API_BASE}${finalPath}`;
+      return await fetch(url, {
+        ...fetchOpts,
+        headers,
+        credentials: 'include',
+        signal,
+      });
+    } catch (networkErr) {
+      const isAbort = networkErr instanceof Error && networkErr.name === 'AbortError';
+      let msg = 'Network unavailable or request blocked by CORS';
+      if (networkErr instanceof Error) {
+        if (isAbort) msg = 'Request timed out';
+        else if (networkErr.message) msg = `Network error: ${networkErr.message}`;
+      }
+      throw new ApiError(msg, 0, networkErr, true, true);
+    } finally {
+      cancel();
     }
-  } catch (networkErr) {
-    const isAbort = networkErr instanceof Error && networkErr.name === 'AbortError';
-    let msg = 'Network unavailable or request blocked by CORS';
-    if (networkErr instanceof Error) {
-      if (isAbort) msg = 'Request timed out';
-      else if (networkErr.message) msg = `Network error: ${networkErr.message}`;
+  };
+
+  let res: Response = await doFetch();
+
+  if (res.status === 401 && !isPublicAuthPath(path)) {
+    console.warn(`[apiClient] 401 Unauthorized for ${path}. Auth Gen: ${generationAtStart}, Headers:`,
+      Object.fromEntries(res.headers.entries()));
+  }
+
+  // SuperTokens header transfer can race refresh — try once before nuking the session.
+  if (res.status === 401 && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {
+    try {
+      const Session = (await import('supertokens-auth-react/recipe/session')).default;
+      if (await Session.doesSessionExist()) {
+        const refreshed = await Session.attemptRefreshingSession();
+        if (refreshed && authGeneration === generationAtStart) {
+          res = await doFetch();
+        }
+      }
+    } catch {
+      // Fall through to logout handling below.
     }
-    throw new ApiError(msg, 0, networkErr, true, true);
-  } finally {
-    cancel();
   }
 
   if (res.status === 401 && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {

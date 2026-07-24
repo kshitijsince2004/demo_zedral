@@ -16,15 +16,23 @@ router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (_req,
   }
 });
 
-router.get('/me', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
-  try {
-    const machines = await MachineAccessService.getForUser(req.user!.id);
-    res.json({ machines });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Failed to load machine access';
-    res.status(500).json({ error: msg });
-  }
-});
+/** Self machine scope — MH assignments, or plant-wide for PH/Admin/Supervisor. */
+router.get(
+  '/me',
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN, UserRole.SUPERVISOR]),
+  async (req, res) => {
+    try {
+      const machines = await MachineAccessService.getOperationalForViewer(
+        req.user!.id,
+        req.user!.roles,
+      );
+      res.json({ machines });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to load machine access';
+      res.status(500).json({ error: msg });
+    }
+  },
+);
 
 router.put('/:userId', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {

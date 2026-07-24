@@ -2,7 +2,7 @@ import { db } from '../db';
 import { SixHiExecutionService, SixHiShiftService } from './sixHi';
 import { assertRuntimeAccounting } from '../validation/manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
-import { parseDateOnly, formatPlantDate } from '../utils/dateOnly';
+import { formatPlantDate, postgresDateOnly } from '../utils/dateOnly';
 
 export interface AttributionSlice {
   orderId: number;
@@ -84,7 +84,7 @@ export class ShiftAttributionService {
         shift_log_id: slice.shiftLogId,
         machine_code: slice.machineCode,
         shift_code: slice.shiftCode,
-        prod_date: parseDateOnly(slice.prodDate),
+        prod_date: postgresDateOnly(slice.prodDate),
         runtime_minutes: slice.runtimeMinutes,
         production_mt: slice.productionMt,
         stoppage_minutes: slice.stoppageMinutes,

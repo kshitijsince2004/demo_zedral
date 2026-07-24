@@ -35,7 +35,8 @@ async function assertHandoverMachineAccess(
 router.get('/overview', async (req, res) => {
   try {
     const roles = req.user?.roles ?? [];
-    const allMachines = roles.includes('PLANT_HEAD') || roles.includes('ADMIN');
+    const allMachines =
+      roles.includes('PLANT_HEAD') || roles.includes('ADMIN') || roles.includes('SUPERVISOR');
     const machineFilter = allMachines ? null : (req.user?.machineAccess ?? []);
     const overview = await MachineHandoverService.getHandoverOverview(machineFilter);
     res.json(overview);

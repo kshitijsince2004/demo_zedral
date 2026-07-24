@@ -54,11 +54,22 @@ interface ShiftReviewData {
   crew?: { id: string; crewId: string; operatorName: string; roleCode: string }[];
   crewMissing?: boolean;
   autoClosed?: boolean;
+  readings?: {
+    scrapKg: number | null;
+    coolantTempDegC: number | null;
+    coolantPressKgCm2: number | null;
+  };
+  readingsMissing?: {
+    scrapKg: boolean;
+    coolantTempDegC: boolean;
+    coolantPressKgCm2: boolean;
+  };
   autoHandover?: {
     handoverId: string;
     remarks: string;
     machineCode: string;
     pendingReview: boolean;
+    reviewState?: string;
   } | null;
 }
 
@@ -109,12 +120,24 @@ function StateBadge({ state }: { state: string }) {
 
 function ShiftCompleteForm({
   shiftLogId,
+  review,
   onCompleted,
 }: {
   shiftLogId: string;
+  review?: ShiftReviewData;
   onCompleted: () => void;
 }) {
-  const [remarks, setRemarks] = useState('');
+  const autoPending = !!(review?.autoClosed && review.autoHandover?.pendingReview);
+  const [remarks, setRemarks] = useState(review?.autoHandover?.remarks ?? '');
+  const [scrapKg, setScrapKg] = useState(
+    review?.readings?.scrapKg != null ? String(review.readings.scrapKg) : '',
+  );
+  const [coolantTemp, setCoolantTemp] = useState(
+    review?.readings?.coolantTempDegC != null ? String(review.readings.coolantTempDegC) : '',
+  );
+  const [coolantPress, setCoolantPress] = useState(
+    review?.readings?.coolantPressKgCm2 != null ? String(review.readings.coolantPressKgCm2) : '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,13 +148,23 @@ function ShiftCompleteForm({
       return;
     }
     const confirmed = window.confirm(
-      'Mark this shift as completed? It will move to the completed archive for this production day.',
+      autoPending
+        ? 'Sign off this auto-closed shift? Empty coolant/scrap fields will be saved first, then the shift moves to the completed archive.'
+        : 'Mark this shift as completed? It will move to the completed archive for this production day.',
     );
     if (!confirmed) return;
 
     setBusy(true);
     setError(null);
     try {
+      if (autoPending) {
+        await apiClient.patch(`/shift-logs/${shiftLogId}/manual-fields`, {
+          scrapKg: scrapKg.trim() === '' ? null : Number(scrapKg),
+          coolantTempDegC: coolantTemp.trim() === '' ? null : Number(coolantTemp),
+          coolantPressKgCm2: coolantPress.trim() === '' ? null : Number(coolantPress),
+          remarks: trimmed,
+        });
+      }
       await putQueued(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed }, `shift-log:${shiftLogId}`);
       onCompleted();
     } catch (err: unknown) {
@@ -144,11 +177,56 @@ function ShiftCompleteForm({
   return (
     <div className="mt-4 pt-4 border-t border-border/60 space-y-3">
       <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-        Mark shift completed
+        {autoPending ? 'MH sign-off (auto-closed shift)' : 'Mark shift completed'}
       </h4>
       <p className="text-xs text-muted-foreground">
-        Closes this active shift log (DRAFT → SUBMITTED). Add closure notes for the archive.
+        {autoPending
+          ? 'Backfill any missing coolant/scrap readings from paper notes, then sign off to clear the MH action item.'
+          : 'Closes this active shift log (DRAFT → SUBMITTED). Add closure notes for the archive.'}
       </p>
+      {autoPending && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <label className="text-xs space-y-1">
+            <span className="font-semibold text-muted-foreground uppercase">Coolant °C</span>
+            <input
+              type="number"
+              step="any"
+              value={coolantTemp}
+              onChange={(e) => setCoolantTemp(e.target.value)}
+              className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                review?.readingsMissing?.coolantTempDegC ? 'border-warning' : 'border-border'
+              } bg-white`}
+              placeholder="Missing"
+            />
+          </label>
+          <label className="text-xs space-y-1">
+            <span className="font-semibold text-muted-foreground uppercase">Coolant Kg/cm²</span>
+            <input
+              type="number"
+              step="any"
+              value={coolantPress}
+              onChange={(e) => setCoolantPress(e.target.value)}
+              className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                review?.readingsMissing?.coolantPressKgCm2 ? 'border-warning' : 'border-border'
+              } bg-white`}
+              placeholder="Missing"
+            />
+          </label>
+          <label className="text-xs space-y-1">
+            <span className="font-semibold text-muted-foreground uppercase">Scrap Kg</span>
+            <input
+              type="number"
+              step="any"
+              value={scrapKg}
+              onChange={(e) => setScrapKg(e.target.value)}
+              className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                review?.readingsMissing?.scrapKg ? 'border-warning' : 'border-border'
+              } bg-white`}
+              placeholder="Missing"
+            />
+          </label>
+        </div>
+      )}
       <textarea
         value={remarks}
         onChange={(e) => setRemarks(e.target.value)}
@@ -158,7 +236,7 @@ function ShiftCompleteForm({
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       <ZButton variant="accent" onClick={() => void handleComplete()} disabled={busy}>
-        {busy ? 'Completing…' : 'Mark completed'}
+        {busy ? 'Saving…' : autoPending ? 'Sign off & complete' : 'Mark completed'}
       </ZButton>
     </div>
   );
@@ -181,6 +259,38 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
           {review.crewMissing && (
             <p className="text-muted-foreground">Crew not recorded for this shift.</p>
           )}
+          {review.autoClosed && review.readingsMissing && (
+            <p className="text-muted-foreground">
+              Missing readings:
+              {[
+                review.readingsMissing.coolantTempDegC ? ' coolant °C' : null,
+                review.readingsMissing.coolantPressKgCm2 ? ' coolant pressure' : null,
+                review.readingsMissing.scrapKg ? ' scrap kg' : null,
+              ]
+                .filter(Boolean)
+                .join(',') || ' none'}
+              . Backfill on sign-off.
+            </p>
+          )}
+        </div>
+      )}
+
+      {(review.readings || review.autoClosed) && (
+        <div>
+          <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+            Shift readings
+          </h4>
+          <div className="grid grid-cols-3 gap-2">
+            <ReviewMetric
+              label="Coolant °C"
+              value={review.readings?.coolantTempDegC ?? '—'}
+            />
+            <ReviewMetric
+              label="Coolant Kg/cm²"
+              value={review.readings?.coolantPressKgCm2 ?? '—'}
+            />
+            <ReviewMetric label="Scrap Kg" value={review.readings?.scrapKg ?? '—'} />
+          </div>
         </div>
       )}
 
@@ -675,6 +785,7 @@ export function PlantShiftReviewPage() {
                               {isActiveState(log.state) && (
                                 <ShiftCompleteForm
                                   shiftLogId={log.id}
+                                  review={reviewById[key]}
                                   onCompleted={() => {
                                     setExpandedId(null);
                                     setReviewById((prev) => {

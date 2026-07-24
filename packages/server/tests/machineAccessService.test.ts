@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { lineAccessFromMachines } from '../src/services/MachineAccessService';
+import { normalizeRoles } from '@m1/shared-validation';
 
 describe('lineAccessFromMachines', () => {
   it('maps CRM mills to ROLLING process', () => {
@@ -22,5 +23,19 @@ describe('lineAccessFromMachines', () => {
       { line_id: 'ROLLING', level: 'WRITE' },
       { line_id: 'HRS', level: 'WRITE' },
     ]);
+  });
+});
+
+describe('plant-wide viewer roles for machine-access/me', () => {
+  it('classifies SUPERVISOR with PH/Admin as plant-wide', () => {
+    const plantWide = (roles: string[]) => {
+      const n = normalizeRoles(roles);
+      return (
+        n.includes('PLANT_HEAD') || n.includes('ADMIN') || n.includes('SUPERVISOR')
+      );
+    };
+    expect(plantWide(['SUPERVISOR'])).toBe(true);
+    expect(plantWide(['MACHINE_HEAD'])).toBe(false);
+    expect(plantWide(['OPERATOR'])).toBe(false);
   });
 });

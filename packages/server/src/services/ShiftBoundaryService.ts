@@ -7,6 +7,7 @@ import { ShiftLogService } from './shiftLogService';
 import { getOrderSourceStrategy } from './handover/OrderSource';
 import { reparentOpenWork } from './handover/carryForward';
 import { publishShiftClosed } from '../platform/m1Events';
+import { DeskNotificationService } from './DeskNotificationService';
 import {
   addPlantDays,
   formatPlantDate,
@@ -38,7 +39,29 @@ export function getAutoBoundaryMode(): AutoBoundaryMode {
   return 'off';
 }
 
-export function isMachineAutoBoundaryEnabled(machineCode: string): boolean {
+/**
+ * Effective enablement = global allowlist AND machine-master override.
+ * master.machine.auto_boundary_handover: NULL inherit, true/false force.
+ */
+export async function isMachineAutoBoundaryEnabled(machineCode: string): Promise<boolean> {
+  if (!isMachineOnAutoBoundaryAllowlist(machineCode)) return false;
+
+  try {
+    const row = await db
+      .selectFrom('master.machine')
+      .select('auto_boundary_handover')
+      .where('machine_code', '=', machineCode.toUpperCase())
+      .executeTakeFirst();
+    if (row?.auto_boundary_handover === false) return false;
+    if (row?.auto_boundary_handover === true) return true;
+  } catch {
+    // Unit tests / early boot without DB — inherit global.
+  }
+  return true; // NULL = inherit global (caller already in shadow|on)
+}
+
+/** Env allowlist only (empty list = all). Used by unit tests. */
+export function isMachineOnAutoBoundaryAllowlist(machineCode: string): boolean {
   const list = (process.env.AUTO_BOUNDARY_HANDOVER_MACHINES ?? '').trim();
   if (!list) return true;
   const allowed = new Set(
@@ -87,9 +110,84 @@ async function deriveMachineStatus(machineCode: string): Promise<string> {
   const t = String(ev.event_type);
   if (t.startsWith('RUNNING')) return 'RUNNING';
   if (t.startsWith('STOPPAGE')) return 'STOPPAGE';
+  if (t.startsWith('BREAKDOWN') || t.includes('BREAKDOWN')) return 'BREAKDOWN';
   if (t.startsWith('MAINTENANCE')) return 'MAINTENANCE';
   if (t.startsWith('IDLE')) return 'IDLE';
   return 'IDLE';
+}
+
+/** B1 judgment fields from last MachineStateEvent (§13). */
+async function deriveMachineCondition(machineCode: string): Promise<{
+  machineCondition: 'NORMAL' | 'ATTENTION' | 'CRITICAL';
+  handoverPriority: 'LOW' | 'MEDIUM' | 'HIGH';
+  breakdownCode: string | null;
+  maintenanceStatus: string | null;
+}> {
+  const ev = await MachineStateEventService.getCurrentEvent(machineCode);
+  if (!ev) {
+    return {
+      machineCondition: 'NORMAL',
+      handoverPriority: 'MEDIUM',
+      breakdownCode: null,
+      maintenanceStatus: null,
+    };
+  }
+  const t = String(ev.event_type).toUpperCase();
+  if (t.includes('BREAKDOWN')) {
+    return {
+      machineCondition: 'CRITICAL',
+      handoverPriority: 'HIGH',
+      breakdownCode: null,
+      maintenanceStatus: null,
+    };
+  }
+  if (t.includes('MAINTENANCE')) {
+    return {
+      machineCondition: 'ATTENTION',
+      handoverPriority: 'MEDIUM',
+      breakdownCode: null,
+      maintenanceStatus: 'IN_PROGRESS',
+    };
+  }
+  if (t.includes('STOPPAGE')) {
+    return {
+      machineCondition: 'ATTENTION',
+      handoverPriority: 'MEDIUM',
+      breakdownCode: null,
+      maintenanceStatus: null,
+    };
+  }
+  return {
+    machineCondition: 'NORMAL',
+    handoverPriority: 'MEDIUM',
+    breakdownCode: null,
+    maintenanceStatus: null,
+  };
+}
+
+/** B2 structured auto remark (§13). Exported for unit tests. */
+export function buildAutoRemarks(args: {
+  outgoingShiftCode: string;
+  incomingShiftCode: string;
+  totalProdMt: number;
+  openOrderCount: number;
+  carriedBatches: string[];
+  stoppageMin: number;
+  breakdownMin: number;
+  machineStatus: string;
+}): string {
+  const carried =
+    args.carriedBatches.length > 0
+      ? args.carriedBatches.slice(0, 8).join(', ')
+      : 'none';
+  const text =
+    `System handover at ${args.outgoingShiftCode}→${args.incomingShiftCode} boundary. ` +
+    `Produced ${args.totalProdMt.toFixed(3)} MT (${args.openOrderCount} open orders carried). ` +
+    `Carried forward: ${carried}. ` +
+    `Stoppage ${args.stoppageMin} min, breakdown ${args.breakdownMin} min. ` +
+    `Machine ended ${args.machineStatus}. ` +
+    AUTO_STUB_REMARKS;
+  return text.length >= 20 ? text : AUTO_STUB_REMARKS;
 }
 
 async function alreadyBoundaryHandled(
@@ -216,7 +314,7 @@ export class ShiftBoundaryService {
 
     for (const session of stale) {
       try {
-        if (!isMachineAutoBoundaryEnabled(session.machine_code)) {
+        if (!(await isMachineAutoBoundaryEnabled(session.machine_code))) {
           logTier1('skipped', {
             reason: 'allowlist',
             machineCode: session.machine_code,
@@ -431,9 +529,68 @@ export class ShiftBoundaryService {
     }
 
     const machineStatus = await deriveMachineStatus(machineCode);
+    const condition = await deriveMachineCondition(machineCode);
     const now = new Date();
     const outgoingDateOnly = postgresDateOnly(outgoingProdDate);
     const incomingDateOnly = postgresDateOnly(incomingProdDate);
+
+    // Snapshot latest in-shift readings (B3) + scrap prefill (C) before carry-forward.
+    let readings: {
+      scrapKg: number | null;
+      coolantTempDegC: number | null;
+      coolantPressKgCm2: number | null;
+    } = { scrapKg: null, coolantTempDegC: null, coolantPressKgCm2: null };
+    let openOrderCount = 0;
+    let carriedBatches: string[] = [];
+    let stoppageMin = 0;
+    let breakdownMin = 0;
+
+    if (outgoingShiftLogId) {
+      const summaryRow = await db
+        .selectFrom('txn.crm_shift_summary')
+        .select(['scrap_kg', 'coolant_temp_degc', 'coolant_press_kgcm2'])
+        .where('shift_log_id', '=', outgoingShiftLogId as any)
+        .executeTakeFirst();
+      if (summaryRow) {
+        readings = {
+          scrapKg: summaryRow.scrap_kg != null ? Number(summaryRow.scrap_kg) : null,
+          coolantTempDegC:
+            summaryRow.coolant_temp_degc != null ? Number(summaryRow.coolant_temp_degc) : null,
+          coolantPressKgCm2:
+            summaryRow.coolant_press_kgcm2 != null ? Number(summaryRow.coolant_press_kgcm2) : null,
+        };
+      }
+
+      const openOrders = await db
+        .selectFrom('txn.crm_order as o')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+        .select(['pb.batch_number'])
+        .where('o.shift_log_id', '=', outgoingShiftLogId as any)
+        .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+        .execute()
+        .catch(() => []);
+      openOrderCount = openOrders.length;
+      carriedBatches = openOrders.map((o) => String(o.batch_number));
+
+      const stopAgg = await db
+        .selectFrom('txn.stoppage')
+        .select((eb) => eb.fn.sum<number>('duration_min').as('mins'))
+        .where('shift_log_id', '=', outgoingShiftLogId as any)
+        .executeTakeFirst()
+        .catch(() => null);
+      stoppageMin = Number(stopAgg?.mins ?? 0);
+    }
+
+    const remarks = buildAutoRemarks({
+      outgoingShiftCode,
+      incomingShiftCode,
+      totalProdMt,
+      openOrderCount,
+      carriedBatches,
+      stoppageMin,
+      breakdownMin,
+      machineStatus,
+    });
 
     let handoverId: string | null = null;
     try {
@@ -491,17 +648,24 @@ export class ShiftBoundaryService {
             outgoing_operator_id: session.operator_user_id,
             incoming_operator_id: null,
             machine_status: machineStatus,
-            remarks: AUTO_STUB_REMARKS,
+            handover_priority: condition.handoverPriority,
+            breakdown_code: condition.breakdownCode,
+            maintenance_status: condition.maintenanceStatus,
+            remarks,
             status: 'AUTO_COMPLETED',
             created_by_boundary: true,
             accepted_at: now,
             production_snapshot: {
               autoBoundary: true,
+              pendingReview: true,
               outgoingShiftLogId,
               incomingShiftLogId,
+              machineCondition: condition.machineCondition,
+              readings,
+              condition,
             } as any,
             open_stoppages: [] as any,
-            queue_snapshot: {} as any,
+            queue_snapshot: { carriedBatches } as any,
           })
           .returning('handover_id')
           .executeTakeFirstOrThrow();
@@ -525,6 +689,8 @@ export class ShiftBoundaryService {
               outgoingShiftLogId,
               incomingShiftLogId,
               totalProdMt,
+              readings,
+              condition,
             },
           })
           .execute();
@@ -552,6 +718,24 @@ export class ShiftBoundaryService {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+
+    // §10 MH notification — never roll back carry-forward on notify failure.
+    if (handoverId) {
+      void DeskNotificationService.notifyMachineHeadsAutoHandover({
+        machineCode,
+        handoverId,
+        shiftLogId: outgoingShiftLogId,
+        outgoingShiftCode,
+        outgoingProdDate,
+        operatorUserId: session.operator_user_id,
+      }).catch((err) => {
+        logTier1('notify_failed', {
+          machineCode,
+          handoverId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
 
     logTier1('success', {

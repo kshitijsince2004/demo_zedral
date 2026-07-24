@@ -1,7 +1,15 @@
-import { Clock, Moon, ArrowRightLeft } from 'lucide-react';
+﻿import { Clock, Moon, ArrowRightLeft, Thermometer } from 'lucide-react';
+import { useState } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { formatShiftWindowTime } from '../../lib/dateFormat';
 import type { ShiftEndStatus } from '../../hooks/useShiftEndWatcher';
+import { ShiftReadingsFields } from './shiftReadingsForm';
+import {
+  emptyShiftReadings,
+  parseOptionalNumber,
+  type ShiftReadingsValues,
+} from './shiftReadingsValues';
+import { apiClient } from '../../lib/apiClient';
 
 interface ShiftEndModalProps {
   open: boolean;
@@ -13,17 +21,12 @@ interface ShiftEndModalProps {
   prodDate: string;
   newShiftCode?: string | null;
   newShiftName?: string | null;
-  /** Reminder interval (minutes) shown on the secondary action. */
   reminderMinutes: number;
+  shiftLogId?: string | null;
   onHandover: () => void;
   onRemindLater: () => void;
 }
 
-/**
- * Shift-end / shift-change prompt. Reuses the operator modal pattern
- * (see OrderEndModal). The primary action routes into the existing handover
- * workflow; the operator is never switched shifts automatically.
- */
 export function ShiftEndModal({
   open,
   status,
@@ -35,13 +38,46 @@ export function ShiftEndModal({
   newShiftCode,
   newShiftName,
   reminderMinutes,
+  shiftLogId,
   onHandover,
   onRemindLater,
 }: ShiftEndModalProps) {
+  const [readings, setReadings] = useState<ShiftReadingsValues>(emptyShiftReadings);
+  const [readingsBusy, setReadingsBusy] = useState(false);
+  const [readingsMsg, setReadingsMsg] = useState<string | null>(null);
+
   if (!open || status === 'none') return null;
 
   const isChanged = status === 'changed';
   const title = isChanged ? 'Shift Changed' : 'Shift Ended';
+
+  const saveReadingsThen = async (next: () => void) => {
+    if (!shiftLogId) {
+      next();
+      return;
+    }
+    const scrapKg = parseOptionalNumber(readings.scrapKg);
+    const coolantTempDegC = parseOptionalNumber(readings.coolantTempDegC);
+    const coolantPressKgCm2 = parseOptionalNumber(readings.coolantPressKgCm2);
+    if (scrapKg === undefined && coolantTempDegC === undefined && coolantPressKgCm2 === undefined) {
+      next();
+      return;
+    }
+    setReadingsBusy(true);
+    setReadingsMsg(null);
+    try {
+      await apiClient.put(`/shift-logs/${shiftLogId}/readings`, {
+        scrapKg: scrapKg ?? null,
+        coolantTempDegC: coolantTempDegC ?? null,
+        coolantPressKgCm2: coolantPressKgCm2 ?? null,
+      });
+      next();
+    } catch (err) {
+      setReadingsMsg(err instanceof Error ? err.message : 'Could not save readings');
+    } finally {
+      setReadingsBusy(false);
+    }
+  };
 
   return (
     <>
@@ -121,14 +157,42 @@ export function ShiftEndModal({
               </span>
             </div>
           )}
+
+          {shiftLogId && (
+            <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Thermometer className="h-4 w-4" />
+                Shift readings (optional)
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Coolant and scrap are snapshotted on auto-handover if you miss the form later.
+              </p>
+              <ShiftReadingsFields
+                values={readings}
+                onChange={setReadings}
+                disabled={readingsBusy}
+              />
+              {readingsMsg && <p className="text-xs text-destructive">{readingsMsg}</p>}
+            </div>
+          )}
         </div>
 
         <div className="shrink-0 flex flex-col-reverse sm:flex-row gap-3 px-5 py-4 border-t border-border bg-secondary/30 rounded-b-[14px]">
-          <ZButton variant="ghost" onClick={onRemindLater} className="min-h-14 flex-1">
+          <ZButton
+            variant="ghost"
+            onClick={() => void saveReadingsThen(onRemindLater)}
+            className="min-h-14 flex-1"
+            disabled={readingsBusy}
+          >
             Remind Me Later ({reminderMinutes}m)
           </ZButton>
-          <ZButton variant="accent" onClick={onHandover} className="min-h-14 flex-[2]">
-            Submit Summary &amp; Handover
+          <ZButton
+            variant="accent"
+            onClick={() => void saveReadingsThen(onHandover)}
+            className="min-h-14 flex-[2]"
+            disabled={readingsBusy}
+          >
+            {readingsBusy ? 'Saving…' : 'Submit Summary & Handover'}
           </ZButton>
         </div>
       </div>

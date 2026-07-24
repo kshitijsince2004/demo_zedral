@@ -1,8 +1,6 @@
 import { Activity, ArrowRightLeft, ClipboardCheck, FileSpreadsheet, Upload, Users } from 'lucide-react';
-import { useSessionContext } from 'supertokens-auth-react/recipe/session';
-import { pickPrimaryRole } from '@m1/shared-validation';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
-import { useAuthStore } from '../../../lib/authStore';
+import { useEffectiveSessionRole } from '../../../lib/sessionRole';
 
 const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'import', 'traceability']);
 
@@ -58,21 +56,8 @@ const ALL_NAV_ITEMS: DeskNavItem[] = [
   },
 ];
 
-/** Prefer JWT primary role so stale sessionStorage MACHINE_HEAD cannot show MH-only nav. */
-function useEffectiveDeskRole(): string | null {
-  const storeRole = useAuthStore((s) => s.role);
-  const session = useSessionContext();
-  if (!session.loading && session.doesSessionExist) {
-    const payload = session.accessTokenPayload as Record<string, unknown>;
-    const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
-    const jwtRole = pickPrimaryRole(roles);
-    if (jwtRole) return jwtRole;
-  }
-  return storeRole;
-}
-
 export function MachineHeadNav() {
-  const role = useEffectiveDeskRole();
+  const { role } = useEffectiveSessionRole();
   const isSupervisor = role === 'SUPERVISOR';
   const items = isSupervisor
     ? ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id))

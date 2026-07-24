@@ -326,6 +326,7 @@ export interface MasterLineArea {
 }
 
 export interface MasterMachine {
+  auto_boundary_handover: boolean | null;
   capacity_mt: Numeric | null;
   department: string | null;
   machine_code: string;
@@ -997,6 +998,20 @@ export interface TxnCrmSkinpass {
   stretch_pct: Numeric | null;
 }
 
+export interface TxnDeskNotification {
+  body: string;
+  created_at: Generated<Timestamp>;
+  handover_id: Int8 | null;
+  kind: string;
+  machine_code: string | null;
+  notification_id: Generated<Int8>;
+  payload: unknown;
+  resolved_at: Timestamp | null;
+  shift_log_id: Int8 | null;
+  title: string;
+  user_id: number;
+}
+
 export interface TxnDefectEntry {
   coil_no: string | null;
   defect_code: string;
@@ -1547,6 +1562,7 @@ export interface DB {
   "txn.crm_shift_summary": TxnCrmShiftSummary;
   "txn.crm_skinpass": TxnCrmSkinpass;
   "txn.defect_entry": TxnDefectEntry;
+  "txn.desk_notification": TxnDeskNotification;
   "txn.idempotency_key": TxnIdempotencyKey;
   "txn.machine_handover": TxnMachineHandover;
   "txn.machine_shift_session": TxnMachineShiftSession;

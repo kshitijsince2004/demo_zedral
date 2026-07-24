@@ -805,18 +805,9 @@ export class MachineHandoverService {
         .executeTakeFirstOrThrow();
 
       const snapshotData = handover.production_snapshot as any;
-      const selectedCrewMembers = snapshotData?.selectedCrewMembers as any[] | undefined;
-      
-      if (selectedCrewMembers && selectedCrewMembers.length > 0) {
-        const crewRows = selectedCrewMembers.map((c) => ({
-          session_id: newSession.session_id,
-          crew_id: Number(c.id)
-        }));
-        await trx
-          .insertInto('txn.session_crew')
-          .values(crewRows)
-          .execute();
-      }
+      // SPEC2 §11: login crew capture is authoritative. Handover selectedCrewMembers
+      // is pre-fill only for the crew popup — do not write session_crew here.
+      void snapshotData?.selectedCrewMembers;
 
       await trx
         .insertInto('txn.shift_event_audit')
@@ -826,7 +817,12 @@ export class MachineHandoverService {
           entity_id: handoverId,
           machine_code: handover.machine_code,
           user_id: incomingUserId,
-          payload: { batchNumber: handover.batch_number },
+          payload: {
+            batchNumber: handover.batch_number,
+            crewPrefillCount: Array.isArray(snapshotData?.selectedCrewMembers)
+              ? snapshotData.selectedCrewMembers.length
+              : 0,
+          },
         })
         .execute();
 

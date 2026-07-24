@@ -424,9 +424,14 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
       return res.status(400).json({ error: 'subProcess must be ROLLING or SKIN_PASS' });
     }
     let shiftLogId = req.query.shiftLogId ? String(req.query.shiftLogId) : undefined;
+    // Completed / Order Hold must follow the selected plant date. Only keep the
+    // live session shiftLogId when the filter matches that session's prod date
+    // (calendar "today" can differ during overnight Shift C).
+    if (shiftLogId && viewDate !== detected.prodDate) {
+      shiftLogId = undefined;
+    }
     if (!shiftLogId) {
-      // Prefer operational detection date so completed/hold stay on the active shift.
-      shiftLogId = (await SixHiService.resolveShiftLogIdForPlan(detected.prodDate, shiftCode)) ?? undefined;
+      shiftLogId = (await SixHiService.resolveShiftLogIdForPlan(viewDate, shiftCode)) ?? undefined;
     }
     const result = await SixHiQueueService.getQueue(
       subProcess as 'ROLLING' | 'SKIN_PASS',
@@ -477,9 +482,12 @@ router.get('/orders/completed', async (req, res) => {
     // Resolve machine scope for the requesting user — prefer DB grants over
     // stale JWT claims (same source as LiveService.getMachineScope).
     const isAdmin = req.user.roles.includes(UserRole.ADMIN as string);
-    const isPlantHead = req.user.roles.includes(UserRole.PLANT_HEAD as string);
+    const isPlantWide =
+      isAdmin ||
+      req.user.roles.includes(UserRole.PLANT_HEAD as string) ||
+      req.user.roles.includes(UserRole.SUPERVISOR as string);
     let userMachineAccess = (req.user.machineAccess ?? []).map((m) => m.toUpperCase());
-    if (!isAdmin && !isPlantHead && req.user.roles.includes(UserRole.MACHINE_HEAD as string)) {
+    if (!isPlantWide && req.user.roles.includes(UserRole.MACHINE_HEAD as string)) {
       const rows = await db.selectFrom('security.machine_access')
         .select('machine_code')
         .where('user_id', '=', req.user.id as any)
@@ -489,17 +497,17 @@ router.get('/orders/completed', async (req, res) => {
 
     // If a specific machine is requested, verify the user can access it
     if (rawMachine && rawMachine !== 'ALL') {
-      if (!isAdmin && !isPlantHead && !userMachineAccess.includes(rawMachine)) {
+      if (!isPlantWide && !userMachineAccess.includes(rawMachine)) {
         return res.status(403).json({ error: `Access to machine ${rawMachine} denied` });
       }
     }
 
     // Determine which machines to query
-    // null/undefined rawMachine or 'ALL' → scope to user's allowed machines (or all for admin/plant head)
+    // null/undefined rawMachine or 'ALL' → scope to user's allowed machines (or all for plant-wide)
     const scopedMachines: string[] | null =
       rawMachine && rawMachine !== 'ALL'
         ? [rawMachine]
-        : isAdmin || isPlantHead
+        : isPlantWide
           ? null // all machines
           : userMachineAccess; // MACHINE_HEAD: only their assigned machines
 

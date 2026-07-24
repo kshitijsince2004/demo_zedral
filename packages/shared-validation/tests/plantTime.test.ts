@@ -11,6 +11,7 @@ import {
   plantClockDate,
   plantDaysBetween,
   plantWallClock,
+  postgresDateOnly,
   resolveShiftFromClock,
   startOfPlantDay,
 } from '../src/utils/plantTime';
@@ -25,6 +26,14 @@ describe('plantTime', () => {
   it('parses date-only values at IST midnight', () => {
     const d = parsePlantDateOnly('2026-07-09');
     expect(d.toISOString()).toBe('2026-07-08T18:30:00.000Z');
+  });
+
+  it('postgresDateOnly keeps the plant calendar day (not UTC truncation)', () => {
+    // IST midnight Date serializes as previous UTC calendar day — DATE binds must use the string.
+    const istMidnight = parsePlantDateOnly('2026-07-09');
+    expect(istMidnight.toISOString().slice(0, 10)).toBe('2026-07-08');
+    expect(postgresDateOnly(istMidnight)).toBe('2026-07-09');
+    expect(postgresDateOnly('2026-07-09')).toBe('2026-07-09');
   });
 
   it('adds calendar days in IST', () => {

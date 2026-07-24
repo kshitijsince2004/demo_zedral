@@ -1109,6 +1109,7 @@ export class LiveService {
         handoverOverview: { pending: [], recent: [], awaitingAcceptance: 0 },
         rejectedOrders: [],
         rejectedOrderCount: 0,
+        deskNotifications: [],
       };
     }
 
@@ -1402,6 +1403,9 @@ export class LiveService {
         };
       }),
       rejectedOrderCount,
+      deskNotifications: await import('./DeskNotificationService')
+        .then(({ DeskNotificationService }) => DeskNotificationService.listOpenForUser(userId))
+        .catch(() => []),
     };
   }
 }

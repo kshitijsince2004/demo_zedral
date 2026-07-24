@@ -39,6 +39,7 @@ import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
 import { CrewCaptureModal, CREW_CAPTURE_SNOOZE_MS } from './CrewCaptureModal';
+import { ShiftReadingsModal } from './ShiftReadingsModal';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { resolveCombinedStoppageTargets } from '../../lib/combinedProductionRun';
 
@@ -95,12 +96,28 @@ export function SixHiLayout() {
   // Keep session id after first create so snooze can re-prompt (live reuse returns needsCrew=false)
   const [crewPendingSessionId, setCrewPendingSessionId] = useState<string | null>(null);
   const [sessionRecovering, setSessionRecovering] = useState(false);
+  const [readingsOpen, setReadingsOpen] = useState(false);
 
   // Suppress the automatic shift-end prompt while the operator is already on the
   // handover / summary pages (they are actively completing the handover there).
   const onHandoverRoute = /\/handover\/?$/.test(location.pathname);
   const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
   const handoverPath = basePath ? `${basePath}/handover` : null;
+
+  // SPEC2 §11: clock rolled to a new shift while still logged in — re-prompt crew after
+  // the shift-end modal is dismissed so overtime does not silently keep the prior crew.
+  useEffect(() => {
+    if (shiftWatcher.status !== 'changed') return;
+    if (shiftWatcher.visible) return;
+    if (Date.now() < crewSnoozeUntil) return;
+    if (crewPrompt) return;
+    if (crewPendingSessionId) {
+      setCrewPrompt({ sessionId: crewPendingSessionId });
+      return;
+    }
+    void recoverSession({ forceCrew: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shiftWatcher.status, shiftWatcher.visible, crewSnoozeUntil, crewPendingSessionId]);
 
   const recoverSession = async (opts?: { forceCrew?: boolean }) => {
     if (sessionRecovering) return;
@@ -303,7 +320,11 @@ export function SixHiLayout() {
     : null;
 
   return (
-    <OperatorShell processCode={pathMill} onManualStoppage={() => setManualStoppageOpen(true)}>
+    <OperatorShell
+      processCode={pathMill}
+      onManualStoppage={() => setManualStoppageOpen(true)}
+      onShiftReadings={() => setReadingsOpen(true)}
+    >
       <HandoverAcceptGate machineCode={pathMill}>
         <div className={[
           'flex flex-1 flex-col min-h-0',
@@ -549,14 +570,30 @@ export function SixHiLayout() {
         newShiftCode={shiftWatcher.newShiftCode}
         newShiftName={shiftWatcher.newShiftName}
         reminderMinutes={Math.round(SHIFT_END_REMINDER_MS / 60_000)}
-        onRemindLater={shiftWatcher.remindLater}
+        shiftLogId={shiftLogId}
+        onRemindLater={() => {
+          shiftWatcher.remindLater();
+          // SPEC2 §11 secondary: after overtime shift-change snooze, re-prompt crew.
+          const sid = crewPendingSessionId;
+          if (sid && Date.now() >= crewSnoozeUntil) {
+            setCrewPrompt({ sessionId: sid });
+          } else if (!sid) {
+            void recoverSession({ forceCrew: true });
+          }
+        }}
         onHandover={() => {
           if (handoverPath) navigate(handoverPath);
         }}
       />
 
+      <ShiftReadingsModal
+        open={readingsOpen}
+        shiftLogId={shiftLogId}
+        onClose={() => setReadingsOpen(false)}
+      />
+
       <CrewCaptureModal
-        open={!!crewPrompt && !shiftWatcher.visible}
+        open={!!crewPrompt && !shiftWatcher.visible && !readingsOpen}
         machineCode={pathMill}
         sessionId={crewPrompt?.sessionId ?? ''}
         onDone={() => {

@@ -1,4 +1,5 @@
 import type { MachineAccessEntry } from '@m1/shared-validation';
+import { normalizeRoles } from '@m1/shared-validation';
 import type { Kysely } from 'kysely';
 import { db } from '../db';
 import type { Database } from '../db';
@@ -112,6 +113,25 @@ export class MachineAccessService {
       .where('m.machine_status', '!=', 'OFFLINE')
       .execute();
     return rows.map((r) => r.machine_code);
+  }
+
+  /** MH → assigned machines; PH / Admin / Supervisor → all operational machines. */
+  static async getOperationalForViewer(userId: number, roles: string[]): Promise<string[]> {
+    const normalized = normalizeRoles(roles);
+    if (
+      normalized.includes('PLANT_HEAD') ||
+      normalized.includes('ADMIN') ||
+      normalized.includes('SUPERVISOR')
+    ) {
+      const rows = await db
+        .selectFrom('master.machine')
+        .select('machine_code')
+        .where('machine_status', '!=', 'OFFLINE')
+        .orderBy('machine_code', 'asc')
+        .execute();
+      return rows.map((r) => r.machine_code);
+    }
+    return this.getForUser(userId);
   }
 
   static async setForUser(userId: number, machineCodes: string[], assignedBy: number) {

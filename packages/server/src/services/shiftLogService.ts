@@ -209,6 +209,201 @@ export class ShiftLogService {
     }).catch((error) => {
       console.error('[M1] failed to publish shift.closed', error);
     });
+
+    // SPEC2 §10/§12 — resolve MH auto-handover notifications on sign-off.
+    void import('./DeskNotificationService')
+      .then(({ DeskNotificationService }) =>
+        DeskNotificationService.resolveForShiftLog(shiftLogId),
+      )
+      .catch((error) => {
+        console.error('[M1] failed to resolve desk notifications', error);
+      });
+  }
+
+  /**
+   * SPEC2 §13 — MH backfill of coolant/scrap/remarks for AUTO_COMPLETED shifts only.
+   * Rejects overwrite on manually-completed (non-boundary) handovers.
+   */
+  static async updateManualFields(
+    shiftLogId: string,
+    userId: number,
+    fields: {
+      scrapKg?: number | null;
+      coolantTempDegC?: number | null;
+      coolantPressKgCm2?: number | null;
+      remarks?: string | null;
+    },
+  ): Promise<void> {
+    const id = String(shiftLogId);
+
+    const boundary = await db
+      .selectFrom('txn.machine_handover as h')
+      .innerJoin('txn.machine_shift_session as s', (join) =>
+        join
+          .onRef('s.machine_code', '=', 'h.machine_code')
+          .onRef('s.shift_code', '=', 'h.outgoing_shift_code'),
+      )
+      .select(['h.handover_id', 'h.remarks', 'h.status', 'h.created_by_boundary'])
+      .where('s.shift_log_id', '=', id as any)
+      .where('h.created_by_boundary', '=', true)
+      .where('h.status', '=', 'AUTO_COMPLETED')
+      .executeTakeFirst();
+
+    if (!boundary) {
+      throw new Error(
+        'Manual field backfill is only allowed for AUTO_COMPLETED (system) handovers awaiting review.',
+      );
+    }
+
+    const existing = await db
+      .selectFrom('txn.crm_shift_summary')
+      .selectAll()
+      .where('shift_log_id', '=', id as any)
+      .executeTakeFirst();
+
+    const scrap =
+      fields.scrapKg !== undefined
+        ? fields.scrapKg
+        : existing?.scrap_kg != null
+          ? Number(existing.scrap_kg)
+          : null;
+    const coolantTemp =
+      fields.coolantTempDegC !== undefined
+        ? fields.coolantTempDegC
+        : existing?.coolant_temp_degc != null
+          ? Number(existing.coolant_temp_degc)
+          : null;
+    const coolantPress =
+      fields.coolantPressKgCm2 !== undefined
+        ? fields.coolantPressKgCm2
+        : existing?.coolant_press_kgcm2 != null
+          ? Number(existing.coolant_press_kgcm2)
+          : null;
+
+    if (existing) {
+      await db
+        .updateTable('txn.crm_shift_summary')
+        .set({
+          scrap_kg: scrap as any,
+          coolant_temp_degc: coolantTemp as any,
+          coolant_press_kgcm2: coolantPress as any,
+          submitted_by: userId,
+          submitted_at: new Date(),
+        })
+        .where('shift_log_id', '=', id as any)
+        .execute();
+    } else {
+      await db
+        .insertInto('txn.crm_shift_summary')
+        .values({
+          shift_log_id: id as any,
+          scrap_kg: scrap as any,
+          coolant_temp_degc: coolantTemp as any,
+          coolant_press_kgcm2: coolantPress as any,
+          submitted_by: userId,
+          submitted_at: new Date(),
+        })
+        .execute();
+    }
+
+    if (fields.remarks != null && fields.remarks.trim()) {
+      await db
+        .updateTable('txn.machine_handover')
+        .set({ remarks: fields.remarks.trim() })
+        .where('handover_id', '=', boundary.handover_id)
+        .execute();
+    }
+
+    await db
+      .insertInto('txn.shift_event_audit')
+      .values({
+        event_type: 'SHIFT_MANUAL_FIELDS_BACKFILL',
+        entity_type: 'shift_log',
+        entity_id: id,
+        user_id: userId,
+        payload: {
+          scrapKg: scrap,
+          coolantTempDegC: coolantTemp,
+          coolantPressKgCm2: coolantPress,
+          remarks: fields.remarks?.trim() ?? null,
+          handoverId: String(boundary.handover_id),
+        },
+      })
+      .execute();
+  }
+
+  /** SPEC2 §13 B3 — operator in-shift readings upsert into crm_shift_summary. */
+  static async upsertShiftReadings(
+    shiftLogId: string,
+    userId: number,
+    fields: {
+      scrapKg?: number | null;
+      coolantTempDegC?: number | null;
+      coolantPressKgCm2?: number | null;
+    },
+  ): Promise<void> {
+    const id = String(shiftLogId);
+    const existing = await db
+      .selectFrom('txn.crm_shift_summary')
+      .selectAll()
+      .where('shift_log_id', '=', id as any)
+      .executeTakeFirst();
+
+    const scrap =
+      fields.scrapKg !== undefined
+        ? fields.scrapKg
+        : existing?.scrap_kg != null
+          ? Number(existing.scrap_kg)
+          : null;
+    const coolantTemp =
+      fields.coolantTempDegC !== undefined
+        ? fields.coolantTempDegC
+        : existing?.coolant_temp_degc != null
+          ? Number(existing.coolant_temp_degc)
+          : null;
+    const coolantPress =
+      fields.coolantPressKgCm2 !== undefined
+        ? fields.coolantPressKgCm2
+        : existing?.coolant_press_kgcm2 != null
+          ? Number(existing.coolant_press_kgcm2)
+          : null;
+
+    if (existing) {
+      await db
+        .updateTable('txn.crm_shift_summary')
+        .set({
+          scrap_kg: scrap as any,
+          coolant_temp_degc: coolantTemp as any,
+          coolant_press_kgcm2: coolantPress as any,
+          submitted_by: userId,
+          submitted_at: new Date(),
+        })
+        .where('shift_log_id', '=', id as any)
+        .execute();
+    } else {
+      await db
+        .insertInto('txn.crm_shift_summary')
+        .values({
+          shift_log_id: id as any,
+          scrap_kg: scrap as any,
+          coolant_temp_degc: coolantTemp as any,
+          coolant_press_kgcm2: coolantPress as any,
+          submitted_by: userId,
+          submitted_at: new Date(),
+        })
+        .execute();
+    }
+
+    await db
+      .insertInto('txn.shift_event_audit')
+      .values({
+        event_type: 'SHIFT_READINGS_UPSERT',
+        entity_type: 'shift_log',
+        entity_id: id,
+        user_id: userId,
+        payload: { scrapKg: scrap, coolantTempDegC: coolantTemp, coolantPressKgCm2: coolantPress },
+      })
+      .execute();
   }
 
   static async approve(id: string, approverId: number) {

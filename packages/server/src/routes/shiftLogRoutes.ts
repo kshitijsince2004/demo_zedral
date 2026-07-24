@@ -572,6 +572,47 @@ router.put('/:id/complete', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_H
   }
 });
 
+/** SPEC2 §13 — MH backfill for AUTO_COMPLETED shifts only. */
+router.patch(
+  '/:id/manual-fields',
+  requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]),
+  async (req, res) => {
+    try {
+      await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
+      await ShiftLogService.updateManualFields(req.params.id, req.user!.id, {
+        scrapKg: req.body?.scrapKg ?? req.body?.scrap_kg,
+        coolantTempDegC: req.body?.coolantTempDegC ?? req.body?.coolant_temp_degc,
+        coolantPressKgCm2: req.body?.coolantPressKgCm2 ?? req.body?.coolant_press_kgcm2,
+        remarks: req.body?.remarks,
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      const status =
+        error.message?.includes('Forbidden') || error.message?.includes('only allowed')
+          ? 403
+          : 400;
+      res.status(status).json({ error: error.message });
+    }
+  },
+);
+
+/** SPEC2 §13 B3 — operator in-shift coolant/scrap readings. */
+router.put('/:id/readings', async (req, res) => {
+  try {
+    await assertShiftLogAccess(req.user!, req.params.id, 'WRITE');
+    await ShiftLogService.upsertShiftReadings(req.params.id, req.user!.id, {
+      scrapKg: req.body?.scrapKg ?? req.body?.scrap_kg,
+      coolantTempDegC: req.body?.coolantTempDegC ?? req.body?.coolant_temp_degc,
+      coolantPressKgCm2: req.body?.coolantPressKgCm2 ?? req.body?.coolant_press_kgcm2,
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    const status =
+      error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+});
+
 router.put('/:id/approve', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
   try {
     await assertShiftLogAccess(req.user!, req.params.id, 'APPROVE');

@@ -109,11 +109,22 @@ export function SixHiHub() {
   const combinedSelectionManual = useRef(false);
 
   const date = viewDate;
+  // Operational plant day from shift detection (yesterday during overnight C).
+  const operationalDate = detectedShift?.prodDate || currentPlantDate();
   // Only send shift once session/bootstrap confirmed — default 'A' was poisoning completed/hold.
   const shift = detectedShift?.shiftCode || (shiftLogId ? shiftCode : undefined);
   const queueMachine = pathMachine;
   const userRoles = useAuthStore((s) => s.user?.roles || []);
   const canTransfer = userRoles.includes('ADMIN') || userRoles.includes('MACHINE_HEAD');
+
+  // Align date filter to operational prod date when the live session's day differs
+  // from the calendar (overnight Shift C / SESSION pin past midnight).
+  useEffect(() => {
+    if (!detectedShift?.prodDate) return;
+    setViewDate((prev) => (prev === currentPlantDate() && detectedShift.prodDate !== prev
+      ? detectedShift.prodDate
+      : prev));
+  }, [detectedShift?.prodDate]);
 
   useEffect(() => {
     setMachineCode(pathMachine);
@@ -144,8 +155,8 @@ export function SixHiHub() {
         machine: queueMachine,
       });
       if (shift) params.set('shift', shift);
-      // Completed + Order Hold are scoped exclusively by active shift_log_id (date+shift).
-      if (shiftLogId && date === currentPlantDate()) params.set('shiftLogId', shiftLogId);
+      // Completed + Order Hold: pin to live session only when viewing that session's prod date.
+      if (shiftLogId && date === operationalDate) params.set('shiftLogId', shiftLogId);
       const res = await apiClient.get(`/6hi/queue?${params.toString()}`);
       const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
       const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
@@ -192,7 +203,7 @@ export function SixHiHub() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [apiSubProcess, date, shift, queueMachine, shiftLogId, logout, navigate]);
+  }, [apiSubProcess, date, shift, queueMachine, shiftLogId, operationalDate, logout, navigate]);
 
   useEffect(() => {
     isFirstLoad.current = true;

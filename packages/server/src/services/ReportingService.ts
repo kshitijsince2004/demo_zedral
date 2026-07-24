@@ -605,12 +605,26 @@ export class ReportingService {
       crew,
       crewMissing: crew.length === 0,
       autoClosed: !!autoHandover,
+      readings: {
+        scrapKg: summary.scrapKg ?? null,
+        coolantTempDegC: summary.coolantTempDegC ?? null,
+        coolantPressKgCm2: summary.coolantPressKgCm2 ?? null,
+      },
+      readingsMissing: {
+        scrapKg: summary.scrapKg == null,
+        coolantTempDegC: summary.coolantTempDegC == null,
+        coolantPressKgCm2: summary.coolantPressKgCm2 == null,
+      },
       autoHandover: autoHandover
         ? {
             handoverId: autoHandover.handover_id,
             remarks: autoHandover.remarks,
             machineCode: autoHandover.machine_code,
-            pendingReview: log.state === 'DRAFT' || log.state === 'REOPENED',
+            pendingReview: !!autoHandover && (log.state === 'DRAFT' || log.state === 'REOPENED'),
+            reviewState:
+              autoHandover && (log.state === 'DRAFT' || log.state === 'REOPENED')
+                ? 'PENDING_REVIEW'
+                : log.state,
           }
         : null,
     };

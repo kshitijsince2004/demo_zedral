@@ -20,6 +20,7 @@ const SUPERVISOR_ALLOWED_ROLE_LISTS = [
   [UserRole.ADMIN, UserRole.SUPERVISOR], // import
   [UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR], // ppc preview/commit/transfer-machine
   [UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN, UserRole.SUPERVISOR], // order-assignment
+  [UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN, UserRole.SUPERVISOR], // machine-access/me
   [
     UserRole.OPERATOR,
     UserRole.MACHINE_HEAD,

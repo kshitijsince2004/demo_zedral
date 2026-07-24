@@ -15,9 +15,10 @@ import { formatPlantClock } from '../../../lib/dateFormat';
 interface StatusRailProps {
   processCode?: string;
   onManualStoppage?: () => void;
+  onShiftReadings?: () => void;
 }
 
-export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
+export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: StatusRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -171,7 +172,7 @@ export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
           ) : (
             <ZBadge tone="muted" label="Idle" dot />
           )}
--
+
           <DeviceStatusIndicators />
 
           <SyncStatusBadge />
@@ -179,6 +180,16 @@ export function StatusRail({ processCode, onManualStoppage }: StatusRailProps) {
             {currentDateStr} {clock}
           </span>
           <GloveModeToggle />
+          {isCrmMill && onShiftReadings && (
+            <button
+              type="button"
+              onClick={onShiftReadings}
+              className="h-10 px-3 rounded-lg border border-border bg-secondary/40 text-foreground text-sm font-bold uppercase tracking-wide hover:bg-secondary transition-colors"
+              title="Shift readings"
+            >
+              Readings
+            </button>
+          )}
           {isCrmMill && (manualStoppageEligible || manualStoppageActive) && onManualStoppage && (
             <button
               type="button"

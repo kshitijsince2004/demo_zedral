@@ -14,9 +14,16 @@ interface OperatorShellProps {
   /** When true, skip the status header (e.g. nested inside SixHiLayout). */
   bare?: boolean;
   onManualStoppage?: () => void;
+  onShiftReadings?: () => void;
 }
 
-export function OperatorShell({ processCode = 'HRS', children, bare = false, onManualStoppage }: OperatorShellProps) {
+export function OperatorShell({
+  processCode = 'HRS',
+  children,
+  bare = false,
+  onManualStoppage,
+  onShiftReadings,
+}: OperatorShellProps) {
   const logout = useAuthStore((s) => s.logout);
   const [logoutOpen, setLogoutOpen] = React.useState(false);
   const location = useLocation();
@@ -34,7 +41,13 @@ export function OperatorShell({ processCode = 'HRS', children, bare = false, onM
     <div className="theme-operator h-screen overflow-hidden bg-background text-foreground">
       <OperatorNavRail processCode={processCode} onLogout={() => setLogoutOpen(true)} />
       <div className={`flex flex-col min-w-0 h-full overflow-hidden ${navOffset}`}>
-        {showStatusRail && <StatusRail processCode={processCode} onManualStoppage={onManualStoppage} />}
+        {showStatusRail && (
+          <StatusRail
+            processCode={processCode}
+            onManualStoppage={onManualStoppage}
+            onShiftReadings={onShiftReadings}
+          />
+        )}
         <OfflineBanner />
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</main>
       </div>

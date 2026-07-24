@@ -344,6 +344,19 @@ export interface MachineHeadDashboardData {
     slitId?: string;
   }[];
   rejectedOrderCount?: number;
+  /** Open MH desk notifications (SPEC2 §10 auto-handover alerts). */
+  deskNotifications?: Array<{
+    notificationId: string;
+    kind: string;
+    title: string;
+    body: string;
+    machineCode: string | null;
+    handoverId: string | null;
+    shiftLogId: string | null;
+    payload: Record<string, unknown>;
+    createdAt: string;
+    resolvedAt: string | null;
+  }>;
 }
 
 export interface LiveSnapshot {

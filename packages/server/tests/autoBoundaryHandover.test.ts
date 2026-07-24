@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   getAutoBoundaryMode,
-  isMachineAutoBoundaryEnabled,
+  isMachineOnAutoBoundaryAllowlist,
   resolveBoundaryShifts,
 } from '../src/services/ShiftBoundaryService';
 import { ShiftLogService } from '../src/services/shiftLogService';
@@ -38,13 +38,13 @@ describe('AUTO_BOUNDARY_HANDOVER flag', () => {
 
   it('machine allowlist empty = all', () => {
     delete process.env.AUTO_BOUNDARY_HANDOVER_MACHINES;
-    expect(isMachineAutoBoundaryEnabled('CRM1')).toBe(true);
+    expect(isMachineOnAutoBoundaryAllowlist('CRM1')).toBe(true);
   });
 
   it('machine allowlist filters', () => {
     process.env.AUTO_BOUNDARY_HANDOVER_MACHINES = 'CRM1, PKL1';
-    expect(isMachineAutoBoundaryEnabled('CRM1')).toBe(true);
-    expect(isMachineAutoBoundaryEnabled('CRM2')).toBe(false);
+    expect(isMachineOnAutoBoundaryAllowlist('CRM1')).toBe(true);
+    expect(isMachineOnAutoBoundaryAllowlist('CRM2')).toBe(false);
   });
 });
 
@@ -154,5 +154,63 @@ describe('reparentOpenWork is the single carry-forward entry', () => {
   it('exports reparentOpenWork from carryForward module', async () => {
     const mod = await import('../src/services/handover/carryForward');
     expect(typeof mod.reparentOpenWork).toBe('function');
+  });
+});
+
+describe('buildAutoRemarks (SPEC2 §13 B2)', () => {
+  it('meets ≥20 char rule and includes boundary facts', async () => {
+    const { buildAutoRemarks } = await import('../src/services/ShiftBoundaryService');
+    const text = buildAutoRemarks({
+      outgoingShiftCode: 'A',
+      incomingShiftCode: 'B',
+      totalProdMt: 12.5,
+      openOrderCount: 2,
+      carriedBatches: ['BATCH-1', 'BATCH-2'],
+      stoppageMin: 15,
+      breakdownMin: 0,
+      machineStatus: 'IDLE',
+    });
+    expect(text.length).toBeGreaterThanOrEqual(20);
+    expect(text).toContain('A→B');
+    expect(text).toContain('12.500');
+    expect(text).toContain('BATCH-1');
+    expect(text).toContain('IDLE');
+    expect(text).toMatch(/System-generated at shift boundary/i);
+  });
+
+  it('handles empty carry list', async () => {
+    const { buildAutoRemarks } = await import('../src/services/ShiftBoundaryService');
+    const text = buildAutoRemarks({
+      outgoingShiftCode: 'C',
+      incomingShiftCode: 'A',
+      totalProdMt: 0,
+      openOrderCount: 0,
+      carriedBatches: [],
+      stoppageMin: 0,
+      breakdownMin: 0,
+      machineStatus: 'RUNNING',
+    });
+    expect(text).toContain('Carried forward: none');
+  });
+});
+
+describe('DeskNotificationService API surface (SPEC2 §10)', () => {
+  it('exports notify + resolve helpers', async () => {
+    const mod = await import('../src/services/DeskNotificationService');
+    expect(typeof mod.DeskNotificationService.notifyMachineHeadsAutoHandover).toBe('function');
+    expect(typeof mod.DeskNotificationService.resolveForShiftLog).toBe('function');
+    expect(typeof mod.DeskNotificationService.listOpenForUser).toBe('function');
+  });
+});
+
+describe('shadow mode contract', () => {
+  it('processStaleSessions is exported and shadow is a valid mode', async () => {
+    const { getAutoBoundaryMode, ShiftBoundaryService } = await import(
+      '../src/services/ShiftBoundaryService'
+    );
+    process.env.AUTO_BOUNDARY_HANDOVER = 'shadow';
+    expect(getAutoBoundaryMode()).toBe('shadow');
+    expect(typeof ShiftBoundaryService.processStaleSessions).toBe('function');
+    expect(typeof ShiftBoundaryService.autoCarryForwardStale).toBe('function');
   });
 });

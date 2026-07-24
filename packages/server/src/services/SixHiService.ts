@@ -18,7 +18,7 @@ import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
-import { formatPlantDate, parsePlantDateOnly } from '@m1/shared-validation';
+import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { MachineStateEventService } from './MachineStateEventService';
 import {
   ensureOrderMachineTransferTable,
@@ -65,12 +65,12 @@ export class SixHiService {
     return p.process_id;
   }
 
-  static async ensureActiveShiftLog(userId: number, planDate?: Date, shiftCode?: string): Promise<string> {
+  static async ensureActiveShiftLog(userId: number, planDate?: string | Date, shiftCode?: string): Promise<string> {
     // Same resolver as dashboards / reattribution (mill_type IS NULL) so orders
     // are not pinned to a random mill-specific sibling of the same date/shift.
     const processId = await this.getProcessId();
     const resolved = await ShiftDetectionService.resolveShift({
-      planDate: planDate ?? new Date(),
+      planDate: planDate != null ? postgresDateOnly(planDate) : formatPlantDate(new Date()),
       shiftCode: shiftCode ?? 'B',
       processId,
       userId,
@@ -114,7 +114,7 @@ export class SixHiService {
       requireCallerSession: Boolean(machineCode),
     });
     const targetShiftLogId = resolved.shiftLogId;
-    const prodDate = this.toPlanDate(resolved.prodDate);
+    const prodDate = postgresDateOnly(resolved.prodDate);
     const shiftCode = resolved.shiftCode.toUpperCase();
     const oldShiftLogId = current.shift_log_id != null ? String(current.shift_log_id) : null;
 
@@ -207,7 +207,11 @@ export class SixHiService {
     return formatPlantDate(value);
   }
 
-  /** Parse YYYY-MM-DD at IST midnight. */
+  /**
+   * Parse YYYY-MM-DD at IST midnight — for clock math only.
+   * Do NOT bind the returned Date to Postgres DATE columns (UTC hosts truncate to yesterday).
+   * Use postgresDateOnly() / formatPlanDate() for DATE writes and equality filters.
+   */
   static toPlanDate(value: string | Date): Date {
     return parsePlantDateOnly(value);
   }
@@ -357,21 +361,22 @@ export class SixHiService {
   }> {
     /** Operational view date — drives backlog comparison only (see below). */
     const operationalViewDate = prodDate;
-    const operationalViewDateObj = this.toPlanDate(operationalViewDate);
+    const operationalViewDateKey = postgresDateOnly(operationalViewDate);
     const incomplete = [...SixHiService.INCOMPLETE_ORDER_STATUSES];
 
     const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(shiftCode);
     /**
      * Backlog bucket: planning comparison only — PPC plan_date vs the operator's
      * operational view date. Does not influence shift detection or production attribution.
+     * Bind YYYY-MM-DD strings (not IST-midnight Date) so UTC DB hosts don't off-by-one.
      */
     const backlogPlanFilter = (eb: any) => {
-      const priorDay = eb('pb.plan_date', '<', operationalViewDateObj);
+      const priorDay = eb('pb.plan_date', '<', operationalViewDateKey);
       if (earlierSameDayShifts.length === 0) return priorDay;
       return eb.or([
         priorDay,
         eb.and([
-          eb('pb.plan_date', '=', operationalViewDateObj),
+          eb('pb.plan_date', '=', operationalViewDateKey),
           eb('pb.shift_code', 'in', earlierSameDayShifts),
         ]),
       ]);
@@ -738,7 +743,7 @@ export class SixHiService {
       userId,
       machineCode: batch.machine_code,
     });
-    const prodDate = this.toPlanDate(detected.prodDate);
+    const prodDate = postgresDateOnly(detected.prodDate);
     const activeShift = detected.shiftCode.toUpperCase();
     const shiftLogId = await this.ensureActiveShiftLog(userId, prodDate, activeShift);
 
@@ -1465,7 +1470,7 @@ export class SixHiService {
       .executeTakeFirst();
     let shiftLogId = orderMeta?.shift_log_id != null ? String(orderMeta.shift_log_id) : null;
     let shiftCode = orderMeta?.shift_code ?? null;
-    let prodDate = orderMeta?.prod_date ?? null;
+    let prodDate: string | Date | null = orderMeta?.prod_date ?? null;
     if (!shiftLogId) {
       const processId = await this.getProcessId();
       const resolved = await ShiftDetectionService.resolveShift({
@@ -1475,7 +1480,7 @@ export class SixHiService {
       });
       shiftLogId = resolved.shiftLogId;
       shiftCode = resolved.shiftCode;
-      prodDate = this.toPlanDate(resolved.prodDate);
+      prodDate = postgresDateOnly(resolved.prodDate);
     }
 
     await db.insertInto('txn.stoppage')
@@ -1488,8 +1493,8 @@ export class SixHiService {
         start_at: startAt,
         shift_log_id: shiftLogId,
         shift_code: shiftCode,
-        prod_date: prodDate,
-      })
+        prod_date: prodDate != null ? postgresDateOnly(prodDate) : null,
+      } as any)
       .execute();
     await db.updateTable('txn.crm_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
 
@@ -2184,7 +2189,7 @@ export class SixHiService {
         start_at: startAt,
         shift_log_id: shift.shiftLogId,
         shift_code: shift.shiftCode,
-        prod_date: this.toPlanDate(shift.prodDate),
+        prod_date: postgresDateOnly(shift.prodDate),
       })
       .execute();
 

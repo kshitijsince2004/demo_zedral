@@ -4,6 +4,7 @@ import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from './lib/authStore';
 import { getRoleHomePath } from './lib/roleHome';
 import { pickPrimaryRole } from '@m1/shared-validation';
+import { useEffectiveSessionRole } from './lib/sessionRole';
 
 import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
@@ -74,14 +75,8 @@ function UnknownRouteRedirect() {
 
 /** Supervisor home is /live — never leave them on the MH URL. */
 function RedirectSupervisorFromMachineHeadHome({ children }: { children: ReactNode }) {
-  const session = useSessionContext();
-  const storeRole = useAuthStore((s) => s.role);
-  let role = storeRole;
-  if (!session.loading && session.doesSessionExist) {
-    const payload = session.accessTokenPayload as Record<string, unknown>;
-    const jwtRole = pickPrimaryRole(Array.isArray(payload.roles) ? (payload.roles as string[]) : []);
-    if (jwtRole) role = jwtRole;
-  }
+  const { role, sessionLoading } = useEffectiveSessionRole();
+  if (sessionLoading) return null;
   if (role === 'SUPERVISOR') return <Navigate to="/live" replace />;
   return <>{children}</>;
 }

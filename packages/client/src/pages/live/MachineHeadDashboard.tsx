@@ -10,9 +10,9 @@ import { ZPillTabs } from '../../components/ui/operator/ZPillTabs';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { liveService } from '../../lib/liveService';
-import { useAuthStore } from '../../lib/authStore';
 import { ZButton } from '../../components/primitives/ZButton';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
+import { isPlantWideDeskRole, useEffectiveSessionRole } from '../../lib/sessionRole';
 import { Download, AlertTriangle } from 'lucide-react';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
@@ -163,7 +163,7 @@ const DASHBOARD_TABS = [
 ] as const;
 
 export function MachineHeadDashboard() {
-  const role = useAuthStore((s) => s.role);
+  const { role } = useEffectiveSessionRole();
   const assignedMachines = useOperationalMachineAccess();
   const { snapshot, loading, error, refresh } = useLiveSnapshot();
   const [dashboard, setDashboard] = useState<MachineHeadDashboardData | null>(null);
@@ -309,8 +309,7 @@ export function MachineHeadDashboard() {
 
   const machines = useMemo(() => {
     const all = (snapshot?.machines ?? []).filter((m) => m.status !== 'OFFLINE');
-    const plantWide = role === 'PLANT_HEAD' || role === 'ADMIN' || role === 'SUPERVISOR';
-    if (plantWide) return all;
+    if (isPlantWideDeskRole(role)) return all;
     if (assignedMachines.length === 0) return [];
     const allowed = new Set(assignedMachines);
     return all.filter((m) => allowed.has(m.machineCode));
@@ -965,6 +964,31 @@ export function MachineHeadDashboard() {
         {(error || dashError) && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive shrink-0">
             {error ?? dashError}
+          </div>
+        )}
+
+        {(dashboard?.deskNotifications?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm shrink-0 space-y-2">
+            <p className="font-semibold text-foreground">Action required — auto-closed shifts</p>
+            {dashboard!.deskNotifications!.slice(0, 5).map((n) => {
+              const reviewPath =
+                typeof n.payload?.reviewPath === 'string'
+                  ? n.payload.reviewPath
+                  : n.shiftLogId
+                    ? `/machine-head/shift-review?shiftLogId=${n.shiftLogId}`
+                    : '/machine-head/shift-review';
+              return (
+                <div key={n.notificationId} className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-muted-foreground flex-1 min-w-0">{n.body}</p>
+                  <a
+                    href={reviewPath}
+                    className="text-xs font-semibold text-primary underline shrink-0"
+                  >
+                    Open Shift Review
+                  </a>
+                </div>
+              );
+            })}
           </div>
         )}
 

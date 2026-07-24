@@ -5,6 +5,7 @@ import { useAuthStore } from '../lib/authStore';
 import type { Role } from '../lib/authStore';
 import { ROLE_RANK, UserRole } from '@m1/shared-validation';
 import { getRoleHomePath } from '../lib/roleHome';
+import { useEffectiveSessionRole } from '../lib/sessionRole';
 import { ProtectedRoute } from './ProtectedRoute';
 import { ZButton } from './primitives/ZButton';
 
@@ -39,7 +40,15 @@ export function RoleRoute({ minRole, allow, children }: RoleRouteProps) {
 }
 
 function RoleCheck({ minRole, allow, children }: RoleRouteProps) {
-  const { role } = useAuthStore();
+  const { role, sessionLoading } = useEffectiveSessionRole();
+
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+        Loading session…
+      </div>
+    );
+  }
 
   if (!role) {
     // Should not reach here (ProtectedRoute handles unauthenticated), but guard anyway.
