@@ -65,7 +65,11 @@ export function CrewCaptureModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[110] bg-primary/40 backdrop-blur-[1px]" aria-hidden />
+      <div
+        className="fixed inset-0 z-[110] bg-primary/40 backdrop-blur-[1px]"
+        aria-hidden
+        onClick={onSnooze}
+      />
       <div
         role="dialog"
         aria-modal="true"

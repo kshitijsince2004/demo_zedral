@@ -28,6 +28,47 @@ async function login(page: Page) {
   await expect(page).not.toHaveURL(/\/login\/?$/, { timeout: 30_000 });
 }
 
+async function dismissBlockingOverlays(page: Page) {
+  // Close sync-attention drawer if an earlier step opened it.
+  const syncClose = page.getByRole('button', { name: /^close$/i }).first();
+  if (await page.getByText(/Sync Attention Required/i).isVisible().catch(() => false)) {
+    await syncClose.click({ timeout: 3_000 }).catch(() => undefined);
+  }
+
+  // Shift-end / crew-capture / similar z-[110] backdrops block rail logout.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const backdrop = page.locator('div.fixed.inset-0.z-\\[110\\]').first();
+    if (!(await backdrop.isVisible().catch(() => false))) return;
+
+    const remind = page.getByRole('button', { name: /remind me later/i }).first();
+    if (await remind.isVisible().catch(() => false)) {
+      await remind.click({ timeout: 5_000 }).catch(() => undefined);
+      await page.waitForTimeout(300);
+      continue;
+    }
+
+    const dismiss = page
+      .getByRole('button', { name: /skip|snooze|dismiss|cancel|close|not now/i })
+      .first();
+    if (await dismiss.isVisible().catch(() => false)) {
+      await dismiss.click({ timeout: 5_000 }).catch(() => undefined);
+      await page.waitForTimeout(300);
+      continue;
+    }
+
+    // Soft-mandatory overlays: backdrop click snoozes / reminds later.
+    await backdrop.click({ force: true, timeout: 3_000 }).catch(() => undefined);
+    await page.keyboard.press('Escape').catch(() => undefined);
+    await page.waitForTimeout(300);
+  }
+
+  await page
+    .locator('div.fixed.inset-0.z-\\[110\\]')
+    .first()
+    .waitFor({ state: 'hidden', timeout: 5_000 })
+    .catch(() => undefined);
+}
+
 test.describe('Staging smoke', () => {
   test('health endpoint is ok', async ({ request }) => {
     const res = await request.get('/health');
@@ -95,7 +136,8 @@ test.describe('Staging smoke', () => {
       await page.goto('/plant/reports').catch(() => undefined);
     }
 
-    // Logout — wait out handover spinner if it still covers content (nav is outside the gate).
+    // Logout — clear shift-end / crew modals that cover the rail, then wait out handover spinner.
+    await dismissBlockingOverlays(page);
     await page
       .getByText(/Checking handover status/i)
       .waitFor({ state: 'hidden', timeout: 20_000 })
@@ -103,6 +145,7 @@ test.describe('Staging smoke', () => {
 
     const logout = page.getByRole('button', { name: /log ?out|sign out|end session/i }).first();
     if (await logout.count()) {
+      await dismissBlockingOverlays(page);
       await logout.click({ timeout: 15_000 });
       const confirmBtn = page.getByRole('dialog').getByRole('button', { name: /^logout$/i });
       try {

@@ -17,8 +17,15 @@ export default defineConfig(({ mode }) => {
 
   const runtimeCaching = swApiReadCache
     ? [
+        // Auth-sensitive / session-bound GETs must not use NetworkFirst — a timeout
+        // with empty cache surfaces Workbox "no-response" and hides the real API error.
         {
-          urlPattern: /\/api\/(live|reports|traceability|machines|shifts|6hi)\/.*/i,
+          urlPattern: /\/api\/machines\/handover\/.*/i,
+          method: 'GET' as const,
+          handler: 'NetworkOnly' as const,
+        },
+        {
+          urlPattern: /\/api\/(live|reports|traceability|shifts|6hi)\/.*/i,
           method: 'GET' as const,
           handler: 'NetworkFirst' as const,
           options: {

@@ -81,7 +81,11 @@ export function ShiftEndModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]" aria-hidden />
+      <div
+        className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]"
+        aria-hidden
+        onClick={() => void saveReadingsThen(onRemindLater)}
+      />
       <div
         role="dialog"
         aria-modal="true"
