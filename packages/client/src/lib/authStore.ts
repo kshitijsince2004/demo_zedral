@@ -2,7 +2,13 @@ import { create } from 'zustand';
 import type { UserRole } from '@m1/shared-validation';
 import { useShiftStore } from '../store/shiftStore';
 import { useSixHiStore } from '../store/sixHiStore';
-import { filterCrmMachines, getEffectiveMachineAccess, preferCrmMachine } from './machineRouting';
+import {
+  canAccessMachine,
+  filterCrmMachines,
+  getEffectiveMachineAccess,
+  getWriteMachineAccess,
+  preferCrmMachine,
+} from './machineRouting';
 import { isCrmMillCode } from './millConfig';
 import { setActiveCrmMill } from './crmMillContext';
 import { authApi } from './authApi';
@@ -10,6 +16,7 @@ import { markAuthGeneration } from './apiClient';
 import { scheduleAccessTokenRefresh, stopAccessTokenRefresh } from './authSession';
 import Session from 'supertokens-auth-react/recipe/session';
 import { clearSessionCaches } from './cacheClear';
+import { discardInaccessibleMachineActions } from './sync/outboxRepo';
 
 function resetSessionStores() {
   useShiftStore.getState().resetSession();
@@ -117,9 +124,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     scheduleAccessTokenRefresh(token);
     startInactivityTimer(get().lockScreen);
+
+    // Drop parked/pending handover actions this user cannot WRITE
+    // (outbox survives login and otherwise blocks Sync Attention forever).
+    const writeAllow = getWriteMachineAccess(role, machineAccess);
+    void discardInaccessibleMachineActions(writeAllow).then(async () => {
+      const { syncNow } = await import('./sync/engine');
+      await syncNow('login');
+    });
   },
 
   setActiveMachine: (machineCode) => {
+    const { role, machineAccess } = get();
+    // Never pin a mill the JWT cannot use — legacy /4hi redirects used to poison this.
+    if (role && !canAccessMachine(role, machineAccess, machineCode)) {
+      return;
+    }
     sessionStorage.setItem('mock_active_machine', machineCode);
     set({ activeMachine: machineCode });
     if (isCrmMillCode(machineCode)) {

@@ -169,7 +169,14 @@ export class ShiftLogService {
   ): Promise<void> {
     const shiftLogId = String(id);
     const log = await this.getById(shiftLogId);
-    if (!log || (log.state !== ShiftLogState.DRAFT && log.state !== ShiftLogState.REOPENED)) {
+    if (!log) {
+      throw new Error('Shift log not found');
+    }
+    // Idempotent: outbox may replay complete after the first success.
+    if (log.state === ShiftLogState.SUBMITTED || log.state === ShiftLogState.APPROVED) {
+      return;
+    }
+    if (log.state !== ShiftLogState.DRAFT && log.state !== ShiftLogState.REOPENED) {
       throw new Error('Only active (DRAFT or REOPENED) shifts can be marked completed.');
     }
 

@@ -62,6 +62,16 @@ export class CrewService {
     }));
   }
 
+  /** SPEC2 §11 — soft-mandatory crew: true when session still has no session_crew rows. */
+  static async sessionNeedsCrew(sessionId: string): Promise<boolean> {
+    const row = await db
+      .selectFrom('txn.session_crew')
+      .select('session_crew_id')
+      .where('session_id', '=', String(sessionId))
+      .executeTakeFirst();
+    return !row;
+  }
+
   static async create(payload: { shiftLogId: string; operatorId: string | number; roleCode: string }) {
     const validRoles = ['OPERATOR', 'ASST', 'HELPER', 'CRANE', 'MTL'];
     if (!validRoles.includes(payload.roleCode)) {

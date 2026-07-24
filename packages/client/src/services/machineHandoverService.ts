@@ -1,4 +1,6 @@
 import { apiClient } from '../lib/apiClient';
+import { useAuthStore } from '../lib/authStore';
+import { canWriteMachine } from '../lib/machineRouting';
 import { postQueued } from '../lib/sync/queuedApi';
 
 export interface PendingHandover {
@@ -254,17 +256,18 @@ export const machineHandoverService = {
     ),
 
   ensureSession: async (machineCode: string) => {
-    const result = await postQueued<{
+    // Session start needs a live response. Never park through outbox.
+    // Skip mills this JWT cannot WRITE (avoids Forbidden: No access to machine 4HI).
+    const { role, machineAccess } = useAuthStore.getState();
+    if (!canWriteMachine(role, machineAccess, machineCode)) {
+      return { session: null, pendingHandover: null, needsCrew: false, created: false };
+    }
+    return apiClient.post<{
       session: { session_id?: string; sessionId?: string } | null;
       pendingHandover: PendingHandover | null;
       needsCrew?: boolean;
       created?: boolean;
-    }>(
-      `/machines/handover/${encodeURIComponent(machineCode)}/session`,
-      {},
-      `handover:${machineCode}`,
-    );
-    return result.data ?? { session: null, pendingHandover: null, needsCrew: false, created: false };
+    }>(`/machines/handover/${encodeURIComponent(machineCode)}/session`, {});
   },
 
   saveDraft: async (machineCode: string, payload: Partial<HandoverSubmitPayload>) => {
@@ -276,24 +279,19 @@ export const machineHandoverService = {
     return result.data ?? ({ ...payload, machine_code: machineCode } as PendingHandover);
   },
 
-  submitOutgoing: async (machineCode: string, payload: HandoverSubmitPayload) => {
-    const result = await postQueued<PendingHandover>(
+  // Live POST — must succeed on the server before "Submit & Sign Out". Outbox enqueue
+  // + immediate logout left the write as parked 401 and the same shift reappeared.
+  submitOutgoing: (machineCode: string, payload: HandoverSubmitPayload) =>
+    apiClient.post<PendingHandover>(
       `/machines/handover/${encodeURIComponent(machineCode)}/outgoing`,
       payload,
-      `handover:${machineCode}`,
-    );
-    return result.data ?? ({ ...payload, machine_code: machineCode } as PendingHandover);
-  },
+    ),
 
-  accept: async (handoverId: string) => {
-    await postQueued(`/machines/handover/accept/${encodeURIComponent(handoverId)}`, {}, `handover:${handoverId}`);
-  },
+  accept: (handoverId: string) =>
+    apiClient.post(`/machines/handover/accept/${encodeURIComponent(handoverId)}`, {}),
 
-  requestClarification: async (handoverId: string, notes: string) => {
-    await postQueued(
-      `/machines/handover/clarification/${encodeURIComponent(handoverId)}`,
-      { notes },
-      `handover:${handoverId}`,
-    );
-  },
+  requestClarification: (handoverId: string, notes: string) =>
+    apiClient.post(`/machines/handover/clarification/${encodeURIComponent(handoverId)}`, {
+      notes,
+    }),
 };

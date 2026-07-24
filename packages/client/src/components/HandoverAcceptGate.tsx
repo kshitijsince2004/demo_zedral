@@ -9,10 +9,12 @@ import { ZButton } from './primitives/ZButton';
 interface HandoverAcceptGateProps {
   machineCode: string;
   children: React.ReactNode;
+  /** Fired after accept so parent can prompt crew for the new session (§11). */
+  onHandoverAccepted?: (sessionId: string) => void;
 }
 
 /** Blocks CRM workspace until incoming operator accepts pending handover. */
-export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGateProps) {
+export function HandoverAcceptGate({ machineCode, children, onHandoverAccepted }: HandoverAcceptGateProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
@@ -91,7 +93,20 @@ export function HandoverAcceptGate({ machineCode, children }: HandoverAcceptGate
         <div className="fixed inset-0 z-[200]">
           <HandoverAcceptPage
             handover={pending}
-            onAccepted={() => setPending(null)}
+            onAccepted={async () => {
+              setPending(null);
+              try {
+                const sess = await machineHandoverService.ensureSession(machineCode);
+                const sid = sess?.session
+                  ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
+                  : '';
+                if ((sess?.created || sess?.needsCrew) && sid) {
+                  onHandoverAccepted?.(sid);
+                }
+              } catch {
+                // Accept already succeeded; crew prompt can still appear on next init.
+              }
+            }}
           />
         </div>
       )}

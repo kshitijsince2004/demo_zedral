@@ -85,6 +85,30 @@ export function canAccessMachine(
   return getEffectiveMachineAccess(role, machineAccess).includes(machineCode.toUpperCase());
 }
 
+/**
+ * WRITE allowlist matching server assertMachineAccess:
+ * Admin/Plant Head → all machines (null).
+ * Everyone else (incl. Supervisor) → JWT machine_access only (no UI plant-wide expand).
+ */
+export function getWriteMachineAccess(
+  role: Role | null,
+  machineAccess: string[],
+): string[] | null {
+  if (role === 'ADMIN' || role === 'PLANT_HEAD') return null;
+  return machineAccess.map((m) => m.toUpperCase()).filter(Boolean);
+}
+
+/** True when POST/PUT/PATCH to this mill is allowed (same rules as server). */
+export function canWriteMachine(
+  role: Role | null,
+  machineAccess: string[],
+  machineCode: string,
+): boolean {
+  const allow = getWriteMachineAccess(role, machineAccess);
+  if (allow === null) return true;
+  return allow.includes(machineCode.toUpperCase());
+}
+
 export interface MachineNavItem {
   code: string;
   label: string;

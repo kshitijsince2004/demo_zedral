@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
 import { getDb, hasNativeDb } from '../../operator/db/sqlite';
+import { machineCodeFromOutboxUrl } from './outboxPolicy';
 
 export type OutboxMethod = 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 export type OutboxStatus = 'pending' | 'inflight' | 'synced' | 'parked';
@@ -242,6 +243,114 @@ export async function discardParked(id: string): Promise<void> {
     "UPDATE outbox SET status = 'synced', synced_at = ? WHERE id = ? AND status = 'parked'",
     [Date.now(), id],
   );
+}
+
+/** Mark parked rows synced when their lastError is a known benign client failure. */
+export async function reconcileBenignParked(
+  isBenign: (status: number, body: string) => boolean,
+): Promise<number> {
+  let cleared = 0;
+  const syncedAt = Date.now();
+
+  if (!hasNativeDb()) {
+    await withWebRows((rows) => {
+      for (const row of rows) {
+        if (row.status !== 'parked') continue;
+        const err = row.lastError ?? '';
+        // Parked rows store response body only; treat as 400-class unless Forbidden → 403.
+        const status = /Forbidden/i.test(err) ? 403 : 400;
+        if (!isBenign(status, err)) continue;
+        row.status = 'synced';
+        row.syncedAt = syncedAt;
+        cleared += 1;
+      }
+    });
+    return cleared;
+  }
+
+  const result = await getDb().query(
+    "SELECT id, last_error FROM outbox WHERE status = 'parked'",
+  );
+  const parked = (result.values ?? []) as { id: string; last_error?: string | null }[];
+  for (const row of parked) {
+    const err = row.last_error ?? '';
+    const status = /Forbidden/i.test(err) ? 403 : 400;
+    if (!isBenign(status, err)) continue;
+    await getDb().run(
+      "UPDATE outbox SET status = 'synced', synced_at = ? WHERE id = ? AND status = 'parked'",
+      [syncedAt, row.id],
+    );
+    cleared += 1;
+  }
+  return cleared;
+}
+
+function shouldDropInaccessibleOutboxRow(
+  url: string,
+  lastError: string | null | undefined,
+  allow: Set<string> | null,
+): string | null {
+  const err = lastError ?? '';
+  if (/Forbidden:\s*No access to machine|No access to machine\s+\w+/i.test(err)) {
+    return 'Dropped: Forbidden machine access';
+  }
+  const code = machineCodeFromOutboxUrl(url);
+  if (!code) return null;
+  // null allow = Admin/PH plant-wide write — keep rows unless Forbidden above
+  if (allow === null) return null;
+  if (allow.has(code)) return null;
+  return `Dropped: no access to machine ${code}`;
+}
+
+/**
+ * Drop pending/parked handover writes the current user cannot WRITE
+ * (matches server assertMachineAccess). Also clears Forbidden parked rows.
+ * `allowedMachines: null` = plant-wide write (Admin/PH).
+ */
+export async function discardInaccessibleMachineActions(
+  allowedMachines: string[] | null,
+): Promise<number> {
+  const allow =
+    allowedMachines === null
+      ? null
+      : new Set(allowedMachines.map((m) => m.toUpperCase()).filter(Boolean));
+
+  let cleared = 0;
+  const syncedAt = Date.now();
+
+  if (!hasNativeDb()) {
+    await withWebRows((rows) => {
+      for (const row of rows) {
+        if (row.status !== 'pending' && row.status !== 'parked') continue;
+        const reason = shouldDropInaccessibleOutboxRow(row.url, row.lastError, allow);
+        if (!reason) continue;
+        row.status = 'synced';
+        row.syncedAt = syncedAt;
+        row.lastError = reason;
+        cleared += 1;
+      }
+    });
+    return cleared;
+  }
+
+  const result = await getDb().query(
+    "SELECT id, url, last_error FROM outbox WHERE status IN ('pending', 'parked')",
+  );
+  const rows = (result.values ?? []) as {
+    id: string;
+    url: string;
+    last_error?: string | null;
+  }[];
+  for (const row of rows) {
+    const reason = shouldDropInaccessibleOutboxRow(row.url, row.last_error, allow);
+    if (!reason) continue;
+    await getDb().run(
+      "UPDATE outbox SET status = 'synced', synced_at = ?, last_error = ? WHERE id = ?",
+      [syncedAt, reason, row.id],
+    );
+    cleared += 1;
+  }
+  return cleared;
 }
 
 export async function pruneSynced(olderThanDays = 30): Promise<void> {

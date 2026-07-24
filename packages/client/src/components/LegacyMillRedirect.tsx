@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import type { MillCode } from '../lib/millPath';
 import { useAuthStore } from '../lib/authStore';
+import { canAccessMachine } from '../lib/machineRouting';
 import { getRoleHomePath } from '../lib/roleHome';
 import { userScopePath } from '../lib/userScope';
 
@@ -15,8 +16,11 @@ export function LegacyMillRedirect({ machine }: { machine: MillCode }) {
   const setActiveMachine = useAuthStore((s) => s.setActiveMachine);
 
   useEffect(() => {
-    setActiveMachine(machine);
-  }, [machine, setActiveMachine]);
+    // Do not pin 4HI/2HI when JWT has no write/nav access — that queued Forbidden sessions.
+    if (canAccessMachine(role, machineAccess, machine)) {
+      setActiveMachine(machine);
+    }
+  }, [machine, role, machineAccess, setActiveMachine]);
 
   if (!username || !role) {
     return <Navigate to="/login" replace />;

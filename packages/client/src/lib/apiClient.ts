@@ -70,6 +70,8 @@ interface ApiEnvelope<T> {
 
 export interface ApiFetchOptions extends RequestInit {
   timeoutMs?: number;
+  /** Outbox sync: return 401 without clearing the session / hard-redirecting. */
+  skipAuthLogout?: boolean;
 }
 
 function isRecord(value: unknown): boolean {
@@ -154,7 +156,7 @@ function isPublicAuthPath(path: string): boolean {
 export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
   const generationAtStart = authGeneration;
   const tokenAtStart = getAuthToken();
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...fetchOpts } = options;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, skipAuthLogout = false, ...fetchOpts } = options;
   const headers = new Headers(fetchOpts.headers);
 
   if (!headers.has('Content-Type') && fetchOpts.body !== undefined) {
@@ -221,7 +223,7 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
     }
   }
 
-  if (res.status === 401 && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {
+  if (res.status === 401 && !skipAuthLogout && !isPublicAuthPath(path) && !path.startsWith('/auth/')) {
     const sameSession =
       authGeneration === generationAtStart && getAuthToken() === tokenAtStart;
     if (sameSession) {

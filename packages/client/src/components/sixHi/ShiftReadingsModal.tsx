@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Thermometer } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
@@ -6,6 +6,7 @@ import { ShiftReadingsFields } from './shiftReadingsForm';
 import {
   emptyShiftReadings,
   parseOptionalNumber,
+  readingsFromSummary,
   type ShiftReadingsValues,
 } from './shiftReadingsValues';
 
@@ -25,6 +26,27 @@ export function ShiftReadingsModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!open || !shiftLogId) return;
+    let cancelled = false;
+    setError(null);
+    void apiClient
+      .get<{
+        scrapKg?: number | null;
+        coolantTempDegC?: number | null;
+        coolantPressKgCm2?: number | null;
+      }>(`/6hi/shift-summary/${encodeURIComponent(shiftLogId)}`)
+      .then((summary) => {
+        if (!cancelled) setValues(readingsFromSummary(summary));
+      })
+      .catch(() => {
+        if (!cancelled) setValues(emptyShiftReadings);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shiftLogId]);
+
   if (!open) return null;
 
   const save = async () => {
@@ -40,7 +62,6 @@ export function ShiftReadingsModal({
         coolantTempDegC: parseOptionalNumber(values.coolantTempDegC) ?? null,
         coolantPressKgCm2: parseOptionalNumber(values.coolantPressKgCm2) ?? null,
       });
-      setValues(emptyShiftReadings);
       onSaved?.();
       onClose();
     } catch (err) {

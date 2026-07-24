@@ -2513,9 +2513,9 @@ export class SixHiService {
       totalRollingMt: totalRolling,
       totalRerollMt: totalReroll,
       totalSkinpassMt: totalSkinpass,
-      scrapKg: saved?.scrap_kg ? Number(saved.scrap_kg) : undefined,
-      coolantTempDegC: saved?.coolant_temp_degc ? Number(saved.coolant_temp_degc) : undefined,
-      coolantPressKgCm2: saved?.coolant_press_kgcm2 ? Number(saved.coolant_press_kgcm2) : undefined,
+      scrapKg: saved?.scrap_kg != null ? Number(saved.scrap_kg) : undefined,
+      coolantTempDegC: saved?.coolant_temp_degc != null ? Number(saved.coolant_temp_degc) : undefined,
+      coolantPressKgCm2: saved?.coolant_press_kgcm2 != null ? Number(saved.coolant_press_kgcm2) : undefined,
       completedOrders,
       totalStoppageMinutes: metrics.totalStoppageMinutes,
       totalBreakdownMinutes: metrics.totalBreakdownMinutes,
@@ -2534,6 +2534,31 @@ export class SixHiService {
     await assertCrm6ScrapKg(shiftLogId, scrapKg);
     await assertShiftLogRuntimeAccounting(shiftLogId);
     const summary = await this.getShiftSummary(shiftLogId);
+    // Merge: undefined means "keep existing in-shift readings" (handover blank must not wipe §13 B3).
+    const existing = await db
+      .selectFrom('txn.crm_shift_summary')
+      .select(['scrap_kg', 'coolant_temp_degc', 'coolant_press_kgcm2'])
+      .where('shift_log_id', '=', shiftLogId as any)
+      .executeTakeFirst();
+    const nextScrap =
+      scrapKg !== undefined
+        ? scrapKg
+        : existing?.scrap_kg != null
+          ? Number(existing.scrap_kg)
+          : null;
+    const nextTemp =
+      coolantTempDegC !== undefined
+        ? coolantTempDegC
+        : existing?.coolant_temp_degc != null
+          ? Number(existing.coolant_temp_degc)
+          : null;
+    const nextPress =
+      coolantPressKgCm2 !== undefined
+        ? coolantPressKgCm2
+        : existing?.coolant_press_kgcm2 != null
+          ? Number(existing.coolant_press_kgcm2)
+          : null;
+
     await db.insertInto('txn.crm_shift_summary')
       .values({
         shift_log_id: shiftLogId,
@@ -2541,9 +2566,9 @@ export class SixHiService {
         total_rolling_mt: summary.totalRollingMt,
         total_reroll_mt: summary.totalRerollMt,
         total_skinpass_mt: summary.totalSkinpassMt,
-        scrap_kg: scrapKg ?? null,
-        coolant_temp_degc: coolantTempDegC ?? null,
-        coolant_press_kgcm2: coolantPressKgCm2 ?? null,
+        scrap_kg: nextScrap,
+        coolant_temp_degc: nextTemp,
+        coolant_press_kgcm2: nextPress,
         submitted_at: new Date(),
         submitted_by: userId,
       })
@@ -2552,9 +2577,9 @@ export class SixHiService {
         total_rolling_mt: summary.totalRollingMt,
         total_reroll_mt: summary.totalRerollMt,
         total_skinpass_mt: summary.totalSkinpassMt,
-        scrap_kg: scrapKg ?? null,
-        coolant_temp_degc: coolantTempDegC ?? null,
-        coolant_press_kgcm2: coolantPressKgCm2 ?? null,
+        scrap_kg: nextScrap,
+        coolant_temp_degc: nextTemp,
+        coolant_press_kgcm2: nextPress,
         submitted_at: new Date(),
         submitted_by: userId,
       }))

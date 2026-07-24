@@ -1,6 +1,9 @@
 import { Network } from '@capacitor/network';
 import { apiFetch } from '../apiClient';
+import { useAuthStore } from '../authStore';
+import { getWriteMachineAccess } from '../machineRouting';
 import * as outbox from './outboxRepo';
+import { isBenignSyncClientError } from './outboxPolicy';
 import { invalidateAfterSyncedWrite } from './invalidateAfterWrite';
 import { useSyncStatus } from './syncStatusStore';
 
@@ -13,12 +16,18 @@ export interface SyncEngineOptions {
 }
 
 async function pushOutbox() {
+  // Drop Forbidden / wrong-mill rows before replay (e.g. handover:4HI for 6HI-only JWT).
+  const { role, machineAccess } = useAuthStore.getState();
+  await outbox.discardInaccessibleMachineActions(getWriteMachineAccess(role, machineAccess));
+  await outbox.reconcileBenignParked(isBenignSyncClientError);
+
   for (const group of await outbox.nextBatch()) {
     for (const action of group) {
       try {
         const res = await apiFetch(action.url, {
           method: action.method,
           headers: { 'X-Idempotency-Key': action.id },
+          skipAuthLogout: true,
           ...(action.method === 'DELETE' ? {} : { body: action.payload }),
         });
 
@@ -29,7 +38,17 @@ async function pushOutbox() {
         }
 
         if (res.status >= 400 && res.status < 500) {
-          await outbox.markParked(action.id, await res.text());
+          const body = await res.text();
+          if (isBenignSyncClientError(res.status, body)) {
+            await outbox.markSynced(action.id);
+            continue;
+          }
+          // Auth expired mid-sync — keep pending so login can retry (do not park forever).
+          if (res.status === 401) {
+            await outbox.bumpAttempt(action.id, body || 'HTTP 401');
+            break;
+          }
+          await outbox.markParked(action.id, body);
           break;
         }
 

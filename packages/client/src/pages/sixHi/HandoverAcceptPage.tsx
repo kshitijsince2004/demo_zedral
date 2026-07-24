@@ -86,7 +86,7 @@ function ProgressBar({ pct }: { pct: number }) {
 
 interface HandoverAcceptPageProps {
   handover: PendingHandover;
-  onAccepted: () => void;
+  onAccepted: () => void | Promise<void>;
 }
 
 export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageProps) {
@@ -125,7 +125,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
     try {
       await machineHandoverService.accept(handover.handover_id);
       await bootstrapShiftContext(machineCode);
-      onAccepted();
+      await onAccepted();
       navigate(basePath);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Accept failed');

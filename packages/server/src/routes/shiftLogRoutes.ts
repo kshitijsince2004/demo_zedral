@@ -566,8 +566,15 @@ router.put('/:id/complete', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_H
     await ShiftLogService.completeFromReview(req.params.id, req.user!.id, remarks);
     res.json({ success: true });
   } catch (error: any) {
+    const msg = error.message ?? '';
     const status =
-      error.message?.includes('Forbidden') || error.message?.includes('read-only') ? 403 : 400;
+      msg.includes('Forbidden') || msg.includes('read-only')
+        ? 403
+        : msg.includes('not found')
+          ? 404
+          : /Only active \(DRAFT or REOPENED\)/i.test(msg)
+            ? 409
+            : 400;
     res.status(status).json({ error: error.message });
   }
 });

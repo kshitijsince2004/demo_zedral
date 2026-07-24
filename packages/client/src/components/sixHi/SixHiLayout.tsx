@@ -24,6 +24,7 @@ import {
 } from '../../lib/sync/sixHiWrites';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { useAuthStore } from '../../lib/authStore';
+import { canWriteMachine } from '../../lib/machineRouting';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { formatShiftDate } from '../../lib/dateFormat';
 import { HandoverAcceptGate } from '../HandoverAcceptGate';
@@ -62,6 +63,8 @@ export function SixHiLayout() {
   const { basePath, machineCode: pathMill } = useWorkspaceBase();
   const activeMachine = useAuthStore((s) => s.activeMachine);
   const logout = useAuthStore((s) => s.logout);
+  const role = useAuthStore((s) => s.role);
+  const machineAccess = useAuthStore((s) => s.machineAccess);
   const { shiftLogId } = useShiftStore();
 
   const {
@@ -93,7 +96,7 @@ export function SixHiLayout() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [crewPrompt, setCrewPrompt] = useState<{ sessionId: string } | null>(null);
   const [crewSnoozeUntil, setCrewSnoozeUntil] = useState(0);
-  // Keep session id after first create so snooze can re-prompt (live reuse returns needsCrew=false)
+  // Keep session id so snooze can re-prompt until crew is saved (needsCrew on resume).
   const [crewPendingSessionId, setCrewPendingSessionId] = useState<string | null>(null);
   const [sessionRecovering, setSessionRecovering] = useState(false);
   const [readingsOpen, setReadingsOpen] = useState(false);
@@ -121,13 +124,15 @@ export function SixHiLayout() {
 
   const recoverSession = async (opts?: { forceCrew?: boolean }) => {
     if (sessionRecovering) return;
+    if (!canWriteMachine(role, machineAccess, pathMill)) return;
     setSessionRecovering(true);
     try {
       const sess = await machineHandoverService.ensureSession(pathMill);
       const sid = sess?.session
         ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
         : '';
-      if ((sess?.created || opts?.forceCrew) && sid) {
+      // SPEC2 §11: prompt on fresh create OR resume when needsCrew (empty session_crew).
+      if ((sess?.created || sess?.needsCrew || opts?.forceCrew) && sid) {
         setCrewPendingSessionId(sid);
         if (Date.now() >= crewSnoozeUntil) setCrewPrompt({ sessionId: sid });
       }
@@ -161,19 +166,24 @@ export function SixHiLayout() {
   useEffect(() => {
     async function init() {
       try {
+        if (!canWriteMachine(role, machineAccess, pathMill)) {
+          await refreshMachineState();
+          return;
+        }
         // Ensure session first so /shifts/current?machine= pins to ACTIVE (not clock).
         const sess = await machineHandoverService.ensureSession(pathMill).catch(() => null);
         const sid = sess?.session
           ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
           : '';
-        if (sess?.created && sid) {
+        // SPEC2 §11 soft-mandatory: needsCrew on resume/re-login, not only created.
+        if ((sess?.created || sess?.needsCrew) && sid) {
           setCrewPendingSessionId(sid);
-        }
-        const pendingSid = (sess?.created && sid) ? sid : crewPendingSessionId;
-        if (pendingSid && Date.now() >= crewSnoozeUntil) {
-          setCrewPrompt({ sessionId: pendingSid });
-        } else {
+          if (Date.now() >= crewSnoozeUntil) {
+            setCrewPrompt({ sessionId: sid });
+          }
+        } else if (!sess?.needsCrew) {
           setCrewPrompt(null);
+          setCrewPendingSessionId(null);
         }
         await bootstrapShiftContext(pathMill);
         const { shiftDate, shiftCode } = useShiftStore.getState();
@@ -194,7 +204,7 @@ export function SixHiLayout() {
       await refreshMachineState();
     }
     init();
-  }, [pathMill, activeMachine, loadShiftSummary, refreshMachineState, logout, crewSnoozeUntil, crewPendingSessionId]);
+  }, [pathMill, activeMachine, role, machineAccess, loadShiftSummary, refreshMachineState, logout, crewSnoozeUntil, crewPendingSessionId]);
 
   // Tablet left open past grace: re-ensure session when the tab becomes visible again.
   useEffect(() => {
@@ -325,7 +335,13 @@ export function SixHiLayout() {
       onManualStoppage={() => setManualStoppageOpen(true)}
       onShiftReadings={() => setReadingsOpen(true)}
     >
-      <HandoverAcceptGate machineCode={pathMill}>
+      <HandoverAcceptGate
+        machineCode={pathMill}
+        onHandoverAccepted={(sessionId) => {
+          setCrewPendingSessionId(sessionId);
+          setCrewPrompt({ sessionId });
+        }}
+      >
         <div className={[
           'flex flex-1 flex-col min-h-0',
           showPanel && !workspaceOpen ? 'pr-[6.5rem]' : '',

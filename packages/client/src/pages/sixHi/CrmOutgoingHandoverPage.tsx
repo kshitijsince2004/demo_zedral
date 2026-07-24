@@ -188,12 +188,11 @@ export function CrmOutgoingHandoverPage() {
           setDraftId(draft.handover_id);
           const ps = draft.production_snapshot as Record<string, unknown>;
           const sm = ps?.shiftManualFields as Record<string, unknown> | null;
-          if (sm) {
-            setScrapKg(String(sm.scrapKg ?? ''));
-            setCoolantTemp(String(sm.coolantTempDegC ?? ''));
-            setCoolantPress(String(sm.coolantPressKgCm2 ?? ''));
-            setShiftRemarks(String(sm.shiftRemarks ?? ''));
-          }
+          const sum = p.shiftProductionSummary;
+          setScrapKg(String(sm?.scrapKg ?? sum?.scrapKg ?? ''));
+          setCoolantTemp(String(sm?.coolantTempDegC ?? sum?.coolantTempDegC ?? ''));
+          setCoolantPress(String(sm?.coolantPressKgCm2 ?? sum?.coolantPressKgCm2 ?? ''));
+          if (sm?.shiftRemarks != null) setShiftRemarks(String(sm.shiftRemarks ?? ''));
           if (ps?.orderSnapshot) setOrderSnapshot(ps.orderSnapshot as OrderSnapshot);
           if (ps?.machineCondition) setMachineCondition(String(ps.machineCondition));
           if (ps?.machineConditionRemarks) setConditionRemarks(String(ps.machineConditionRemarks));
@@ -201,6 +200,12 @@ export function CrmOutgoingHandoverPage() {
           setOutgoingNotes(draft.remarks ?? '');
           if (draft.handover_priority) setPriority(draft.handover_priority as Priority);
           if (draft.machine_status) setMachineStatus(draft.machine_status);
+        } else {
+          // Prefill from in-shift Shift Readings already on crm_shift_summary (§13 B3).
+          const sum = p.shiftProductionSummary;
+          if (sum?.scrapKg != null) setScrapKg(String(sum.scrapKg));
+          if (sum?.coolantTempDegC != null) setCoolantTemp(String(sum.coolantTempDegC));
+          if (sum?.coolantPressKgCm2 != null) setCoolantPress(String(sum.coolantPressKgCm2));
         }
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : 'Failed to load'))
@@ -317,8 +322,9 @@ export function CrmOutgoingHandoverPage() {
         remarks: outgoingNotes.trim(),
       });
       clearDraft();
-      logout();
-      navigate('/login');
+      // Only sign out after the server has PENDING handover + closed session.
+      await logout();
+      navigate('/login', { replace: true });
     } catch (e: unknown) {
       setSubmitError(e instanceof Error ? e.message : 'Handover submission failed');
     } finally {

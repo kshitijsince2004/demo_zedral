@@ -179,17 +179,33 @@ describe('MachineHandoverService.ensureActiveSession stale session', () => {
 
     mockIsSessionLiveById.mockResolvedValue(true);
 
-    vi.mocked(db.selectFrom).mockReturnValue({
-      selectAll: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      orderBy: vi.fn().mockReturnThis(),
-      executeTakeFirst: vi.fn().mockResolvedValue(existing),
-    } as never);
+    // 1) existing ACTIVE session  2) session_crew check (empty -> needsCrew)
+    const selectChains = [
+      () => ({
+        selectAll: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        executeTakeFirst: vi.fn().mockResolvedValue(existing),
+      }),
+      () => ({
+        select: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        executeTakeFirst: vi.fn().mockResolvedValue(null),
+      }),
+    ];
+    let selectIdx = 0;
+    vi.mocked(db.selectFrom).mockImplementation(() => {
+      const factory = selectChains[Math.min(selectIdx++, selectChains.length - 1)];
+      return factory() as never;
+    });
 
     const result = await MachineHandoverService.ensureActiveSession('6HI', 7);
 
     expect(mockCloseStale).not.toHaveBeenCalled();
     expect(db.insertInto).not.toHaveBeenCalled();
     expect(result.session).toEqual(existing);
+    expect(result.created).toBe(false);
+    expect(result.needsCrew).toBe(true);
   });
+
 });

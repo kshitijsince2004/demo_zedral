@@ -10,7 +10,15 @@ vi.mock('../../../src/lib/sync/outboxRepo', () => ({
   markParked: vi.fn(),
   bumpAttempt: vi.fn(),
   pruneSynced: vi.fn(),
+  reconcileBenignParked: vi.fn(async () => 0),
+  discardInaccessibleMachineActions: vi.fn(async () => 0),
   counts: vi.fn(async () => ({ pending: 0, parked: 0 })),
+}));
+
+vi.mock('../../../src/lib/authStore', () => ({
+  useAuthStore: {
+    getState: () => ({ role: 'OPERATOR', machineAccess: ['6HI'] }),
+  },
 }));
 
 vi.mock('../../../src/lib/productionSync', () => ({
@@ -90,5 +98,96 @@ describe('sync engine replay', () => {
       '/6hi/orders/B2',
       expect.not.objectContaining({ body: '{}' }),
     );
+  });
+
+  it('soft-succeeds benign client errors instead of parking', async () => {
+    vi.mocked(outbox.nextBatch).mockResolvedValueOnce([
+      [
+        {
+          id: '3',
+          aggregateKey: 'handover:6HI',
+          seq: 1,
+          url: '/machines/handover/6HI/session',
+          method: 'POST',
+          payload: '{}',
+          status: 'pending',
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+      ],
+    ]);
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error:
+            'ACTIVE_SESSION_CONFLICT: Another operator holds an active session on this machine.',
+        }),
+    } as Response);
+
+    await syncNow('test');
+
+    expect(outbox.markSynced).toHaveBeenCalledWith('3');
+    expect(outbox.markParked).not.toHaveBeenCalled();
+  });
+
+  it('parks non-benign 4xx errors', async () => {
+    vi.mocked(outbox.nextBatch).mockResolvedValueOnce([
+      [
+        {
+          id: '4',
+          aggregateKey: 'handover:6HI',
+          seq: 1,
+          url: '/machines/handover/6HI/outgoing',
+          method: 'POST',
+          payload: '{}',
+          status: 'pending',
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+      ],
+    ]);
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'Machine status is required' }),
+    } as Response);
+
+    await syncNow('test');
+
+    expect(outbox.markParked).toHaveBeenCalledWith(
+      '4',
+      expect.stringContaining('Machine status is required'),
+    );
+    expect(outbox.markSynced).not.toHaveBeenCalledWith('4');
+  });
+
+  it('keeps auth failures pending instead of parking', async () => {
+    vi.mocked(outbox.nextBatch).mockResolvedValueOnce([
+      [
+        {
+          id: '5',
+          aggregateKey: 'handover:6HI',
+          seq: 1,
+          url: '/machines/handover/6HI/outgoing',
+          method: 'POST',
+          payload: '{}',
+          status: 'pending',
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+      ],
+    ]);
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ error: 'Unauthorized' }),
+    } as Response);
+
+    await syncNow('test');
+
+    expect(outbox.bumpAttempt).toHaveBeenCalledWith('5', expect.stringContaining('Unauthorized'));
+    expect(outbox.markParked).not.toHaveBeenCalled();
   });
 });

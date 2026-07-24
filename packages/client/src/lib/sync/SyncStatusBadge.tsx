@@ -14,7 +14,11 @@ export function SyncStatusBadge() {
 
   useEffect(() => {
     if (!open) return;
-    void outbox.parkedActions().then(setParkedRows);
+    void (async () => {
+      const { syncNow } = await import('./engine');
+      await syncNow('attention-open');
+      setParkedRows(await outbox.parkedActions());
+    })();
   }, [open, parked]);
 
   const color = parked > 0

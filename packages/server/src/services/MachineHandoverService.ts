@@ -376,9 +376,10 @@ export class MachineHandoverService {
       crewNotes: input.crewNotes ?? null,
       selectedCrewMembers,
       shiftManualFields: {
-        scrapKg: input.scrapKg ?? null,
-        coolantTempDegC: input.coolantTempDegC ?? null,
-        coolantPressKgCm2: input.coolantPressKgCm2 ?? null,
+        scrapKg: input.scrapKg ?? preview.shiftProductionSummary?.scrapKg ?? null,
+        coolantTempDegC: input.coolantTempDegC ?? preview.shiftProductionSummary?.coolantTempDegC ?? null,
+        coolantPressKgCm2:
+          input.coolantPressKgCm2 ?? preview.shiftProductionSummary?.coolantPressKgCm2 ?? null,
         shiftRemarks: input.shiftRemarks ?? null,
       },
       shiftProductionSummary: preview.shiftProductionSummary as any,
@@ -498,9 +499,10 @@ export class MachineHandoverService {
       crewNotes: input.crewNotes ?? null,
       selectedCrewMembers,
       shiftManualFields: {
-        scrapKg: input.scrapKg ?? null,
-        coolantTempDegC: input.coolantTempDegC ?? null,
-        coolantPressKgCm2: input.coolantPressKgCm2 ?? null,
+        scrapKg: input.scrapKg ?? preview.shiftProductionSummary?.scrapKg ?? null,
+        coolantTempDegC: input.coolantTempDegC ?? preview.shiftProductionSummary?.coolantTempDegC ?? null,
+        coolantPressKgCm2:
+          input.coolantPressKgCm2 ?? preview.shiftProductionSummary?.coolantPressKgCm2 ?? null,
         shiftRemarks: input.shiftRemarks ?? null,
       },
       shiftProductionSummary: preview.shiftProductionSummary as any,
@@ -924,8 +926,10 @@ export class MachineHandoverService {
     if (existing) {
       const existingLive = await ShiftDetectionService.isSessionLiveById(String(existing.session_id));
       if (existingLive) {
-        // ponytail: crew popup only on fresh create; empty crew flagged in Shift Review
-        return { session: existing, pendingHandover: null, needsCrew: false, created: false };
+        // SPEC2 §11 soft-mandatory: re-prompt on resume/re-login until session_crew exists.
+        const { CrewService } = await import('./ancillaryServices');
+        const needsCrew = await CrewService.sessionNeedsCrew(String(existing.session_id));
+        return { session: existing, pendingHandover: null, needsCrew, created: false };
       }
       // Past shift-end + grace — close without asking getCurrentShift(machineCode) (circular pin).
       await ShiftDetectionService.closeStaleOperatorSessions(machineCode, operatorUserId);

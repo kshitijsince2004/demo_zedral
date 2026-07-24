@@ -13,6 +13,7 @@ router.use(requireAuth);
 function handoverRouteStatus(error: unknown): number {
   if (isMachineAccessForbidden(error)) return 403;
   const message = error instanceof Error ? error.message : '';
+  if (/ACTIVE_SESSION_CONFLICT/i.test(message)) return 409;
   if (/not found/i.test(message)) return 404;
   return 400;
 }

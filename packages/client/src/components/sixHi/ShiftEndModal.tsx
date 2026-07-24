@@ -1,5 +1,5 @@
-﻿import { Clock, Moon, ArrowRightLeft, Thermometer } from 'lucide-react';
-import { useState } from 'react';
+import { Clock, Moon, ArrowRightLeft, Thermometer } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { ZButton } from '../primitives/ZButton';
 import { formatShiftWindowTime } from '../../lib/dateFormat';
 import type { ShiftEndStatus } from '../../hooks/useShiftEndWatcher';
@@ -7,6 +7,7 @@ import { ShiftReadingsFields } from './shiftReadingsForm';
 import {
   emptyShiftReadings,
   parseOptionalNumber,
+  readingsFromSummary,
   type ShiftReadingsValues,
 } from './shiftReadingsValues';
 import { apiClient } from '../../lib/apiClient';
@@ -45,6 +46,26 @@ export function ShiftEndModal({
   const [readings, setReadings] = useState<ShiftReadingsValues>(emptyShiftReadings);
   const [readingsBusy, setReadingsBusy] = useState(false);
   const [readingsMsg, setReadingsMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !shiftLogId || status === 'none') return;
+    let cancelled = false;
+    void apiClient
+      .get<{
+        scrapKg?: number | null;
+        coolantTempDegC?: number | null;
+        coolantPressKgCm2?: number | null;
+      }>(`/6hi/shift-summary/${encodeURIComponent(shiftLogId)}`)
+      .then((summary) => {
+        if (!cancelled) setReadings(readingsFromSummary(summary));
+      })
+      .catch(() => {
+        if (!cancelled) setReadings(emptyShiftReadings);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shiftLogId, status]);
 
   if (!open || status === 'none') return null;
 
