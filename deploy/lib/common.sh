@@ -222,11 +222,29 @@ run_stack_deploy() {
   if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
   fi
+
+  # Self-hosted QA/Factory boxes accumulate old GHCR SHA tags until overlayfs fills up.
+  prune_docker_disk_before_pull
+
   log "Pulling pre-built images (Build Once → Deploy Many)…"
   log "  backend: ${BACKEND_IMAGE}"
   log "  nginx:   ${NGINX_IMAGE}"
   compose pull backend nginx
   compose up -d --remove-orphans --no-build --force-recreate
+}
+
+# Free unused Docker layers before pull. Keeps images still used by running containers.
+prune_docker_disk_before_pull() {
+  log "Docker disk before prune:"
+  df -h / /var/lib/docker 2>/dev/null || df -h / || true
+  docker system df 2>/dev/null || true
+  docker container prune -f >/dev/null 2>&1 || true
+  # -a removes unused images (not just dangling); running stack images stay referenced.
+  docker image prune -af >/dev/null 2>&1 || true
+  docker builder prune -af >/dev/null 2>&1 || true
+  log "Docker disk after prune:"
+  df -h / /var/lib/docker 2>/dev/null || df -h / || true
+  docker system df 2>/dev/null || true
 }
 
 verify_deployment_health() {
