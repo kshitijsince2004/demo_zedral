@@ -31,9 +31,9 @@
   --color-muted: #F4F6F5;
   --color-muted-foreground: #69807A;
   
-  /* Borders and Inputs */
-  --color-border: #E2E7E5;
-  --color-input: #E2E7E5;
+  /* Borders and Inputs — input edges slightly stronger than chrome dividers */
+  --color-border: #C5CEC9;
+  --color-input: #A8B5AF;
   --color-ring: #163328;
 
   /* Status Colors */

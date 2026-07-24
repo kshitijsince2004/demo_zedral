@@ -45,9 +45,11 @@ describe('AuditTrailView', () => {
     );
 
     await waitFor(() => {
-      // Check columns are present
       expect(screen.queryByText(/Audit Trail/i)).not.toBeNull();
     });
+
+    expect(screen.getByPlaceholderText(/table, record id/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /apply/i })).toBeTruthy();
 
     // Check no mutate controls
     expect(screen.queryByRole('button', { name: /save|edit|delete|create/i })).toBeNull();

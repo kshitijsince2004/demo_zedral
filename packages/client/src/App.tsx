@@ -11,6 +11,7 @@ import { SetupPage } from './pages/SetupPage';
 import { RoleHomeRedirect } from './components/RoleHomeRedirect';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
+import { AdminShell } from './components/layout/admin/AdminShell';
 import { UserRole } from '@m1/shared-validation';
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
@@ -205,6 +206,16 @@ function App() {
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
+        <Route
+          path="/admin/audit"
+          element={(
+            <AdminRoute>
+              <AdminShell title="Audit Trail" subtitle="Search and filter platform change history">
+                <AuditTrailView />
+              </AdminShell>
+            </AdminRoute>
+          )}
+        />
         <Route path="/admin/system" element={<AdminRoute><SystemAdmin /></AdminRoute>} />
         <Route path="/admin/validation-rules" element={<AdminRoute><ValidationRulesAdmin /></AdminRoute>} />
 

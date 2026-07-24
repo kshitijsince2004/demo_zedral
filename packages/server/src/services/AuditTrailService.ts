@@ -97,6 +97,10 @@ export interface AuditQueryFilters {
   from?: string;
   to?: string;
   action?: string;
+  /** Free-text search across table, record pk, field, and value blobs. */
+  q?: string;
+  tableName?: string;
+  userId?: number;
 }
 
 export class AuditTrailService {
@@ -111,6 +115,32 @@ export class AuditTrailService {
     if (filters.action) {
       q = q.where('action', '=', filters.action);
       countQ = countQ.where('action', '=', filters.action);
+    }
+
+    if (filters.tableName?.trim()) {
+      const table = filters.tableName.trim();
+      q = q.where('table_name', 'ilike', `%${table}%`);
+      countQ = countQ.where('table_name', 'ilike', `%${table}%`);
+    }
+
+    if (filters.userId != null && Number.isFinite(filters.userId)) {
+      q = q.where('user_id', '=', filters.userId);
+      countQ = countQ.where('user_id', '=', filters.userId);
+    }
+
+    const search = filters.q?.trim();
+    if (search) {
+      const term = `%${search}%`;
+      const matchSearch = (eb: any) =>
+        eb.or([
+          eb('table_name', 'ilike', term),
+          eb('record_pk', 'ilike', term),
+          eb('column_name', 'ilike', term),
+          eb('old_value', 'ilike', term),
+          eb('new_value', 'ilike', term),
+        ]);
+      q = q.where(matchSearch);
+      countQ = countQ.where(matchSearch);
     }
     
     // Default 90 days if not provided

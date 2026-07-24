@@ -310,14 +310,16 @@ export function SixHiHub() {
     [completedQueue, statusFilter, search],
   );
 
-  const filteredRejected = useMemo(
-    () => rejectedQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [rejectedQueue, statusFilter, search],
-  );
+  // Hold cards are excluded from matchesFilter(ALL) so they don't mix into operational
+  // sections — include them explicitly for All + Order Hold filters (same as Completed).
+  const filteredRejected = useMemo(() => {
+    if (statusFilter !== 'ALL' && statusFilter !== 'REJECTED') return [];
+    return rejectedQueue.filter((c) => matchesSearch(c, search));
+  }, [rejectedQueue, statusFilter, search]);
 
   const showOperationalSections = statusFilter !== 'COMPLETED' && statusFilter !== 'REJECTED';
   const showCompletedSection = statusFilter === 'ALL' || statusFilter === 'COMPLETED';
-  const showRejectedSection = statusFilter === 'REJECTED';
+  const showRejectedSection = statusFilter === 'ALL' || statusFilter === 'REJECTED';
   const visibleOrderCount = (showOperationalSections
     ? filteredBacklog.length + filteredPending.length + filteredAssigned.length
     : 0)

@@ -59,6 +59,10 @@ Every insert, update and delete on transactional and master data writes an immut
 - **Timestamp tracking** — creation, submission, approval and each amendment are individually timestamped.
 - **Login & export tracking** — authentication events and every data export (audit.export_job) are logged.
 - **Master-data history** — changes to customers, grades, codes and specs are audited like transactional data.
+- **Audit browser (Plant Head & Admin)** — searchable, filterable read-only UI over `audit.audit_log`:
+  - Free-text **search** across table, record id, field, old/new values
+  - **Filters**: action (INSERT/UPDATE/DELETE), table name, user id, from/to date (plant calendar)
+  - Paginated results; no create/edit/delete controls
 
 # 4. Data Correction Workflow
 
@@ -102,5 +106,5 @@ Audit answers ‘who/when/why'; the coil spine answers ‘what happened to this 
 | Immutability | Audit log is append-only; no application or user role can edit/delete it |
 | Retention | Transactional & audit data retained per plant/customer policy; old partitions archived, not purged |
 | Integrity | Audit written in the same DB transaction as the change; tamper-evident ordering by id + timestamp |
-| Access | Audit visible to Plant Head & Admin (all) and Supervisor (own scope); never editable in-app |
+| Access | Audit visible to **Plant Head** (`/plant/audit`) and **Admin** (`/admin/audit`); never editable in-app. Both roles get **search** (table / record / field / values) and **filters** (action, table name, user id, from/to plant dates) with pagination. Supervisor may retain own-scope views where implemented; operators have no audit browser. |
 | Backup / DR | Audit included in PITR backups and DR replication alongside the data it describes |

@@ -1,4 +1,4 @@
-import { Database, Settings2, Upload, Users } from 'lucide-react';
+import { Database, Settings2, Shield, Upload, Users } from 'lucide-react';
 import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
 
 const NAV_ITEMS: DeskNavItem[] = [
@@ -22,6 +22,13 @@ const NAV_ITEMS: DeskNavItem[] = [
     icon: Users,
     path: '/admin/users',
     match: (p) => p === '/admin/users',
+  },
+  {
+    id: 'audit',
+    label: 'Audit Trail',
+    icon: Shield,
+    path: '/admin/audit',
+    match: (p) => p === '/admin/audit' || p.startsWith('/admin/audit/'),
   },
   {
     id: 'system',

@@ -24,6 +24,9 @@ router.get('/', requireRole([UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, 
       from: req.query.from ? String(req.query.from) : undefined,
       to: req.query.to ? String(req.query.to) : undefined,
       action: req.query.action ? String(req.query.action) : undefined,
+      q: req.query.q ? String(req.query.q) : undefined,
+      tableName: req.query.tableName ? String(req.query.tableName) : undefined,
+      userId: req.query.userId ? Number(req.query.userId) : undefined,
     };
 
     const result = await AuditTrailService.query(filters);

@@ -26,6 +26,9 @@ export interface AuditQueryFilters {
   from?: string;
   to?: string;
   action?: string;
+  q?: string;
+  tableName?: string;
+  userId?: number;
 }
 
 export const auditService = {
@@ -37,6 +40,9 @@ export const auditService = {
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
     if (filters.action) params.set('action', filters.action);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.tableName) params.set('tableName', filters.tableName);
+    if (filters.userId != null) params.set('userId', String(filters.userId));
 
     return apiClient.get<AuditQueryResult>(`/audit?${params.toString()}`);
   },
