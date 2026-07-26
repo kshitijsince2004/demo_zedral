@@ -14,6 +14,10 @@ import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode, assertMachineForSubProces
 import { PPCImportService } from '../services/PPCImportService';
 import { ValidationConfigService } from './ValidationConfigService';
 import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
+import {
+  allocateCombinedWeight,
+  resolveCombinedActualMt,
+} from '@m1/shared-validation';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
@@ -203,6 +207,83 @@ export class SixHiService {
     }
   }
 
+  /** Members of a combined production group (optional status filter). */
+  private static async loadCombinedGroupMembers(
+    combinedGroupId: string,
+    statuses?: readonly string[],
+  ): Promise<Array<{
+    order_id: string | number;
+    batch_number: string;
+    status: string;
+    coil_no: string | null;
+    prod_start_at: Date | null;
+  }>> {
+    let query = db.selectFrom('txn.crm_order')
+      .select(['order_id', 'batch_number', 'status', 'coil_no', 'prod_start_at'])
+      .where('combined_group_id', '=', combinedGroupId);
+    if (statuses && statuses.length > 0) {
+      query = query.where('status', 'in', [...statuses]);
+    }
+    return query.execute();
+  }
+
+  /**
+   * Resolve the order(s) a lifecycle action must touch.
+   * Combined groups always expand to every matching member; singles stay alone.
+   */
+  private static async resolveCombinedLifecycleTargets(
+    batchNumber: string,
+    statuses?: readonly string[],
+  ): Promise<{
+    combinedGroupId: string | null;
+    targets: Array<{
+      order_id: string | number;
+      batch_number: string;
+      status: string;
+      coil_no: string | null;
+      prod_start_at: Date | null;
+    }>;
+  }> {
+    const primary = await db.selectFrom('txn.crm_order')
+      .select(['order_id', 'batch_number', 'status', 'coil_no', 'prod_start_at', 'combined_group_id'])
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!primary) {
+      throw new Error('Order not found');
+    }
+    if (!primary.combined_group_id) {
+      return {
+        combinedGroupId: null,
+        targets: [{
+          order_id: primary.order_id,
+          batch_number: String(primary.batch_number),
+          status: primary.status,
+          coil_no: primary.coil_no ?? null,
+          prod_start_at: primary.prod_start_at ?? null,
+        }],
+      };
+    }
+    const members = await this.loadCombinedGroupMembers(String(primary.combined_group_id), statuses);
+    return {
+      combinedGroupId: String(primary.combined_group_id),
+      targets: members.length > 0
+        ? members.map((m) => ({
+            order_id: m.order_id,
+            batch_number: String(m.batch_number),
+            status: m.status,
+            coil_no: m.coil_no ?? null,
+            prod_start_at: m.prod_start_at ?? null,
+          }))
+        : [{
+            order_id: primary.order_id,
+            batch_number: String(primary.batch_number),
+            status: primary.status,
+            coil_no: primary.coil_no ?? null,
+            prod_start_at: primary.prod_start_at ?? null,
+          }],
+    };
+  }
+
   static formatPlanDate(value: Date | string): string {
     return formatPlantDate(value);
   }
@@ -366,8 +447,16 @@ export class SixHiService {
 
     const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(shiftCode);
     /**
-     * Backlog bucket: planning comparison only — PPC plan_date vs the operator's
-     * operational view date. Does not influence shift detection or production attribution.
+     * Operator-level backlog (intentional vs plant-level):
+     * - Includes prior calendar days (plan_date < operational view date), AND
+     * - Same-day earlier shifts (e.g. viewing Shift B still shows Shift A plans as backlog).
+     * This is the operational floor view: work that should already have been done by now
+     * in the shift sequence. Plant Head KPI/drawer use calendar-day-only
+     * (plan_date < today) for a strategic plant-wide backlog — see doc/BACKLOG_DEFINITIONS.md.
+     * Do not change this same-day-earlier-shift rule without updating that doc.
+     *
+     * Planning comparison only — PPC plan_date vs the operator's operational view date.
+     * Does not influence shift detection or production attribution.
      * Bind YYYY-MM-DD strings (not IST-midnight Date) so UTC DB hosts don't off-by-one.
      */
     const backlogPlanFilter = (eb: any) => {
@@ -478,7 +567,7 @@ export class SixHiService {
     };
   }
 
-  /** Completed / rejected orders — attributed via crm6_order.shift_log_id (never PPC plan_date). */
+  /** Completed = current shift-log only; Hold (REJECTED) = machine-wide until completed. */
   private static async fetchTerminalBatches(
     subProcess: SixHiSubProcess,
     machineCode: string,
@@ -486,35 +575,53 @@ export class SixHiService {
     shiftCode: string,
     shiftLogId?: string,
   ): Promise<Array<{ status: 'COMPLETED' | 'REJECTED'; batch: Record<string, unknown> }>> {
-    let query = db.selectFrom('planning.ppc_batch as pb')
-      .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .selectAll('pb')
-      .select(['o.status'])
-      .where('pb.machine_code', '=', machineCode)
-      .where('pb.sub_process', '=', subProcess)
-      .where('pb.machine_allocated', '=', true)
-      .where('o.status', 'in', ['COMPLETED', 'REJECTED']);
+    const base = () =>
+      db
+        .selectFrom('planning.ppc_batch as pb')
+        .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
+        .selectAll('pb')
+        .select(['o.status'])
+        .where('pb.machine_code', '=', machineCode)
+        .where('pb.sub_process', '=', subProcess)
+        .where('pb.machine_allocated', '=', true);
 
     const logIds = shiftLogId
       ? await this.expandSiblingShiftLogIds(shiftLogId)
       : await this.resolveShiftLogIdsForPlan(prodDate, shiftCode);
+
+    const completedRows =
+      logIds.length === 0
+        ? []
+        : await base()
+            .where('o.status', '=', 'COMPLETED')
+            .where('o.shift_log_id', 'in', logIds)
+            .orderBy('o.updated_at', 'desc')
+            .orderBy('pb.batch_number', 'asc')
+            .execute();
+
     if (logIds.length === 0) {
       console.warn(
         `[SixHi] fetchTerminalBatches: no shift_log for ${prodDate}/${shiftCode} — completed list empty`,
       );
-      return [];
     }
-    query = query.where('o.shift_log_id', 'in', logIds);
 
-    const rows = await query
+    // Hold queue: all REJECTED for this mill/sub-process (any shift/date).
+    const rejectedRows = await base()
+      .where('o.status', '=', 'REJECTED')
       .orderBy('o.updated_at', 'desc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
-    return rows.map((row) => ({
-      status: row.status as 'COMPLETED' | 'REJECTED',
-      batch: row,
-    }));
+    return [
+      ...completedRows.map((row) => ({
+        status: 'COMPLETED' as const,
+        batch: row,
+      })),
+      ...rejectedRows.map((row) => ({
+        status: 'REJECTED' as const,
+        batch: row,
+      })),
+    ];
   }
 
   static async allocateMachine(
@@ -1048,12 +1155,45 @@ export class SixHiService {
     }
     if (status === 'STOPPAGE') {
       await this.assertNoOpenStoppage(orderId);
-      // Resume after stoppage: reattribute to caller's active session (fix 4.3).
-      await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
-      await db.updateTable('txn.crm_order')
-        .set({ status: 'IN_PROGRESS', updated_at: new Date() })
+
+      // Combined group: resume every STOPPAGE sibling together (same session, no new prod_start_at).
+      const groupIdRow = await db.selectFrom('txn.crm_order')
+        .select('combined_group_id')
         .where('order_id', '=', orderId)
-        .execute();
+        .executeTakeFirst();
+      let resumeTargets: Array<{ order_id: string | number; batch_number: string }> = [
+        { order_id: orderId, batch_number: batchNumber },
+      ];
+      if (groupIdRow?.combined_group_id) {
+        const siblings = await this.loadCombinedGroupMembers(
+          String(groupIdRow.combined_group_id),
+          ['STOPPAGE', 'IN_PROGRESS'],
+        );
+        for (const sibling of siblings) {
+          if (sibling.status === 'STOPPAGE') {
+            await this.assertNoOpenStoppage(sibling.order_id);
+          }
+        }
+        resumeTargets = siblings.map((s) => ({
+          order_id: s.order_id,
+          batch_number: String(s.batch_number),
+        }));
+      }
+
+      await db.transaction().execute(async (trx) => {
+        for (const target of resumeTargets) {
+          await trx.updateTable('txn.crm_order')
+            .set({ status: 'IN_PROGRESS', updated_at: new Date() })
+            .where('order_id', '=', target.order_id as any)
+            .where('status', '=', 'STOPPAGE')
+            .execute();
+        }
+      });
+
+      for (const target of resumeTargets) {
+        await this.reattributeOrderToActiveShift(target.order_id, userId, machineCode);
+      }
+
       const orderShift = await db.selectFrom('txn.crm_order')
         .select('shift_code')
         .where('order_id', '=', orderId)
@@ -1064,11 +1204,14 @@ export class SixHiService {
           machineCode,
           requireCallerSession: true,
         })).shiftCode;
-      await MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
+      MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
         orderId,
         batchNumber,
         operatorId: userId,
         shiftCode: sessionShift,
+        meta: resumeTargets.length > 1
+          ? { combinedResumeBatchNumbers: resumeTargets.map((t) => t.batch_number) }
+          : undefined,
       }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
       return this.getOrder(batchNumber, userId);
     }
@@ -1167,58 +1310,136 @@ export class SixHiService {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
     }
 
-    const startedAt = new Date();
+    // Ensure every selected batch has an order row and collect current statuses.
+    type StartRow = {
+      batchNumber: string;
+      orderId: string | number;
+      status: string;
+      coilNo: string;
+      prodStartAt: Date | null;
+      combinedGroupId: string | null;
+    };
+    const startRows: StartRow[] = [];
     for (const batchNumber of uniqueBatchNumbers) {
       const orderRow = await db.selectFrom('txn.crm_order')
-        .select(['order_id', 'status', 'coil_no'])
+        .select(['order_id', 'status', 'coil_no', 'prod_start_at', 'combined_group_id'])
         .where('batch_number', '=', batchNumber)
         .executeTakeFirst();
       const orderId = orderRow?.order_id ?? await this.ensureOrder(batchNumber, userId);
-      const status = orderRow?.status ?? 'PENDING';
-
-      if (status === 'IN_PROGRESS') {
-        continue;
-      }
-      if (status !== 'PENDING' && status !== 'PREPARING') {
-        throw new Error('Only pending or preparing orders can be started together');
-      }
-
-      await db.updateTable('txn.crm_order')
-        .set({ status: 'IN_PROGRESS', prod_start_at: startedAt, updated_at: startedAt })
+      const refreshed = orderRow ?? await db.selectFrom('txn.crm_order')
+        .select(['order_id', 'status', 'coil_no', 'prod_start_at', 'combined_group_id'])
         .where('order_id', '=', orderId)
-        .execute();
+        .executeTakeFirstOrThrow();
+      startRows.push({
+        batchNumber,
+        orderId: refreshed.order_id,
+        status: refreshed.status,
+        coilNo: refreshed.coil_no,
+        prodStartAt: refreshed.prod_start_at ?? null,
+        combinedGroupId: refreshed.combined_group_id ? String(refreshed.combined_group_id) : null,
+      });
+    }
 
-      const coilNo = orderRow?.coil_no
-        ?? (await db.selectFrom('txn.crm_order').select('coil_no').where('order_id', '=', orderId).executeTakeFirstOrThrow()).coil_no;
-      await db.updateTable('coil.coil')
-        .set({ status: 'IN_PROCESS' })
-        .where('coil_no', '=', coilNo)
-        .execute();
+    const statuses = startRows.map((r) => r.status);
+    const isResume = statuses.every((s) => s === 'STOPPAGE' || s === 'IN_PROGRESS')
+      && statuses.some((s) => s === 'STOPPAGE');
+    const isFresh = statuses.every((s) => s === 'PENDING' || s === 'PREPARING' || s === 'IN_PROGRESS');
 
-      // Attribute each order to the operator's actual active shift at production start.
-      await this.reattributeOrderToActiveShift(orderId, userId, machineCode);
+    if (!isResume && !isFresh) {
+      throw new Error('Only pending, preparing, or stoppage (resume) orders can be started together');
+    }
+    if (isResume) {
+      for (const row of startRows) {
+        if (row.status === 'STOPPAGE') {
+          await this.assertNoOpenStoppage(row.orderId);
+        }
+      }
+    } else {
+      for (const row of startRows) {
+        if (row.status !== 'PENDING' && row.status !== 'PREPARING' && row.status !== 'IN_PROGRESS') {
+          throw new Error('Only pending or preparing orders can be started together');
+        }
+      }
+    }
 
+    const startedAt = new Date();
+    const existingGroupId = startRows.map((r) => r.combinedGroupId).find(Boolean) ?? null;
+    const groupId = uniqueBatchNumbers.length > 1
+      ? (existingGroupId ?? randomUUID())
+      : null;
+
+    // Atomic: all succeed or none — same prod_start_at / group stamp.
+    await db.transaction().execute(async (trx) => {
+      for (const row of startRows) {
+        if (row.status === 'IN_PROGRESS') {
+          if (groupId) {
+            await trx.updateTable('txn.crm_order')
+              .set({ combined_group_id: groupId, updated_at: startedAt })
+              .where('order_id', '=', row.orderId as any)
+              .execute();
+          }
+          continue;
+        }
+
+        if (isResume && row.status === 'STOPPAGE') {
+          await trx.updateTable('txn.crm_order')
+            .set({
+              status: 'IN_PROGRESS',
+              updated_at: startedAt,
+              ...(groupId ? { combined_group_id: groupId } : {}),
+            })
+            .where('order_id', '=', row.orderId as any)
+            .execute();
+          continue;
+        }
+
+        await trx.updateTable('txn.crm_order')
+          .set({
+            status: 'IN_PROGRESS',
+            prod_start_at: startedAt,
+            updated_at: startedAt,
+            ...(groupId ? { combined_group_id: groupId } : {}),
+          })
+          .where('order_id', '=', row.orderId as any)
+          .execute();
+
+        await trx.updateTable('coil.coil')
+          .set({ status: 'IN_PROCESS' })
+          .where('coil_no', '=', row.coilNo)
+          .execute();
+      }
+
+      if (groupId) {
+        await trx.updateTable('txn.crm_order')
+          .set({ combined_group_id: groupId })
+          .where('batch_number', 'in', uniqueBatchNumbers)
+          .execute();
+      }
+    });
+
+    // Shift attribution after the atomic status transition (same active shift for all).
+    let attributedShift: string | undefined = first.shift_code ?? undefined;
+    for (const row of startRows) {
+      if (isResume && row.status === 'IN_PROGRESS') continue;
+      await this.reattributeOrderToActiveShift(row.orderId, userId, machineCode);
       const attributed = await db.selectFrom('txn.crm_order')
         .select('shift_code')
-        .where('order_id', '=', orderId)
+        .where('order_id', '=', row.orderId as any)
         .executeTakeFirst();
-
-      MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
-        orderId,
-        batchNumber,
-        operatorId: userId,
-        shiftCode: attributed?.shift_code ?? first.shift_code,
-        meta: { combinedRunBatchNumbers: uniqueBatchNumbers },
-      }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+      if (attributed?.shift_code) attributedShift = attributed.shift_code;
     }
 
-    if (uniqueBatchNumbers.length > 1) {
-      const groupId = randomUUID();
-      await db.updateTable('txn.crm_order')
-        .set({ combined_group_id: groupId })
-        .where('batch_number', 'in', uniqueBatchNumbers)
-        .execute();
-    }
+    // One machine RUNNING_STARTED for the combined logical job.
+    MachineStateEventService.recordEvent(machineCode, 'RUNNING_STARTED', {
+      orderId: startRows[0].orderId,
+      batchNumber: startRows[0].batchNumber,
+      operatorId: userId,
+      shiftCode: attributedShift,
+      meta: {
+        combinedRunBatchNumbers: uniqueBatchNumbers,
+        combinedResume: isResume || undefined,
+      },
+    }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
 
     return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
   }
@@ -1239,16 +1460,315 @@ export class SixHiService {
     if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
       throw new Error('Only running orders can be completed');
     }
-    await this.assertNoOpenStoppage(order.order_id);
+
+    // Combined run: end the whole group together (same pattern as reject/hold cascade).
+    let targets: Array<{ batch_number: string; order_id: string | number }> = [
+      { batch_number: batchNumber, order_id: order.order_id },
+    ];
+    if (order.combined_group_id) {
+      const groupRows = await db.selectFrom('txn.crm_order')
+        .select(['batch_number', 'order_id'])
+        .where('combined_group_id', '=', order.combined_group_id)
+        .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+        .execute();
+      if (groupRows.length > 0) {
+        targets = groupRows.map((r) => ({
+          batch_number: String(r.batch_number),
+          order_id: r.order_id,
+        }));
+      }
+      // Operator enters one combined form — siblings often lack weight/passes until end.
+      await this.syncCombinedGroupProductionData(
+        String(order.combined_group_id),
+        batchNumber,
+        userId,
+      );
+    }
+
+    // Validate every target before writing any completion.
+    for (const target of targets) {
+      await this.assertNoOpenStoppage(target.order_id);
+      const missing = await this.getEndProductionMissingFieldsForOrder(String(target.order_id));
+      if (missing.length > 0) {
+        throw new Error(
+          targets.length > 1
+            ? `Combined end blocked — ${target.batch_number} missing: ${missing.join(', ')}`
+            : `Mandatory production data missing: ${missing.join(', ')}`,
+        );
+      }
+    }
 
     const endAt = new Date();
-    let durationMin: number | null = null;
-    if (order.prod_start_at) {
-      const totalStoppageMin = await this.totalStoppageMinutes(order.order_id, endAt);
-      const wallMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
-      durationMin = Math.max(0, wallMin - totalStoppageMin);
-      await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
+    await db.transaction().execute(async (trx) => {
+      for (const target of targets) {
+        await this.completeSingleOrder(
+          String(target.batch_number),
+          target.order_id,
+          userId,
+          defectCodes,
+          endAt,
+          machineCode,
+          batchPre?.shift_code ?? undefined,
+          /* emitMachineIdle */ false,
+          trx as any,
+        );
+      }
+    });
+
+    // Shift production cache refresh after atomic completion (outside txn).
+    for (const target of targets) {
+      await this.refreshShiftProductionFromOrder(String(target.order_id));
     }
+
+    // One machine IDLE after the whole combined group completes.
+    MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', {
+      orderId: order.order_id,
+      batchNumber,
+      operatorId: userId,
+      shiftCode: batchPre?.shift_code ?? undefined,
+      meta: targets.length > 1
+        ? { combinedEndBatchNumbers: targets.map((t) => t.batch_number) }
+        : undefined,
+    }).then(() =>
+      MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED', {
+        operatorId: userId,
+        shiftCode: batchPre?.shift_code ?? undefined,
+      }),
+    ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
+
+    return this.getOrder(batchNumber, userId);
+  }
+
+  /**
+   * Before combined end: copy recipe fields (passes/destination/thickness) from the
+   * best-complete sibling and allocate combined actual weight across the group.
+   * Fixes parked ends where only the primary order was filled in the UI.
+   */
+  private static async syncCombinedGroupProductionData(
+    combinedGroupId: string,
+    preferredBatchNumber: string,
+    userId: number,
+  ): Promise<void> {
+    const members = await db.selectFrom('txn.crm_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'o.order_id',
+        'o.batch_number',
+        'o.sub_process',
+        'pb.ppc_weight_mt',
+      ])
+      .where('o.combined_group_id', '=', combinedGroupId)
+      .where('o.status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+      .execute();
+    if (members.length <= 1) return;
+
+    const subProcess = members[0].sub_process as 'ROLLING' | 'SKIN_PASS';
+    const targets = members.map((m) => ({
+      batchNumber: String(m.batch_number),
+      targetMt: Number(m.ppc_weight_mt ?? 0),
+      orderId: m.order_id,
+    }));
+
+    if (subProcess === 'ROLLING') {
+      type RollingSnap = {
+        batchNumber: string;
+        orderId: string | number;
+        actualWeightMt: number | null;
+        destination: string | null;
+        destinationOverride: boolean | null;
+        associateRw: string | null;
+        etr: number | null;
+        dtr: number | null;
+        finalThkMm: number | null;
+        passes: Array<{ passNo: number; thicknessMm: number }>;
+      };
+
+      const snaps: RollingSnap[] = [];
+      for (const m of targets) {
+        const rolling = await db.selectFrom('txn.crm_rolling')
+          .select([
+            'actual_weight_mt',
+            'destination',
+            'destination_override',
+            'associate_rw',
+            'etr',
+            'dtr',
+            'final_thk_mm',
+          ])
+          .where('order_id', '=', m.orderId as any)
+          .executeTakeFirst();
+        const passes = await db.selectFrom('txn.crm_rolling_pass')
+          .select(['pass_no', 'thickness_mm'])
+          .where('order_id', '=', m.orderId as any)
+          .orderBy('pass_no', 'asc')
+          .execute();
+        snaps.push({
+          batchNumber: m.batchNumber,
+          orderId: m.orderId,
+          actualWeightMt: rolling?.actual_weight_mt != null ? Number(rolling.actual_weight_mt) : null,
+          destination: rolling?.destination ?? null,
+          destinationOverride: rolling?.destination_override ?? null,
+          associateRw: rolling?.associate_rw ?? null,
+          etr: rolling?.etr != null ? Number(rolling.etr) : null,
+          dtr: rolling?.dtr != null ? Number(rolling.dtr) : null,
+          finalThkMm: rolling?.final_thk_mm != null ? Number(rolling.final_thk_mm) : null,
+          passes: passes.map((p) => ({
+            passNo: Number(p.pass_no),
+            thicknessMm: Number(p.thickness_mm),
+          })),
+        });
+      }
+
+      const preferred = snaps.find((s) => s.batchNumber === preferredBatchNumber);
+      const source = [preferred, ...snaps]
+        .filter(Boolean)
+        .find((s) => s && s.passes.length > 0 && s.destination)
+        ?? snaps.find((s) => s.passes.length > 0)
+        ?? preferred
+        ?? snaps[0];
+      if (!source) return;
+
+      // If only one (or equal) weight exists, treat as combined total and allocate.
+      const nonNullWeights = snaps.filter((s) => s.actualWeightMt != null).length;
+      const needsWeightSync = snaps.some((s) => s.actualWeightMt == null)
+        || nonNullWeights === 1
+        || snaps.every((s) => s.actualWeightMt != null && s.actualWeightMt === snaps[0].actualWeightMt);
+      const combinedActual = resolveCombinedActualMt(snaps.map((s) => s.actualWeightMt));
+      const allocation = combinedActual != null && needsWeightSync
+        ? allocateCombinedWeight(
+          targets.map((t) => ({ batchNumber: t.batchNumber, targetMt: t.targetMt })),
+          combinedActual,
+        )
+        : null;
+
+      for (const snap of snaps) {
+        const missingPasses = snap.passes.length === 0 && source.passes.length > 0;
+        const missingDest = !snap.destination && !!source.destination;
+        const allocated = allocation?.get(snap.batchNumber);
+        const needsWeight = allocated != null
+          && (snap.actualWeightMt == null || needsWeightSync);
+
+        if (!missingPasses && !missingDest && !needsWeight) continue;
+
+        const destination = (missingDest ? source.destination : snap.destination)
+          ?? source.destination;
+        if (!destination) continue;
+        const passes = missingPasses ? source.passes : snap.passes;
+        if (passes.length === 0) continue;
+
+        const data: SixHiRollingData = {
+          actualWeightMt: needsWeight ? allocated! : (snap.actualWeightMt ?? undefined),
+          destination: destination as SixHiRollingData['destination'],
+          destinationOverride: Boolean(
+            (missingDest ? source.destinationOverride : snap.destinationOverride)
+              ?? source.destinationOverride
+              ?? false,
+          ),
+          associateRw: snap.associateRw ?? source.associateRw ?? undefined,
+          etr: snap.etr ?? source.etr ?? undefined,
+          dtr: snap.dtr ?? source.dtr ?? undefined,
+          finalThkMm: snap.finalThkMm ?? source.finalThkMm ?? undefined,
+          passes,
+          totalPasses: passes.length,
+        };
+        await this.updateRolling(snap.batchNumber, data, userId, { skipCombinedSync: true });
+      }
+      return;
+    }
+
+    // SKIN_PASS
+    type SkinSnap = {
+      batchNumber: string;
+      orderId: string | number;
+      actualWeightMt: number | null;
+      outputThkMm: number | null;
+      annHard: number | null;
+      rwTension1: number | null;
+      rwTension2: number | null;
+      operatingMode: string | null;
+      loadMinT: number | null;
+      loadMaxT: number | null;
+      stretchPct: number | null;
+    };
+    const snaps: SkinSnap[] = [];
+    for (const m of targets) {
+      const skin = await db.selectFrom('txn.crm_skinpass')
+        .select([
+          'actual_weight_mt',
+          'output_thk_mm',
+          'ann_hard',
+          'rw_tension_1',
+          'rw_tension_2',
+          'operating_mode',
+          'load_min_t',
+          'load_max_t',
+          'stretch_pct',
+        ])
+        .where('order_id', '=', m.orderId as any)
+        .executeTakeFirst();
+      snaps.push({
+        batchNumber: m.batchNumber,
+        orderId: m.orderId,
+        actualWeightMt: skin?.actual_weight_mt != null ? Number(skin.actual_weight_mt) : null,
+        outputThkMm: skin?.output_thk_mm != null ? Number(skin.output_thk_mm) : null,
+        annHard: skin?.ann_hard != null ? Number(skin.ann_hard) : null,
+        rwTension1: skin?.rw_tension_1 != null ? Number(skin.rw_tension_1) : null,
+        rwTension2: skin?.rw_tension_2 != null ? Number(skin.rw_tension_2) : null,
+        operatingMode: skin?.operating_mode ?? null,
+        loadMinT: skin?.load_min_t != null ? Number(skin.load_min_t) : null,
+        loadMaxT: skin?.load_max_t != null ? Number(skin.load_max_t) : null,
+        stretchPct: skin?.stretch_pct != null ? Number(skin.stretch_pct) : null,
+      });
+    }
+
+    const preferred = snaps.find((s) => s.batchNumber === preferredBatchNumber);
+    const source = [preferred, ...snaps]
+      .filter(Boolean)
+      .find((s) => s && s.outputThkMm != null && s.actualWeightMt != null)
+      ?? snaps.find((s) => s.outputThkMm != null)
+      ?? preferred
+      ?? snaps[0];
+    if (!source) return;
+
+    const nonNullWeights = snaps.filter((s) => s.actualWeightMt != null).length;
+    const needsWeightSync = snaps.some((s) => s.actualWeightMt == null)
+      || nonNullWeights === 1
+      || snaps.every((s) => s.actualWeightMt != null && s.actualWeightMt === snaps[0].actualWeightMt);
+    const combinedActual = resolveCombinedActualMt(snaps.map((s) => s.actualWeightMt));
+    const allocation = combinedActual != null && needsWeightSync
+      ? allocateCombinedWeight(
+        targets.map((t) => ({ batchNumber: t.batchNumber, targetMt: t.targetMt })),
+        combinedActual,
+      )
+      : null;
+
+    for (const snap of snaps) {
+      const missingThk = snap.outputThkMm == null && source.outputThkMm != null;
+      const allocated = allocation?.get(snap.batchNumber);
+      const needsWeight = allocated != null
+        && (snap.actualWeightMt == null || needsWeightSync);
+      if (!missingThk && !needsWeight) continue;
+
+      const data: SixHiSkinPassData = {
+        actualWeightMt: needsWeight ? allocated! : (snap.actualWeightMt ?? undefined),
+        outputThkMm: missingThk ? source.outputThkMm! : (snap.outputThkMm ?? undefined),
+        annHard: snap.annHard ?? source.annHard ?? undefined,
+        rwTension1: snap.rwTension1 ?? source.rwTension1 ?? undefined,
+        rwTension2: snap.rwTension2 ?? source.rwTension2 ?? undefined,
+        operatingMode: (snap.operatingMode ?? source.operatingMode ?? undefined) as SixHiSkinPassData['operatingMode'],
+        loadMinT: snap.loadMinT ?? source.loadMinT ?? undefined,
+        loadMaxT: snap.loadMaxT ?? source.loadMaxT ?? undefined,
+        stretchPct: snap.stretchPct ?? source.stretchPct ?? undefined,
+      };
+      await this.updateSkinPass(snap.batchNumber, data, userId, { skipCombinedSync: true });
+    }
+  }
+
+  private static async getEndProductionMissingFieldsForOrder(orderId: string): Promise<string[]> {
+    const order = await db.selectFrom('txn.crm_order')
+      .select(['order_id', 'sub_process'])
+      .where('order_id', '=', orderId as any)
+      .executeTakeFirstOrThrow();
     const rolling = await db.selectFrom('txn.crm_rolling')
       .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
       .where('order_id', '=', order.order_id)
@@ -1263,7 +1783,7 @@ export class SixHiService {
       .execute();
 
     const { getEndProductionMissingFields } = await import('@m1/shared-validation');
-    const missingFields = getEndProductionMissingFields({
+    return getEndProductionMissingFields({
       subProcess: order.sub_process as 'ROLLING' | 'SKIN_PASS',
       rolling: rolling
         ? {
@@ -1279,16 +1799,47 @@ export class SixHiService {
           }
         : null,
     });
-    if (missingFields.length > 0) {
-      throw new Error(`Mandatory production data missing: ${missingFields.join(', ')}`);
+  }
+
+  /** Complete one CRM order. Combined end loops this for every group member. */
+  private static async completeSingleOrder(
+    batchNumber: string,
+    orderId: string | number,
+    userId: number,
+    defectCodes: string[] | undefined,
+    endAt: Date,
+    machineCode: string,
+    shiftCode: string | undefined,
+    emitMachineIdle: boolean,
+    trx: typeof db = db,
+  ) {
+    const order = await trx.selectFrom('txn.crm_order').selectAll()
+      .where('order_id', '=', orderId as any)
+      .executeTakeFirstOrThrow();
+    if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
+      return;
     }
 
-    const isCompleted = true;
-    const newStatus = 'COMPLETED';
+    let durationMin: number | null = null;
+    if (order.prod_start_at) {
+      const totalStoppageMin = await this.totalStoppageMinutes(order.order_id, endAt);
+      const wallMin = Math.round((endAt.getTime() - order.prod_start_at.getTime()) / 60000);
+      durationMin = Math.max(0, wallMin - totalStoppageMin);
+      await assertOrderRuntimeAccounting(order.order_id, durationMin, totalStoppageMin);
+    }
 
-    await db.updateTable('txn.crm_order')
+    const rolling = await trx.selectFrom('txn.crm_rolling')
+      .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+    const skinpass = await trx.selectFrom('txn.crm_skinpass')
+      .select(['actual_weight_mt', 'output_thk_mm'])
+      .where('order_id', '=', order.order_id)
+      .executeTakeFirst();
+
+    await trx.updateTable('txn.crm_order')
       .set({
-        status: newStatus,
+        status: 'COMPLETED',
         prod_end_at: endAt,
         prod_duration_min: durationMin,
         updated_at: endAt,
@@ -1297,77 +1848,72 @@ export class SixHiService {
       .execute();
 
     if (defectCodes && defectCodes.length > 0) {
-      await db.insertInto('txn.order_remark')
+      await trx.insertInto('txn.order_remark')
         .values({
           order_id: order.order_id,
-          text: `Minor defects logged during production ${isCompleted ? 'completion' : 'pause'}`,
+          text: 'Minor defects logged during production completion',
           defect_codes: JSON.stringify(defectCodes),
           operator_id: userId,
         })
         .execute();
-      
+
       for (const defectCode of defectCodes) {
         MachineStateEventService.recordEvent(machineCode, 'DEFECT_REPORTED', {
           orderId: order.order_id,
           batchNumber,
           operatorId: userId,
-          shiftCode: batchPre?.shift_code ?? undefined,
+          shiftCode,
           categoryCode: defectCode,
-          reason: `Minor defect logged at ${isCompleted ? 'completion' : 'pause'}`,
+          reason: 'Minor defect logged at completion',
         }).catch((err) => console.error('[MachineStateEvent] DEFECT_REPORTED failed:', err));
       }
     }
 
-    if (isCompleted) {
-      const batch = await db.selectFrom('planning.ppc_batch')
-        .select(['customer_name', 'grade_code', 'width_mm', 'shift_code', 'process_route_raw'])
-        .where('batch_id', '=', order.batch_id)
-        .executeTakeFirst();
-
-      const completionPayload = {
-        outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
-        actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
-        destination: rolling?.destination ?? undefined,
-        gradeCode: batch?.grade_code,
-        widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
-        customerName: batch?.customer_name,
-        shiftCode: batch?.shift_code,
-      };
-
-      if (batch?.process_route_raw) {
-        await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
-      } else {
-        const nextDest = order.sub_process === 'SKIN_PASS'
-          ? 'CTL'
-          : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
-        await db.updateTable('coil.coil')
-          .set({ status: 'DONE', next_dest: nextDest })
-          .where('coil_no', '=', order.coil_no)
-          .execute();
-      }
-    }
-
-    // Persist machine state event: RUNNING_ENDED → IDLE_STARTED
-    const ppcForMachine = await db.selectFrom('planning.ppc_batch')
-      .select(['machine_code', 'shift_code'])
+    const batch = await trx.selectFrom('planning.ppc_batch')
+      .select(['customer_name', 'grade_code', 'width_mm', 'shift_code', 'process_route_raw'])
       .where('batch_id', '=', order.batch_id)
       .executeTakeFirst();
-    if (ppcForMachine) {
-      MachineStateEventService.recordEvent(ppcForMachine.machine_code, 'RUNNING_ENDED', {
+
+    const completionPayload = {
+      outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
+      actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
+      destination: rolling?.destination ?? undefined,
+      gradeCode: batch?.grade_code,
+      widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
+      customerName: batch?.customer_name,
+      shiftCode: batch?.shift_code,
+    };
+
+    if (batch?.process_route_raw) {
+      await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
+    } else {
+      const nextDest = order.sub_process === 'SKIN_PASS'
+        ? 'CTL'
+        : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
+      await trx.updateTable('coil.coil')
+        .set({ status: 'DONE', next_dest: nextDest })
+        .where('coil_no', '=', order.coil_no)
+        .execute();
+    }
+
+    if (emitMachineIdle) {
+      MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', {
         orderId: order.order_id,
         batchNumber: order.batch_number,
         operatorId: order.logged_in_user_id ?? undefined,
-        shiftCode: ppcForMachine.shift_code,
+        shiftCode: batch?.shift_code ?? shiftCode,
       }).then(() =>
-        MachineStateEventService.recordEvent(ppcForMachine.machine_code, 'IDLE_STARTED', {
+        MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED', {
           operatorId: order.logged_in_user_id ?? undefined,
-          shiftCode: ppcForMachine.shift_code,
+          shiftCode: batch?.shift_code ?? shiftCode,
         }),
       ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
     }
 
-    await this.refreshShiftProductionFromOrder(String(order.order_id));
-    return this.getOrder(batchNumber, userId);
+    // Combined end refreshes shift cache once after the outer transaction commits.
+    if (trx === db) {
+      await this.refreshShiftProductionFromOrder(String(order.order_id));
+    }
   }
 
   static async getEffectiveRuleset() {
@@ -1377,7 +1923,12 @@ export class SixHiService {
     return computeEffectiveRuleset(rules, version);
   }
 
-  static async updateRolling(batchNumber: string, data: SixHiRollingData, userId: number) {
+  static async updateRolling(
+    batchNumber: string,
+    data: SixHiRollingData,
+    userId: number,
+    opts?: { skipCombinedSync?: boolean },
+  ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
 
@@ -1416,10 +1967,26 @@ export class SixHiService {
 
     await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
     await this.refreshShiftProductionFromOrder(orderId);
+
+    if (!opts?.skipCombinedSync) {
+      const group = await db.selectFrom('txn.crm_order')
+        .select('combined_group_id')
+        .where('order_id', '=', orderId)
+        .executeTakeFirst();
+      if (group?.combined_group_id) {
+        await this.syncCombinedGroupProductionData(String(group.combined_group_id), batchNumber, userId);
+      }
+    }
+
     return this.getOrder(batchNumber, userId);
   }
 
-  static async updateSkinPass(batchNumber: string, data: SixHiSkinPassData, userId: number) {
+  static async updateSkinPass(
+    batchNumber: string,
+    data: SixHiSkinPassData,
+    userId: number,
+    opts?: { skipCombinedSync?: boolean },
+  ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
 
@@ -1445,13 +2012,24 @@ export class SixHiService {
       .execute();
     await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
     await this.refreshShiftProductionFromOrder(orderId);
+
+    if (!opts?.skipCombinedSync) {
+      const group = await db.selectFrom('txn.crm_order')
+        .select('combined_group_id')
+        .where('order_id', '=', orderId)
+        .executeTakeFirst();
+      if (group?.combined_group_id) {
+        await this.syncCombinedGroupProductionData(String(group.combined_group_id), batchNumber, userId);
+      }
+    }
+
     return this.getOrder(batchNumber, userId);
   }
 
   static async addStoppage(batchNumber: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     const orderRow = await db.selectFrom('txn.crm_order')
-      .select(['status'])
+      .select(['status', 'combined_group_id', 'order_id', 'batch_number'])
       .where('order_id', '=', orderId)
       .executeTakeFirstOrThrow();
 
@@ -1459,46 +2037,89 @@ export class SixHiService {
       throw new Error('Stoppage can only be recorded while production is running');
     }
 
-    await assertCanStartOrderStoppage(orderId);
-
-    const startAt = new Date();
-    await validateOrderStoppageStart(orderId, startAt);
-
-    const orderMeta = await db.selectFrom('txn.crm_order')
-      .select(['shift_log_id', 'shift_code', 'prod_date'])
-      .where('order_id', '=', orderId)
-      .executeTakeFirst();
-    let shiftLogId = orderMeta?.shift_log_id != null ? String(orderMeta.shift_log_id) : null;
-    let shiftCode = orderMeta?.shift_code ?? null;
-    let prodDate: string | Date | null = orderMeta?.prod_date ?? null;
-    if (!shiftLogId) {
-      const processId = await this.getProcessId();
-      const resolved = await ShiftDetectionService.resolveShift({
-        userId,
-        processId,
-        orderId: String(orderId),
-      });
-      shiftLogId = resolved.shiftLogId;
-      shiftCode = resolved.shiftCode;
-      prodDate = postgresDateOnly(resolved.prodDate);
+    // Expand to every running combined sibling — one logical stoppage for the group.
+    let targets: Array<{ order_id: string | number; batch_number: string; status: string }> = [
+      { order_id: orderId, batch_number: batchNumber, status: orderRow.status },
+    ];
+    if (orderRow.combined_group_id) {
+      const members = await this.loadCombinedGroupMembers(
+        String(orderRow.combined_group_id),
+        ['IN_PROGRESS', 'STOPPAGE'],
+      );
+      targets = members.map((m) => ({
+        order_id: m.order_id,
+        batch_number: String(m.batch_number),
+        status: m.status,
+      }));
     }
 
-    await db.insertInto('txn.stoppage')
-      .values({
-        order_id: orderId,
-        category_code: categoryCode,
-        breakdown_code: breakdownCode ?? null,
-        remarks: remarks ?? null,
-        operator_id: userId,
-        start_at: startAt,
-        shift_log_id: shiftLogId,
-        shift_code: shiftCode,
-        prod_date: prodDate != null ? postgresDateOnly(prodDate) : null,
-      } as any)
-      .execute();
-    await db.updateTable('txn.crm_order').set({ status: 'STOPPAGE', updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    // Skip members that already have an open stoppage (idempotent for retries).
+    const eligible: typeof targets = [];
+    for (const target of targets) {
+      const open = await db.selectFrom('txn.stoppage')
+        .select('stoppage_id')
+        .where('order_id', '=', target.order_id as any)
+        .where('end_at', 'is', null)
+        .executeTakeFirst();
+      if (!open) {
+        if (target.status !== 'IN_PROGRESS' && target.status !== 'STOPPAGE') {
+          throw new Error(`Stoppage blocked — ${target.batch_number} is not running`);
+        }
+        await assertCanStartOrderStoppage(target.order_id);
+        eligible.push(target);
+      }
+    }
+    if (eligible.length === 0) {
+      return this.getOrder(batchNumber, userId);
+    }
 
-    // Persist machine state event: RUNNING_ENDED → STOPPAGE_STARTED
+    const startAt = new Date();
+    for (const target of eligible) {
+      await validateOrderStoppageStart(target.order_id, startAt);
+    }
+
+    await db.transaction().execute(async (trx) => {
+      for (const target of eligible) {
+        const orderMeta = await trx.selectFrom('txn.crm_order')
+          .select(['shift_log_id', 'shift_code', 'prod_date'])
+          .where('order_id', '=', target.order_id as any)
+          .executeTakeFirst();
+        let shiftLogId = orderMeta?.shift_log_id != null ? String(orderMeta.shift_log_id) : null;
+        let shiftCode = orderMeta?.shift_code ?? null;
+        let prodDate: string | Date | null = orderMeta?.prod_date ?? null;
+        if (!shiftLogId) {
+          const processId = await this.getProcessId();
+          const resolved = await ShiftDetectionService.resolveShift({
+            userId,
+            processId,
+            orderId: String(target.order_id),
+          });
+          shiftLogId = resolved.shiftLogId;
+          shiftCode = resolved.shiftCode;
+          prodDate = postgresDateOnly(resolved.prodDate);
+        }
+
+        await trx.insertInto('txn.stoppage')
+          .values({
+            order_id: target.order_id as any,
+            category_code: categoryCode,
+            breakdown_code: breakdownCode ?? null,
+            remarks: remarks ?? null,
+            operator_id: userId,
+            start_at: startAt,
+            shift_log_id: shiftLogId,
+            shift_code: shiftCode,
+            prod_date: prodDate != null ? postgresDateOnly(prodDate) : null,
+          } as any)
+          .execute();
+        await trx.updateTable('txn.crm_order')
+          .set({ status: 'STOPPAGE', updated_at: startAt })
+          .where('order_id', '=', target.order_id as any)
+          .execute();
+      }
+    });
+
+    // One machine stoppage event for the logical combined job.
     const ppc = await db.selectFrom('planning.ppc_batch').select(['machine_code', 'shift_code']).where('batch_number', '=', batchNumber).executeTakeFirst();
     if (ppc) {
       MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_STARTED', {
@@ -1508,6 +2129,9 @@ export class SixHiService {
         shiftCode: ppc.shift_code,
         categoryCode,
         reason: remarks ?? categoryCode,
+        meta: eligible.length > 1
+          ? { combinedStoppageBatchNumbers: eligible.map((t) => t.batch_number) }
+          : undefined,
       }).catch((err) => console.error('[MachineStateEvent] STOPPAGE_STARTED failed:', err));
     }
 
@@ -1515,73 +2139,140 @@ export class SixHiService {
   }
 
   static async updateStoppage(batchNumber: string, stoppageId: string, categoryCode: string, breakdownCode: string | undefined, remarks: string | undefined, userId: number) {
-    const orderId = await this.ensureOrder(batchNumber, userId);
-    await db.updateTable('txn.stoppage')
-      .set({
-        category_code: categoryCode,
-        breakdown_code: breakdownCode ?? null,
-        remarks: remarks ?? null,
-      })
-      .where('order_id', '=', orderId)
-      .where('stoppage_id', '=', stoppageId)
-      .execute();
+    await this.ensureOrder(batchNumber, userId);
+    const { targets, combinedGroupId } = await this.resolveCombinedLifecycleTargets(
+      batchNumber,
+      ['IN_PROGRESS', 'STOPPAGE'],
+    );
+
+    await db.transaction().execute(async (trx) => {
+      if (!combinedGroupId) {
+        await trx.updateTable('txn.stoppage')
+          .set({
+            category_code: categoryCode,
+            breakdown_code: breakdownCode ?? null,
+            remarks: remarks ?? null,
+          })
+          .where('order_id', '=', targets[0].order_id as any)
+          .where('stoppage_id', '=', stoppageId)
+          .execute();
+        return;
+      }
+
+      for (const target of targets) {
+        const open = await trx.selectFrom('txn.stoppage')
+          .select('stoppage_id')
+          .where('order_id', '=', target.order_id as any)
+          .where('end_at', 'is', null)
+          .executeTakeFirst();
+        if (!open) continue;
+        await trx.updateTable('txn.stoppage')
+          .set({
+            category_code: categoryCode,
+            breakdown_code: breakdownCode ?? null,
+            remarks: remarks ?? null,
+          })
+          .where('stoppage_id', '=', open.stoppage_id)
+          .execute();
+      }
+    });
     return this.getOrder(batchNumber, userId);
   }
 
   static async endStoppage(batchNumber: string, stoppageId: string, userId: number) {
     await this.ensureOrder(batchNumber, userId);
-    const order = await db.selectFrom('txn.crm_order')
-      .select(['order_id', 'logged_in_user_id', 'prod_start_at'])
-      .where('batch_number', '=', batchNumber)
-      .executeTakeFirstOrThrow();
-    const stop = await db.selectFrom('txn.stoppage')
+    const { targets, combinedGroupId } = await this.resolveCombinedLifecycleTargets(
+      batchNumber,
+      ['IN_PROGRESS', 'STOPPAGE'],
+    );
+
+    const primary = targets.find((t) => t.batch_number === batchNumber) ?? targets[0];
+    const primaryStop = await db.selectFrom('txn.stoppage')
       .selectAll()
       .where('stoppage_id', '=', stoppageId)
       .executeTakeFirstOrThrow();
-
-    if (String(stop.order_id) !== String(order.order_id)) {
+    if (String(primaryStop.order_id) !== String(primary.order_id) && !combinedGroupId) {
       throw new Error('Stoppage does not belong to this order');
     }
-    if (stop.end_at) {
+    if (primaryStop.end_at && !combinedGroupId) {
       return this.getOrder(batchNumber, userId);
     }
 
     const endAt = new Date();
-    await validateOrderStoppageInterval(order.order_id, stop.start_at, endAt, stoppageId);
-    const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
-    await db.updateTable('txn.stoppage')
-      .set({ end_at: endAt, duration_min: durationMin })
-      .where('stoppage_id', '=', stoppageId)
-      .execute();
-    const openCount = await db.selectFrom('txn.stoppage')
-      .select(db.fn.count('stoppage_id').as('c'))
-      .where('order_id', '=', order.order_id)
-      .where('end_at', 'is', null)
-      .executeTakeFirst();
-    const resumingToRunning = !!order.prod_start_at;
-    if (Number(openCount?.c ?? 0) === 0) {
-      await db.updateTable('txn.crm_order')
-        .set({ status: resumingToRunning ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
-        .where('order_id', '=', order.order_id)
-        .execute();
+
+    // Collect open stoppages for every group member (or the single primary).
+    const openStops: Array<{
+      order_id: string | number;
+      batch_number: string;
+      stoppage_id: string | number;
+      start_at: Date;
+      prod_start_at: Date | null;
+    }> = [];
+
+    for (const target of targets) {
+      const open = await db.selectFrom('txn.stoppage')
+        .select(['stoppage_id', 'start_at', 'end_at'])
+        .where('order_id', '=', target.order_id as any)
+        .where('end_at', 'is', null)
+        .executeTakeFirst();
+      if (!open) continue;
+      await validateOrderStoppageInterval(target.order_id, open.start_at, endAt, String(open.stoppage_id));
+      openStops.push({
+        order_id: target.order_id,
+        batch_number: target.batch_number,
+        stoppage_id: open.stoppage_id,
+        start_at: open.start_at,
+        prod_start_at: target.prod_start_at,
+      });
     }
+
+    if (openStops.length === 0) {
+      return this.getOrder(batchNumber, userId);
+    }
+
+    await db.transaction().execute(async (trx) => {
+      for (const stop of openStops) {
+        const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
+        await trx.updateTable('txn.stoppage')
+          .set({ end_at: endAt, duration_min: durationMin })
+          .where('stoppage_id', '=', stop.stoppage_id as any)
+          .execute();
+
+        const stillOpen = await trx.selectFrom('txn.stoppage')
+          .select(db.fn.count('stoppage_id').as('c'))
+          .where('order_id', '=', stop.order_id as any)
+          .where('end_at', 'is', null)
+          .executeTakeFirst();
+        if (Number(stillOpen?.c ?? 0) === 0) {
+          const resumingToRunning = !!stop.prod_start_at;
+          await trx.updateTable('txn.crm_order')
+            .set({ status: resumingToRunning ? 'IN_PROGRESS' : 'PENDING', updated_at: endAt })
+            .where('order_id', '=', stop.order_id as any)
+            .execute();
+        }
+      }
+    });
 
     const ppc = await db.selectFrom('planning.ppc_batch')
       .select(['machine_code', 'shift_code'])
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
-    if (ppc && Number(openCount?.c ?? 0) === 0) {
+    const anyResuming = openStops.some((s) => !!s.prod_start_at);
+    if (ppc) {
       try {
         await MachineStateEventService.recordEvent(ppc.machine_code, 'STOPPAGE_ENDED', {
-          orderId: order.order_id,
+          orderId: primary.order_id,
           batchNumber,
           operatorId: userId,
           shiftCode: ppc.shift_code,
+          meta: openStops.length > 1
+            ? { combinedResumeBatchNumbers: openStops.map((s) => s.batch_number) }
+            : undefined,
         });
-        const nextEvent = resumingToRunning ? 'RUNNING_STARTED' : 'IDLE_STARTED';
+        const nextEvent = anyResuming ? 'RUNNING_STARTED' : 'IDLE_STARTED';
         await MachineStateEventService.recordEvent(ppc.machine_code, nextEvent, {
-          orderId: resumingToRunning ? order.order_id : undefined,
-          batchNumber: resumingToRunning ? batchNumber : undefined,
+          orderId: anyResuming ? primary.order_id : undefined,
+          batchNumber: anyResuming ? batchNumber : undefined,
           operatorId: userId,
           shiftCode: ppc.shift_code,
         });
@@ -1601,14 +2292,24 @@ export class SixHiService {
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6DefectQuantities(orderId, defects);
-    await db.insertInto('txn.order_remark')
-      .values({
-        order_id: orderId,
-        text,
-        operator_id: userId,
-        defect_codes: defects?.length ? JSON.stringify(defects) : null,
-      })
-      .execute();
+
+    const { targets } = await this.resolveCombinedLifecycleTargets(batchNumber);
+
+    const defectJson = defects?.length ? JSON.stringify(defects) : null;
+    const stampedAt = new Date();
+    await db.transaction().execute(async (trx) => {
+      for (const target of targets) {
+        await trx.insertInto('txn.order_remark')
+          .values({
+            order_id: target.order_id as any,
+            text,
+            operator_id: userId,
+            defect_codes: defectJson,
+            created_at: stampedAt,
+          } as any)
+          .execute();
+      }
+    });
     return this.getOrder(batchNumber, userId);
   }
 
@@ -2026,17 +2727,20 @@ export class SixHiService {
       throw new Error('Order is not on hold');
     }
 
-    for (const t of targets) {
-      await this.reinstateSingleOrder(
-        String(t.batch_number),
-        String(t.order_id),
-        t.coil_no ?? batch.coil_no,
-        batch.machine_code,
-        batch.shift_code,
-        userId,
-        target,
-      );
-    }
+    await db.transaction().execute(async (trx) => {
+      for (const t of targets) {
+        await this.reinstateSingleOrder(
+          String(t.batch_number),
+          String(t.order_id),
+          t.coil_no ?? batch.coil_no,
+          batch.machine_code,
+          batch.shift_code,
+          userId,
+          target,
+          trx as any,
+        );
+      }
+    });
 
     return this.getOrder(batchNumber, userId);
   }
@@ -2049,20 +2753,21 @@ export class SixHiService {
     shiftCode: string | null | undefined,
     userId: number,
     target: 'PREPARING' | 'PENDING',
+    trx: typeof db = db,
   ) {
-    const latestRejection = await db.selectFrom('txn.order_rejection')
+    const latestRejection = await trx.selectFrom('txn.order_rejection')
       .select('rejection_id')
       .where('order_id', '=', orderId as any)
       .orderBy('created_at', 'desc')
       .executeTakeFirst();
 
     if (latestRejection) {
-      await db.deleteFrom('txn.order_rejection')
+      await trx.deleteFrom('txn.order_rejection')
         .where('rejection_id', '=', latestRejection.rejection_id)
         .execute();
     }
 
-    await db.updateTable('txn.crm_order')
+    await trx.updateTable('txn.crm_order')
       .set({
         status: target,
         prod_end_at: null,
@@ -2072,7 +2777,7 @@ export class SixHiService {
       .execute();
 
     if (coilNo) {
-      await db.updateTable('coil.coil')
+      await trx.updateTable('coil.coil')
         .set({ status: 'PLANNED' })
         .where('coil_no', '=', coilNo)
         .execute();
@@ -2292,28 +2997,40 @@ export class SixHiService {
     reasonText: string | undefined,
     userId: number,
   ) {
-    const orderId = await this.ensureOrder(batchNumber, userId);
-    const rolling = await db.selectFrom('txn.crm_rolling').selectAll().where('order_id', '=', orderId).executeTakeFirst();
-    const prevNo = rollPosition === 'IN' ? rolling?.roll_in_no : rolling?.roll_out_no;
-    const prevCode = rollPosition === 'IN' ? rolling?.roll_in_code : rolling?.roll_out_code;
+    await this.ensureOrder(batchNumber, userId);
+    const { targets } = await this.resolveCombinedLifecycleTargets(
+      batchNumber,
+      ['IN_PROGRESS', 'STOPPAGE', 'PENDING', 'PREPARING', 'COMPLETED'],
+    );
 
-    await db.insertInto('txn.crm_roll_change')
-      .values({
-        order_id: orderId,
-        roll_position: rollPosition,
-        prev_roll_no: prevNo,
-        prev_roll_code: prevCode,
-        new_roll_no: newRollNo,
-        new_roll_code: newRollCode ?? null,
-        reason_text: reasonText ?? null,
-        operator_id: userId,
-      })
-      .execute();
+    await db.transaction().execute(async (trx) => {
+      for (const target of targets) {
+        const rolling = await trx.selectFrom('txn.crm_rolling')
+          .selectAll()
+          .where('order_id', '=', target.order_id as any)
+          .executeTakeFirst();
+        const prevNo = rollPosition === 'IN' ? rolling?.roll_in_no : rolling?.roll_out_no;
+        const prevCode = rollPosition === 'IN' ? rolling?.roll_in_code : rolling?.roll_out_code;
 
-    const patch = rollPosition === 'IN'
-      ? { roll_in_no: newRollNo, roll_in_code: newRollCode ?? null }
-      : { roll_out_no: newRollNo, roll_out_code: newRollCode ?? null };
-    await db.updateTable('txn.crm_rolling').set(patch).where('order_id', '=', orderId).execute();
+        await trx.insertInto('txn.crm_roll_change')
+          .values({
+            order_id: target.order_id as any,
+            roll_position: rollPosition,
+            prev_roll_no: prevNo,
+            prev_roll_code: prevCode,
+            new_roll_no: newRollNo,
+            new_roll_code: newRollCode ?? null,
+            reason_text: reasonText ?? null,
+            operator_id: userId,
+          })
+          .execute();
+
+        const patch = rollPosition === 'IN'
+          ? { roll_in_no: newRollNo, roll_in_code: newRollCode ?? null }
+          : { roll_out_no: newRollNo, roll_out_code: newRollCode ?? null };
+        await trx.updateTable('txn.crm_rolling').set(patch).where('order_id', '=', target.order_id as any).execute();
+      }
+    });
     return this.getOrder(batchNumber, userId);
   }
 

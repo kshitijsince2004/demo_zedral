@@ -125,6 +125,8 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
     try {
       await machineHandoverService.accept(handover.handover_id);
       await bootstrapShiftContext(machineCode);
+      const { notifyProductionChanged } = await import('../../lib/productionSync');
+      notifyProductionChanged();
       await onAccepted();
       navigate(basePath);
     } catch (e: unknown) {

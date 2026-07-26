@@ -64,6 +64,57 @@ export function buildCombinedRunFromCards(
   };
 }
 
+/** Shrink a matching run to the operator's picked subset (after start, or explicit pick). */
+export function buildCombinedRunFromSelected(
+  run: CombinedProductionRun,
+  selectedBatches: string[],
+): CombinedProductionRun | null {
+  const selected = selectedBatches.filter((b) => run.batchNumbers.includes(b));
+  if (selected.length <= 1) return null;
+  const primary = selected.includes(run.primaryBatchNumber) ? run.primaryBatchNumber : selected[0];
+  return {
+    primaryBatchNumber: primary,
+    batchNumbers: selected,
+    orders: run.orders.filter((o) => selected.includes(o.batchNumber)),
+  };
+}
+
+/**
+ * Matching list vs picked list reconcile (selectable-orders fix).
+ * - New / unrelated group → all matching ticked
+ * - Same group refresh → keep ticks ∩ matching (new arrivals stay unticked)
+ * - Auto-heal primary when the main order was unticked
+ */
+export function reconcileCombinedSelection(
+  prevRun: CombinedProductionRun | null,
+  prevSelected: string[],
+  newRun: CombinedProductionRun | null,
+  forcedSelected?: string[],
+): { combinedRun: CombinedProductionRun | null; combinedSelectedBatches: string[] } {
+  if (!newRun) {
+    return { combinedRun: null, combinedSelectedBatches: [] };
+  }
+
+  const matching = new Set(newRun.batchNumbers);
+  const sameGroup = !!prevRun && newRun.batchNumbers.some((b) => prevRun.batchNumbers.includes(b));
+
+  let selection: string[];
+  if (forcedSelected) {
+    selection = forcedSelected.filter((b) => matching.has(b));
+  } else if (sameGroup) {
+    selection = prevSelected.filter((b) => matching.has(b));
+  } else {
+    selection = [...newRun.batchNumbers];
+  }
+
+  let run = newRun;
+  if (selection.length > 0 && !selection.includes(run.primaryBatchNumber)) {
+    run = { ...run, primaryBatchNumber: selection[0] };
+  }
+
+  return { combinedRun: run, combinedSelectedBatches: selection };
+}
+
 /** Find siblings on the same machine that share the combined-run compatibility key. */
 export function detectCombinedRunFromQueue(
   queueCards: SixHiQueueCard[],

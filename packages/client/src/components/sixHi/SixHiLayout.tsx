@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SixHiOrderDetail, SixHiOrderStoppage } from '@m1/shared-validation';
+import type { SixHiOrderStoppage } from '@m1/shared-validation';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
@@ -42,7 +42,7 @@ import { ShiftEndModal } from './ShiftEndModal';
 import { CrewCaptureModal, CREW_CAPTURE_SNOOZE_MS } from './CrewCaptureModal';
 import { ShiftReadingsModal } from './ShiftReadingsModal';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
-import { resolveCombinedStoppageTargets } from '../../lib/combinedProductionRun';
+import { buildCombinedRunFromSelected } from '../../lib/combinedProductionRun';
 
 function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
   if (!active) return undefined;
@@ -72,6 +72,7 @@ export function SixHiLayout() {
     workspaceBatch,
     panelOrder,
     combinedRun,
+    combinedSelectedBatches,
     busy,
     openWorkspace,
     closeWorkspace,
@@ -239,38 +240,66 @@ export function SixHiLayout() {
     });
   }, []);
 
-  const activeBatch = combinedRun?.primaryBatchNumber ?? workspaceBatch ?? panelOrder?.batchNumber ?? machineActive?.batchNumber;
+  const pickedBatches = combinedRun
+    ? combinedSelectedBatches.filter((b) => combinedRun.batchNumbers.includes(b))
+    : [];
+  const pickedPrimary = pickedBatches.length > 0
+    ? (pickedBatches.includes(combinedRun?.primaryBatchNumber ?? '')
+      ? combinedRun!.primaryBatchNumber
+      : pickedBatches[0])
+    : null;
+  const activeBatch = pickedPrimary
+    ?? combinedRun?.primaryBatchNumber
+    ?? workspaceBatch
+    ?? panelOrder?.batchNumber
+    ?? machineActive?.batchNumber;
   const rejectTarget = rejectionBatch ?? activeBatch;
   const stoppageBatch = stoppageModalBatch ?? activeBatch;
-  const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : activeBatch ? [activeBatch] : [];
-  const rejectActionBatchNumbers = combinedRun?.batchNumbers.length && !rejectionBatch
-    ? combinedRun.batchNumbers
+  // Every action uses the picked list (after start, pick = started subset).
+  const actionBatchNumbers = combinedRun
+    ? pickedBatches
+    : activeBatch
+      ? [activeBatch]
+      : [];
+  const rejectActionBatchNumbers = combinedRun && !rejectionBatch
+    ? pickedBatches
     : rejectTarget
       ? [rejectTarget]
       : [];
-  const modalOrderLabel = combinedRun && !rejectionBatch
-    ? `Combined run (${combinedRun.batchNumbers.length} orders)`
+  const actionOrderCount = actionBatchNumbers.length;
+  const modalOrderLabel = combinedRun && !rejectionBatch && actionOrderCount > 1
+    ? `Combined run (${actionOrderCount} orders)`
     : panelOrder && (!rejectionBatch || rejectionBatch === panelOrder.batchNumber)
       ? displayMotherCoilId(panelOrder)
       : rejectTarget
         ? `Batch ${rejectTarget}`
         : undefined;
-  const modalOrderSubtitle = combinedRun && !rejectionBatch
-    ? combinedRun.batchNumbers.join(', ')
+  const modalOrderSubtitle = combinedRun && !rejectionBatch && actionOrderCount > 1
+    ? actionBatchNumbers.join(', ')
     : panelOrder && (!rejectionBatch || rejectionBatch === panelOrder.batchNumber)
       ? orderIdentitySubtitle(panelOrder)
       : undefined;
   const showPanel = panelOrder && shouldShowProductionPanel(panelOrder, workspaceOpen, workspaceBatch);
+  const canStartCombined = !combinedRun || pickedBatches.length > 0;
 
   const handleStart = async () => {
     if (!activeBatch) return;
+    if (combinedRun && pickedBatches.length === 0) return;
     setStartError(null);
     try {
-      await runOrderAction(activeBatch, async () =>
-        combinedRun?.batchNumbers.length
-          ? startCombinedOrders(combinedRun.batchNumbers)
-          : startOrder(activeBatch),
+      const startPrimary = pickedPrimary ?? activeBatch;
+      await runOrderAction(startPrimary, async () =>
+        pickedBatches.length >= 2
+          ? startCombinedOrders(pickedBatches)
+          : startOrder(pickedBatches[0] ?? startPrimary),
       );
+      // After start: matching list becomes the started subset (leftovers stay in queue).
+      if (combinedRun && pickedBatches.length >= 2) {
+        const started = buildCombinedRunFromSelected(combinedRun, pickedBatches);
+        setCombinedRun(started, { selectedBatches: pickedBatches });
+      } else {
+        setCombinedRun(null);
+      }
       if (shiftLogId) await loadShiftSummary(shiftLogId);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -316,6 +345,9 @@ export function SixHiLayout() {
         workspaceBatch,
         busy,
         combinedRun,
+        combinedSelectedCount: actionOrderCount,
+        matchingCount: combinedRun?.batchNumbers.length ?? 0,
+        startDisabled: !canStartCombined,
         onStart: handleStart,
         onEnd: handleEnd,
         onReject: () => {
@@ -361,13 +393,13 @@ export function SixHiLayout() {
         <OrderEndModal
           open={endOpen}
           batchNumber={activeBatch}
-          orderLabel={combinedRun
-            ? `Combined run (${combinedRun.batchNumbers.length} orders)`
+          orderLabel={combinedRun && actionOrderCount > 1
+            ? `Combined run (${actionOrderCount} orders)`
             : panelOrder
               ? displayMotherCoilId(panelOrder)
               : `Batch ${activeBatch}`}
-          orderSubtitle={combinedRun
-            ? combinedRun.batchNumbers.join(', ')
+          orderSubtitle={combinedRun && actionOrderCount > 1
+            ? actionBatchNumbers.join(', ')
             : panelOrder
               ? orderIdentitySubtitle(panelOrder)
               : undefined}
@@ -375,11 +407,9 @@ export function SixHiLayout() {
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {
-              const endTargets = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [activeBatch];
+              // Server cascades end across combined_group_id — one call ends the whole run.
               await runOrderAction(activeBatch, async () =>
-                Promise.all(endTargets.map((batchNumber) =>
-                  endOrder(batchNumber, defectCodes),
-                )),
+                endOrder(activeBatch, defectCodes),
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);
               setCombinedRun(null);
@@ -482,47 +512,34 @@ export function SixHiLayout() {
           initialRollOutCode={panelOrder?.rolling?.rollOutCode}
           onClose={closeStoppageDialog}
           onStart={async (categoryCode, breakdownCode, remarks) => {
-            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'start', stoppageBatch);
-            await runOrderAction(stoppageBatch, async () =>
-              Promise.all(targets.map((batchNumber) =>
-                startStoppage(batchNumber, { categoryCode, breakdownCode, remarks }),
-              )),
+            // Server cascades stoppage across combined_group_id — post once.
+            const target = stoppageBatch;
+            await runOrderAction(target, async () =>
+              startStoppage(target, { categoryCode, breakdownCode, remarks }),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
-            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'manage', stoppageBatch);
-            await runOrderAction(stoppageBatch, async () =>
-              Promise.all(targets.map(async (batchNumber) => {
-                const targetStoppageId = batchNumber === activeBatch
-                  ? stoppageId
-                  : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
-                if (!targetStoppageId) return null;
-                return updateStoppage(batchNumber, targetStoppageId, {
-                  categoryCode, breakdownCode, remarks,
-                });
-              })),
+            const target = stoppageBatch;
+            await runOrderAction(target, async () =>
+              updateStoppage(target, stoppageId, {
+                categoryCode, breakdownCode, remarks,
+              }),
             );
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onEnd={async (stoppageId, categoryCode, breakdownCode, remarks) => {
-            const targets = await resolveCombinedStoppageTargets(actionBatchNumbers, 'manage', stoppageBatch);
-            await runOrderAction(stoppageBatch, async () => {
-              await Promise.all(targets.map(async (batchNumber) => {
-                const targetStoppageId = batchNumber === activeBatch
-                  ? stoppageId
-                  : (await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`)).activeStoppage?.id;
-                if (!targetStoppageId) return null;
-                await updateStoppage(batchNumber, targetStoppageId, {
-                  categoryCode, breakdownCode, remarks,
-                });
-                return endStoppage(batchNumber, targetStoppageId);
-              }));
-              return null;
+            const target = stoppageBatch;
+            await runOrderAction(target, async () => {
+              await updateStoppage(target, stoppageId, {
+                categoryCode, breakdownCode, remarks,
+              });
+              return endStoppage(target, stoppageId);
             });
             if (shiftLogId) await loadShiftSummary(shiftLogId);
           }}
           onRollChange={async (data) => {
+            // Server cascades roll changes across the combined group.
             await runOrderAction(stoppageBatch, () =>
               rollChange(stoppageBatch, data),
             );
@@ -632,10 +649,9 @@ export function SixHiLayout() {
           busy={busy}
           onClose={() => setRemarkOpen(false)}
           onSave={async (text, defects) => {
+            // Server cascades remarks across combined_group_id — post once.
             await runOrderAction(activeBatch, async () =>
-              Promise.all(actionBatchNumbers.map((batchNumber) =>
-                addOrderRemark(batchNumber, text, defects),
-              )),
+              addOrderRemark(activeBatch, text, defects),
             );
             setRemarkOpen(false);
           }}

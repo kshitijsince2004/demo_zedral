@@ -26,6 +26,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     workspaceBatch,
     panelOrder,
     combinedRun,
+    combinedSelectedBatches,
     busy,
     closeWorkspace,
     loadPanelOrder,
@@ -40,7 +41,15 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   const [detailOrder, setDetailOrder] = useState<SixHiOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const formBatchNumber = combinedRun?.primaryBatchNumber ?? workspaceBatch;
+  const pickedBatches = combinedRun
+    ? combinedSelectedBatches.filter((b) => combinedRun.batchNumbers.includes(b))
+    : [];
+  const pickedPrimary = pickedBatches.length > 0
+    ? (pickedBatches.includes(combinedRun?.primaryBatchNumber ?? '')
+      ? combinedRun!.primaryBatchNumber
+      : pickedBatches[0])
+    : null;
+  const formBatchNumber = pickedPrimary ?? combinedRun?.primaryBatchNumber ?? workspaceBatch;
 
   useEffect(() => {
     if (workspaceOpen && formBatchNumber) {
@@ -115,11 +124,14 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   const order = panelOrder?.batchNumber === formBatchNumber ? panelOrder : null;
   const preparing = order ? isPreparing(order, workspaceOpen, workspaceBatch) : false;
-  const actionBatchNumbers = combinedRun?.batchNumbers.length ? combinedRun.batchNumbers : [workspaceBatch];
+  const actionBatchNumbers = combinedRun
+    ? (pickedBatches.length > 0 ? pickedBatches : combinedRun.batchNumbers)
+    : [workspaceBatch];
   const combinedTarget = isCombined && combinedRun
     ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
     : undefined;
   const isTerminalCombined = isCombined && order && (order.status === 'COMPLETED' || order.status === 'REJECTED');
+  const canSelectOrders = preparing && isCombined && !isTerminalCombined;
 
   const patchCombinedProduction = async <T extends { actualWeightMt?: number }>(
     endpoint: 'rolling' | 'skinpass',
@@ -253,6 +265,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
                   refreshToken={combinedRefreshToken}
                   selectedBatch={detailBatch}
                   onSelectBatch={setDetailBatch}
+                  selectable={canSelectOrders}
                 />
               )}
 

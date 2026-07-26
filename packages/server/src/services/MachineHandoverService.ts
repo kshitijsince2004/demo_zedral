@@ -257,14 +257,25 @@ export class MachineHandoverService {
           shiftProductionSummary = summary as Record<string, unknown>;
         }
         
-        // Crew resolution (Model B read path)
-        const session = await db
+        // Crew resolution — prefer ACTIVE session for this mill/shift-log (SPEC §3).
+        let session = await db
           .selectFrom('txn.machine_shift_session')
           .select('session_id')
           .where('shift_log_id', '=', shiftLogIdResolved)
           .where('machine_code', '=', machineCode)
+          .where('status', '=', 'ACTIVE')
+          .orderBy('started_at', 'desc')
           .executeTakeFirst();
-          
+        if (!session) {
+          session = await db
+            .selectFrom('txn.machine_shift_session')
+            .select('session_id')
+            .where('shift_log_id', '=', shiftLogIdResolved)
+            .where('machine_code', '=', machineCode)
+            .orderBy('started_at', 'desc')
+            .executeTakeFirst();
+        }
+
         if (session) {
           crewSnapshot = await CrewService.listBySession(String(session.session_id));
         }
@@ -647,9 +658,11 @@ export class MachineHandoverService {
       .where('h.machine_code', 'in', scope.length > 0 ? scope : ['__NONE__'])
       .orderBy('h.created_at', 'desc');
 
-    const pending = await pendingQ.limit(20).execute();
+    const pending = await pendingQ.limit(50).execute();
 
-    let recentQ = db
+    // Manual completed = ACCEPTED; auto completed = AUTO_COMPLETED.
+    // Include both so MH/PH handover queues show every finished shift handover.
+    const recent = await db
       .selectFrom('txn.machine_handover as h')
       .leftJoin('security.app_user as ou', 'ou.user_id', 'h.outgoing_operator_id')
       .leftJoin('security.app_user as iu', 'iu.user_id', 'h.incoming_operator_id')
@@ -657,10 +670,10 @@ export class MachineHandoverService {
       .select([...handoverSelect, 'pb.sub_process', 'pb.coil_no', 'pb.slit_id'])
       .where('h.status', 'in', ['ACCEPTED', 'CLARIFICATION_REQUESTED', 'AUTO_COMPLETED'])
       .where('h.machine_code', 'in', scope.length > 0 ? scope : ['__NONE__'])
+      .orderBy('h.outgoing_prod_date', 'desc')
       .orderBy('h.created_at', 'desc')
-      .limit(15);
-
-    const recent = await recentQ.execute();
+      .limit(100)
+      .execute();
 
     const mapRow = async (h: typeof pending[0]) => {
       const prodDate = formatProdDate(h.outgoing_prod_date);
@@ -692,7 +705,7 @@ export class MachineHandoverService {
         || undefined;
       const incomingName = (h.incoming_full_name as string | null)?.trim()
         || (h.incoming_username as string | null)?.trim()
-        || undefined;
+        || (h.status === 'AUTO_COMPLETED' || h.created_by_boundary ? 'SYSTEM' : undefined);
       const remarks = typeof h.remarks === 'string' ? h.remarks.trim() : '';
 
       return {

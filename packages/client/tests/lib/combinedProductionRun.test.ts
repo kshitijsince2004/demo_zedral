@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import {
   buildCombinedRunFromCards,
+  buildCombinedRunFromSelected,
   cardsShareProductionAction,
   detectCombinedRunFromQueue,
   findCompatibleOrdersForCombine,
   filterStoppageManageTargets,
   filterStoppageStartTargets,
   ordersShareCombineGroup,
+  reconcileCombinedSelection,
 } from '../../src/lib/combinedProductionRun';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 
@@ -201,6 +203,63 @@ describe('combinedProductionRun', () => {
 
     it('buildCombinedRunFromCards returns null for a single order', () => {
       expect(buildCombinedRunFromCards([card({ batchNumber: 'B1' })], 'B1')).toBeNull();
+    });
+
+    it('reconcileCombinedSelection defaults all matching on first appearance', () => {
+      const run = buildCombinedRunFromCards([
+        card({ batchNumber: 'B1' }),
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+      ], 'B1')!;
+      const next = reconcileCombinedSelection(null, [], run);
+      expect(next.combinedSelectedBatches).toEqual(['B1', 'B2', 'B3']);
+      expect(next.combinedRun?.primaryBatchNumber).toBe('B1');
+    });
+
+    it('reconcileCombinedSelection keeps ticks on refresh and leaves new arrivals unticked', () => {
+      const prev = buildCombinedRunFromCards([
+        card({ batchNumber: 'B1' }),
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+      ], 'B1')!;
+      const refreshed = buildCombinedRunFromCards([
+        card({ batchNumber: 'B1' }),
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+        card({ batchNumber: 'B4', queuePosition: 4 }),
+      ], 'B1')!;
+      const next = reconcileCombinedSelection(prev, ['B1', 'B3'], refreshed);
+      expect(next.combinedSelectedBatches).toEqual(['B1', 'B3']);
+      expect(next.combinedSelectedBatches).not.toContain('B4');
+    });
+
+    it('reconcileCombinedSelection drops vanished batches and auto-heals primary', () => {
+      const prev = buildCombinedRunFromCards([
+        card({ batchNumber: 'B1' }),
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+      ], 'B1')!;
+      const refreshed = buildCombinedRunFromCards([
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+      ], 'B2')!;
+      const next = reconcileCombinedSelection(prev, ['B1', 'B3'], refreshed);
+      expect(next.combinedSelectedBatches).toEqual(['B3']);
+      expect(next.combinedRun?.primaryBatchNumber).toBe('B3');
+    });
+
+    it('buildCombinedRunFromSelected shrinks matching to the picked subset', () => {
+      const run = buildCombinedRunFromCards([
+        card({ batchNumber: 'B1' }),
+        card({ batchNumber: 'B2', queuePosition: 2 }),
+        card({ batchNumber: 'B3', queuePosition: 3 }),
+        card({ batchNumber: 'B4', queuePosition: 4 }),
+        card({ batchNumber: 'B5', queuePosition: 5 }),
+      ], 'B1')!;
+      const started = buildCombinedRunFromSelected(run, ['B1', 'B3', 'B5']);
+      expect(started?.batchNumbers).toEqual(['B1', 'B3', 'B5']);
+      expect(started?.primaryBatchNumber).toBe('B1');
+      expect(buildCombinedRunFromSelected(run, ['B2'])).toBeNull();
     });
 
     it('detectCombinedRunFromQueue groups three in-progress orders on the same machine', () => {

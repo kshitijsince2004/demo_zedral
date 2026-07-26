@@ -54,11 +54,17 @@ export class CrewService {
       .orderBy('sc.session_crew_id', 'asc')
       .execute();
 
+    // Normalize to the same shape as listByShiftLog + crewId for roster preselect.
     return rows.map((r) => ({
+      id: String(r.crew_id),
       sessionCrewId: String(r.session_crew_id),
       crewId: String(r.crew_id),
+      operatorName: r.member_name,
       memberName: r.member_name,
+      roleCode: r.role_label,
       roleLabel: r.role_label,
+      empCode: '',
+      operatorId: String(r.crew_id),
     }));
   }
 

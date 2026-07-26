@@ -79,9 +79,11 @@ router.get(
   },
 );
 
-router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (_req, res) => {
+router.get('/plant-head/backlog', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
-    const data = await DashboardReportingService.getPlantHeadBacklog();
+    const machineCode = req.query.machineCode != null ? String(req.query.machineCode) : undefined;
+    const search = req.query.search != null ? String(req.query.search) : undefined;
+    const data = await DashboardReportingService.getPlantHeadBacklog({ machineCode, search });
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

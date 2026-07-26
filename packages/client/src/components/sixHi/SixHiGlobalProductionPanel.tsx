@@ -8,6 +8,9 @@ interface SixHiGlobalProductionPanelProps {
   workspaceBatch: string | null;
   busy?: boolean;
   combinedRun?: CombinedProductionRun | null;
+  combinedSelectedCount?: number;
+  matchingCount?: number;
+  startDisabled?: boolean;
   onStart: () => void;
   onEnd: () => void;
   onRemark: () => void;
@@ -30,6 +33,9 @@ export function SixHiGlobalProductionPanel({
   onReject,
   onStoppage,
   combinedRun,
+  combinedSelectedCount,
+  matchingCount,
+  startDisabled,
   embedded,
 }: SixHiGlobalProductionPanelProps) {
   const rail = (
@@ -39,6 +45,9 @@ export function SixHiGlobalProductionPanel({
       workspaceBatch={workspaceBatch}
       busy={busy}
       combinedRun={combinedRun}
+      combinedSelectedCount={combinedSelectedCount}
+      matchingCount={matchingCount}
+      startDisabled={startDisabled}
       onStart={onStart}
       onEnd={onEnd}
       onRemark={onRemark}

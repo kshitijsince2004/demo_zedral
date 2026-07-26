@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/authStore';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { useElapsedTimer } from '../../hooks/useElapsedTimer';
+import { useHandoverDraft, useHandoverPreview } from '../../hooks/useHandoverState';
 import {
   machineHandoverService,
-  type HandoverPreview,
   type OrderSnapshot,
 } from '../../services/machineHandoverService';
 import { ZButton } from '../../components/primitives/ZButton';
@@ -131,10 +131,20 @@ export function CrmOutgoingHandoverPage() {
   const { basePath, machineCode } = useWorkspaceBase();
   const { logout } = useAuthStore();
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [preview, setPreview] = useState<HandoverPreview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // ── Shared SWR enrichment (SPEC §1 — deduped with accept gate) ─────────────
+  const {
+    data: preview,
+    error: previewError,
+    isLoading: previewLoading,
+    mutate: mutatePreview,
+  } = useHandoverPreview(machineCode);
+  const {
+    data: draft,
+    error: draftErrorSwr,
+    isLoading: draftLoading,
+    mutate: mutateDraft,
+  } = useHandoverDraft(machineCode);
+  const hydratedKey = useRef<string | null>(null);
 
   // Section 3 — manual shift fields
   const [scrapKg, setScrapKg] = useState('');
@@ -172,44 +182,80 @@ export function CrmOutgoingHandoverPage() {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
 
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout>>();
+  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // ── Load preview + draft ───────────────────────────────────────────────────
+  const loading = (previewLoading || draftLoading) && !preview && !previewError && !draftErrorSwr;
+  const loadError = previewError || draftErrorSwr
+    ? (previewError instanceof Error ? previewError.message : null)
+      ?? (draftErrorSwr instanceof Error ? draftErrorSwr.message : null)
+      ?? 'Failed to load enrichment'
+    : null;
+
+  // Hydrate form once per machine when SWR data arrives (don't clobber edits on revalidate).
   useEffect(() => {
-    Promise.all([
-      machineHandoverService.getPreview(machineCode),
-      machineHandoverService.getDraft(machineCode),
-    ])
-      .then(([p, { draft }]) => {
-        setPreview(p);
-        setMachineStatus(p.machineStatus);
-        // Restore draft if exists
-        if (draft) {
-          setDraftId(draft.handover_id);
-          const ps = draft.production_snapshot as Record<string, unknown>;
-          const sm = ps?.shiftManualFields as Record<string, unknown> | null;
-          const sum = p.shiftProductionSummary;
-          setScrapKg(String(sm?.scrapKg ?? sum?.scrapKg ?? ''));
-          setCoolantTemp(String(sm?.coolantTempDegC ?? sum?.coolantTempDegC ?? ''));
-          setCoolantPress(String(sm?.coolantPressKgCm2 ?? sum?.coolantPressKgCm2 ?? ''));
-          if (sm?.shiftRemarks != null) setShiftRemarks(String(sm.shiftRemarks ?? ''));
-          if (ps?.orderSnapshot) setOrderSnapshot(ps.orderSnapshot as OrderSnapshot);
-          if (ps?.machineCondition) setMachineCondition(String(ps.machineCondition));
-          if (ps?.machineConditionRemarks) setConditionRemarks(String(ps.machineConditionRemarks));
-          if (ps?.crewNotes) setCrewNotes(String(ps.crewNotes));
-          setOutgoingNotes(draft.remarks ?? '');
-          if (draft.handover_priority) setPriority(draft.handover_priority as Priority);
-          if (draft.machine_status) setMachineStatus(draft.machine_status);
-        } else {
-          // Prefill from in-shift Shift Readings already on crm_shift_summary (§13 B3).
-          const sum = p.shiftProductionSummary;
-          if (sum?.scrapKg != null) setScrapKg(String(sum.scrapKg));
-          if (sum?.coolantTempDegC != null) setCoolantTemp(String(sum.coolantTempDegC));
-          if (sum?.coolantPressKgCm2 != null) setCoolantPress(String(sum.coolantPressKgCm2));
+    if (!preview && !draft) return;
+    const key = `${machineCode}:${preview ? 'p' : ''}:${draft?.handover_id ?? 'nodraft'}`;
+    if (hydratedKey.current === key) return;
+    hydratedKey.current = key;
+
+    if (preview?.machineStatus) setMachineStatus(preview.machineStatus);
+
+    const sum = preview?.shiftProductionSummary;
+    if (draft) {
+      setDraftId(draft.handover_id);
+      const ps = draft.production_snapshot as Record<string, unknown>;
+      const sm = ps?.shiftManualFields as Record<string, unknown> | null;
+      setScrapKg(String(sm?.scrapKg ?? sum?.scrapKg ?? ''));
+      setCoolantTemp(String(sm?.coolantTempDegC ?? sum?.coolantTempDegC ?? ''));
+      setCoolantPress(String(sm?.coolantPressKgCm2 ?? sum?.coolantPressKgCm2 ?? ''));
+      if (sm?.shiftRemarks != null) setShiftRemarks(String(sm.shiftRemarks ?? ''));
+      if (ps?.orderSnapshot) setOrderSnapshot(ps.orderSnapshot as OrderSnapshot);
+      if (ps?.machineCondition) setMachineCondition(String(ps.machineCondition));
+      if (ps?.machineConditionRemarks) setConditionRemarks(String(ps.machineConditionRemarks));
+      if (ps?.crewNotes) setCrewNotes(String(ps.crewNotes));
+      setOutgoingNotes(draft.remarks ?? '');
+      if (draft.handover_priority) setPriority(draft.handover_priority as Priority);
+      if (draft.machine_status) setMachineStatus(draft.machine_status);
+    } else if (sum) {
+      if (sum.scrapKg != null) setScrapKg(String(sum.scrapKg));
+      if (sum.coolantTempDegC != null) setCoolantTemp(String(sum.coolantTempDegC));
+      if (sum.coolantPressKgCm2 != null) setCoolantPress(String(sum.coolantPressKgCm2));
+    }
+
+    const roster = preview?.machineCrewRoster ?? [];
+    const crewSnap = preview?.crewSnapshot ?? [];
+    if (crewSnap.length && roster.length) {
+      const ids = new Set<string>();
+      for (const crew of crewSnap) {
+        // Prefer roster crew_id (session_crew SoT). Fall back to name/role.
+        const crewId = String(crew.crewId ?? crew.id ?? '').trim();
+        if (crewId && roster.some((r) => r.id === crewId)) {
+          ids.add(crewId);
+          continue;
         }
-      })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Failed to load'))
-      .finally(() => setLoading(false));
+        const name = String(crew.operatorName ?? crew.memberName ?? '').trim().toLowerCase();
+        const role = String(crew.roleCode ?? crew.roleLabel ?? '').trim().toLowerCase();
+        const match = roster.find((r) => {
+          const rn = r.memberName.trim().toLowerCase();
+          const rr = r.roleLabel.trim().toLowerCase();
+          return (name && rn === name) || (name && role && rn === name && rr === role);
+        });
+        if (match) ids.add(match.id);
+      }
+      if (ids.size) {
+        setSelectedRosterIds(ids);
+        setCrewNotes(
+          roster
+            .filter((r) => ids.has(r.id))
+            .map((r) => `${r.memberName} (${r.roleLabel})`)
+            .join(', '),
+        );
+      }
+    }
+  }, [machineCode, preview, draft]);
+
+  useEffect(() => {
+    hydratedKey.current = null;
   }, [machineCode]);
 
   useEffect(() => {
@@ -301,11 +347,14 @@ export function CrmOutgoingHandoverPage() {
       if (parsed.coolantTempDegC) setCoolantTemp(String(parsed.coolantTempDegC));
       if (parsed.coolantPressKgCm2) setCoolantPress(String(parsed.coolantPressKgCm2));
       if (parsed.shiftRemarks) setShiftRemarks(parsed.shiftRemarks);
-      if (parsed.orderSnapshot) setOrderSnapshot(parsed.orderSnapshot);
       if (parsed.crewNotes) setCrewNotes(parsed.crewNotes);
-      if (parsed.selectedCrewIds) setSelectedRosterIds(new Set(parsed.selectedCrewIds));
-    }, []),
-    `handover_${machineCode}`
+      // session_crew is SoT — don't let a stale local draft wipe preselected crew.
+      if (parsed.selectedCrewIds && !(preview?.crewSnapshot?.length)) {
+        setSelectedRosterIds(new Set(parsed.selectedCrewIds));
+      }
+      if (parsed.orderSnapshot) setOrderSnapshot(parsed.orderSnapshot);
+    }, [preview?.crewSnapshot?.length]),
+    `handover_${machineCode}`,
   );
 
   // ── Submit ─────────────────────────────────────────────────────────────────
@@ -322,6 +371,8 @@ export function CrmOutgoingHandoverPage() {
         remarks: outgoingNotes.trim(),
       });
       clearDraft();
+      const { notifyProductionChanged } = await import('../../lib/productionSync');
+      notifyProductionChanged();
       // Only sign out after the server has PENDING handover + closed session.
       await logout();
       navigate('/login', { replace: true });
@@ -347,19 +398,28 @@ export function CrmOutgoingHandoverPage() {
     );
   }
 
-  if (loadError) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
-          <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
-          <p className="text-destructive font-semibold">{loadError}</p>
-          <ZButton variant="secondary" onClick={() => navigate(basePath)}>Go Back</ZButton>
-        </div>
-      </div>
-    );
-  }
+  // SPEC §1 — always open the console; enrichment failure is inline, not a hard gate.
+  const emptyPreview = {
+    machineCode,
+    machineName: machineCode,
+    processCode: machineCode,
+    machineStatus: machineStatus || 'IDLE',
+    runtimeMinutes: null,
+    processLabel: machineCode,
+    activeOrder: null,
+    activeOrderDetail: null,
+    productionSnapshot: {},
+    openStoppages: [],
+    queueSnapshot: { rolling: [], skinpass: [] },
+    nextShift: { shiftCode: '—', prodDate: '—' },
+    shift: { shiftCode: '—', shiftName: '—', prodDate: '—' },
+    shiftProductionSummary: null,
+    crewSnapshot: [],
+    utilizationMetrics: null,
+  } as NonNullable<typeof preview>;
 
-  const p = preview!;
+  const p = preview ?? emptyPreview;
+  const enrichmentError = loadError;
   const activeOrder = p.activeOrderDetail;
   const openStoppages = (p.openStoppages ?? []) as Array<{ startAt?: string; reason?: string; status?: string }>;
   const hasActiveStoppage = openStoppages.some((s) => !s.status || s.status === 'OPEN');
@@ -382,6 +442,25 @@ export function CrmOutgoingHandoverPage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+        {enrichmentError && (
+          <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-2 bg-destructive/10 border-b border-destructive/20 text-sm text-destructive">
+            <span className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="truncate">{enrichmentError} — form stays editable; Retry to reload enrichment.</span>
+            </span>
+            <ZButton
+              variant="secondary"
+              className="shrink-0 min-h-9 px-3 text-xs"
+              onClick={() => {
+                hydratedKey.current = null;
+                void mutatePreview();
+                void mutateDraft();
+              }}
+            >
+              Retry
+            </ZButton>
+          </div>
+        )}
 
         {/* ── Page Header ── */}
         <div className="shrink-0 bg-white border-b border-border/60 px-5 py-4">
@@ -762,11 +841,11 @@ export function CrmOutgoingHandoverPage() {
             {/* SECTION 9 — Crew Details */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <div className="bg-white border border-border rounded-2xl p-5">
-              <SectionHeader icon={<Users className="h-4 w-4" />} title="Crew Details" badge="From machine crew roster" />
+              <SectionHeader icon={<Users className="h-4 w-4" />} title="Crew Details" badge="Loaded from session crew · editable" />
               {crewRoster.length > 0 ? (
                 <div className="mb-4">
                   <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                    Select crew on shift (tap to add/remove)
+                    Crew on this shift (pre-filled from login capture)
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {crewRoster.map((member) => (
@@ -793,16 +872,25 @@ export function CrmOutgoingHandoverPage() {
               )}
               {p.crewSnapshot && p.crewSnapshot.length > 0 && (
                 <div className="space-y-2 mb-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Shift log crew</p>
-                  {p.crewSnapshot.map((c) => (
-                    <div key={c.id} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-2.5">
-                      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-black flex items-center justify-center">{c.operatorName[0]}</div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-sm text-foreground">{c.operatorName}</p>
-                        <p className="text-xs text-muted-foreground">{c.empCode} · {c.roleCode}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                    Loaded from shift session crew
+                  </p>
+                  {p.crewSnapshot.map((c) => {
+                    const name = c.operatorName || c.memberName || '—';
+                    const role = c.roleCode || c.roleLabel || '—';
+                    const key = c.crewId || c.id || name;
+                    return (
+                      <div key={key} className="flex items-center gap-3 bg-secondary/30 rounded-xl px-4 py-2.5">
+                        <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-black flex items-center justify-center">
+                          {name[0]?.toUpperCase() ?? '?'}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm text-foreground">{name}</p>
+                          <p className="text-xs text-muted-foreground">{role}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               <ManualField label="Crew Notes / Updates">

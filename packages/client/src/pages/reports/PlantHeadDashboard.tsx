@@ -370,6 +370,9 @@ export function PlantHeadDashboard() {
                           <span className="text-muted-foreground font-mono text-xs bg-muted/30 px-2 py-0.5 rounded shrink-0">
                             {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
                             {h.status === 'PENDING' ? ' · Pending' : ''}
+                            {h.status === 'ACCEPTED' ? ' · Manual completed' : ''}
+                            {h.status === 'AUTO_COMPLETED' || h.createdByBoundary ? ' · Auto completed' : ''}
+                            {h.status === 'CLARIFICATION_REQUESTED' ? ' · Clarification' : ''}
                           </span>
                         </div>
                         <div className="space-y-1 text-xs text-muted-foreground mt-2">
@@ -378,7 +381,12 @@ export function PlantHeadDashboard() {
                             {h.outgoingUsername ?? '—'}
                             {' · '}
                             <span className="font-medium">Incoming:</span>{' '}
-                            {h.incomingUsername ?? (h.status === 'PENDING' ? 'Awaiting accept' : '—')}
+                            {h.incomingUsername
+                              ?? (h.status === 'AUTO_COMPLETED' || h.createdByBoundary
+                                ? 'SYSTEM'
+                                : h.status === 'PENDING'
+                                  ? 'Awaiting accept'
+                                  : '—')}
                           </div>
                           <div>
                             <span className="font-medium">Shift Start Time:</span>{' '}

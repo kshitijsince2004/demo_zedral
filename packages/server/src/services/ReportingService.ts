@@ -23,16 +23,15 @@ import {
   formatPlantChartDay,
   formatPlantDate,
   formatDbDate,
-  currentPlantDate,
   endOfPlantDay,
   parsePlantDateOnly,
-  plantDaysBetween,
   postgresDateOnly,
   startOfPlantDay,
 } from '@m1/shared-validation';
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
 import { CRM_MILL_CODES } from '../utils/machineAllocation';
+import { countPlantHeadBacklog, listPlantHeadBacklog } from '../reporting/plantHeadBacklog';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -1010,21 +1009,8 @@ export class ReportingService {
         actualMt: round1(totals.prod),
       }));
 
-    // Plant-wide backlog: batches planned before today that are not yet
-    // completed/rejected (an order row is either absent or still incomplete).
-    const backlogRow = await reportingDb
-      .selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .select(sql<number>`count(distinct pb.batch_id)`.as('cnt'))
-      .where(sql`pb.plan_date`, '<', sql`${postgresDateOnly(currentPlantDate())}::date`)
-      .where((eb) =>
-        eb.or([
-          eb('o.status', 'is', null),
-          eb('o.status', 'not in', ['COMPLETED', 'REJECTED']),
-        ]),
-      )
-      .executeTakeFirst();
-    const backlogCount = Number(backlogRow?.cnt ?? 0);
+    // Plant-wide backlog (all machine lines): shared filter with getPlantHeadBacklog.
+    const backlogCount = await countPlantHeadBacklog();
 
     return {
       window: windowDays,
@@ -1053,79 +1039,11 @@ export class ReportingService {
     };
   }
 
-  static async getPlantHeadBacklog() {
-    const rows = await reportingDb
-      .selectFrom('planning.ppc_batch as pb')
-      .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .leftJoin('master.machine as m', 'm.machine_code', 'pb.machine_code')
-      .select([
-        'pb.batch_id',
-        'pb.batch_number',
-        'pb.coil_no',
-        'pb.slit_id',
-        'pb.plan_date',
-        'pb.shift_code',
-        'pb.machine_code',
-        'pb.sub_process',
-        'pb.customer_name',
-        'pb.grade_code',
-        'pb.ppc_weight_mt',
-        'o.status as order_status',
-        'm.name as machine_name',
-      ])
-      .where(sql`pb.plan_date`, '<', sql`${postgresDateOnly(currentPlantDate())}::date`)
-      .where((eb) =>
-        eb.or([
-          eb('o.status', 'is', null),
-          eb('o.status', 'not in', ['COMPLETED', 'REJECTED']),
-        ]),
-      )
-      // Hide batches on disabled machines from Plant Head backlog.
-      .where((eb) =>
-        eb.or([
-          eb('pb.machine_code', 'is', null),
-          eb('m.machine_status', 'is', null),
-          eb('m.machine_status', '!=', 'OFFLINE'),
-        ]),
-      )
-      .orderBy('pb.plan_date', 'asc')
-      .orderBy('pb.batch_number', 'asc')
-      .execute();
-
-    const todayKey = currentPlantDate();
-
-    const orders = rows.map((row) => {
-      const planDateKey = formatDbDate(row.plan_date as Date | string);
-      const daysPending = Math.max(0, plantDaysBetween(planDateKey, todayKey));
-      const subProcess = String(row.sub_process ?? '');
-      const stageLabel = subProcess === 'SKIN_PASS'
-        ? 'Skin Pass'
-        : subProcess === 'ROLLING'
-          ? 'Rolling'
-          : subProcess || undefined;
-
-      const coilNo = row.coil_no ?? undefined;
-      const slitId = row.slit_id ?? undefined;
-      return {
-        batchNumber: row.batch_number,
-        batchId: String(row.batch_id),
-        coilNo,
-        motherCoil: coilNo,
-        slitId,
-        planDate: planDateKey,
-        shiftCode: row.shift_code,
-        status: row.order_status ?? 'PENDING',
-        machineCode: row.machine_code ?? undefined,
-        machineName: row.machine_name ?? undefined,
-        stage: stageLabel,
-        customer: row.customer_name ?? undefined,
-        grade: row.grade_code ?? undefined,
-        weightMt: Number(row.ppc_weight_mt ?? 0),
-        daysPending,
-      };
-    });
-
-    return { total: orders.length, orders };
+  static async getPlantHeadBacklog(filters: {
+    machineCode?: string | null;
+    search?: string | null;
+  } = {}) {
+    return listPlantHeadBacklog(filters);
   }
 
   static async getManagementDashboard(period: ReportingPeriod) {

@@ -338,8 +338,28 @@ export function MachineHeadDashboard() {
       ...(dashboard?.handoverOverview?.pending ?? []),
       ...(dashboard?.handoverOverview?.recent ?? []),
     ];
-    return [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+    const deduped = [...new Map(rows.map((h) => [h.handoverId, h])).values()];
+    // Pending first, then completed (manual + auto) by prod date / created time.
+    const rank = (status: string) => (status === 'PENDING' ? 0 : 1);
+    return deduped.sort((a, b) => {
+      const byStatus = rank(a.status) - rank(b.status);
+      if (byStatus !== 0) return byStatus;
+      const dayCmp = String(b.prodDate ?? '').localeCompare(String(a.prodDate ?? ''));
+      if (dayCmp !== 0) return dayCmp;
+      return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
+    });
   }, [dashboard?.handoverOverview]);
+
+  function handoverCompletionLabel(h: {
+    status: string;
+    createdByBoundary?: boolean | null;
+  }): string {
+    if (h.status === 'PENDING') return 'Pending';
+    if (h.status === 'CLARIFICATION_REQUESTED') return 'Clarification';
+    if (h.status === 'AUTO_COMPLETED' || h.createdByBoundary) return 'Auto completed';
+    if (h.status === 'ACCEPTED') return 'Manual completed';
+    return h.status;
+  }
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
@@ -892,7 +912,11 @@ export function MachineHeadDashboard() {
                   ? `Shift Handover · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}`
                   : 'Shift Handover Logs'
               }
-            />
+            >
+              <span className="text-[10px] text-muted-foreground font-medium">
+                Pending · Manual completed · Auto completed
+              </span>
+            </PanelHeader>
             <PanelBody empty={filteredHandover.length === 0}>
               <ul className="divide-y divide-border text-xs">
                 {filteredHandover.map((h) => (
@@ -901,14 +925,31 @@ export function MachineHeadDashboard() {
                       <span className="font-bold">{h.machineCode}</span>
                       <span className="text-muted-foreground font-mono shrink-0">
                         {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
-                        {h.status === 'PENDING' ? ' · Pending' : ''}
-                        {h.status === 'AUTO_COMPLETED' || h.createdByBoundary ? ' · Auto / system' : ''}
+                        {' · '}
+                        <span
+                          className={
+                            h.status === 'PENDING'
+                              ? 'text-amber-700'
+                              : h.status === 'AUTO_COMPLETED' || h.createdByBoundary
+                                ? 'text-sky-700'
+                                : h.status === 'ACCEPTED'
+                                  ? 'text-emerald-700'
+                                  : undefined
+                          }
+                        >
+                          {handoverCompletionLabel(h)}
+                        </span>
                       </span>
                     </div>
                     <p className="text-muted-foreground mb-1">
                       Out: {h.outgoingUsername ?? '—'}
                       {' · '}
-                      In: {h.incomingUsername ?? (h.status === 'PENDING' ? 'Awaiting accept' : '—')}
+                      In: {h.incomingUsername
+                        ?? (h.status === 'AUTO_COMPLETED' || h.createdByBoundary
+                          ? 'SYSTEM'
+                          : h.status === 'PENDING'
+                            ? 'Awaiting accept'
+                            : '—')}
                     </p>
                     {h.batchNumber ? (
                       <div className="mb-1">

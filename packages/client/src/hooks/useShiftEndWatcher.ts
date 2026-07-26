@@ -143,13 +143,24 @@ export function useShiftEndWatcher(
       return;
     }
     let cancelled = false;
+    let lastNotified: string | null = null;
     const poll = async () => {
       try {
         const shift = await apiClient.get<DetectedShift>('/shifts/current');
         if (cancelled) return;
-        setClockShift((prev) =>
-          prev && prev.code === shift.shiftCode ? prev : { code: shift.shiftCode, name: shift.shiftName },
-        );
+        setClockShift((prev) => {
+          const next = prev && prev.code === shift.shiftCode
+            ? prev
+            : { code: shift.shiftCode, name: shift.shiftName };
+          // SPEC §2 — queue/review refresh immediately on clock shift change.
+          if (prev && prev.code !== shift.shiftCode && lastNotified !== shift.shiftCode) {
+            lastNotified = shift.shiftCode;
+            void import('../lib/productionSync').then(({ notifyProductionChanged }) => {
+              notifyProductionChanged();
+            });
+          }
+          return next;
+        });
       } catch {
         // Non-fatal — transient network/auth errors are ignored; next tick retries.
       }

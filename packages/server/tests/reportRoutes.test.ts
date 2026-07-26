@@ -17,6 +17,7 @@ vi.mock('../src/middleware/authMiddleware', () => ({
 
 const mockMachineHead = vi.fn();
 const mockPlantHead = vi.fn();
+const mockPlantHeadBacklog = vi.fn();
 const mockManagement = vi.fn();
 const mockDaily = vi.fn();
 const mockDrilldown = vi.fn();
@@ -27,6 +28,7 @@ vi.mock('../src/services/ReportingService', () => ({
   ReportingService: {
     getMachineHeadDashboard: (...args: unknown[]) => mockMachineHead(...args),
     getPlantHeadDashboard: (...args: unknown[]) => mockPlantHead(...args),
+    getPlantHeadBacklog: (...args: unknown[]) => mockPlantHeadBacklog(...args),
     getManagementDashboard: (...args: unknown[]) => mockManagement(...args),
     getDailyReport: (...args: unknown[]) => mockDaily(...args),
     getDrilldown: (...args: unknown[]) => mockDrilldown(...args),
@@ -148,6 +150,21 @@ describe('reportRoutes', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('INVALID_METRIC');
     expect(mockPlantHeadDrilldown).not.toHaveBeenCalled();
+  });
+
+  it('GET /reports/plant-head/backlog passes machineCode and search', async () => {
+    mockPlantHeadBacklog.mockResolvedValue({
+      total: 1,
+      totalUnfiltered: 5,
+      orders: [],
+      availableMachines: [{ machineCode: '6HI', machineName: 'Six Hi' }],
+    });
+
+    const res = await request(app).get('/reports/plant-head/backlog?machineCode=6HI&search=COIL');
+    expect(res.status).toBe(200);
+    expect(mockPlantHeadBacklog).toHaveBeenCalledWith({ machineCode: '6HI', search: 'COIL' });
+    expect(res.body.availableMachines).toHaveLength(1);
+    expect(res.body.totalUnfiltered).toBe(5);
   });
 
   it('GET /reports/management accepts period query', async () => {

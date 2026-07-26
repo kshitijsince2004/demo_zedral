@@ -7,7 +7,11 @@ import type { MillCode } from '../lib/millPath';
 import { canRecordStoppage } from '../lib/sixHiRuntime';
 import { notifyProductionChanged } from '../lib/productionSync';
 import { useShiftStore } from './shiftStore';
-import { detectCombinedRunFromQueue, dedupeQueueCards } from '../lib/combinedProductionRun';
+import {
+  detectCombinedRunFromQueue,
+  dedupeQueueCards,
+  reconcileCombinedSelection,
+} from '../lib/combinedProductionRun';
 import { formatShiftDate } from '../lib/dateFormat';
 import { jsonEqual } from '../lib/silentRefresh';
 
@@ -66,7 +70,10 @@ interface SixHiStore {
   busy: boolean;
   manualOrderOpen: boolean;
   queueRefreshToken: number;
+  /** Matching list — every order that *could* combine. Detection owns this. */
   combinedRun: CombinedProductionRun | null;
+  /** Picked list — orders the operator ticked to start/run together. */
+  combinedSelectedBatches: string[];
   /** Batch number when stoppage modal is open; null when closed. */
   stoppageModalBatch: string | null;
 
@@ -82,7 +89,8 @@ interface SixHiStore {
   setManualStoppage: (state: ManualStoppageState | null) => void;
   setShiftSummary: (summary: SixHiShiftSummary | null) => void;
   setBusy: (busy: boolean) => void;
-  setCombinedRun: (run: CombinedProductionRun | null) => void;
+  setCombinedRun: (run: CombinedProductionRun | null, opts?: { selectedBatches?: string[] }) => void;
+  toggleCombinedSelected: (batchNumber: string) => void;
   openStoppageDialog: (batchNo: string) => Promise<void>;
   closeStoppageDialog: () => void;
   requestRejectionDialog?: (batchNo: string) => void;
@@ -107,6 +115,7 @@ const INITIAL_SixHi_STATE = {
   manualOrderOpen: false,
   queueRefreshToken: 0,
   combinedRun: null as CombinedProductionRun | null,
+  combinedSelectedBatches: [] as string[],
   stoppageModalBatch: null as string | null,
   requestRejectionDialog: undefined as ((batchNo: string) => void) | undefined,
 };
@@ -127,20 +136,52 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   closeManualOrder: () => set({ manualOrderOpen: false }),
   requestQueueRefresh: () => set({ queueRefreshToken: get().queueRefreshToken + 1 }),
   openWorkspace: (batchNo) => {
-    const combined = get().combinedRun;
-    const batch = combined?.batchNumbers.includes(batchNo)
-      ? combined.primaryBatchNumber
+    const { combinedRun, combinedSelectedBatches } = get();
+    const pickedPrimary = combinedSelectedBatches.length > 0
+      ? (combinedSelectedBatches.includes(combinedRun?.primaryBatchNumber ?? '')
+        ? combinedRun!.primaryBatchNumber
+        : combinedSelectedBatches[0])
+      : null;
+    const batch = combinedRun?.batchNumbers.includes(batchNo)
+      ? (pickedPrimary ?? combinedRun.primaryBatchNumber)
       : batchNo;
     set({ workspaceOpen: true, workspaceBatch: batchNo });
     void get().loadPanelOrder(batch);
   },
-  closeWorkspace: () => set({ workspaceOpen: false, workspaceBatch: null, combinedRun: null }),
+  closeWorkspace: () => set({
+    workspaceOpen: false,
+    workspaceBatch: null,
+    combinedRun: null,
+    combinedSelectedBatches: [],
+  }),
   setPanelOrder: (order) => set({ panelOrder: order }),
   setMachineActive: (active) => set({ machineActive: active }),
   setManualStoppage: (state) => set({ manualStoppage: state }),
   setShiftSummary: (summary) => set({ shiftSummary: summary }),
   setBusy: (busy) => set({ busy }),
-  setCombinedRun: (run) => set({ combinedRun: run }),
+  setCombinedRun: (run, opts) => {
+    const prev = get();
+    const next = reconcileCombinedSelection(
+      prev.combinedRun,
+      prev.combinedSelectedBatches,
+      run,
+      opts?.selectedBatches,
+    );
+    set(next);
+  },
+  toggleCombinedSelected: (batchNumber) => {
+    const { combinedRun, combinedSelectedBatches } = get();
+    if (!combinedRun?.batchNumbers.includes(batchNumber)) return;
+    const has = combinedSelectedBatches.includes(batchNumber);
+    const nextSelected = has
+      ? combinedSelectedBatches.filter((b) => b !== batchNumber)
+      : [...combinedSelectedBatches, batchNumber];
+    let nextRun = combinedRun;
+    if (nextSelected.length > 0 && !nextSelected.includes(nextRun.primaryBatchNumber)) {
+      nextRun = { ...nextRun, primaryBatchNumber: nextSelected[0] };
+    }
+    set({ combinedSelectedBatches: nextSelected, combinedRun: nextRun });
+  },
 
   openStoppageDialog: async (batchNo) => {
     if (get().panelOrder?.batchNumber !== batchNo) {
@@ -213,32 +254,39 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       if (refreshGen !== machineStateRefreshGen) return;
 
       const prev = get();
-      const patch: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage' | 'combinedRun' | 'panelOrder'>> = {};
+      const patch: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage' | 'panelOrder'>> = {};
       if (!jsonEqual(prev.machineActive, active)) patch.machineActive = active;
       if (!jsonEqual(prev.manualStoppage, manualStoppage)) patch.manualStoppage = manualStoppage;
-      if (!jsonEqual(prev.combinedRun, nextCombinedRun)) patch.combinedRun = nextCombinedRun;
       if (Object.keys(patch).length > 0) set(patch);
+      if (!jsonEqual(prev.combinedRun, nextCombinedRun)) {
+        get().setCombinedRun(nextCombinedRun);
+      }
 
       if (active?.batchNumber) {
-        const { workspaceOpen: wsOpen, workspaceBatch } = get();
-        const formBatch = nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
+        const { workspaceOpen: wsOpen, workspaceBatch, combinedSelectedBatches } = get();
+        const pickedPrimary = combinedSelectedBatches.length > 0
+          ? (combinedSelectedBatches.includes(nextCombinedRun?.primaryBatchNumber ?? '')
+            ? nextCombinedRun!.primaryBatchNumber
+            : combinedSelectedBatches[0])
+          : null;
+        const formBatch = pickedPrimary ?? nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
         if (!wsOpen || workspaceBatch === active.batchNumber || workspaceBatch === formBatch) {
           await get().loadPanelOrder(formBatch);
         }
       } else if (!get().workspaceOpen) {
-        const clearing: Partial<Pick<SixHiStore, 'panelOrder' | 'combinedRun'>> = {};
+        const clearing: Partial<Pick<SixHiStore, 'panelOrder'>> = {};
         if (prev.panelOrder !== null) clearing.panelOrder = null;
-        if (prev.combinedRun !== null) clearing.combinedRun = null;
         if (Object.keys(clearing).length > 0) set(clearing);
+        if (prev.combinedRun !== null) get().setCombinedRun(null);
       }
     } catch {
       if (refreshGen !== machineStateRefreshGen) return;
       const prev = get();
-      const clearing: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage' | 'combinedRun'>> = {};
+      const clearing: Partial<Pick<SixHiStore, 'machineActive' | 'manualStoppage'>> = {};
       if (prev.machineActive !== null) clearing.machineActive = null;
       if (prev.manualStoppage !== null) clearing.manualStoppage = null;
-      if (prev.combinedRun !== null) clearing.combinedRun = null;
       if (Object.keys(clearing).length > 0) set(clearing);
+      if (prev.combinedRun !== null) get().setCombinedRun(null);
     }
   },
 

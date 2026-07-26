@@ -5,6 +5,7 @@ import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
@@ -16,6 +17,11 @@ interface SixHiProductionActionRailProps {
   workspaceBatch: string | null;
   busy?: boolean;
   combinedRun?: CombinedProductionRun | null;
+  /** Picked count (operator ticks). */
+  combinedSelectedCount?: number;
+  /** Matching list size. */
+  matchingCount?: number;
+  startDisabled?: boolean;
   onStart: () => void;
   onEnd: () => void;
   onRemark: () => void;
@@ -68,6 +74,9 @@ export function SixHiProductionActionRail({
   workspaceBatch,
   busy,
   combinedRun,
+  combinedSelectedCount,
+  matchingCount,
+  startDisabled,
   onStart,
   onEnd,
   onRemark,
@@ -83,11 +92,12 @@ export function SixHiProductionActionRail({
   const canReject = order.status !== 'COMPLETED' && order.status !== 'REJECTED';
 
   const { formatted: stoppageTimer } = useLiveTimer(order.activeStoppage?.startAt, hasActiveStoppage);
+  const netRuntime = useNetProductionTimer(order);
 
   const runtimeLabel = order.prodDurationMin
     ? `${order.prodDurationMin} minutes`
-    : order.prodStartAt
-      ? 'Running'
+    : netRuntime
+      ? netRuntime
       : preparing
         ? 'Preparing'
         : '—';
@@ -100,9 +110,12 @@ export function SixHiProductionActionRail({
         ? 'Preparing'
         : 'Idle';
 
-  const isCombined = !!combinedRun && combinedRun.batchNumbers.length > 1;
+  const matchingSize = matchingCount ?? combinedRun?.batchNumbers.length ?? 0;
+  const pickedSize = combinedSelectedCount ?? matchingSize;
+  const isCombined = !!combinedRun && matchingSize > 1;
+  const showAsCombinedAction = isCombined && pickedSize > 1;
   const combinedTarget = isCombined
-    ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
+    ? combinedTargetMt(combinedRun!.orders.map((o) => ({ targetMt: o.weightMt })))
     : null;
 
   return (
@@ -115,10 +128,10 @@ export function SixHiProductionActionRail({
           <>
             <p className="text-[9px] font-bold uppercase tracking-wide text-success">Combined</p>
             <p className="font-mono text-xs font-bold text-foreground leading-tight">
-              {combinedRun.batchNumbers.length} orders
+              {preparing ? `${pickedSize} of ${matchingSize}` : `${pickedSize} orders`}
             </p>
             <p className="text-[8px] text-muted-foreground leading-tight">
-              {combinedRun.orders.map((o) => selectIdOf(o)).join(' · ')}
+              {combinedRun!.orders.map((o) => selectIdOf(o)).join(' · ')}
             </p>
             {combinedTarget != null && (
               <p className="text-[8px] font-mono text-muted-foreground">{combinedTarget} MT</p>
@@ -136,13 +149,25 @@ export function SixHiProductionActionRail({
 
       <div className="flex-1 flex flex-col justify-center gap-2 px-2 py-3 min-h-0 overflow-y-auto">
         {canStart && (
-          <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />
+          <RailButton
+            label="Start"
+            icon={Play}
+            onClick={onStart}
+            disabled={busy || !!startDisabled}
+            variant="start"
+          />
         )}
         {canResume && (
           <RailButton label="Resume" icon={Play} onClick={onStart} disabled={busy} variant="start" />
         )}
         {canEnd && (
-          <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
+          <RailButton
+            label={showAsCombinedAction ? 'End All' : 'End'}
+            icon={Square}
+            onClick={onEnd}
+            disabled={busy}
+            variant="end"
+          />
         )}
         <RailButton
           label={hasActiveStoppage ? 'Manage Stop' : 'Stoppage'}

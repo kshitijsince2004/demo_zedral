@@ -115,9 +115,17 @@ export interface PlantHeadBacklogOrder {
   daysPending: number;
 }
 
+export interface PlantHeadBacklogMachine {
+  machineCode: string;
+  machineName: string;
+}
+
 export interface PlantHeadBacklogResponse {
   total: number;
+  /** KPI-aligned plant backlog size (ignores machine/search filters). */
+  totalUnfiltered?: number;
   orders: PlantHeadBacklogOrder[];
+  availableMachines?: PlantHeadBacklogMachine[];
 }
 
 export interface PlantHeadDashboardData {
@@ -385,8 +393,15 @@ export const reportingService = {
     return apiClient.get<PlantHeadDashboardData>(`/reports/plant-head${qs}`);
   },
 
-  async getPlantHeadBacklog(): Promise<PlantHeadBacklogResponse> {
-    return apiClient.get<PlantHeadBacklogResponse>('/reports/plant-head/backlog');
+  async getPlantHeadBacklog(filters?: {
+    machineCode?: string;
+    search?: string;
+  }): Promise<PlantHeadBacklogResponse> {
+    const params = new URLSearchParams();
+    if (filters?.machineCode) params.set('machineCode', filters.machineCode);
+    if (filters?.search) params.set('search', filters.search);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<PlantHeadBacklogResponse>(`/reports/plant-head/backlog${qs}`);
   },
 
   /**

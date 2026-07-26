@@ -6,7 +6,9 @@ export function totalStoppageMs(order: SixHiOrderDetail, includeActive = true): 
   for (const s of order.stoppages ?? []) {
     if (s.durationMin != null) {
       ms += s.durationMin * 60_000;
-    } else if (includeActive && !s.endAt) {
+    } else if (s.endAt) {
+      ms += Math.max(0, new Date(s.endAt).getTime() - new Date(s.startAt).getTime());
+    } else if (includeActive) {
       ms += Math.max(0, Date.now() - new Date(s.startAt).getTime());
     }
   }
@@ -16,8 +18,10 @@ export function totalStoppageMs(order: SixHiOrderDetail, includeActive = true): 
 /** Wall-clock production time minus stoppage time. */
 export function netProductionRuntimeMs(order: SixHiOrderDetail): number | null {
   if (!order.prodStartAt) return null;
-  const wall = Date.now() - new Date(order.prodStartAt).getTime();
-  const deductActive = order.status === 'STOPPAGE' && !!order.activeStoppage;
+  const endMs = order.prodEndAt ? new Date(order.prodEndAt).getTime() : Date.now();
+  const wall = endMs - new Date(order.prodStartAt).getTime();
+  // Always deduct open stoppage time so the production timer freezes while stopped.
+  const deductActive = order.status === 'STOPPAGE' || !!order.activeStoppage;
   return Math.max(0, wall - totalStoppageMs(order, deductActive));
 }
 

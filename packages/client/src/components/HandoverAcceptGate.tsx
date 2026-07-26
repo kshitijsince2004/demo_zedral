@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
 import { ApiError } from '../lib/apiClient';
-import { machineHandoverService, type PendingHandover } from '../services/machineHandoverService';
+import { machineHandoverService } from '../services/machineHandoverService';
+import { useHandoverPending } from '../hooks/useHandoverState';
 import { HandoverAcceptPage } from '../pages/sixHi/HandoverAcceptPage';
 import { ZButton } from './primitives/ZButton';
 
@@ -18,55 +19,46 @@ export function HandoverAcceptGate({ machineCode, children, onHandoverAccepted }
   const navigate = useNavigate();
   const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
-  const [pending, setPending] = useState<PendingHandover | null | undefined>(undefined);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const machineAccess = useAuthStore((s) => s.machineAccess);
 
   // Outgoing operators use /handover to submit — never block that route behind the accept gate.
   const onOutgoingHandoverRoute = /\/handover\/?$/.test(location.pathname);
 
-  const checkPending = useCallback(async () => {
-    setLoadError(null);
-    // Don't reset pending→undefined on refresh — that flashes a z-200 overlay and blocks Logout.
-    try {
-      const allowed = machineAccess.map((m) => m.toUpperCase());
-      if (!allowed.includes(machineCode.toUpperCase())) {
-        setPending(null);
-        return;
-      }
-      const { pending: p } = await Promise.race([
-        machineHandoverService.getPending(machineCode),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error('Handover check timed out')), 15_000);
-        }),
-      ]);
-      setPending(p);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        logout();
-        navigate('/login', { replace: true });
-        return;
-      }
-      setLoadError(err instanceof Error ? err.message : 'Failed to check handover status');
-      setPending((prev) => (prev === undefined ? null : prev));
-    }
-  }, [machineCode, machineAccess, logout, navigate]);
+  const allowed = machineAccess.map((m) => m.toUpperCase()).includes(machineCode.toUpperCase());
+  const {
+    data: pending,
+    error,
+    isLoading,
+    mutate,
+  } = useHandoverPending(machineCode, allowed && !onOutgoingHandoverRoute);
 
   useEffect(() => {
-    void checkPending();
-  }, [checkPending]);
+    if (error instanceof ApiError && error.status === 401) {
+      logout();
+      navigate('/login', { replace: true });
+    }
+  }, [error, logout, navigate]);
 
   if (onOutgoingHandoverRoute) {
     return <>{children}</>;
   }
 
-  // Instead of returning early and unmounting everything,
-  // we render the gate as a full-screen overlay if needed.
+  if (!allowed) {
+    return <>{children}</>;
+  }
+
+  const loadError = error && !(error instanceof ApiError && error.status === 401)
+    ? (error instanceof Error ? error.message : 'Failed to check handover status')
+    : null;
+
+  // Checking only on first load — keep workspace mounted underneath.
+  const checking = pending === undefined && isLoading && !loadError;
+
   return (
     <>
       {children}
 
-      {(pending === undefined && !loadError) && (
+      {checking && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-secondary/80 backdrop-blur-sm text-muted-foreground text-sm">
           <div className="flex flex-col items-center gap-2">
             <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -79,7 +71,7 @@ export function HandoverAcceptGate({ machineCode, children, onHandoverAccepted }
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-secondary gap-4 p-6">
           <p className="text-sm text-destructive text-center max-w-md">{loadError}</p>
           <div className="flex gap-3">
-            <ZButton variant="secondary" onClick={() => void checkPending()}>
+            <ZButton variant="secondary" onClick={() => void mutate()}>
               Retry
             </ZButton>
             <ZButton variant="danger" onClick={() => logout()}>
@@ -94,7 +86,7 @@ export function HandoverAcceptGate({ machineCode, children, onHandoverAccepted }
           <HandoverAcceptPage
             handover={pending}
             onAccepted={async () => {
-              setPending(null);
+              await mutate(null, { revalidate: false });
               try {
                 const sess = await machineHandoverService.ensureSession(machineCode);
                 const sid = sess?.session

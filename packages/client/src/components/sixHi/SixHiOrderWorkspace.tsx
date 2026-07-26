@@ -3,6 +3,7 @@ import { PPCInfoCards } from './PPCInfoCards';
 import { FourHiRollingForm } from './FourHiRollingForm';
 import { SharedSkinPassForm } from './SharedSkinPassForm';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { millSupportsRolling } from '../../lib/millConfig';
 import { formatPlantClock } from '../../lib/dateFormat';
@@ -41,8 +42,9 @@ export function SixHiOrderWorkspace({
   const isRunning = order.status === 'IN_PROGRESS' && !!order.prodStartAt && !order.activeStoppage;
   const isStoppageActive = !!order.activeStoppage;
 
-  const { formatted: runTime } = useLiveTimer(order.prodStartAt, isRunning);
+  const netRunTime = useNetProductionTimer(order);
   const { formatted: stopTime } = useLiveTimer(order.activeStoppage?.startAt, isStoppageActive);
+  const runTime = netRunTime ?? '';
 
   return (
     <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-4 min-h-0'}`}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { putQueued } from '../../lib/sync/queuedApi';
@@ -481,31 +481,49 @@ export function PlantShiftReviewPage() {
   const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
-  const [filterDate, setFilterDate] = useState(() => currentPlantDate());
+  /** Empty date = all plant days (active + previous). Picker can narrow. */
+  const [filterDate, setFilterDate] = useState('');
   const [filterShift, setFilterShift] = useState('');
   const [filterMachine, setFilterMachine] = useState('');
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ALL');
   const [currentShiftLabel, setCurrentShiftLabel] = useState<string | null>(null);
+  const [activeProdDate, setActiveProdDate] = useState<string | null>(null);
+  const [activeShiftCode, setActiveShiftCode] = useState<string | null>(null);
+  /**
+   * Default list = active shift + previous dates (no hard pin to one slot).
+   * When false, MH/PH narrowed via the date/shift picker.
+   */
+  const [shiftPinnedToActive, setShiftPinnedToActive] = useState(true);
 
   const machineAccess = useOperationalMachineAccess();
   const role = useAuthStore((s) => s.role);
-  const shiftBootstrapped = useRef(false);
 
-  useEffect(() => {
-    if (shiftBootstrapped.current) return;
-    shiftBootstrapped.current = true;
+  const resolveActiveShift = useCallback(() => {
     const machine = machineAccess[0];
     void bootstrapShiftContext(machine)
       .then((shift) => {
         const prodDate = formatShiftDate(shift.prodDate);
-        // Pin plant today only — keep "All shifts" so completed A/B still show during C.
-        setFilterDate(prodDate);
+        setActiveProdDate(prodDate);
+        setActiveShiftCode(shift.shiftCode);
         setCurrentShiftLabel(`${prodDate} · Shift ${shift.shiftCode}`);
+        // Keep the list open to previous dates; only reset pickers when returning to default.
+        if (shiftPinnedToActive) {
+          setFilterDate('');
+          setFilterShift('');
+        }
       })
       .catch(() => {
+        setActiveProdDate(null);
+        setActiveShiftCode(null);
         setCurrentShiftLabel(`${currentPlantDate()} · Shift detection unavailable`);
       });
-  }, [machineAccess]);
+  }, [machineAccess, shiftPinnedToActive]);
+
+  useEffect(() => {
+    resolveActiveShift();
+    const id = window.setInterval(resolveActiveShift, 60_000);
+    return () => window.clearInterval(id);
+  }, [resolveActiveShift]);
 
   const machineOptions = useMemo(() => {
     if (role === 'MACHINE_HEAD') return machineAccess;
@@ -521,14 +539,23 @@ export function PlantShiftReviewPage() {
   const logsByDay = useMemo(() => {
     const map = new Map<string, ShiftLogRow[]>();
     const allowed = role === 'MACHINE_HEAD' ? machineAccess : undefined;
+    // Default (no date pick): active day + previous dates within a recent window.
+    const windowStart = activeProdDate && !filterDate
+      ? (() => {
+          const d = new Date(`${activeProdDate}T12:00:00`);
+          d.setDate(d.getDate() - 14);
+          return formatShiftDate(d);
+        })()
+      : null;
+
     for (const log of expandMachineCards(logs, allowed)) {
       if (filterMachine && log.reviewMachine !== filterMachine && !log.machines?.includes(filterMachine)) {
         continue;
       }
       const day = formatShiftDate(log.shiftDate);
       if (day === '—') continue;
-      // Hard pin: never show a different plant day than the date filter.
       if (filterDate && day !== filterDate) continue;
+      if (windowStart && day < windowStart) continue;
       const bucket = map.get(day) ?? [];
       bucket.push(log);
       map.set(day, bucket);
@@ -537,7 +564,7 @@ export function PlantShiftReviewPage() {
       dayLogs.sort(sortLogsForDay);
     }
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-  }, [logs, machineAccess, role, filterMachine, filterDate]);
+  }, [logs, machineAccess, role, filterMachine, filterDate, activeProdDate]);
 
   const toggleReview = useCallback(async (log: ShiftLogRow) => {
     const key = cardKey(log);
@@ -618,15 +645,38 @@ export function PlantShiftReviewPage() {
       title="Shift Review"
       subtitle={
         currentShiftLabel
-          ? `Current shift: ${currentShiftLabel} — open a row for production summary and handover details`
-          : 'Active and completed shifts by production day — open a row for production summary'
+          ? `Active: ${currentShiftLabel} — also lists previous production days`
+          : 'Active and previous-date shifts — open a row for production summary'
       }
     >
       <div className="flex flex-col gap-6 max-w-5xl">
         {currentShiftLabel && (
-          <div className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-foreground">
-            <span className="font-semibold">Today&apos;s shift:</span>{' '}
-            <span className="font-mono">{currentShiftLabel}</span>
+          <div className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-foreground flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="font-semibold">Active shift:</span>{' '}
+              <span className="font-mono">{currentShiftLabel}</span>
+              {shiftPinnedToActive ? (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  (showing active + previous dates · auto-updating)
+                </span>
+              ) : (
+                <span className="ml-2 text-xs text-muted-foreground">(filtered view)</span>
+              )}
+            </div>
+            {!shiftPinnedToActive && (
+              <ZButton
+                variant="secondary"
+                className="min-h-9 px-3 text-xs"
+                onClick={() => {
+                  setFilterDate('');
+                  setFilterShift('');
+                  setShiftPinnedToActive(true);
+                  resolveActiveShift();
+                }}
+              >
+                Show active + previous
+              </ZButton>
+            )}
           </div>
         )}
 
@@ -636,7 +686,10 @@ export function PlantShiftReviewPage() {
             <input
               type="date"
               value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
+              onChange={(e) => {
+                setShiftPinnedToActive(false);
+                setFilterDate(e.target.value);
+              }}
               className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm font-mono"
             />
           </label>
@@ -644,7 +697,10 @@ export function PlantShiftReviewPage() {
             Shift
             <select
               value={filterShift}
-              onChange={(e) => setFilterShift(e.target.value)}
+              onChange={(e) => {
+                setShiftPinnedToActive(false);
+                setFilterShift(e.target.value);
+              }}
               className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
             >
               <option value="">All shifts</option>
@@ -680,18 +736,33 @@ export function PlantShiftReviewPage() {
           </label>
         </div>
 
-        {filterDate && (
+        {filterDate ? (
           <p className="text-xs text-muted-foreground -mt-3">
             Showing plant day <span className="font-mono font-semibold text-foreground">{filterDate}</span>
             {' · '}
-            clear the date field to browse all days.
             <button
               type="button"
-              className="ml-2 underline underline-offset-2 hover:text-foreground"
-              onClick={() => setFilterDate('')}
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => {
+                setFilterDate('');
+                setShiftPinnedToActive(true);
+              }}
             >
-              Clear date
+              Show active + previous dates
             </button>
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground -mt-3">
+            Showing active shift and previous production days
+            {activeProdDate ? (
+              <>
+                {' · '}active day{' '}
+                <span className="font-mono font-semibold text-foreground">{activeProdDate}</span>
+                {activeShiftCode ? ` · Shift ${activeShiftCode}` : ''}
+                {' · '}last 14 days
+              </>
+            ) : null}
+            . Pick a date above to narrow.
           </p>
         )}
 
@@ -722,10 +793,18 @@ export function PlantShiftReviewPage() {
         <div className="space-y-6">
           {logsByDay.map(([day, dayLogs]) => {
             const activeCount = dayLogs.filter((l) => isActiveState(l.state)).length;
+            const isActiveDay = !!activeProdDate && day === activeProdDate;
             return (
               <section key={day} className="space-y-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
-                  <h3 className="text-sm font-bold text-foreground font-mono">{day}</h3>
+                  <h3 className="text-sm font-bold text-foreground font-mono">
+                    {day}
+                    {isActiveDay ? (
+                      <span className="ml-2 text-[10px] font-bold uppercase tracking-widest text-accent">
+                        Active day
+                      </span>
+                    ) : null}
+                  </h3>
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
                     {activeCount > 0 ? `${activeCount} active · ` : ''}
                     {dayLogs.length} shift{dayLogs.length === 1 ? '' : 's'}
@@ -734,11 +813,20 @@ export function PlantShiftReviewPage() {
                 <ul className="space-y-3">
                   {dayLogs.map((log) => {
                     const key = cardKey(log);
+                    const isClockActive =
+                      !!activeProdDate
+                      && !!activeShiftCode
+                      && formatShiftDate(log.shiftDate) === activeProdDate
+                      && log.shiftCode === activeShiftCode;
                     return (
                     <li
                       key={key}
                       className={`rounded-2xl border bg-white p-5 shadow-sm ${
-                        isActiveState(log.state) ? 'border-amber-500/40' : 'border-border'
+                        isClockActive
+                          ? 'border-accent ring-1 ring-accent/30'
+                          : isActiveState(log.state)
+                            ? 'border-amber-500/40'
+                            : 'border-border'
                       }`}
                     >
                       <button
@@ -753,6 +841,11 @@ export function PlantShiftReviewPage() {
                                 ? <ChevronDown className="w-4 h-4" />
                                 : <ChevronRight className="w-4 h-4" />}
                               {cardTitle(log)}
+                              {isClockActive ? (
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-accent">
+                                  Now
+                                </span>
+                              ) : null}
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
                               {log.processLine}

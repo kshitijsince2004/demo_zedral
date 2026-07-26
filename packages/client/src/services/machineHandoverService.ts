@@ -128,6 +128,9 @@ export interface ShiftProductionSummary {
   totalStoppageMinutes: number;
   totalBreakdownMinutes: number;
   machineUtilizationPct: number;
+  scrapKg?: number | null;
+  coolantTempDegC?: number | null;
+  coolantPressKgCm2?: number | null;
 }
 
 export interface UtilizationMetrics {
@@ -141,10 +144,14 @@ export interface UtilizationMetrics {
 
 export interface CrewMember {
   id: string;
-  operatorId: string;
-  empCode: string;
+  operatorId?: string;
+  empCode?: string;
   operatorName: string;
   roleCode: string;
+  /** Roster crew_id — preferred key for preselect matching. */
+  crewId?: string;
+  memberName?: string;
+  roleLabel?: string;
 }
 
 export interface HandoverPreview {

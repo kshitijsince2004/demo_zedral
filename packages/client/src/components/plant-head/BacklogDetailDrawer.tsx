@@ -3,7 +3,8 @@ import type { LiveOrderDetail } from '@m1/shared-validation';
 import { ZDrawer } from '../primitives/ZDrawer';
 import { ZButton } from '../primitives/ZButton';
 import { ZBadge } from '../primitives/ZBadge';
-import { reportingService, type PlantHeadBacklogOrder } from '../../lib/reportingService';
+import { ZInput } from '../primitives/ZInput';
+import { reportingService, type PlantHeadBacklogMachine, type PlantHeadBacklogOrder } from '../../lib/reportingService';
 import { liveService } from '../../lib/liveService';
 import { OrderDetailModal } from '../live/OrderDetailModal';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
@@ -12,6 +13,15 @@ import { formatPlantDate } from '../../lib/dateFormat';
 interface BacklogDetailDrawerProps {
   open: boolean;
   onClose: () => void;
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
 }
 
 function formatStatus(status: string) {
@@ -28,6 +38,11 @@ function statusTone(status: string) {
 export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps) {
   const [orders, setOrders] = useState<PlantHeadBacklogOrder[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalUnfiltered, setTotalUnfiltered] = useState(0);
+  const [availableMachines, setAvailableMachines] = useState<PlantHeadBacklogMachine[]>([]);
+  const [machineCode, setMachineCode] = useState('');
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailOrder, setDetailOrder] = useState<LiveOrderDetail | null>(null);
@@ -35,15 +50,24 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setMachineCode('');
+      setSearch('');
+      return;
+    }
     let active = true;
     setLoading(true);
     setError(null);
-    reportingService.getPlantHeadBacklog()
+    reportingService.getPlantHeadBacklog({
+      machineCode: machineCode || undefined,
+      search: debouncedSearch || undefined,
+    })
       .then((res) => {
         if (!active) return;
         setOrders(res.orders);
         setTotal(res.total);
+        setTotalUnfiltered(res.totalUnfiltered ?? res.total);
+        setAvailableMachines(res.availableMachines ?? []);
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -55,7 +79,7 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [open]);
+  }, [open, machineCode, debouncedSearch]);
 
   const loadDetail = async (batchNumber: string) => {
     setDetailOpen(true);
@@ -71,15 +95,50 @@ export function BacklogDetailDrawer({ open, onClose }: BacklogDetailDrawerProps)
     }
   };
 
+  const filtered = Boolean(machineCode || debouncedSearch);
+  const titleTotal = filtered && totalUnfiltered > 0
+    ? `Backlog Orders (${total} of ${totalUnfiltered})`
+    : `Backlog Orders (${total})`;
+
   return (
     <>
       <ZDrawer
         open={open}
         onClose={onClose}
-        title={`Backlog Orders (${total})`}
+        title={titleTotal}
         size="large"
       >
         <div className="flex flex-col h-full overflow-hidden">
+          <div className="shrink-0 border-b border-border p-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex flex-col gap-1 min-w-[180px]">
+              <label htmlFor="backlog-machine" className="text-[10px] uppercase tracking-[0.14em] font-medium text-muted-foreground">
+                Machine
+              </label>
+              <select
+                id="backlog-machine"
+                value={machineCode}
+                onChange={(e) => setMachineCode(e.target.value)}
+                className="h-11 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+              >
+                <option value="">All Machines</option>
+                {availableMachines.map((m) => (
+                  <option key={m.machineCode} value={m.machineCode}>
+                    {m.machineName ? `${m.machineCode} · ${m.machineName}` : m.machineCode}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <ZInput
+                label="Search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Batch, coil, slit, customer…"
+                aria-label="Search backlog orders"
+              />
+            </div>
+          </div>
+
           {error && (
             <div className="p-4 bg-destructive/10 text-destructive text-sm border-b border-destructive/20">
               {error}

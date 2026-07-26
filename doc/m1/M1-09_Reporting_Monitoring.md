@@ -104,6 +104,10 @@ All KPIs derive from M1 capture — no separate data entry. Definitions are fixe
 | Rejection spike | Supervisor, Plant Head | Rejection rate above rolling baseline |
 | Pending approvals | Supervisor | Submitted shift logs awaiting review |
 
+# 5b. Backlog Definitions
+
+See [Backlog Definitions](../BACKLOG_DEFINITIONS.md) for plant KPI/drawer vs operator queue vs legacy handover rules.
+
 # 6. Scalability & Modularity of Reporting
 
 - Dashboards read the **replica**; heavy queries never slow capture, and reporting scales by adding replicas.
