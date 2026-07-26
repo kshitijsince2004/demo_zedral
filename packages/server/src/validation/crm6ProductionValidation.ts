@@ -2,7 +2,7 @@ import { db } from '../db';
 import { assertQuantityWithinProduction, assertRuntimeAccounting, ManufacturingValidationError } from './manufacturingValidation';
 import { resolveShiftWindowBounds } from './manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
-import { parsePlantDateOnly } from '@m1/shared-validation';
+import { parsePlantDateOnly, type ActualWeightOcrFields } from '@m1/shared-validation';
 
 export async function resolveOrderProductionMt(orderId: string | number): Promise<number> {
   const row = await db
@@ -35,6 +35,106 @@ export async function assertCrm6OutputWeight(
 
   const plannedMt = Number(ppc?.ppc_weight_mt ?? 0);
   assertQuantityWithinProduction(actualWeightMt, plannedMt, 'Actual production weight');
+}
+
+/** Require hash when source is OCR; reject reused photo hashes outside this order's combined group. */
+export async function assertActualWeightOcrCapture(
+  orderId: string | number,
+  data: ActualWeightOcrFields,
+): Promise<void> {
+  if (data.actualWeightSource === 'ocr' && !data.actualWeightPhotoHash) {
+    throw new ManufacturingValidationError(
+      'actualWeightPhotoHash is required when actualWeightSource is ocr',
+    );
+  }
+
+  const hash = data.actualWeightPhotoHash;
+  if (!hash) return;
+
+  const order = await db
+    .selectFrom('txn.crm_order')
+    .select(['order_id', 'combined_group_id'])
+    .where('order_id', '=', String(orderId))
+    .executeTakeFirst();
+
+  if (!order) throw new ManufacturingValidationError('Order not found');
+
+  const groupId = order.combined_group_id;
+
+  // Sibling orders in the same combined run may share one capture hash.
+  let rollingQ = db
+    .selectFrom('txn.crm_rolling as r')
+    .innerJoin('txn.crm_order as o', 'o.order_id', 'r.order_id')
+    .select('r.order_id')
+    .where('r.actual_weight_photo_hash', '=', hash)
+    .where('r.order_id', '!=', String(orderId));
+
+  let skinQ = db
+    .selectFrom('txn.crm_skinpass as s')
+    .innerJoin('txn.crm_order as o', 'o.order_id', 's.order_id')
+    .select('s.order_id')
+    .where('s.actual_weight_photo_hash', '=', hash)
+    .where('s.order_id', '!=', String(orderId));
+
+  if (groupId) {
+    rollingQ = rollingQ.where((eb) =>
+      eb.or([
+        eb('o.combined_group_id', 'is', null),
+        eb('o.combined_group_id', '!=', groupId),
+      ]),
+    );
+    skinQ = skinQ.where((eb) =>
+      eb.or([
+        eb('o.combined_group_id', 'is', null),
+        eb('o.combined_group_id', '!=', groupId),
+      ]),
+    );
+  }
+
+  const rollingHit = await rollingQ.limit(1).executeTakeFirst();
+  const skinHit = await skinQ.limit(1).executeTakeFirst();
+
+  if (rollingHit || skinHit) {
+    throw new ManufacturingValidationError(
+      'This weight photo was already used on another production record',
+    );
+  }
+}
+
+/** DB column patch for OCR audit fields — only when source is present in the payload. */
+export function actualWeightOcrDbPatch(data: ActualWeightOcrFields): Record<string, unknown> | null {
+  if (data.actualWeightSource === undefined) return null;
+  if (data.actualWeightSource === 'ocr') {
+    return {
+      actual_weight_source: 'ocr',
+      actual_weight_photo_hash: data.actualWeightPhotoHash ?? null,
+      ocr_confidence: data.ocrConfidence ?? null,
+      ocr_raw_text: data.ocrRawText ?? null,
+    };
+  }
+  return {
+    actual_weight_source: data.actualWeightSource ?? 'manual',
+    actual_weight_photo_hash: null,
+    ocr_confidence: null,
+    ocr_raw_text: null,
+  };
+}
+
+export function mapActualWeightOcrFields(row: {
+  actual_weight_source?: string | null;
+  actual_weight_photo_hash?: string | null;
+  ocr_confidence?: string | number | null;
+  ocr_raw_text?: string | null;
+}): ActualWeightOcrFields {
+  const source = row.actual_weight_source === 'ocr' || row.actual_weight_source === 'manual'
+    ? row.actual_weight_source
+    : undefined;
+  return {
+    actualWeightSource: source,
+    actualWeightPhotoHash: row.actual_weight_photo_hash ?? undefined,
+    ocrConfidence: row.ocr_confidence != null ? Number(row.ocr_confidence) : undefined,
+    ocrRawText: row.ocr_raw_text ?? undefined,
+  };
 }
 
 export async function assertCrm6DefectQuantities(

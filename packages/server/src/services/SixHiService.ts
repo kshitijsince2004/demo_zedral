@@ -34,10 +34,14 @@ import {
   validateOrderStoppageInterval,
   validateOrderStoppageStart,
 } from '../validation/orderStoppageValidation';
+import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
 import {
+  actualWeightOcrDbPatch,
+  assertActualWeightOcrCapture,
   assertCrm6DefectQuantities,
   assertCrm6OutputWeight,
   assertCrm6ScrapKg,
+  mapActualWeightOcrFields,
   assertOrderRuntimeAccounting,
   assertShiftLogRuntimeAccounting,
 } from '../validation/crm6ProductionValidation';
@@ -184,13 +188,7 @@ export class SixHiService {
       .execute();
     let total = 0;
     for (const s of stops) {
-      if (s.duration_min != null) {
-        total += s.duration_min;
-      } else if (s.end_at) {
-        total += Math.round((s.end_at.getTime() - s.start_at.getTime()) / 60000);
-      } else {
-        total += Math.round((asOf.getTime() - s.start_at.getTime()) / 60000);
-      }
+      total += resolveStoppageMinutes(s.start_at, s.end_at ?? asOf, s.duration_min, asOf.getTime());
     }
     return total;
   }
@@ -642,7 +640,8 @@ export class SixHiService {
     const sourceMachine = batch.machine_code;
     const alreadyOnTarget = (batch.machine_allocated ?? true) && sourceMachine === machine;
     if (alreadyOnTarget) {
-      throw new Error(`Order is already assigned to ${machine}`);
+      // Idempotent: opening production on an already-assigned mill is a no-op.
+      return this.getOrder(batchNumber, userId);
     }
 
     const order = await db.selectFrom('txn.crm_order')
@@ -985,6 +984,7 @@ export class SixHiService {
           rollInCode: r.roll_in_code ?? undefined,
           rollOutNo: r.roll_out_no ?? undefined,
           rollOutCode: r.roll_out_code ?? undefined,
+          ...mapActualWeightOcrFields(r),
         };
       }
     } else {
@@ -1000,6 +1000,7 @@ export class SixHiService {
           loadMinT: s.load_min_t ? Number(s.load_min_t) : undefined,
           loadMaxT: s.load_max_t ? Number(s.load_max_t) : undefined,
           stretchPct: s.stretch_pct ? Number(s.stretch_pct) : undefined,
+          ...mapActualWeightOcrFields(s),
         };
       }
     }
@@ -1022,6 +1023,23 @@ export class SixHiService {
       ? await loadOrderRejection(order.order_id)
       : undefined;
 
+    let ocrMinConfidence: number | undefined;
+    if (ppcBatch?.machine_code) {
+      try {
+        const machine = await db
+          .selectFrom('master.machine')
+          .select('ocr_min_confidence')
+          .where('machine_code', '=', ppcBatch.machine_code)
+          .executeTakeFirst();
+        if (machine?.ocr_min_confidence != null) {
+          ocrMinConfidence = Number(machine.ocr_min_confidence);
+        }
+      } catch {
+        // ponytail: column added by 1940000000000_weight_ocr_capture — ignore until migrated
+        ocrMinConfidence = undefined;
+      }
+    }
+
     return {
       orderId: String(order.order_id),
       batchNumber: order.batch_number,
@@ -1036,6 +1054,7 @@ export class SixHiService {
       minThkTolMm: ppcBatch?.min_thk_tol_mm != null ? Number(ppcBatch.min_thk_tol_mm) : undefined,
       maxThkTolMm: ppcBatch?.max_thk_tol_mm != null ? Number(ppcBatch.max_thk_tol_mm) : undefined,
       machineCode: ppcBatch?.machine_code,
+      ocrMinConfidence,
       machineAllocated: ppcBatch?.machine_allocated ?? true,
       rollingPassNo: ppcBatch?.active_rolling_pass_no ? Number(ppcBatch.active_rolling_pass_no) : undefined,
       rollingPassPlans: passPlans.length > 0
@@ -1931,6 +1950,7 @@ export class SixHiService {
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
+    await assertActualWeightOcrCapture(orderId, data);
 
     const ruleset = await this.getEffectiveRuleset();
     const validationResult = evaluateRules({ rolling: data }, ruleset);
@@ -1939,6 +1959,7 @@ export class SixHiService {
     }
 
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
+    const ocrPatch = actualWeightOcrDbPatch(data);
 
     await db.updateTable('txn.crm_rolling')
       .set({
@@ -1950,6 +1971,7 @@ export class SixHiService {
         dtr: data.dtr ?? null,
         total_passes: data.passes.length,
         final_thk_mm: finalThk ?? null,
+        ...(ocrPatch ?? {}),
       })
       .where('order_id', '=', orderId)
       .execute();
@@ -1989,12 +2011,15 @@ export class SixHiService {
   ) {
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
+    await assertActualWeightOcrCapture(orderId, data);
 
     const ruleset = await this.getEffectiveRuleset();
     const validationResult = evaluateRules({ skinPass: data }, ruleset);
     if (!validationResult.isValid) {
       throw new Error('Validation failed: ' + validationResult.errors.map(e => e.message).join(', '));
     }
+
+    const ocrPatch = actualWeightOcrDbPatch(data);
 
     await db.updateTable('txn.crm_skinpass')
       .set({
@@ -2007,6 +2032,7 @@ export class SixHiService {
         load_min_t: data.loadMinT ?? null,
         load_max_t: data.loadMaxT ?? null,
         stretch_pct: data.stretchPct ?? null,
+        ...(ocrPatch ?? {}),
       })
       .where('order_id', '=', orderId)
       .execute();
@@ -2232,7 +2258,7 @@ export class SixHiService {
 
     await db.transaction().execute(async (trx) => {
       for (const stop of openStops) {
-        const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
+        const durationMin = resolveStoppageMinutes(stop.start_at, endAt, null);
         await trx.updateTable('txn.stoppage')
           .set({ end_at: endAt, duration_min: durationMin })
           .where('stoppage_id', '=', stop.stoppage_id as any)
@@ -2314,13 +2340,13 @@ export class SixHiService {
   }
 
   static async getShiftStoppages(shiftLogId: string, machineCode?: string | string[]) {
-    // Single source of truth: stoppages belong to the shift the order is attributed to
-    // (crm6_order.shift_log_id), consistent with production attribution.
+    // Order-linked stoppages (via order shift attribution) + manual machine stoppages
+    // (order_id IS NULL, keyed by stoppage.shift_log_id).
     const machineCodes = machineCode == null
       ? null
       : Array.isArray(machineCode) ? machineCode.map((m) => m.toUpperCase()).filter(Boolean) : [machineCode.toUpperCase()];
 
-    let query = db.selectFrom('txn.stoppage as os')
+    let orderQuery = db.selectFrom('txn.stoppage as os')
       .innerJoin('txn.crm_order as o', 'o.order_id', 'os.order_id')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
@@ -2335,27 +2361,67 @@ export class SixHiService {
         'os.remarks',
         'o.batch_number',
       ])
-      .orderBy('os.start_at', 'desc')
       .where('o.shift_log_id', '=', shiftLogId);
 
     if (machineCodes && machineCodes.length > 0) {
-      query = machineCodes.length === 1
-        ? query.where('pb.machine_code', '=', machineCodes[0])
-        : query.where('pb.machine_code', 'in', machineCodes);
+      orderQuery = machineCodes.length === 1
+        ? orderQuery.where('pb.machine_code', '=', machineCodes[0])
+        : orderQuery.where('pb.machine_code', 'in', machineCodes);
     }
 
-    const rows = await query.execute();
-    return rows.map((s) => ({
-      id: String(s.stoppage_id),
-      batchNumber: s.batch_number,
-      categoryCode: s.category_code,
-      categoryLabel: s.label,
-      breakdownCode: s.breakdown_code ?? undefined,
-      startAt: s.start_at.toISOString(),
-      endAt: s.end_at?.toISOString(),
-      durationMin: s.duration_min ?? undefined,
-      remarks: s.remarks ?? undefined,
-    }));
+    let manualQuery = db.selectFrom('txn.stoppage as os')
+      .innerJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
+      .select([
+        'os.stoppage_id',
+        'os.category_code',
+        'sc.label',
+        'os.breakdown_code',
+        'os.start_at',
+        'os.end_at',
+        'os.duration_min',
+        'os.remarks',
+      ])
+      .where('os.order_id', 'is', null)
+      .where('os.shift_log_id', '=', shiftLogId);
+
+    if (machineCodes && machineCodes.length > 0) {
+      manualQuery = machineCodes.length === 1
+        ? manualQuery.where('os.machine_code', '=', machineCodes[0])
+        : manualQuery.where('os.machine_code', 'in', machineCodes);
+    }
+
+    const [orderRows, manualRows] = await Promise.all([
+      orderQuery.execute(),
+      manualQuery.execute(),
+    ]);
+
+    const mapped = [
+      ...orderRows.map((s) => ({
+        id: String(s.stoppage_id),
+        batchNumber: s.batch_number as string | undefined,
+        categoryCode: s.category_code,
+        categoryLabel: s.label,
+        breakdownCode: s.breakdown_code ?? undefined,
+        startAt: s.start_at.toISOString(),
+        endAt: s.end_at?.toISOString(),
+        durationMin: resolveStoppageMinutes(s.start_at, s.end_at, s.duration_min),
+        remarks: s.remarks ?? undefined,
+      })),
+      ...manualRows.map((s) => ({
+        id: String(s.stoppage_id),
+        batchNumber: undefined as string | undefined,
+        categoryCode: s.category_code,
+        categoryLabel: s.label,
+        breakdownCode: s.breakdown_code ?? undefined,
+        startAt: s.start_at.toISOString(),
+        endAt: s.end_at?.toISOString(),
+        durationMin: resolveStoppageMinutes(s.start_at, s.end_at, s.duration_min),
+        remarks: s.remarks ?? undefined,
+      })),
+    ];
+
+    mapped.sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
+    return mapped;
   }
 
   static async getStoppageCategories() {
@@ -2652,7 +2718,7 @@ export class SixHiService {
         .executeTakeFirstOrThrow();
       const endAt = new Date();
       await validateOrderStoppageInterval(orderId as any, stop.start_at, endAt, String(activeStoppage.stoppage_id));
-      const durationMin = Math.round((endAt.getTime() - stop.start_at.getTime()) / 60000);
+      const durationMin = resolveStoppageMinutes(stop.start_at, endAt, null);
       await trx.updateTable('txn.stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
         .where('stoppage_id', '=', activeStoppage.stoppage_id)
@@ -2951,6 +3017,18 @@ export class SixHiService {
       meta: nextMeta,
     });
 
+    // Keep txn.stoppage in sync (status rail updates events; history/handover read the table).
+    await db.updateTable('txn.stoppage')
+      .set({
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+      })
+      .where('machine_code', '=', machineCode)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .execute();
+
     return this.getManualStoppageStatus(machineCode);
   }
 
@@ -2970,7 +3048,7 @@ export class SixHiService {
       .orderBy('start_at', 'desc')
       .executeTakeFirst();
     if (openManual) {
-      const durationMin = Math.round((endAt.getTime() - new Date(openManual.start_at as Date).getTime()) / 60000);
+      const durationMin = resolveStoppageMinutes(openManual.start_at as Date, endAt, null);
       await db.updateTable('txn.stoppage')
         .set({ end_at: endAt, duration_min: durationMin })
         .where('stoppage_id', '=', openManual.stoppage_id)

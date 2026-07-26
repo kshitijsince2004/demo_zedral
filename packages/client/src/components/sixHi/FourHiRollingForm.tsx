@@ -5,6 +5,7 @@ import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { PassTracker } from './PassTracker';
 import { ThicknessSpecs } from './ThicknessSpecs';
+import { ActualWeightCaptureField } from './ActualWeightCaptureField';
 
 interface RollingWorkspaceProps {
   order: SixHiOrderDetail;
@@ -123,11 +124,40 @@ export function FourHiRollingForm({
     }
   };
 
-  const commitDecimalDraft = (field: RollingDecimalField) => {
-    const parsed = parseDecimalDraft(drafts[field]);
+  const commitDecimalDraft = (field: RollingDecimalField, overrideValue?: number) => {
+    const parsed = overrideValue !== undefined ? overrideValue : parseDecimalDraft(drafts[field]);
     setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
     setData((prev) => ({ ...prev, [field]: parsed }));
   };
+
+  const weightLabel = isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)';
+  const weightHint = isCombined && combinedTargetMt != null ? (
+    <p className="text-xs text-muted-foreground mt-1">
+      Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+    </p>
+  ) : null;
+
+  const weightField = (
+    <ActualWeightCaptureField
+      label={weightLabel}
+      value={drafts.actualWeightMt}
+      onDraftChange={(raw) => updateDecimalDraft('actualWeightMt', raw)}
+      onDraftCommit={() => commitDecimalDraft('actualWeightMt')}
+      formLocked={locked}
+      ocr={{
+        actualWeightSource: data.actualWeightSource,
+        actualWeightPhotoHash: data.actualWeightPhotoHash,
+        ocrConfidence: data.ocrConfidence,
+        ocrRawText: data.ocrRawText,
+      }}
+      onOcrChange={(next) => setData((prev) => ({ ...prev, ...next }))}
+      onWeightConfirmed={(v) => commitDecimalDraft('actualWeightMt', v)}
+      ocrMinConfidence={order.ocrMinConfidence}
+      prominent={!!compact}
+      inputClassName={compact ? 'min-h-14 text-xl' : 'min-h-14 text-lg'}
+      hint={weightHint}
+    />
+  );
 
   if (compact) {
     return (
@@ -147,27 +177,7 @@ export function FourHiRollingForm({
                 Pass target {order.targetThkMm} mm · Finish {order.finishThkMm} mm
               </p>
             )}
-            <FieldWrapper
-              label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}
-              prominent
-            >
-              <ZInput
-                type="number"
-                inputMode="decimal"
-                enterKeyHint="next"
-                autoComplete="off"
-                value={drafts.actualWeightMt}
-                onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)}
-                onBlur={() => commitDecimalDraft('actualWeightMt')}
-                className="min-h-14 text-xl"
-                disabled={locked}
-              />
-              {isCombined && combinedTargetMt != null && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
-                </p>
-              )}
-            </FieldWrapper>
+            {weightField}
             <div className="flex items-center justify-between gap-1">
               <span className="text-sm font-medium text-muted-foreground">
                 Destination: {effectiveDest === 'REWINDING' ? 'Rewinding' : 'Annealing'}
@@ -243,14 +253,7 @@ export function FourHiRollingForm({
         <ThicknessSpecs order={order} />
       </div>
       <div className="bg-white border border-border rounded-2xl p-4">
-        <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
-          {isCombined && combinedTargetMt != null && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
-            </p>
-          )}
-        </FieldWrapper>
+        {weightField}
       </div>
       <PassTracker passes={data.passes} onChange={(passes) => setData({ ...data, passes })} disabled={locked} />
       <div className="bg-white border border-border rounded-2xl p-4 space-y-3">

@@ -44,6 +44,13 @@ export const SixHiPassSchema = z.object({
 
 
 
+const ActualWeightOcrFieldsSchema = {
+  actualWeightSource: z.enum(['ocr', 'manual']).optional(),
+  actualWeightPhotoHash: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+  ocrConfidence: z.number().min(0).max(100).optional(),
+  ocrRawText: z.string().max(2000).optional(),
+};
+
 export const SixHiRollingUpdateSchema = z.object({
 
   actualWeightMt: z.number().positive().optional(),
@@ -60,6 +67,16 @@ export const SixHiRollingUpdateSchema = z.object({
 
   passes: z.array(SixHiPassSchema).min(0),
 
+  ...ActualWeightOcrFieldsSchema,
+
+}).superRefine((data, ctx) => {
+  if (data.actualWeightSource === 'ocr' && !data.actualWeightPhotoHash) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'actualWeightPhotoHash is required when actualWeightSource is ocr',
+      path: ['actualWeightPhotoHash'],
+    });
+  }
 });
 
 
@@ -85,6 +102,8 @@ export const SixHiSkinPassUpdateSchema = z
 
     stretchPct: z.number().optional(),
 
+    ...ActualWeightOcrFieldsSchema,
+
   })
   .refine(
     (data) => {
@@ -93,7 +112,16 @@ export const SixHiSkinPassUpdateSchema = z
       return !(hasAnn && hasRw);
     },
     { message: 'Provide either Annealing Hardness or SP Tension, not both' },
-  );
+  )
+  .superRefine((data, ctx) => {
+    if (data.actualWeightSource === 'ocr' && !data.actualWeightPhotoHash) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'actualWeightPhotoHash is required when actualWeightSource is ocr',
+        path: ['actualWeightPhotoHash'],
+      });
+    }
+  });
 
 
 

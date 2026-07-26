@@ -1,0 +1,1 @@
+import{i as e,n as t,r as n}from"./operator-DZirPQ1-.js";var r=class extends e{async processImage(e){throw this.createUnimplementedException()}createUnimplementedException(){return new t(`This method is not implemented on web.`,n.Unimplemented)}};export{r as TextRecognitionWeb};

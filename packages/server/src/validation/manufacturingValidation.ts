@@ -124,6 +124,39 @@ export function formatDurationMinutes(minutes: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/**
+ * Resolve stoppage duration in minutes.
+ * Prefers stored duration_min when > 0; otherwise computes from timestamps.
+ * Any elapsed time of ≥1s rounds to at least 1 minute (avoids Math.round → 0 for short stops).
+ */
+export function resolveStoppageMinutes(
+  startAt: Date | string,
+  endAt?: Date | string | null,
+  storedDurationMin?: number | null,
+  nowMs: number = Date.now(),
+): number {
+  const stored = storedDurationMin != null ? Number(storedDurationMin) : NaN;
+  if (Number.isFinite(stored) && stored > 0) return stored;
+
+  const startMs = startAt instanceof Date ? startAt.getTime() : new Date(String(startAt)).getTime();
+  if (!Number.isFinite(startMs)) return 0;
+  const endMs = endAt
+    ? (endAt instanceof Date ? endAt.getTime() : new Date(String(endAt)).getTime())
+    : nowMs;
+  if (!Number.isFinite(endMs)) return 0;
+  const elapsedMs = Math.max(0, endMs - startMs);
+  if (elapsedMs <= 0) return 0;
+  return Math.max(1, Math.round(elapsedMs / 60000));
+}
+
+export function isBreakdownStoppageCategory(
+  categoryCode: string | null | undefined,
+  requiresBreakdownCode?: boolean | null,
+): boolean {
+  if (requiresBreakdownCode) return true;
+  return String(categoryCode ?? '').toUpperCase() === 'BREAKDOWN';
+}
+
 export function assertWithinShiftWindow(
   intervalStart: Date,
   intervalEnd: Date,

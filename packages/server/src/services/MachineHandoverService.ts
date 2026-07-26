@@ -4,6 +4,7 @@ import { ShiftDetectionService, type DetectedShift } from './ShiftDetectionServi
 import { ShiftLogService } from './shiftLogService';
 import { CrewService } from './ancillaryServices';
 import { MachineStateEventService } from './MachineStateEventService';
+import { ShiftAttributionService } from './ShiftAttributionService';
 import {
   canCompleteOutgoingHandover,
   resolveShiftSinceTime,
@@ -214,6 +215,43 @@ export class MachineHandoverService {
       processLabel = orderDetail.processLabel;
     }
 
+    // Also surface open manual (no-order) stoppages for idle-machine downtime.
+    try {
+      const openManual = await db
+        .selectFrom('txn.stoppage as os')
+        .leftJoin('master.stoppage_category as sc', 'sc.category_code', 'os.category_code')
+        .select([
+          'os.stoppage_id',
+          'os.category_code',
+          'sc.label',
+          'os.breakdown_code',
+          'os.start_at',
+          'os.remarks',
+        ])
+        .where('os.machine_code', '=', machineCode)
+        .where('os.order_id', 'is', null)
+        .where('os.end_at', 'is', null)
+        .orderBy('os.start_at', 'desc')
+        .execute();
+      if (openManual.length > 0) {
+        openStoppages = [
+          ...openStoppages,
+          ...openManual.map((s) => ({
+            id: String(s.stoppage_id),
+            categoryCode: s.category_code,
+            categoryLabel: s.label ?? s.category_code,
+            breakdownCode: s.breakdown_code ?? undefined,
+            startAt: s.start_at.toISOString(),
+            remarks: s.remarks ?? undefined,
+            status: 'OPEN',
+            reason: s.label ?? s.category_code,
+          })),
+        ];
+      }
+    } catch (err) {
+      console.error('[buildOutgoingPreview] Open manual stoppages failed:', err);
+    }
+
     const machineStatus: MachineHandoverStatus = active
       ? active.status === 'STOPPAGE'
         ? 'STOPPAGE'
@@ -252,6 +290,9 @@ export class MachineHandoverService {
 
     if (shiftLogIdResolved) {
       try {
+        // Persist live runtime/stoppage into attribution before summary read so
+        // handover draft/submit snapshots match shift review.
+        await ShiftAttributionService.syncShiftAttribution(shiftLogIdResolved, machineCode);
         const summary = await strategy.getShiftSummary(shiftLogIdResolved, machineCode);
         if (summary) {
           shiftProductionSummary = summary as Record<string, unknown>;
@@ -284,7 +325,8 @@ export class MachineHandoverService {
       }
     }
 
-    // Machine utilization from event-based service for the current shift
+    // Event-based util is supplementary only. Do NOT overwrite shiftProductionSummary
+    // stoppage/utilization — those come from order_shift_attribution (same as shift review).
     let utilizationMetrics: Record<string, unknown> | null = null;
     try {
       const since = resolveShiftSinceTime(shift.prodDate, scheduledWindowStart, actualSessionStartAt);
@@ -297,12 +339,6 @@ export class MachineHandoverService {
         stoppageMin: util.stoppageMin,
         stoppageCount: util.stoppageCount,
       };
-
-      if (shiftProductionSummary) {
-         shiftProductionSummary.machineUtilizationPct = util.runningPct;
-         shiftProductionSummary.totalStoppageMinutes = util.stoppageMin;
-         shiftProductionSummary.totalBreakdownMinutes = util.breakdownMin;
-      }
     } catch (err) {
       console.error('[buildOutgoingPreview] Utilization error:', err);
     }

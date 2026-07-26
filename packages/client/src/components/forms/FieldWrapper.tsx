@@ -11,9 +11,11 @@ interface FieldWrapperProps {
   prominent?: boolean;
   labelClassName?: string;
   className?: string;
+  /** Called after a successful supervisor PIN override. */
+  onOverride?: () => void;
 }
 
-export function FieldWrapper({ label, error, isWarning, required, children, prominent, labelClassName, className }: FieldWrapperProps) {
+export function FieldWrapper({ label, error, isWarning, required, children, prominent, labelClassName, className, onOverride }: FieldWrapperProps) {
   const [overrideActive, setOverrideActive] = useState(false);
   const [overridePin, setOverridePin] = useState('');
   const [overrideError, setOverrideError] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export function FieldWrapper({ label, error, isWarning, required, children, prom
       await authApi.supervisorOverride(overridePin, label);
       setOverrideActive(true);
       setOverridePin('');
+      onOverride?.();
     } catch {
       setOverrideError('Invalid supervisor PIN');
       setOverridePin('');

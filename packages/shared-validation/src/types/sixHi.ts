@@ -187,7 +187,19 @@ export interface SixHiOrderStoppage {
 
 
 
-export interface SixHiRollingData {
+export type ActualWeightSource = 'ocr' | 'manual';
+
+/** OCR audit fields for actual-weight capture (hash only — no image stored). */
+export interface ActualWeightOcrFields {
+  actualWeightSource?: ActualWeightSource;
+  /** SHA-256 hex of captured frame bytes (reuse detection) */
+  actualWeightPhotoHash?: string;
+  /** 0..100 */
+  ocrConfidence?: number;
+  ocrRawText?: string;
+}
+
+export interface SixHiRollingData extends ActualWeightOcrFields {
 
   actualWeightMt?: number;
 
@@ -219,7 +231,7 @@ export interface SixHiRollingData {
 
 
 
-export interface SixHiSkinPassData {
+export interface SixHiSkinPassData extends ActualWeightOcrFields {
 
   actualWeightMt?: number;
 
@@ -270,6 +282,9 @@ export interface SixHiOrderDetail {
   maxThkTolMm?: number;
 
   machineCode?: string;
+
+  /** Per-machine OCR auto-accept threshold (0..100); default 60 when unset. */
+  ocrMinConfidence?: number;
 
   machineAllocated?: boolean;
 

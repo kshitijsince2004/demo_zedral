@@ -333,6 +333,7 @@ export interface MasterMachine {
   machine_status: Generated<string>;
   machine_type: Generated<string | null>;
   name: string;
+  ocr_min_confidence: Numeric | null;
   process_code: string | null;
   process_id: number | null;
 }
@@ -946,12 +947,16 @@ export interface TxnCrmRollChange {
 
 export interface TxnCrmRolling {
   actual_weight_mt: Numeric | null;
+  actual_weight_photo_hash: string | null;
+  actual_weight_source: string | null;
   associate_rw: string | null;
   destination: string | null;
   destination_override: Generated<boolean | null>;
   dtr: Numeric | null;
   etr: Numeric | null;
   final_thk_mm: Numeric | null;
+  ocr_confidence: Numeric | null;
+  ocr_raw_text: string | null;
   order_id: Int8;
   prod_date: Timestamp | null;
   rerolling: Generated<boolean | null>;
@@ -987,9 +992,13 @@ export interface TxnCrmShiftSummary {
 
 export interface TxnCrmSkinpass {
   actual_weight_mt: Numeric | null;
+  actual_weight_photo_hash: string | null;
+  actual_weight_source: string | null;
   ann_hard: Numeric | null;
   load_max_t: Numeric | null;
   load_min_t: Numeric | null;
+  ocr_confidence: Numeric | null;
+  ocr_raw_text: string | null;
   operating_mode: string | null;
   order_id: Int8;
   output_thk_mm: Numeric | null;

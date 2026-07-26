@@ -3,6 +3,7 @@ import type { SixHiOrderDetail, SixHiSkinPassData } from '@m1/shared-validation'
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
+import { ActualWeightCaptureField } from './ActualWeightCaptureField';
 
 type SkinPassMetric = 'ANN_HARD' | 'RW_TENSION';
 type SkinPassDecimalField =
@@ -216,8 +217,8 @@ export function SharedSkinPassForm({
     }
   };
 
-  const commitDecimalDraft = (field: SkinPassDecimalField) => {
-    const parsed = parseDecimalDraft(drafts[field]);
+  const commitDecimalDraft = (field: SkinPassDecimalField, overrideValue?: number) => {
+    const parsed = overrideValue !== undefined ? overrideValue : parseDecimalDraft(drafts[field]);
     setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
     setData((prev) => ({ ...prev, [field]: parsed }));
   };
@@ -233,6 +234,35 @@ export function SharedSkinPassForm({
         : data;
     onSave(prepareSaveData(payload, metric));
   };
+
+  const weightLabel = isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)';
+  const weightHint = isCombined && combinedTargetMt != null ? (
+    <p className="text-xs text-muted-foreground mt-1">
+      Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
+    </p>
+  ) : null;
+
+  const weightField = (
+    <ActualWeightCaptureField
+      label={weightLabel}
+      value={drafts.actualWeightMt}
+      onDraftChange={(raw) => updateDecimalDraft('actualWeightMt', raw)}
+      onDraftCommit={() => commitDecimalDraft('actualWeightMt')}
+      formLocked={locked}
+      ocr={{
+        actualWeightSource: data.actualWeightSource,
+        actualWeightPhotoHash: data.actualWeightPhotoHash,
+        ocrConfidence: data.ocrConfidence,
+        ocrRawText: data.ocrRawText,
+      }}
+      onOcrChange={(next) => setData((prev) => ({ ...prev, ...next }))}
+      onWeightConfirmed={(v) => commitDecimalDraft('actualWeightMt', v)}
+      ocrMinConfidence={order.ocrMinConfidence}
+      prominent={!!compact}
+      inputClassName={compact ? 'min-h-12 text-lg' : 'min-h-14 text-lg'}
+      hint={weightHint}
+    />
+  );
 
   if (compact) {
     return (
@@ -259,27 +289,7 @@ export function SharedSkinPassForm({
               disabled={locked}
             />
           </FieldWrapper>
-          <FieldWrapper
-            label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}
-            prominent
-          >
-            <ZInput
-              type="number"
-              inputMode="decimal"
-              enterKeyHint="next"
-              autoComplete="off"
-              value={drafts.actualWeightMt}
-              onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)}
-              onBlur={() => commitDecimalDraft('actualWeightMt')}
-              className="min-h-12 text-lg"
-              disabled={locked}
-            />
-            {isCombined && combinedTargetMt != null && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
-              </p>
-            )}
-          </FieldWrapper>
+          {weightField}
           <MetricToggle metric={metric} onChange={switchMetric} locked={locked} compact />
           {metric === 'ANN_HARD' ? (
             <FieldWrapper label="Annealing Hardness" prominent>
@@ -362,14 +372,7 @@ export function SharedSkinPassForm({
         <FieldWrapper label="Output Thickness (mm)">
           <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.outputThkMm} onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)} onBlur={() => commitDecimalDraft('outputThkMm')} className="min-h-14 text-lg" disabled={locked} />
         </FieldWrapper>
-        <FieldWrapper label={isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)'}>
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.actualWeightMt} onChange={(e) => updateDecimalDraft('actualWeightMt', e.target.value)} onBlur={() => commitDecimalDraft('actualWeightMt')} className="min-h-14 text-lg" disabled={locked} />
-          {isCombined && combinedTargetMt != null && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Combined target: {combinedTargetMt} MT across {combinedOrderCount} orders
-            </p>
-          )}
-        </FieldWrapper>
+        {weightField}
         <MetricToggle metric={metric} onChange={switchMetric} locked={locked} />
         {metric === 'ANN_HARD' ? (
           <FieldWrapper label="Annealing Hardness">

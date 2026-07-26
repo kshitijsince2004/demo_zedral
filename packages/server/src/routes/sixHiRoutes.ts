@@ -618,7 +618,9 @@ router.get('/orders/:batchNo', async (req, res) => {
     if (isMachineAccessForbidden(e)) {
       return res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
     }
-    res.status(404).json({ error: e instanceof Error ? e.message : 'Order not found' });
+    const message = e instanceof Error ? e.message : 'Order not found';
+    const notFound = /not found|no result/i.test(message);
+    res.status(notFound ? 404 : 500).json({ error: message });
   }
 });
 

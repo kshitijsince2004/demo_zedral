@@ -17,9 +17,16 @@ vi.mock('../src/services/ShiftDetectionService', () => ({
   },
 }));
 
+const mockProcessStaleSessions = vi.fn(async () => 2);
+vi.mock('../src/services/ShiftBoundaryService', () => ({
+  getAutoBoundaryMode: () => 'off',
+  ShiftBoundaryService: {
+    processStaleSessions: (...args: unknown[]) => mockProcessStaleSessions(...args),
+  },
+}));
+
 import { LiveService } from '../src/services/LiveService';
 import { ShiftBoundaryScheduler } from '../src/jobs/ShiftBoundaryScheduler';
-import { ShiftDetectionService } from '../src/services/ShiftDetectionService';
 
 describe('Task 5 Phase 1 — getShiftQueueContext machine scope', () => {
   beforeEach(() => {
@@ -60,12 +67,13 @@ describe('Task 5 Phase 1 — getShiftQueueContext machine scope', () => {
 describe('Task 5 Phase 3 — ShiftBoundaryScheduler stale sweeper', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockProcessStaleSessions.mockResolvedValue(2);
     ShiftBoundaryScheduler.stop();
   });
 
-  it('tick closes stale ACTIVE sessions via ShiftDetectionService', async () => {
+  it('tick closes stale ACTIVE sessions via ShiftBoundaryService', async () => {
     const closed = await ShiftBoundaryScheduler.tick();
-    expect(ShiftDetectionService.closeAllStaleActiveSessions).toHaveBeenCalled();
+    expect(mockProcessStaleSessions).toHaveBeenCalledWith('off');
     expect(closed).toBe(2);
   });
 });

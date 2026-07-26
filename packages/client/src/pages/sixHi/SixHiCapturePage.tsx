@@ -53,6 +53,7 @@ export function SixHiCapturePage() {
     machineCode,
     shiftSummary,
     combinedRun,
+    manualStoppage,
     openWorkspace,
     loadPanelOrder,
     loadShiftSummary,
@@ -179,7 +180,14 @@ export function SixHiCapturePage() {
     });
   }, [mutateShiftStoppages, mutateQueue, refreshMachineState]);
 
-  const hasActiveStoppage = !!order?.activeStoppage;
+  // Manual stoppages don't always fire production-changed — refresh history when active flips.
+  useEffect(() => {
+    void mutateShiftStoppages();
+  }, [manualStoppage?.active?.eventId, mutateShiftStoppages]);
+
+  const hasOrderStoppage = !!order?.activeStoppage;
+  const hasManualStoppage = !!manualStoppage?.active;
+  const hasActiveStoppage = hasOrderStoppage || hasManualStoppage;
   const stoppageAllowed = canRecordStoppage(order);
   const stoppageReason = stoppageDisabledReason(order);
 
@@ -204,7 +212,8 @@ export function SixHiCapturePage() {
   };
 
   const netRuntime = useNetProductionTimer(order);
-  const { formatted: stoppageTimer } = useLiveTimer(order?.activeStoppage?.startAt, hasActiveStoppage);
+  const activeStoppageStart = order?.activeStoppage?.startAt ?? manualStoppage?.active?.startedAt;
+  const { formatted: stoppageTimer } = useLiveTimer(activeStoppageStart, hasActiveStoppage);
 
   const targetMt = isCombinedRun && combinedRun
     ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
@@ -223,13 +232,16 @@ export function SixHiCapturePage() {
     categoryLabel: string;
     breakdownCode?: string;
     remarks?: string;
+    batchNumber?: string;
   }) => ({
     id: s.id,
     startTime: s.startAt,
     endTime: s.endAt ?? null,
     durationMins: s.durationMin ?? null,
     categoryCode: resolveStoppageDisplayCode(s.categoryCode, s.breakdownCode),
-    categoryName: s.categoryLabel,
+    categoryName: s.batchNumber
+      ? s.categoryLabel
+      : `${s.categoryLabel} (Manual)`,
     remarks: s.remarks ?? null,
   }));
 
@@ -272,6 +284,27 @@ export function SixHiCapturePage() {
             <p className="text-xs text-destructive/80 mt-1">
               Started {formatPlantClock(order.activeStoppage.startAt)}
               {order.activeStoppage.remarks ? ` · ${order.activeStoppage.remarks}` : ''}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-destructive/80">Duration</p>
+            <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>
+          </div>
+        </div>
+      )}
+
+      {!order?.activeStoppage && manualStoppage?.active && (
+        <div className="shrink-0 bg-destructive/10 border border-destructive/30 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">Manual Stoppage Active</p>
+            <p className="text-sm font-semibold text-destructive mt-1">
+              Code {resolveStoppageDisplayCode(manualStoppage.active.categoryCode, manualStoppage.active.breakdownCode)}
+              {manualStoppage.active.categoryLabel ? ` · ${manualStoppage.active.categoryLabel}` : ''}
+            </p>
+            <p className="text-xs text-destructive/80 mt-1">
+              Started {formatPlantClock(manualStoppage.active.startedAt)}
+              {manualStoppage.active.reason ? ` · ${manualStoppage.active.reason}` : ''}
+              {' · Manage from Status Rail'}
             </p>
           </div>
           <div className="text-right">

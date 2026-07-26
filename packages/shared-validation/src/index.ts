@@ -10,5 +10,6 @@ export * from './rules/m1Forms';
 export * from './utils/calculationEngine';
 export * from './utils/plantTime';
 export * from './utils/combinedWeightAllocation';
+export * from './utils/weightOcr';
 
 export const isSharedValidationWorking = (): boolean => true;
