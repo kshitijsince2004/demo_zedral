@@ -182,6 +182,8 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          // Main bundle is ~2.1MB; Workbox default precache cap is 2 MiB.
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/api/],
           runtimeCaching,
         },
