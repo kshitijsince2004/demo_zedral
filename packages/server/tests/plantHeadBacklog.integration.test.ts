@@ -18,24 +18,22 @@ describe.skipIf(!dbUp)('Plant Head backlog consistency', () => {
     const coilNo = `BLC${ts}`;
     const planDate = addPlantDays(currentPlantDate(), -3);
 
-    const offlineMachine = await db
+    // CI seeds may have zero OFFLINE machines; pick any two and force statuses below.
+    const machines = await db
       .selectFrom('master.machine')
       .select(['machine_code', 'machine_status'])
-      .where('machine_status', '=', 'OFFLINE')
-      .executeTakeFirst();
-    const activeMachine = await db
-      .selectFrom('master.machine')
-      .select(['machine_code', 'machine_status'])
-      .where('machine_status', '!=', 'OFFLINE')
-      .executeTakeFirst();
+      .orderBy('machine_code')
+      .limit(2)
+      .execute();
 
-    expect(offlineMachine).toBeTruthy();
-    expect(activeMachine).toBeTruthy();
+    expect(machines.length).toBeGreaterThanOrEqual(2);
 
-    const offlineCode = offlineMachine!.machine_code;
-    const activeCode = activeMachine!.machine_code;
-    const prevOfflineStatus = offlineMachine!.machine_status;
-    const prevActiveStatus = activeMachine!.machine_status;
+    const offlineMachine = machines[0]!;
+    const activeMachine = machines[1]!;
+    const offlineCode = offlineMachine.machine_code;
+    const activeCode = activeMachine.machine_code;
+    const prevOfflineStatus = offlineMachine.machine_status;
+    const prevActiveStatus = activeMachine.machine_status;
 
     await db.insertInto('coil.coil')
       .values({
