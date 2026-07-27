@@ -1,6 +1,25 @@
 import { deleteQueued, patchQueued, postQueued } from './queuedApi';
+import { apiClient } from '../apiClient';
 
 const enc = encodeURIComponent;
+
+/** Production PATCH must hit the server immediately — outbox queue causes end-before-sync failures. */
+export function patchOrderImmediate(batchNumber: string, suffix: string, payload: unknown) {
+  return apiClient.patch(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload);
+}
+
+/** Combined end must carry combinedActualMt to the server in the same request (not a parked outbox row). */
+export function endOrderImmediate(
+  batchNumber: string,
+  defectCodes: unknown,
+  combinedActualMt?: number,
+) {
+  const payload: { defectCodes: unknown; combinedActualMt?: number } = { defectCodes };
+  if (typeof combinedActualMt === 'number') {
+    payload.combinedActualMt = combinedActualMt;
+  }
+  return apiClient.post(`/6hi/orders/${enc(batchNumber)}/end`, payload);
+}
 
 export function orderAggregateKey(batchNumber: string): string {
   return `6hi-order:${batchNumber}`;
@@ -31,8 +50,16 @@ export function startCombinedOrders(batchNumbers: string[]) {
   return postQueued('/6hi/orders/start-combined', { batchNumbers }, key);
 }
 
-export function endOrder(batchNumber: string, defectCodes: unknown) {
-  return postOrder(batchNumber, 'end', { defectCodes });
+export function endOrder(
+  batchNumber: string,
+  defectCodes: unknown,
+  combinedActualMt?: number,
+) {
+  const payload: { defectCodes: unknown; combinedActualMt?: number } = { defectCodes };
+  if (typeof combinedActualMt === 'number') {
+    payload.combinedActualMt = combinedActualMt;
+  }
+  return postOrder(batchNumber, 'end', payload);
 }
 
 export function rejectOrder(

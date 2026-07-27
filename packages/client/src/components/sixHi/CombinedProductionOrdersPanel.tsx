@@ -30,6 +30,7 @@ export function CombinedProductionOrdersPanel({
   selectable = false,
 }: CombinedProductionOrdersPanelProps) {
   const combinedSelectedBatches = useSixHiStore((s) => s.combinedSelectedBatches);
+  const combinedActualMtIntent = useSixHiStore((s) => s.combinedActualMtIntent);
   const toggleCombinedSelected = useSixHiStore((s) => s.toggleCombinedSelected);
   const [orders, setOrders] = useState<SixHiOrderDetail[]>([]);
   const batchNumbersKey = combinedRun.batchNumbers.join(',');
@@ -55,19 +56,22 @@ export function CombinedProductionOrdersPanel({
     targetMt: o.weightMt,
   }));
   const totalTargetMt = combinedTargetMt(targets.map((t) => ({ targetMt: t.targetMt })));
-  const combinedActualMt = useMemo(
+  const savedCombinedActualMt = useMemo(
     () => resolveCombinedActualMt(
       orders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
     ),
     [orders],
   );
-  const allocation = useMemo(
-    () => (combinedActualMt != null ? allocateCombinedWeight(targets, combinedActualMt) : null),
-    [combinedActualMt, targets],
+  const displayCombinedActualMt = combinedActualMtIntent ?? savedCombinedActualMt;
+  const plannedAllocation = useMemo(
+    () => (displayCombinedActualMt != null ? allocateCombinedWeight(targets, displayCombinedActualMt) : null),
+    [displayCombinedActualMt, targets],
   );
 
   const cards = orders.length > 0 ? orders : null;
-  const balanceMt = combinedActualMt != null ? Math.max(0, totalTargetMt - combinedActualMt) : null;
+  const balanceMt = displayCombinedActualMt != null
+    ? Math.max(0, totalTargetMt - displayCombinedActualMt)
+    : null;
   const showPickers = selectable && combinedRun.batchNumbers.length >= 2;
   const pickedCount = combinedSelectedBatches.filter((b) => combinedRun.batchNumbers.includes(b)).length;
 
@@ -92,7 +96,7 @@ export function CombinedProductionOrdersPanel({
           <div className="rounded-lg bg-white/80 border border-border/50 px-2 py-1.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Produced</p>
             <p className="font-mono text-sm font-bold text-primary">
-              {combinedActualMt != null ? `${combinedActualMt.toFixed(3)} MT` : '—'}
+              {displayCombinedActualMt != null ? `${displayCombinedActualMt.toFixed(3)} MT` : '—'}
             </p>
           </div>
           <div className="rounded-lg bg-white/80 border border-border/50 px-2 py-1.5">
@@ -109,8 +113,10 @@ export function CombinedProductionOrdersPanel({
           {(cards ?? combinedRun.orders).map((order) => {
             const batchNumber = order.batchNumber;
             const detail = cards?.find((o) => o.batchNumber === batchNumber);
-            const allocated = allocation?.get(batchNumber);
-            const produced = allocated ?? detail?.rolling?.actualWeightMt ?? detail?.skinPass?.actualWeightMt;
+            const savedMt = detail?.rolling?.actualWeightMt ?? detail?.skinPass?.actualWeightMt;
+            const plannedMt = plannedAllocation?.get(batchNumber);
+            const showPlanned = plannedMt != null && savedMt == null;
+            const produced = savedMt ?? (showPlanned ? plannedMt : null);
             const targetMt = detail?.ppcWeightMt ?? ('weightMt' in order ? order.weightMt : 0);
             const status = detail?.status;
             const isSelected = selectedBatch === batchNumber;
@@ -151,10 +157,13 @@ export function CombinedProductionOrdersPanel({
                 </div>
                 <button type="button" className="w-full text-left" onClick={() => onSelectBatch?.(batchNumber)}>
                   <p className="text-xs mt-2">
-                    <span className="font-semibold text-foreground">
+                    <span className={`font-semibold ${showPlanned ? 'text-amber-700' : 'text-foreground'}`}>
                       {produced != null ? `${produced} MT` : '—'}
                     </span>
                     <span className="text-muted-foreground"> / {targetMt} MT</span>
+                    {showPlanned && (
+                      <span className="block text-[10px] text-amber-700/90 mt-0.5">Planned — save to persist</span>
+                    )}
                   </p>
                   {isSelected && detail && (
                     <div className="mt-3 pt-3 border-t border-border/50">

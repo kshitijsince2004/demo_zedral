@@ -4,7 +4,7 @@ import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { StoppageCodeSelect } from './StoppageCodeSelect';
 import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode } from './SixHiStoppageCodes';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { StoppageTimerText } from './ProductionTimerDisplay';
 import { formatPlantClock } from '../../lib/dateFormat';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
 
@@ -109,7 +109,6 @@ export function OrderStoppageModal({
 
   const selected = findStoppageCodeDef(displayCode);
   const needsRollChange = !!selected?.requiresRollChange;
-  const { formatted: stoppageTimer } = useLiveTimer(activeStoppage?.startAt, hasActiveStoppage);
 
   useEffect(() => {
     if (!open) return;
@@ -210,7 +209,11 @@ export function OrderStoppageModal({
                   Started {formatPlantClock(activeStoppage?.startAt || Date.now())}
                 </p>
               </div>
-              <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>
+              <StoppageTimerText
+                startAt={activeStoppage?.startAt}
+                active={hasActiveStoppage}
+                className="font-mono text-3xl font-bold text-destructive"
+              />
             </div>
           )}
           {error && (

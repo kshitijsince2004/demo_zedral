@@ -591,6 +591,9 @@ export class ReportingService {
         totalProdMt: summary.totalProdMt ?? 0,
         inProgressProdMt: summary.inProgressProdMt ?? 0,
         attainmentPct,
+        totalRollingMt: summary.totalRollingMt ?? 0,
+        totalRerollMt: summary.totalRerollMt ?? 0,
+        totalSkinpassMt: summary.totalSkinpassMt ?? 0,
       },
       metrics: {
         totalStoppageMinutes: metrics.totalStoppageMinutes,

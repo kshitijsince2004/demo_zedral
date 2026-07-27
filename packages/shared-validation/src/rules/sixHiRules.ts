@@ -148,6 +148,11 @@ export const SixHiRemarkSchema = z.object({
   defects: z.array(SixHiRemarkDefectSchema).optional(),
 });
 
+export const SixHiEndProductionSchema = z.object({
+  defectCodes: z.array(z.string()).optional(),
+  combinedActualMt: z.number().positive().optional(),
+});
+
 export const SixHiRejectionReasonSchema = z.enum([
   'QUALITY_ISSUE',
   'DEFECT_FOUND',

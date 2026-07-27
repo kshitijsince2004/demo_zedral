@@ -13,7 +13,6 @@ import { SixHiPillTabs } from '../../components/sixHi/SixHiPillTabs';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { SixHiBatchDetailPanel } from '../../components/sixHi/SixHiBatchDetailPanel';
 import { SixHiQueueRow } from '../../components/sixHi/SixHiQueueRow';
-import { VirtualizedQueueRows } from '../../components/sixHi/VirtualizedQueueRows';
 import { MachineAllocationModal, type CrmMillCode, type MachineAllocationMode } from '../../components/sixHi/MachineAllocationModal';
 import { invalidateMachineRegistryCache } from '../../lib/machineRegistry';
 import { ApiError } from '../../lib/apiClient';
@@ -760,9 +759,7 @@ export function SixHiHub() {
                 </p>
               </div>
             )}
-            {showOperationalSections && sortedAssigned.length > 0 && (
-              <VirtualizedQueueRows cards={sortedAssigned} renderRow={(card) => renderQueueRow(card)} />
-            )}
+            {showOperationalSections && sortedAssigned.map((card) => renderQueueRow(card))}
             {showCompletedSection && filteredCompleted.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-secondary/60 border-b border-border">

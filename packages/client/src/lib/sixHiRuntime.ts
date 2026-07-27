@@ -3,26 +3,55 @@ import type { SixHiOrderDetail } from '@m1/shared-validation';
 /** Sum recorded + live stoppage milliseconds for an order. */
 export function totalStoppageMs(order: SixHiOrderDetail, includeActive = true): number {
   let ms = 0;
+  const activeId = order.activeStoppage?.id;
   for (const s of order.stoppages ?? []) {
-    if (s.durationMin != null) {
-      ms += s.durationMin * 60_000;
-    } else if (s.endAt) {
+    if (s.endAt) {
       ms += Math.max(0, new Date(s.endAt).getTime() - new Date(s.startAt).getTime());
-    } else if (includeActive) {
+    } else if (includeActive && activeId === s.id) {
       ms += Math.max(0, Date.now() - new Date(s.startAt).getTime());
+    } else if (s.durationMin != null && s.durationMin > 0) {
+      ms += s.durationMin * 60_000;
     }
   }
   return ms;
 }
 
-/** Wall-clock production time minus stoppage time. */
-export function netProductionRuntimeMs(order: SixHiOrderDetail): number | null {
+/** Wall-clock span from production start to end (or now). */
+export function wallProductionMs(order: SixHiOrderDetail): number | null {
   if (!order.prodStartAt) return null;
   const endMs = order.prodEndAt ? new Date(order.prodEndAt).getTime() : Date.now();
-  const wall = endMs - new Date(order.prodStartAt).getTime();
-  // Always deduct open stoppage time so the production timer freezes while stopped.
-  const deductActive = order.status === 'STOPPAGE' || !!order.activeStoppage;
+  return Math.max(0, endMs - new Date(order.prodStartAt).getTime());
+}
+
+/** Wall-clock production time minus stoppage time. */
+export function netProductionRuntimeMs(order: SixHiOrderDetail): number | null {
+  const wall = wallProductionMs(order);
+  if (wall == null) return null;
+  const deductActive = !!order.activeStoppage;
   return Math.max(0, wall - totalStoppageMs(order, deductActive));
+}
+
+/** Net production minutes — prefers stored prodDurationMin, else derives from timestamps. */
+export function resolveProductionDurationMin(order: SixHiOrderDetail): number | null {
+  if (order.prodDurationMin != null && order.prodDurationMin > 0) {
+    return order.prodDurationMin;
+  }
+  const netMs = netProductionRuntimeMs(order);
+  if (netMs == null) return order.prodDurationMin ?? null;
+  if (netMs <= 0) return order.prodDurationMin ?? null;
+  return Math.max(1, Math.round(netMs / 60_000));
+}
+
+/** Total stoppage minutes derived from stoppage records. */
+export function resolveTotalStoppageMin(order: SixHiOrderDetail): number {
+  return Math.round(totalStoppageMs(order, false) / 60_000);
+}
+
+/** Wall-clock production span in minutes (includes stoppage time). */
+export function resolveWallDurationMin(order: SixHiOrderDetail): number | null {
+  const wall = wallProductionMs(order);
+  if (wall == null || wall <= 0) return null;
+  return Math.max(1, Math.round(wall / 60_000));
 }
 
 export function formatRuntimeMs(ms: number): string {
@@ -31,6 +60,14 @@ export function formatRuntimeMs(ms: number): string {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/** Human-readable duration label for history panels (minutes). */
+export function formatProductionDurationMin(min?: number | null): string {
+  if (min == null || min <= 0) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 export function canRecordStoppage(order: SixHiOrderDetail | null | undefined): boolean {

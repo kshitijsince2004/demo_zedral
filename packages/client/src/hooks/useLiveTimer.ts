@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { subscribeTimerTick } from './useTimerTick';
 
 export function formatDuration(ms: number) {
   if (!Number.isFinite(ms) || ms < 0) ms = 0;
@@ -15,27 +16,29 @@ export function formatDuration(ms: number) {
  * so callers can fall back to "—" instead of showing 00:00:00.
  */
 export function useLiveTimer(startTime?: string | Date | null, isActive: boolean = true) {
-  const [elapsed, setElapsed] = useState<number>(0);
   const startMs = startTime ? new Date(startTime).getTime() : NaN;
   const canTick = isActive && Number.isFinite(startMs);
+  const [formatted, setFormatted] = useState(() =>
+    canTick ? formatDuration(Date.now() - startMs) : '',
+  );
 
   useEffect(() => {
     if (!canTick) {
-      setElapsed(0);
+      setFormatted('');
       return;
     }
 
-    setElapsed(Date.now() - startMs);
+    const tick = () => {
+      const next = formatDuration(Date.now() - startMs);
+      setFormatted((prev) => (prev === next ? prev : next));
+    };
 
-    const interval = setInterval(() => {
-      setElapsed(Date.now() - startMs);
-    }, 1000);
-
-    return () => clearInterval(interval);
+    tick();
+    return subscribeTimerTick(tick);
   }, [canTick, startMs]);
 
   return {
-    elapsedMs: canTick ? elapsed : 0,
-    formatted: canTick ? formatDuration(elapsed) : '',
+    elapsedMs: canTick ? Math.max(0, Date.now() - startMs) : 0,
+    formatted: canTick ? formatted : '',
   };
 }

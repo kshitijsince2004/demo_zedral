@@ -352,6 +352,14 @@ export interface SixHiShiftSummaryOrder {
 
   machineCode?: string;
 
+  combinedGroupId?: string;
+
+  coilNo?: string;
+
+  startAt?: string;
+
+  endAt?: string;
+
 }
 
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  SixHiEndProductionSchema,
   SixHiManualOrderSchema,
   SixHiOrderStoppageSchema,
   SixHiRemarkSchema,
@@ -802,9 +803,16 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
 });
 
 router.post('/orders/:batchNo/end', requireSixHi('WRITE'), async (req, res) => {
+  const parsed = SixHiEndProductionSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const { defectCodes } = req.body;
-    const order = await SixHiExecutionService.endProduction(req.params.batchNo, req.user!.id, defectCodes);
+    const { defectCodes, combinedActualMt } = parsed.data;
+    const order = await SixHiExecutionService.endProduction(
+      req.params.batchNo,
+      req.user!.id,
+      defectCodes,
+      combinedActualMt,
+    );
     res.json(order);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'End failed' });

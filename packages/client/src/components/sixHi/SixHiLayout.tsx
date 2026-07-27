@@ -11,7 +11,7 @@ import { apiClient, ApiError } from '../../lib/apiClient';
 import {
   addOrderRemark,
   endManualStoppage,
-  endOrder,
+  endOrderImmediate,
   endStoppage,
   patchManualStoppage,
   rejectOrder,
@@ -43,6 +43,8 @@ import { CrewCaptureModal, CREW_CAPTURE_SNOOZE_MS } from './CrewCaptureModal';
 import { ShiftReadingsModal } from './ShiftReadingsModal';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { buildCombinedRunFromSelected } from '../../lib/combinedProductionRun';
+import { resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
+import type { SixHiOrderDetail } from '@m1/shared-validation';
 
 function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
   if (!active) return undefined;
@@ -409,10 +411,23 @@ export function SixHiLayout() {
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {
-              // Server cascades end across combined_group_id — one call ends the whole run.
+              let combinedActualMt: number | undefined;
+              if (actionOrderCount > 1 && combinedRun) {
+                const intent = useSixHiStore.getState().combinedActualMtIntent;
+                const orders = await Promise.all(
+                  combinedRun.batchNumbers.map((batchNo) =>
+                    apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNo)}`),
+                  ),
+                );
+                const fromDb = resolveCombinedActualMt(
+                  orders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
+                );
+                // Form intent always wins — DB may only have partial/legacy per-order weights.
+                combinedActualMt = intent ?? fromDb;
+              }
               await runOrderAction(
                 activeBatch,
-                async () => endOrder(activeBatch, defectCodes),
+                async () => endOrderImmediate(activeBatch, defectCodes, combinedActualMt),
                 { optimisticEndBatchNumbers: actionBatchNumbers },
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);

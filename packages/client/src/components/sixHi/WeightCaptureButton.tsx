@@ -93,7 +93,7 @@ export function WeightCaptureButton({
     }
 
     setPhase('processing');
-    let tempPath: string | null = null;
+    let cacheFileName: string | null = null;
 
     try {
       const raw = document.createElement('canvas');
@@ -107,16 +107,19 @@ export function WeightCaptureButton({
 
       const processed = preprocessWeightFrame(raw);
       const base64 = canvasToJpegBase64(processed);
-      const fileName = `weight-ocr-${Date.now()}.jpg`;
-      const written = await Filesystem.writeFile({
-        path: fileName,
+      cacheFileName = `weight-ocr-${Date.now()}.jpg`;
+      await Filesystem.writeFile({
+        path: cacheFileName,
         data: base64,
         directory: Directory.Cache,
       });
-      tempPath = written.uri;
+      const { uri } = await Filesystem.getUri({
+        path: cacheFileName,
+        directory: Directory.Cache,
+      });
 
       const result = await TextRecognition.processImage({
-        path: tempPath,
+        path: uri,
         script: Script.Latin,
       });
 
@@ -138,17 +141,11 @@ export function WeightCaptureButton({
     } catch (e) {
       fail(e instanceof Error ? e : new Error('OCR failed'));
     } finally {
-      if (tempPath) {
+      if (cacheFileName) {
         try {
-          await Filesystem.deleteFile({ path: tempPath });
+          await Filesystem.deleteFile({ path: cacheFileName, directory: Directory.Cache });
         } catch {
-          // best-effort cleanup; also try by cache filename
-          try {
-            const name = tempPath.split(/[/\\]/).pop();
-            if (name) await Filesystem.deleteFile({ path: name, directory: Directory.Cache });
-          } catch {
-            /* ignore */
-          }
+          /* best-effort temp cleanup */
         }
       }
     }

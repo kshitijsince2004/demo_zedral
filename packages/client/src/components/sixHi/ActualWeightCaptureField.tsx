@@ -45,8 +45,8 @@ export function ActualWeightCaptureField({
   const [manualUnlocked, setManualUnlocked] = useState(ocr.actualWeightSource === 'manual');
   const [captureFailed, setCaptureFailed] = useState(false);
 
-  // Confirmed OCR → readOnly until re-capture or supervisor override.
-  const inputDisabled = formLocked || (ocrLocked && !manualUnlocked);
+  // Android: no free-typing — capture or supervisor manual override only.
+  const inputDisabled = formLocked || (native && !manualUnlocked);
 
   const showOverride =
     native

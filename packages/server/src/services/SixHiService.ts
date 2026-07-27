@@ -1,4 +1,4 @@
-import { sql } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 import { randomUUID } from 'node:crypto';
 import type {
   SixHiOrderDetail,
@@ -8,15 +8,14 @@ import type {
   SixHiSkinPassData,
   SixHiSubProcess,
 } from '@m1/shared-validation';
-import { db } from '../db';
+import { db, type Database } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
 import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode, assertMachineForSubProcess } from '../utils/machineAllocation';
 import { PPCImportService } from '../services/PPCImportService';
 import { ValidationConfigService } from './ValidationConfigService';
 import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
 import {
-  allocateCombinedWeight,
-  resolveCombinedActualMt,
+  allocateCombinedRemainderToBlanks,
 } from '@m1/shared-validation';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -65,6 +64,10 @@ function mapRollFinish(raw: string | null): 'MATT' | 'BRIGHT' | 'LOW_MATT' {
   if (raw === 'LOW_MATT') return 'LOW_MATT';
   return 'MATT';
 }
+
+type DbExecutor = Kysely<Database> | Transaction<Database>;
+
+const SIXHI_HOLD_MAX_ROWS = Number(process.env.SIXHI_HOLD_MAX_ROWS ?? 50);
 
 export class SixHiService {
   static async getProcessId(): Promise<number> {
@@ -676,11 +679,12 @@ export class SixHiService {
       );
     }
 
-    // Hold queue: all REJECTED for this mill/sub-process (any shift/date).
+    // Hold queue: recent REJECTED for this mill/sub-process (capped).
     const rejectedRows = await base()
       .where('o.status', '=', 'REJECTED')
       .orderBy('o.updated_at', 'desc')
       .orderBy('pb.batch_number', 'asc')
+      .limit(SIXHI_HOLD_MAX_ROWS)
       .execute();
 
     return [
@@ -1115,6 +1119,24 @@ export class SixHiService {
       }
     }
 
+    let prodDurationMin: number | undefined = order.prod_duration_min ?? undefined;
+    if (
+      (prodDurationMin == null || prodDurationMin <= 0)
+      && order.prod_start_at
+      && order.prod_end_at
+      && (resolvedStatus === 'COMPLETED' || resolvedStatus === 'REJECTED')
+    ) {
+      let totalStoppageMin = 0;
+      for (const s of stoppages) {
+        totalStoppageMin += resolveStoppageMinutes(s.start_at, s.end_at, s.duration_min);
+      }
+      const wallMin = Math.round(
+        (order.prod_end_at.getTime() - order.prod_start_at.getTime()) / 60000,
+      );
+      const computed = Math.max(0, wallMin - totalStoppageMin);
+      if (computed > 0) prodDurationMin = computed;
+    }
+
     return {
       orderId: String(order.order_id),
       batchNumber: order.batch_number,
@@ -1148,7 +1170,7 @@ export class SixHiService {
       ppcRerollFlag: ppcBatch?.ppc_reroll_flag ?? false,
       prodStartAt: order.prod_start_at?.toISOString(),
       prodEndAt: order.prod_end_at?.toISOString(),
-      prodDurationMin: order.prod_duration_min ?? undefined,
+      prodDurationMin,
       rolling,
       skinPass,
       rollChanges: rollChanges.map((rc) => ({
@@ -1538,7 +1560,12 @@ export class SixHiService {
     return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
   }
 
-  static async endProduction(batchNumber: string, userId: number, defectCodes?: string[]) {
+  static async endProduction(
+    batchNumber: string,
+    userId: number,
+    defectCodes?: string[],
+    combinedActualMt?: number,
+  ) {
     // Task 5 / finding 4.2 (confirmed): do NOT reattribute at complete.
     // Keep start-shift credit — overtime completes stay on the shift where production started.
     const batchPre = await db.selectFrom('planning.ppc_batch')
@@ -1571,30 +1598,34 @@ export class SixHiService {
           order_id: r.order_id,
         }));
       }
-      // Operator enters one combined form — siblings often lack weight/passes until end.
-      await this.syncCombinedGroupProductionData(
-        String(order.combined_group_id),
-        batchNumber,
-        userId,
-      );
     }
 
-    // Validate every target before writing any completion.
+    // Validate stoppages before any writes.
     for (const target of targets) {
       await this.assertNoOpenStoppage(target.order_id);
-      const missing = await this.getEndProductionMissingFieldsForOrder(String(target.order_id));
-      if (missing.length > 0) {
-        throw new Error(
-          targets.length > 1
-            ? `Combined end blocked — ${target.batch_number} missing: ${missing.join(', ')}`
-            : `Mandatory production data missing: ${missing.join(', ')}`,
-        );
-      }
     }
 
     const endAt = new Date();
     await db.transaction().execute(async (trx) => {
+      if (order.combined_group_id) {
+        await this.syncCombinedGroupProductionData(
+          String(order.combined_group_id),
+          batchNumber,
+          userId,
+          combinedActualMt,
+          trx,
+        );
+      }
+
       for (const target of targets) {
+        const missing = await this.getEndProductionMissingFieldsForOrder(String(target.order_id), trx);
+        if (missing.length > 0) {
+          throw new Error(
+            targets.length > 1
+              ? `Combined end blocked — ${target.batch_number} missing: ${missing.join(', ')}`
+              : `Mandatory production data missing: ${missing.join(', ')}`,
+          );
+        }
         await this.completeSingleOrder(
           String(target.batch_number),
           target.order_id,
@@ -1604,7 +1635,7 @@ export class SixHiService {
           machineCode,
           batchPre?.shift_code ?? undefined,
           /* emitMachineIdle */ false,
-          trx as any,
+          trx,
         );
       }
     });
@@ -1643,12 +1674,59 @@ export class SixHiService {
    * best-complete sibling and allocate combined actual weight across the group.
    * Fixes parked ends where only the primary order was filled in the UI.
    */
+  private static async patchCombinedMemberActualWeight(
+    orderId: string | number,
+    subProcess: 'ROLLING' | 'SKIN_PASS',
+    actualWeightMt: number,
+    ex: DbExecutor,
+  ): Promise<void> {
+    if (subProcess === 'ROLLING') {
+      const existing = await ex.selectFrom('txn.crm_rolling')
+        .select('order_id')
+        .where('order_id', '=', orderId as any)
+        .executeTakeFirst();
+      if (!existing) {
+        await ex.insertInto('txn.crm_rolling')
+          .values({
+            order_id: orderId as any,
+            destination: 'ANNEALING',
+            destination_override: false,
+          })
+          .execute();
+      }
+      await ex.updateTable('txn.crm_rolling')
+        .set({ actual_weight_mt: actualWeightMt })
+        .where('order_id', '=', orderId as any)
+        .execute();
+    } else {
+      const existing = await ex.selectFrom('txn.crm_skinpass')
+        .select('order_id')
+        .where('order_id', '=', orderId as any)
+        .executeTakeFirst();
+      if (!existing) {
+        await ex.insertInto('txn.crm_skinpass')
+          .values({ order_id: orderId as any })
+          .execute();
+      }
+      await ex.updateTable('txn.crm_skinpass')
+        .set({ actual_weight_mt: actualWeightMt })
+        .where('order_id', '=', orderId as any)
+        .execute();
+    }
+    await ex.updateTable('txn.crm_order')
+      .set({ updated_at: new Date() })
+      .where('order_id', '=', orderId as any)
+      .execute();
+  }
+
   private static async syncCombinedGroupProductionData(
     combinedGroupId: string,
     preferredBatchNumber: string,
     userId: number,
+    combinedActualMt?: number,
+    ex: DbExecutor = db,
   ): Promise<void> {
-    const members = await db.selectFrom('txn.crm_order as o')
+    const members = await ex.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'o.order_id',
@@ -1684,7 +1762,7 @@ export class SixHiService {
 
       const snaps: RollingSnap[] = [];
       for (const m of targets) {
-        const rolling = await db.selectFrom('txn.crm_rolling')
+        const rolling = await ex.selectFrom('txn.crm_rolling')
           .select([
             'actual_weight_mt',
             'destination',
@@ -1696,7 +1774,7 @@ export class SixHiService {
           ])
           .where('order_id', '=', m.orderId as any)
           .executeTakeFirst();
-        const passes = await db.selectFrom('txn.crm_rolling_pass')
+        const passes = await ex.selectFrom('txn.crm_rolling_pass')
           .select(['pass_no', 'thickness_mm'])
           .where('order_id', '=', m.orderId as any)
           .orderBy('pass_no', 'asc')
@@ -1727,27 +1805,21 @@ export class SixHiService {
         ?? snaps[0];
       if (!source) return;
 
-      // If only one (or equal) weight exists, treat as combined total and allocate.
-      const nonNullWeights = snaps.filter((s) => s.actualWeightMt != null).length;
-      const needsWeightSync = snaps.some((s) => s.actualWeightMt == null)
-        || nonNullWeights === 1
-        || snaps.every((s) => s.actualWeightMt != null && s.actualWeightMt === snaps[0].actualWeightMt);
-      const combinedActual = resolveCombinedActualMt(snaps.map((s) => s.actualWeightMt));
-      const allocation = combinedActual != null && needsWeightSync
-        ? allocateCombinedWeight(
-          targets.map((t) => ({ batchNumber: t.batchNumber, targetMt: t.targetMt })),
-          combinedActual,
-        )
-        : null;
+      const allocation = allocateCombinedRemainderToBlanks(snaps, targets, combinedActualMt);
 
       for (const snap of snaps) {
+        const alloc = allocation?.get(snap.batchNumber);
+        const needsWeight = snap.actualWeightMt == null && alloc != null;
         const missingPasses = snap.passes.length === 0 && source.passes.length > 0;
         const missingDest = !snap.destination && !!source.destination;
-        const allocated = allocation?.get(snap.batchNumber);
-        const needsWeight = allocated != null
-          && (snap.actualWeightMt == null || needsWeightSync);
 
-        if (!missingPasses && !missingDest && !needsWeight) continue;
+        // Always persist allocated weight — do not require passes/destination copy first.
+        if (needsWeight) {
+          await this.patchCombinedMemberActualWeight(snap.orderId, 'ROLLING', alloc!, ex);
+          snap.actualWeightMt = alloc!;
+        }
+
+        if (!missingPasses && !missingDest) continue;
 
         const destination = (missingDest ? source.destination : snap.destination)
           ?? source.destination;
@@ -1756,7 +1828,7 @@ export class SixHiService {
         if (passes.length === 0) continue;
 
         const data: SixHiRollingData = {
-          actualWeightMt: needsWeight ? allocated! : (snap.actualWeightMt ?? undefined),
+          actualWeightMt: snap.actualWeightMt ?? undefined,
           destination: destination as SixHiRollingData['destination'],
           destinationOverride: Boolean(
             (missingDest ? source.destinationOverride : snap.destinationOverride)
@@ -1770,7 +1842,7 @@ export class SixHiService {
           passes,
           totalPasses: passes.length,
         };
-        await this.updateRolling(snap.batchNumber, data, userId, { skipCombinedSync: true });
+        await this.updateRolling(snap.batchNumber, data, userId, { skipCombinedSync: true, ex });
       }
       return;
     }
@@ -1791,7 +1863,7 @@ export class SixHiService {
     };
     const snaps: SkinSnap[] = [];
     for (const m of targets) {
-      const skin = await db.selectFrom('txn.crm_skinpass')
+      const skin = await ex.selectFrom('txn.crm_skinpass')
         .select([
           'actual_weight_mt',
           'output_thk_mm',
@@ -1829,27 +1901,22 @@ export class SixHiService {
       ?? snaps[0];
     if (!source) return;
 
-    const nonNullWeights = snaps.filter((s) => s.actualWeightMt != null).length;
-    const needsWeightSync = snaps.some((s) => s.actualWeightMt == null)
-      || nonNullWeights === 1
-      || snaps.every((s) => s.actualWeightMt != null && s.actualWeightMt === snaps[0].actualWeightMt);
-    const combinedActual = resolveCombinedActualMt(snaps.map((s) => s.actualWeightMt));
-    const allocation = combinedActual != null && needsWeightSync
-      ? allocateCombinedWeight(
-        targets.map((t) => ({ batchNumber: t.batchNumber, targetMt: t.targetMt })),
-        combinedActual,
-      )
-      : null;
+    const allocation = allocateCombinedRemainderToBlanks(snaps, targets, combinedActualMt);
 
     for (const snap of snaps) {
+      const alloc = allocation?.get(snap.batchNumber);
+      const needsWeight = snap.actualWeightMt == null && alloc != null;
       const missingThk = snap.outputThkMm == null && source.outputThkMm != null;
-      const allocated = allocation?.get(snap.batchNumber);
-      const needsWeight = allocated != null
-        && (snap.actualWeightMt == null || needsWeightSync);
-      if (!missingThk && !needsWeight) continue;
+
+      if (needsWeight) {
+        await this.patchCombinedMemberActualWeight(snap.orderId, 'SKIN_PASS', alloc!, ex);
+        snap.actualWeightMt = alloc!;
+      }
+
+      if (!missingThk) continue;
 
       const data: SixHiSkinPassData = {
-        actualWeightMt: needsWeight ? allocated! : (snap.actualWeightMt ?? undefined),
+        actualWeightMt: snap.actualWeightMt ?? undefined,
         outputThkMm: missingThk ? source.outputThkMm! : (snap.outputThkMm ?? undefined),
         annHard: snap.annHard ?? source.annHard ?? undefined,
         rwTension1: snap.rwTension1 ?? source.rwTension1 ?? undefined,
@@ -1859,24 +1926,27 @@ export class SixHiService {
         loadMaxT: snap.loadMaxT ?? source.loadMaxT ?? undefined,
         stretchPct: snap.stretchPct ?? source.stretchPct ?? undefined,
       };
-      await this.updateSkinPass(snap.batchNumber, data, userId, { skipCombinedSync: true });
+      await this.updateSkinPass(snap.batchNumber, data, userId, { skipCombinedSync: true, ex });
     }
   }
 
-  private static async getEndProductionMissingFieldsForOrder(orderId: string): Promise<string[]> {
-    const order = await db.selectFrom('txn.crm_order')
+  private static async getEndProductionMissingFieldsForOrder(
+    orderId: string,
+    ex: DbExecutor = db,
+  ): Promise<string[]> {
+    const order = await ex.selectFrom('txn.crm_order')
       .select(['order_id', 'sub_process'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
-    const rolling = await db.selectFrom('txn.crm_rolling')
+    const rolling = await ex.selectFrom('txn.crm_rolling')
       .select(['destination', 'actual_weight_mt', 'final_thk_mm'])
       .where('order_id', '=', order.order_id)
       .executeTakeFirst();
-    const skinpass = await db.selectFrom('txn.crm_skinpass')
+    const skinpass = await ex.selectFrom('txn.crm_skinpass')
       .select(['actual_weight_mt', 'output_thk_mm'])
       .where('order_id', '=', order.order_id)
       .executeTakeFirst();
-    const passes = await db.selectFrom('txn.crm_rolling_pass')
+    const passes = await ex.selectFrom('txn.crm_rolling_pass')
       .select('pass_no')
       .where('order_id', '=', order.order_id)
       .execute();
@@ -1910,7 +1980,7 @@ export class SixHiService {
     machineCode: string,
     shiftCode: string | undefined,
     emitMachineIdle: boolean,
-    trx: typeof db = db,
+    trx: DbExecutor = db,
   ) {
     const order = await trx.selectFrom('txn.crm_order').selectAll()
       .where('order_id', '=', orderId as any)
@@ -2026,8 +2096,9 @@ export class SixHiService {
     batchNumber: string,
     data: SixHiRollingData,
     userId: number,
-    opts?: { skipCombinedSync?: boolean },
+    opts?: { skipCombinedSync?: boolean; ex?: DbExecutor },
   ) {
+    const ex = opts?.ex ?? db;
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     await assertActualWeightOcrCapture(orderId, data);
@@ -2041,7 +2112,7 @@ export class SixHiService {
     const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
     const ocrPatch = actualWeightOcrDbPatch(data);
 
-    await db.updateTable('txn.crm_rolling')
+    await ex.updateTable('txn.crm_rolling')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
         destination: data.destination,
@@ -2056,9 +2127,9 @@ export class SixHiService {
       .where('order_id', '=', orderId)
       .execute();
 
-    await db.deleteFrom('txn.crm_rolling_pass').where('order_id', '=', orderId).execute();
+    await ex.deleteFrom('txn.crm_rolling_pass').where('order_id', '=', orderId).execute();
     if (data.passes.length > 0) {
-      await db.insertInto('txn.crm_rolling_pass')
+      await ex.insertInto('txn.crm_rolling_pass')
         .values(data.passes.map((p) => ({
           order_id: orderId,
           pass_no: p.passNo,
@@ -2067,10 +2138,12 @@ export class SixHiService {
         .execute();
     }
 
-    await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
-    await this.refreshShiftProductionFromOrder(orderId);
+    await ex.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    if (ex === db) {
+      await this.refreshShiftProductionFromOrder(orderId);
+    }
 
-    if (!opts?.skipCombinedSync) {
+    if (!opts?.skipCombinedSync && ex === db) {
       const group = await db.selectFrom('txn.crm_order')
         .select('combined_group_id')
         .where('order_id', '=', orderId)
@@ -2087,8 +2160,9 @@ export class SixHiService {
     batchNumber: string,
     data: SixHiSkinPassData,
     userId: number,
-    opts?: { skipCombinedSync?: boolean },
+    opts?: { skipCombinedSync?: boolean; ex?: DbExecutor },
   ) {
+    const ex = opts?.ex ?? db;
     const orderId = await this.ensureOrder(batchNumber, userId);
     await assertCrm6OutputWeight(orderId, data.actualWeightMt ?? null);
     await assertActualWeightOcrCapture(orderId, data);
@@ -2101,7 +2175,7 @@ export class SixHiService {
 
     const ocrPatch = actualWeightOcrDbPatch(data);
 
-    await db.updateTable('txn.crm_skinpass')
+    await ex.updateTable('txn.crm_skinpass')
       .set({
         actual_weight_mt: data.actualWeightMt ?? null,
         output_thk_mm: data.outputThkMm ?? null,
@@ -2116,10 +2190,12 @@ export class SixHiService {
       })
       .where('order_id', '=', orderId)
       .execute();
-    await db.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
-    await this.refreshShiftProductionFromOrder(orderId);
+    await ex.updateTable('txn.crm_order').set({ updated_at: new Date() }).where('order_id', '=', orderId).execute();
+    if (ex === db) {
+      await this.refreshShiftProductionFromOrder(orderId);
+    }
 
-    if (!opts?.skipCombinedSync) {
+    if (!opts?.skipCombinedSync && ex === db) {
       const group = await db.selectFrom('txn.crm_order')
         .select('combined_group_id')
         .where('order_id', '=', orderId)
@@ -2434,6 +2510,7 @@ export class SixHiService {
         'os.stoppage_id',
         'os.category_code',
         'sc.label',
+        'sc.requires_breakdown_code',
         'os.breakdown_code',
         'os.start_at',
         'os.end_at',
@@ -2455,6 +2532,7 @@ export class SixHiService {
         'os.stoppage_id',
         'os.category_code',
         'sc.label',
+        'sc.requires_breakdown_code',
         'os.breakdown_code',
         'os.start_at',
         'os.end_at',
@@ -2481,6 +2559,7 @@ export class SixHiService {
         batchNumber: s.batch_number as string | undefined,
         categoryCode: s.category_code,
         categoryLabel: s.label,
+        requiresBreakdownCode: !!s.requires_breakdown_code,
         breakdownCode: s.breakdown_code ?? undefined,
         startAt: s.start_at.toISOString(),
         endAt: s.end_at?.toISOString(),
@@ -2492,6 +2571,7 @@ export class SixHiService {
         batchNumber: undefined as string | undefined,
         categoryCode: s.category_code,
         categoryLabel: s.label,
+        requiresBreakdownCode: !!s.requires_breakdown_code,
         breakdownCode: s.breakdown_code ?? undefined,
         startAt: s.start_at.toISOString(),
         endAt: s.end_at?.toISOString(),
@@ -3258,13 +3338,20 @@ export class SixHiService {
         'o.status',
         'o.sub_process',
         'o.customer_name',
+        'o.coil_no',
+        'o.prod_start_at',
+        'o.prod_end_at',
         'o.prod_duration_min',
+        'o.combined_group_id',
         'o.ppc_weight_mt',
         'pb.ppc_weight_mt as batch_ppc_weight_mt',
         'pb.machine_code',
       ])
       .where('o.shift_log_id', 'in', logIds)
-      .where('o.status', '!=', 'CANCELLED');
+      .where('o.status', '!=', 'CANCELLED')
+      .orderBy(sql`o.combined_group_id NULLS LAST`)
+      .orderBy('o.prod_start_at', 'asc')
+      .orderBy('o.batch_number', 'asc');
 
     if (machineCodes && machineCodes.length > 0) {
       query = machineCodes.length === 1
@@ -3347,6 +3434,10 @@ export class SixHiService {
           weightMt: wt,
           durationMin: o.prod_duration_min ?? undefined,
           machineCode: o.machine_code ? String(o.machine_code).toUpperCase() : undefined,
+          combinedGroupId: o.combined_group_id ? String(o.combined_group_id) : undefined,
+          coilNo: o.coil_no ?? undefined,
+          startAt: o.prod_start_at?.toISOString(),
+          endAt: o.prod_end_at?.toISOString(),
         });
         targetCompletedMt += ppcWt;
         addWeight(o.sub_process, wt, 'completed');

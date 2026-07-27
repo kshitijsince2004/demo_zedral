@@ -10,8 +10,8 @@ describe('combinedWeightAllocation', () => {
     expect(combinedTargetMt([{ targetMt: 5 }, { targetMt: 3 }])).toBe(8);
   });
 
-  it('treats equal per-order actuals as legacy combined total', () => {
-    expect(resolveCombinedActualMt([7.5, 7.5])).toBe(7.5);
+  it('sums equal per-order actuals (combined run total)', () => {
+    expect(resolveCombinedActualMt([7.5, 7.5])).toBe(15);
   });
 
   it('sums distinct per-order actuals', () => {

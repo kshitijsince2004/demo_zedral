@@ -14,17 +14,42 @@ export function combinedTargetMt(targets: Array<{ targetMt: number }>): number {
   return roundMt(targets.reduce((sum, t) => sum + t.targetMt, 0));
 }
 
-/**
- * Resolve the combined actual weight shown in the form / used at end.
- * Legacy saves duplicated the same weight on every order — treat equal values as one combined total.
- * If only some orders have weight, sum the non-null values (partial allocation already applied).
- */
+/** Sum of per-order actual weights in a combined run (ignores null/blank orders). */
 export function resolveCombinedActualMt(actuals: Array<number | undefined | null>): number | undefined {
   const values = actuals.filter((v): v is number => v != null && Number.isFinite(v));
   if (values.length === 0) return undefined;
-  const first = values[0];
-  if (values.every((v) => v === first)) return first;
   return roundMt(values.reduce((sum, v) => sum + v, 0));
+}
+
+/**
+ * Split a combined total across blank siblings only; never overwrites entered weights.
+ * Throws when combined total is not greater than the sum of already-entered weights.
+ */
+export function allocateCombinedRemainderToBlanks(
+  snaps: Array<{ batchNumber: string; actualWeightMt: number | null }>,
+  targets: WeightAllocationTarget[],
+  combinedActualMt?: number,
+): Map<string, number> | null {
+  const filled = snaps.filter((s) => s.actualWeightMt != null);
+  const blanks = snaps.filter((s) => s.actualWeightMt == null);
+  if (blanks.length === 0) return null;
+  if (combinedActualMt == null) return null;
+
+  const enteredSum = roundMt(filled.reduce((s, x) => s + (x.actualWeightMt ?? 0), 0));
+  const remainder = roundMt(combinedActualMt - enteredSum);
+  if (remainder <= 0) {
+    throw new Error(
+      `Combined total ${combinedActualMt} MT is not greater than already-entered ${enteredSum} MT — check weights.`,
+    );
+  }
+
+  const targetOf = (batchNumber: string) =>
+    targets.find((t) => t.batchNumber === batchNumber)?.targetMt ?? 0;
+
+  return allocateCombinedWeight(
+    blanks.map((b) => ({ batchNumber: b.batchNumber, targetMt: targetOf(b.batchNumber) })),
+    remainder,
+  );
 }
 
 /**

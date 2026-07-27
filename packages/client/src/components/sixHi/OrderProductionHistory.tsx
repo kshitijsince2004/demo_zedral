@@ -1,15 +1,14 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { formatPlantDateTime } from '../../lib/dateFormat';
+import {
+  formatProductionDurationMin,
+  resolveProductionDurationMin,
+  resolveTotalStoppageMin,
+  resolveWallDurationMin,
+} from '../../lib/sixHiRuntime';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
-
-function formatDuration(min?: number): string {
-  if (min == null || min <= 0) return '—';
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
 
 interface OrderProductionHistoryProps {
   order: SixHiOrderDetail;
@@ -18,6 +17,9 @@ interface OrderProductionHistoryProps {
 export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
   const isRolling = order.subProcess === 'ROLLING';
   const producedMt = order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt;
+  const runningMin = resolveProductionDurationMin(order);
+  const stoppageMin = resolveTotalStoppageMin(order);
+  const wallMin = resolveWallDurationMin(order);
 
   return (
     <div className="space-y-4 border-t border-border pt-4 mt-2">
@@ -29,8 +31,16 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           <dd className="font-mono font-semibold">{selectIdOf(order)}</dd>
         </div>
         <div>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</dt>
-          <dd className="font-mono font-semibold">{formatDuration(order.prodDurationMin)}</dd>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Running Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(runningMin)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Stoppage Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(stoppageMin)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Total Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(wallMin)}</dd>
         </div>
         <div>
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -164,7 +174,7 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
           <ul className="space-y-1 text-xs font-mono">
             {order.stoppages.map((s) => (
               <li key={s.id} className="text-muted-foreground">
-                {s.categoryLabel} · {formatDuration(s.durationMin)}
+                {s.categoryLabel} · {formatProductionDurationMin(s.durationMin)}
                 {s.startAt ? ` · ${formatPlantDateTime(s.startAt)}` : ''}
                 {s.endAt ? ` → ${formatPlantDateTime(s.endAt)}` : ''}
                 {s.remarks ? ` · ${s.remarks}` : ''}

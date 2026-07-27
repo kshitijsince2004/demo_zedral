@@ -3,7 +3,7 @@ import { X, AlertCircle } from 'lucide-react';
 import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/shared-validation';
 import { useSixHiStore, isPreparing } from '../../store/sixHiStore';
 import { apiClient } from '../../lib/apiClient';
-import { patchQueued } from '../../lib/sync/queuedApi';
+import { patchOrderImmediate } from '../../lib/sync/sixHiWrites';
 import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
@@ -114,10 +114,12 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   const combinedOrderCount = combinedRun?.batchNumbers.length ?? 0;
   const isCombined = combinedOrderCount > 1;
+  const combinedActualMtIntent = useSixHiStore((s) => s.combinedActualMtIntent);
   const combinedActualMt = isCombined
-    ? resolveCombinedActualMt(
-      combinedOrders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
-    )
+    ? (combinedActualMtIntent
+      ?? resolveCombinedActualMt(
+        combinedOrders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
+      ))
     : undefined;
 
   if (!workspaceOpen || !workspaceBatch) return null;
@@ -137,39 +139,45 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     endpoint: 'rolling' | 'skinpass',
     data: T,
   ) => {
+    const combinedTotal = data.actualWeightMt;
+    if (isCombined && combinedTotal != null) {
+      useSixHiStore.getState().setCombinedActualMtIntent(combinedTotal);
+    }
     if (!isCombined || !combinedRun) {
       await Promise.all(actionBatchNumbers.map((batchNumber) =>
-        patchQueued(`/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`, data, `6hi-order:${batchNumber}`),
+        patchOrderImmediate(batchNumber, endpoint, data),
       ));
       return;
     }
 
-    const targets = combinedRun.orders.map((o) => ({
-      batchNumber: o.batchNumber,
-      targetMt: o.weightMt,
-    }));
-    const allocation = data.actualWeightMt != null
-      ? allocateCombinedWeight(targets, data.actualWeightMt)
+    // Always persist the full combined group — one combined total split across every member.
+    const groupBatchNumbers = combinedRun.batchNumbers;
+    const targets = groupBatchNumbers.map((batchNumber) => {
+      const orderSummary = combinedRun.orders.find((o) => o.batchNumber === batchNumber);
+      return {
+        batchNumber,
+        targetMt: orderSummary?.weightMt ?? 0,
+      };
+    });
+    const allocation = combinedTotal != null
+      ? allocateCombinedWeight(targets, combinedTotal)
       : null;
 
-    await Promise.all(actionBatchNumbers.map((batchNumber) => {
+    // Sequential writes avoid server-side combined-sync races between siblings.
+    for (const batchNumber of groupBatchNumbers) {
       const payload = {
         ...data,
-        actualWeightMt: allocation?.get(batchNumber) ?? data.actualWeightMt,
+        actualWeightMt: allocation?.get(batchNumber) ?? combinedTotal,
       };
-      return patchQueued(
-        `/6hi/orders/${encodeURIComponent(batchNumber)}/${endpoint}`,
-        payload,
-        `6hi-order:${batchNumber}`,
-      );
-    }));
+      await patchOrderImmediate(batchNumber, endpoint, payload);
+    }
   };
 
   const handleSaveRolling = async (data: SixHiRollingData) => {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('rolling', data));
+      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('rolling', data), { refreshMode: 'save' });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);
@@ -183,7 +191,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('skinpass', data));
+      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('skinpass', data), { refreshMode: 'save' });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);

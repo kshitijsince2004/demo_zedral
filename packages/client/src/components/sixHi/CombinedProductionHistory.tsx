@@ -4,12 +4,12 @@ import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWei
 import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
-function formatDuration(min?: number): string {
-  if (min == null || min <= 0) return '—';
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
+import {
+  formatProductionDurationMin,
+  resolveProductionDurationMin,
+  resolveTotalStoppageMin,
+  resolveWallDurationMin,
+} from '../../lib/sixHiRuntime';
 
 function producedMt(order: SixHiOrderDetail): number | undefined {
   return order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt;
@@ -30,7 +30,9 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
   const combinedProduced = resolveCombinedActualMt(orders.map(producedMt));
   const startAt = orders.map((o) => o.prodStartAt).filter(Boolean).sort()[0];
   const endAt = orders.map((o) => o.prodEndAt).filter(Boolean).sort().reverse()[0];
-  const durationMin = orders.reduce((max, o) => Math.max(max, o.prodDurationMin ?? 0), 0);
+  const runningMin = Math.max(...orders.map((o) => resolveProductionDurationMin(o) ?? 0));
+  const stoppageMin = orders.reduce((sum, o) => sum + resolveTotalStoppageMin(o), 0);
+  const wallMin = Math.max(...orders.map((o) => resolveWallDurationMin(o) ?? 0));
   const allRejected = orders.every((o) => o.status === 'REJECTED');
 
   return (
@@ -52,8 +54,16 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
           </dd>
         </div>
         <div>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</dt>
-          <dd className="font-mono font-semibold">{formatDuration(durationMin)}</dd>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Running Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(runningMin)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Stoppage Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(stoppageMin)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Total Duration</dt>
+          <dd className="font-mono font-semibold">{formatProductionDurationMin(wallMin)}</dd>
         </div>
         <div>
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Combined target</dt>

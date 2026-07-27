@@ -45,4 +45,10 @@ describe('ShiftSummaryReport', () => {
     expect(() => def.validateScope({ date: '2026-06-01' })).toThrow('shiftCode is required');
     expect(() => def.validateScope({ date: '2026-06-01', shiftCode: 'A' })).not.toThrow();
   });
+
+  it('declares XLSX among supported formats for branded workbook path', async () => {
+    const { getReportDefinition } = await import('../src/export/definitions/index');
+    const def = getReportDefinition('SHIFT_SUMMARY');
+    expect(def.supportedFormats()).toContain('XLSX');
+  });
 });

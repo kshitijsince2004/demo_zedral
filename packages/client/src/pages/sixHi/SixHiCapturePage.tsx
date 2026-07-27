@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Play } from 'lucide-react';
 import useSWR from 'swr';
@@ -11,9 +11,8 @@ import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummary
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from '../../components/sixHi/CombinedProductionOrdersPanel';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
+import { NetProductionTimerText, StoppageTimerText } from '../../components/sixHi/ProductionTimerDisplay';
 import { ZButton } from '../../components/primitives/ZButton';
-import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { networkAwareRefreshInterval, shouldPauseLivePolling } from '../../lib/networkAwareInterval';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
@@ -47,19 +46,18 @@ export function SixHiCapturePage() {
   const navigate = useNavigate();
   const { basePath } = useWorkspaceBase();
   const { shiftLogId, shiftDate, shiftCode } = useShiftStore();
-  const {
-    panelOrder,
-    machineActive,
-    machineCode,
-    shiftSummary,
-    combinedRun,
-    manualStoppage,
-    openWorkspace,
-    loadPanelOrder,
-    loadShiftSummary,
-    refreshMachineState,
-    openStoppageDialog,
-  } = useSixHiStore();
+  const panelOrder = useSixHiStore((s) => s.panelOrder);
+  const machineActive = useSixHiStore((s) => s.machineActive);
+  const machineCode = useSixHiStore((s) => s.machineCode);
+  const shiftSummary = useSixHiStore((s) => s.shiftSummary);
+  const combinedRun = useSixHiStore((s) => s.combinedRun);
+  const manualStoppage = useSixHiStore((s) => s.manualStoppage);
+  const openWorkspace = useSixHiStore((s) => s.openWorkspace);
+  const loadPanelOrder = useSixHiStore((s) => s.loadPanelOrder);
+  const loadShiftSummary = useSixHiStore((s) => s.loadShiftSummary);
+  const refreshMachineState = useSixHiStore((s) => s.refreshMachineState);
+  const openStoppageDialog = useSixHiStore((s) => s.openStoppageDialog);
+  const hydrateCombinedRunFromQueue = useSixHiStore((s) => s.hydrateCombinedRunFromQueue);
 
   const [stoppageError, setStoppageError] = useState<string | null>(null);
   const [combinedOrders, setCombinedOrders] = useState<SixHiOrderDetail[]>([]);
@@ -108,13 +106,19 @@ export function SixHiCapturePage() {
       compare: (a, b) => jsonEqual(a, b),
     },
   );
-  const allQueueItems = queueData ?? [];
+  const allQueueItems = useMemo(() => queueData ?? [], [queueData]);
 
   const activeBatch = machineActive?.batchNumber ?? null;
   const runningFromQueue = allQueueItems.find(
     (q) => q.status === 'IN_PROGRESS' || q.status === 'STOPPAGE',
   );
   const effectiveBatch = activeBatch ?? runningFromQueue?.batchNumber ?? null;
+
+  useEffect(() => {
+    if (effectiveBatch && allQueueItems.length > 0) {
+      hydrateCombinedRunFromQueue(allQueueItems, machineCode, effectiveBatch);
+    }
+  }, [effectiveBatch, allQueueItems, machineCode, hydrateCombinedRunFromQueue]);
 
   useEffect(() => {
     if (effectiveBatch && (!panelOrder || panelOrder.batchNumber !== effectiveBatch)) {
@@ -211,10 +215,6 @@ export function SixHiCapturePage() {
     }
   };
 
-  const netRuntime = useNetProductionTimer(order);
-  const activeStoppageStart = order?.activeStoppage?.startAt ?? manualStoppage?.active?.startedAt;
-  const { formatted: stoppageTimer } = useLiveTimer(activeStoppageStart, hasActiveStoppage);
-
   const targetMt = isCombinedRun && combinedRun
     ? combinedTargetMt(combinedRun.orders.map((o) => ({ targetMt: o.weightMt })))
     : (order?.ppcWeightMt ?? 0);
@@ -244,6 +244,13 @@ export function SixHiCapturePage() {
       : `${s.categoryLabel} (Manual)`,
     remarks: s.remarks ?? null,
   }));
+
+  const openProductionForm = () => {
+    if (!order) return;
+    const detected = hydrateCombinedRunFromQueue(allQueueItems, machineCode, order.batchNumber);
+    const run = detected ?? useSixHiStore.getState().combinedRun;
+    openWorkspace(run?.primaryBatchNumber ?? order.batchNumber);
+  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-4 overflow-hidden">
@@ -288,7 +295,11 @@ export function SixHiCapturePage() {
           </div>
           <div className="text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-destructive/80">Duration</p>
-            <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>
+            <StoppageTimerText
+              startAt={order.activeStoppage.startAt}
+              active
+              className="font-mono text-3xl font-bold text-destructive"
+            />
           </div>
         </div>
       )}
@@ -309,7 +320,11 @@ export function SixHiCapturePage() {
           </div>
           <div className="text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-destructive/80">Duration</p>
-            <p className="font-mono text-3xl font-bold text-destructive">{stoppageTimer}</p>
+            <StoppageTimerText
+              startAt={manualStoppage.active.startedAt}
+              active
+              className="font-mono text-3xl font-bold text-destructive"
+            />
           </div>
         </div>
       )}
@@ -383,9 +398,10 @@ export function SixHiCapturePage() {
                     ))}
                   </dl>
 
-                  {order.prodStartAt && netRuntime && (
+                  {order.prodStartAt && (
                     <p className="text-sm text-amber-600 font-semibold">
-                      Net Runtime: <span className="font-mono">{netRuntime}</span>
+                      Net Runtime:{' '}
+                      <NetProductionTimerText order={order} className="font-mono" />
                       {hasActiveStoppage && <span className="text-destructive ml-2">(paused)</span>}
                     </p>
                   )}
@@ -403,7 +419,7 @@ export function SixHiCapturePage() {
                     {hasActiveStoppage ? 'Manage Stoppage' : 'Record Stoppage'}
                   </ZButton>
 
-                  <ZButton variant="accent" size="lg" fullWidth className="min-h-14" onClick={() => openWorkspace(combinedRun?.primaryBatchNumber ?? order.batchNumber)}>
+                  <ZButton variant="accent" size="lg" fullWidth className="min-h-14" onClick={openProductionForm}>
                     <Play className="h-5 w-5" />
                     {isCombinedRun ? 'Open Combined Production Form' : 'Open Production Form'}
                   </ZButton>

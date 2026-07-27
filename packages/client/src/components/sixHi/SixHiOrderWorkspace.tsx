@@ -2,11 +2,9 @@ import type { SixHiOrderDetail, SixHiRollingData, SixHiSkinPassData } from '@m1/
 import { PPCInfoCards } from './PPCInfoCards';
 import { FourHiRollingForm } from './FourHiRollingForm';
 import { SharedSkinPassForm } from './SharedSkinPassForm';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
-import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
+import { ProductionStatusBanner } from './ProductionStatusBanner';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { millSupportsRolling } from '../../lib/millConfig';
-import { formatPlantClock } from '../../lib/dateFormat';
 
 interface SixHiOrderWorkspaceProps {
   order: SixHiOrderDetail;
@@ -39,43 +37,10 @@ export function SixHiOrderWorkspace({
   const { machineCode } = useWorkspaceBase();
   const isRolling = order.subProcess === 'ROLLING' && millSupportsRolling(machineCode);
 
-  const isRunning = order.status === 'IN_PROGRESS' && !!order.prodStartAt && !order.activeStoppage;
-  const isStoppageActive = !!order.activeStoppage;
-
-  const netRunTime = useNetProductionTimer(order);
-  const { formatted: stopTime } = useLiveTimer(order.activeStoppage?.startAt, isStoppageActive);
-  const runTime = netRunTime ?? '';
-
   return (
     <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-4 min-h-0'}`}>
 
-      {(isRunning || isStoppageActive) && (
-        <div className={`flex items-center justify-between rounded-xl border shadow-sm transition-colors shrink-0 ${
-          compact ? 'px-4 py-2' : 'px-6 py-4'
-        } ${
-          isStoppageActive
-            ? 'bg-destructive text-white border-destructive'
-            : 'bg-success text-white border-success'
-        }`}>
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="min-w-0">
-              <div className="text-xs font-medium uppercase tracking-wide opacity-80 mb-0.5">
-                {isStoppageActive ? 'Stoppage Active' : 'Production Active'}
-              </div>
-              <div className={`font-semibold truncate ${compact ? 'text-sm' : 'text-base'}`}>
-                {isStoppageActive
-                  ? `${order.activeStoppage?.categoryLabel ?? 'Stopped'} · ${order.activeStoppage?.remarks ?? 'No remarks'}`
-                  : `Running since ${formatPlantClock(order.prodStartAt!)}`}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`font-mono font-bold tracking-tight ${compact ? 'text-2xl' : 'text-3xl'}`}>
-              {isStoppageActive ? stopTime : runTime}
-            </span>
-          </div>
-        </div>
-      )}
+      <ProductionStatusBanner order={order} compact={compact} />
 
       {!hidePpcDetail && (
         <PPCInfoCards

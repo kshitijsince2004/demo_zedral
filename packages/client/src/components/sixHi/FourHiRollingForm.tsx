@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SixHiOrderDetail, SixHiRollingData } from '@m1/shared-validation';
+import { useSixHiStore } from '../../store/sixHiStore';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
@@ -94,14 +95,20 @@ export function FourHiRollingForm({
     ? `Save Production Data (${combinedOrderCount} orders)`
     : 'Save Production Data';
 
-  const save = () =>
+  const save = () => {
+    const weight = parseDecimalDraft(drafts.actualWeightMt);
+    if (isCombined && weight != null) {
+      useSixHiStore.getState().setCombinedActualMtIntent(weight);
+    }
     onSave({
       ...data,
+      actualWeightMt: isCombined ? weight : (weight ?? data.actualWeightMt),
       destination: effectiveDest,
       destinationOverride: overrideDest,
       totalPasses: data.passes.length,
       finalThkMm: finalThk,
     });
+  };
 
   const passLabel = order.rollingPassNo && order.rollingPassNo > 1
     ? `Re-roll pass ${order.rollingPassNo}`
@@ -116,6 +123,9 @@ export function FourHiRollingForm({
     if (raw.trim() && !raw.endsWith('.')) {
       const parsed = parseDecimalDraft(raw);
       setData((prev) => ({ ...prev, [field]: parsed }));
+      if (isCombined && field === 'actualWeightMt' && parsed != null) {
+        useSixHiStore.getState().setCombinedActualMtIntent(parsed);
+      }
       return;
     }
 
@@ -128,6 +138,9 @@ export function FourHiRollingForm({
     const parsed = overrideValue !== undefined ? overrideValue : parseDecimalDraft(drafts[field]);
     setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
     setData((prev) => ({ ...prev, [field]: parsed }));
+    if (isCombined && field === 'actualWeightMt' && parsed != null) {
+      useSixHiStore.getState().setCombinedActualMtIntent(parsed);
+    }
   };
 
   const weightLabel = isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)';

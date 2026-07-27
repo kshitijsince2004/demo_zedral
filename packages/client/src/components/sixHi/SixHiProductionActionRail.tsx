@@ -4,8 +4,7 @@ import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { isPreparing } from '../../store/sixHiStore';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
-import { useNetProductionTimer } from '../../hooks/useNetProductionTimer';
+import { ProductionRuntimeFooterText, StoppageTimerText } from './ProductionTimerDisplay';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
@@ -91,17 +90,6 @@ export function SixHiProductionActionRail({
   const canEnd = order.status === 'IN_PROGRESS' || canResume;
   const canReject = order.status !== 'COMPLETED' && order.status !== 'REJECTED';
 
-  const { formatted: stoppageTimer } = useLiveTimer(order.activeStoppage?.startAt, hasActiveStoppage);
-  const netRuntime = useNetProductionTimer(order);
-
-  const runtimeLabel = order.prodDurationMin
-    ? `${order.prodDurationMin} minutes`
-    : netRuntime
-      ? netRuntime
-      : preparing
-        ? 'Preparing'
-        : '—';
-
   const machineStatus = hasActiveStoppage
     ? 'Stopped'
     : order.status === 'IN_PROGRESS'
@@ -186,12 +174,20 @@ export function SixHiProductionActionRail({
         {hasActiveStoppage ? (
           <div className="space-y-1">
             <p className="text-[9px] font-bold uppercase tracking-widest text-destructive">Stoppage</p>
-            <p className="font-mono text-lg font-bold text-destructive">{stoppageTimer}</p>
+            <StoppageTimerText
+              startAt={order.activeStoppage?.startAt}
+              active={hasActiveStoppage}
+              className="font-mono text-lg font-bold text-destructive"
+            />
           </div>
         ) : (
           <div className="flex flex-col items-center gap-0.5 text-muted-foreground">
             <Clock className="h-3.5 w-3.5" aria-hidden />
-            <span className="font-mono text-sm font-bold">{runtimeLabel}</span>
+            <ProductionRuntimeFooterText
+              order={order}
+              preparing={preparing}
+              className="font-mono text-sm font-bold"
+            />
           </div>
         )}
         <span className={[

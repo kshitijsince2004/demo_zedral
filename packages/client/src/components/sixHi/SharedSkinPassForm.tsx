@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SixHiOrderDetail, SixHiSkinPassData } from '@m1/shared-validation';
+import { useSixHiStore } from '../../store/sixHiStore';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
@@ -209,6 +210,9 @@ export function SharedSkinPassForm({
     if (raw.trim() && !raw.endsWith('.')) {
       const parsed = parseDecimalDraft(raw);
       setData((prev) => ({ ...prev, [field]: parsed }));
+      if (isCombined && field === 'actualWeightMt' && parsed != null) {
+        useSixHiStore.getState().setCombinedActualMtIntent(parsed);
+      }
       return;
     }
 
@@ -221,6 +225,9 @@ export function SharedSkinPassForm({
     const parsed = overrideValue !== undefined ? overrideValue : parseDecimalDraft(drafts[field]);
     setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
     setData((prev) => ({ ...prev, [field]: parsed }));
+    if (isCombined && field === 'actualWeightMt' && parsed != null) {
+      useSixHiStore.getState().setCombinedActualMtIntent(parsed);
+    }
   };
 
   const saveLabel = combinedOrderCount && combinedOrderCount > 1
@@ -228,11 +235,18 @@ export function SharedSkinPassForm({
     : 'Save Production Data';
 
   const save = () => {
+    const weight = parseDecimalDraft(drafts.actualWeightMt);
+    if (isCombined && weight != null) {
+      useSixHiStore.getState().setCombinedActualMtIntent(weight);
+    }
     const payload =
       metric === 'RW_TENSION'
         ? { ...data, ...parseRwTension(rwTensionInput) }
         : data;
-    onSave(prepareSaveData(payload, metric));
+    const withWeight = isCombined && weight != null
+      ? { ...payload, actualWeightMt: weight }
+      : payload;
+    onSave(prepareSaveData(withWeight, metric));
   };
 
   const weightLabel = isCombined ? 'Combined Actual Weight (Metric Tons)' : 'Actual Weight (Metric Tons)';
