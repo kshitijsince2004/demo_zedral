@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
@@ -99,6 +99,8 @@ export function SixHiLayout() {
   const [crewSnoozeUntil, setCrewSnoozeUntil] = useState(0);
   // Keep session id so snooze can re-prompt until crew is saved (needsCrew on resume).
   const [crewPendingSessionId, setCrewPendingSessionId] = useState<string | null>(null);
+  const crewSnoozeUntilRef = useRef(crewSnoozeUntil);
+  crewSnoozeUntilRef.current = crewSnoozeUntil;
   const [sessionRecovering, setSessionRecovering] = useState(false);
   const [readingsOpen, setReadingsOpen] = useState(false);
 
@@ -179,7 +181,7 @@ export function SixHiLayout() {
         // SPEC2 §11 soft-mandatory: needsCrew on resume/re-login, not only created.
         if ((sess?.created || sess?.needsCrew) && sid) {
           setCrewPendingSessionId(sid);
-          if (Date.now() >= crewSnoozeUntil) {
+          if (Date.now() >= crewSnoozeUntilRef.current) {
             setCrewPrompt({ sessionId: sid });
           }
         } else if (!sess?.needsCrew) {
@@ -205,7 +207,7 @@ export function SixHiLayout() {
       await refreshMachineState();
     }
     init();
-  }, [pathMill, activeMachine, role, machineAccess, loadShiftSummary, refreshMachineState, logout, crewSnoozeUntil, crewPendingSessionId]);
+  }, [pathMill, activeMachine, role, machineAccess, loadShiftSummary, refreshMachineState, logout]);
 
   // Tablet left open past grace: re-ensure session when the tab becomes visible again.
   useEffect(() => {
@@ -408,8 +410,10 @@ export function SixHiLayout() {
           onConfirm={async (defectCodes) => {
             try {
               // Server cascades end across combined_group_id — one call ends the whole run.
-              await runOrderAction(activeBatch, async () =>
-                endOrder(activeBatch, defectCodes),
+              await runOrderAction(
+                activeBatch,
+                async () => endOrder(activeBatch, defectCodes),
+                { optimisticEndBatchNumbers: actionBatchNumbers },
               );
               if (shiftLogId) await loadShiftSummary(shiftLogId);
               setCombinedRun(null);

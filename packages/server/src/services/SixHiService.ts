@@ -317,64 +317,127 @@ export class SixHiService {
     return order.slice(0, idx);
   }
 
-  private static async buildQueueCard(
-    b: {
-      batch_id: string | number | bigint;
-      batch_number: string;
-      coil_no: string;
-      slit_id: string | null;
-      customer_name: string;
-      grade_code: string;
-      width_mm: number | string;
-      input_thk_mm: number | string | null;
-      ppc_thk_mm: number | string;
-      finish_thk_mm?: number | string | null;
-      machine_code: string;
-      machine_allocated?: boolean;
-      active_rolling_pass_no?: number | null;
-      ppc_weight_mt: number | string;
-      destination: string | null;
-      roll_finish: string | null;
-      ppc_reroll_flag: boolean | null;
-      plan_date: Date | string;
-      shift_code: string;
-    },
+  private static readonly queueBatchRowShape = {} as {
+    batch_id: string | number | bigint;
+    batch_number: string;
+    coil_no: string;
+    slit_id: string | null;
+    customer_name: string;
+    grade_code: string;
+    width_mm: number | string;
+    input_thk_mm: number | string | null;
+    ppc_thk_mm: number | string;
+    finish_thk_mm?: number | string | null;
+    machine_code: string;
+    machine_allocated?: boolean;
+    active_rolling_pass_no?: number | null;
+    ppc_weight_mt: number | string;
+    destination: string | null;
+    roll_finish: string | null;
+    ppc_reroll_flag: boolean | null;
+    plan_date: Date | string;
+    shift_code: string;
+  };
+
+  private static async prefetchQueueCardContext(
+    batches: Array<typeof SixHiService.queueBatchRowShape>,
+    subProcess: SixHiSubProcess,
+  ) {
+    const batchIds = [...new Set(batches.map((b) => String(b.batch_id)))];
+    if (batchIds.length === 0) {
+      return {
+        ordersByBatchId: new Map(),
+        stoppageLabelByOrderId: new Map<string, string>(),
+        rollingByOrderId: new Map(),
+        rollingPassCountByOrderId: new Map<string, number>(),
+        skinpassByOrderId: new Map(),
+      };
+    }
+
+    const orders = await db.selectFrom('txn.crm_order')
+      .selectAll()
+      .where('batch_id', 'in', batchIds)
+      .execute();
+    type OrderRow = (typeof orders)[number];
+    const ordersByBatchId = new Map<string, OrderRow>(orders.map((o) => [String(o.batch_id), o]));
+    const orderIds = orders.map((o) => o.order_id);
+
+    const prepOrderIds = orders
+      .filter((o) => o.status === 'PENDING' || o.status === 'PREPARING')
+      .map((o) => o.order_id);
+
+    const [openStops, rollingRows, passCounts, skinpassRows] = await Promise.all([
+      orderIds.length === 0
+        ? []
+        : db.selectFrom('txn.stoppage as os')
+          .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
+          .select(['os.order_id', 'sc.label'])
+          .where('os.order_id', 'in', orderIds)
+          .where('os.end_at', 'is', null)
+          .execute(),
+      subProcess === 'ROLLING' && prepOrderIds.length > 0
+        ? db.selectFrom('txn.crm_rolling')
+          .select(['order_id', 'actual_weight_mt', 'total_passes'])
+          .where('order_id', 'in', prepOrderIds)
+          .execute()
+        : [],
+      subProcess === 'ROLLING' && prepOrderIds.length > 0
+        ? db.selectFrom('txn.crm_rolling_pass')
+          .select(['order_id', sql<number>`count(*)::int`.as('n')])
+          .where('order_id', 'in', prepOrderIds)
+          .groupBy('order_id')
+          .execute()
+        : [],
+      subProcess === 'SKIN_PASS' && prepOrderIds.length > 0
+        ? db.selectFrom('txn.crm_skinpass')
+          .select(['order_id', 'output_thk_mm', 'ann_hard', 'operating_mode'])
+          .where('order_id', 'in', prepOrderIds)
+          .execute()
+        : [],
+    ]);
+
+    const stoppageLabelByOrderId = new Map(
+      openStops.map((row) => [String(row.order_id), String(row.label)]),
+    );
+    const rollingByOrderId = new Map(
+      rollingRows.map((row) => [String(row.order_id), row]),
+    );
+    const rollingPassCountByOrderId = new Map(
+      passCounts.map((row) => [String(row.order_id), Number(row.n ?? 0)]),
+    );
+    const skinpassByOrderId = new Map(
+      skinpassRows.map((row) => [String(row.order_id), row]),
+    );
+
+    return {
+      ordersByBatchId,
+      stoppageLabelByOrderId,
+      rollingByOrderId,
+      rollingPassCountByOrderId,
+      skinpassByOrderId,
+    };
+  }
+
+  private static mapQueueCard(
+    b: typeof SixHiService.queueBatchRowShape,
     subProcess: SixHiSubProcess,
     queuePosition: number,
+    ctx: Awaited<ReturnType<typeof SixHiService.prefetchQueueCardContext>>,
     options?: { isBacklog?: boolean },
-  ): Promise<SixHiQueueCard> {
-    const order = await db.selectFrom('txn.crm_order')
-      .selectAll()
-      .where('batch_id', '=', String(b.batch_id))
-      .executeTakeFirst();
-
+  ): SixHiQueueCard {
+    const order = ctx.ordersByBatchId.get(String(b.batch_id));
     let activeStoppageCategory: string | undefined;
     let prepReady = false;
-    if (order) {
-      const openStop = await db.selectFrom('txn.stoppage as os')
-        .innerJoin('master.stoppage_category as sc', 'os.category_code', 'sc.category_code')
-        .select(['sc.label'])
-        .where('os.order_id', '=', order.order_id)
-        .where('os.end_at', 'is', null)
-        .executeTakeFirst();
-      activeStoppageCategory = openStop?.label;
 
+    if (order) {
+      activeStoppageCategory = ctx.stoppageLabelByOrderId.get(String(order.order_id));
       if (order.status === 'PENDING' || order.status === 'PREPARING') {
         if (subProcess === 'ROLLING') {
-          const rolling = await db.selectFrom('txn.crm_rolling')
-            .select(['actual_weight_mt', 'total_passes'])
-            .where('order_id', '=', order.order_id)
-            .executeTakeFirst();
-          const passCount = await db.selectFrom('txn.crm_rolling_pass')
-            .select(sql<number>`count(*)::int`.as('n'))
-            .where('order_id', '=', order.order_id)
-            .executeTakeFirst();
-          prepReady = !!(rolling?.actual_weight_mt || (passCount?.n ?? 0) > 0 || (rolling?.total_passes ?? 0) > 0);
+          const rolling = ctx.rollingByOrderId.get(String(order.order_id));
+          const passCount = ctx.rollingPassCountByOrderId.get(String(order.order_id)) ?? 0;
+          prepReady = !!(rolling?.actual_weight_mt || passCount > 0 || (rolling?.total_passes ?? 0) > 0);
         } else {
-          const sp = await db.selectFrom('txn.crm_skinpass')
-            .select(['output_thk_mm', 'ann_hard', 'operating_mode'])
-            .where('order_id', '=', order.order_id)
-            .executeTakeFirst();
+          const sp = ctx.skinpassByOrderId.get(String(order.order_id));
           prepReady = !!(sp?.output_thk_mm || sp?.ann_hard || sp?.operating_mode);
         }
       }
@@ -511,27 +574,6 @@ export class SixHiService {
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
-    const cards: SixHiQueueCard[] = [];
-    let pos = 0;
-    for (const b of batches) {
-      pos++;
-      cards.push(await this.buildQueueCard(b, subProcess, pos));
-    }
-
-    const pendingAllocation: SixHiQueueCard[] = [];
-    let pendingPos = 0;
-    for (const b of pendingBatches) {
-      pendingPos++;
-      pendingAllocation.push(await this.buildQueueCard(b, subProcess, pendingPos));
-    }
-
-    const backlog: SixHiQueueCard[] = [];
-    let backlogPos = 0;
-    for (const b of backlogBatches) {
-      backlogPos++;
-      backlog.push(await this.buildQueueCard(b, subProcess, backlogPos, { isBacklog: true }));
-    }
-
     const terminalBatches = await this.fetchTerminalBatches(
       subProcess,
       machineCode,
@@ -539,15 +581,46 @@ export class SixHiService {
       shiftCode,
       shiftLogId,
     );
+
+    const allBatchRows = [
+      ...batches,
+      ...pendingBatches,
+      ...backlogBatches,
+      ...terminalBatches.map((row) => row.batch as typeof SixHiService.queueBatchRowShape),
+    ];
+    const cardCtx = await this.prefetchQueueCardContext(allBatchRows, subProcess);
+
+    const cards: SixHiQueueCard[] = [];
+    let pos = 0;
+    for (const b of batches) {
+      pos++;
+      cards.push(this.mapQueueCard(b, subProcess, pos, cardCtx));
+    }
+
+    const pendingAllocation: SixHiQueueCard[] = [];
+    let pendingPos = 0;
+    for (const b of pendingBatches) {
+      pendingPos++;
+      pendingAllocation.push(this.mapQueueCard(b, subProcess, pendingPos, cardCtx));
+    }
+
+    const backlog: SixHiQueueCard[] = [];
+    let backlogPos = 0;
+    for (const b of backlogBatches) {
+      backlogPos++;
+      backlog.push(this.mapQueueCard(b, subProcess, backlogPos, cardCtx, { isBacklog: true }));
+    }
+
     const completed: SixHiQueueCard[] = [];
     const rejected: SixHiQueueCard[] = [];
     let completedPos = 0;
     let rejectedPos = 0;
     for (const row of terminalBatches) {
-      const card = await this.buildQueueCard(
-        row.batch as Parameters<typeof SixHiService.buildQueueCard>[0],
+      const card = this.mapQueueCard(
+        row.batch as typeof SixHiService.queueBatchRowShape,
         subProcess,
         row.status === 'COMPLETED' ? ++completedPos : ++rejectedPos,
+        cardCtx,
       );
       if (row.status === 'COMPLETED') completed.push(card);
       else rejected.push(card);
@@ -953,9 +1026,11 @@ export class SixHiService {
     let resolvedStatus = order.status;
     if (order.status === 'STOPPAGE' && !activeStoppage) {
       resolvedStatus = order.prod_start_at ? 'IN_PROGRESS' : 'PENDING';
+      // Phase 4.3: heal only when still STOPPAGE — avoid fighting concurrent UI writes.
       await db.updateTable('txn.crm_order')
         .set({ status: resolvedStatus, updated_at: new Date() })
         .where('order_id', '=', order.order_id)
+        .where('status', '=', 'STOPPAGE')
         .execute();
     }
 
@@ -1534,10 +1609,11 @@ export class SixHiService {
       }
     });
 
-    // Shift production cache refresh after atomic completion (outside txn).
-    for (const target of targets) {
-      await this.refreshShiftProductionFromOrder(String(target.order_id));
-    }
+    // Phase 1.3: shift production cache refresh after atomic completion (outside txn),
+    // but do it fire-and-forget to keep end response latency low.
+    void Promise.all(
+      targets.map((target) => this.refreshShiftProductionFromOrder(String(target.order_id))),
+    ).catch((err) => console.error('[SixHi] refreshShiftProductionFromOrder failed:', err));
 
     // One machine IDLE after the whole combined group completes.
     MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', {
@@ -1555,7 +1631,11 @@ export class SixHiService {
       }),
     ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
 
-    return this.getOrder(batchNumber, userId);
+    // Slim end payload: client re-syncs full details via queue/state refresh.
+    return {
+      batchNumber,
+      endedBatchNumbers: targets.map((t) => String(t.batch_number)),
+    };
   }
 
   /**

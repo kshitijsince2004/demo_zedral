@@ -52,10 +52,10 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   const formBatchNumber = pickedPrimary ?? combinedRun?.primaryBatchNumber ?? workspaceBatch;
 
   useEffect(() => {
-    if (workspaceOpen && formBatchNumber) {
-      loadPanelOrder(formBatchNumber);
-    }
-  }, [workspaceOpen, formBatchNumber, loadPanelOrder]);
+    if (!workspaceOpen || !formBatchNumber) return;
+    if (panelOrder?.batchNumber === formBatchNumber) return;
+    void loadPanelOrder(formBatchNumber);
+  }, [workspaceOpen, formBatchNumber, panelOrder?.batchNumber, loadPanelOrder]);
 
   const combinedBatchNumbersKey = combinedRun?.batchNumbers.join(',') ?? '';
 

@@ -12,6 +12,43 @@ import { DeviceStatusIndicators } from './DeviceStatusIndicators';
 import type { Tone } from '../../../lib/tones';
 import { formatPlantClock } from '../../../lib/dateFormat';
 
+function RailClock() {
+  const [clock, setClock] = useState('');
+  const [currentDateStr, setCurrentDateStr] = useState('');
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setClock(
+        now.toLocaleTimeString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' IST',
+      );
+      setCurrentDateStr(
+        now.toLocaleDateString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }),
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">
+      {currentDateStr} {clock}
+    </span>
+  );
+}
+
 interface StatusRailProps {
   processCode?: string;
   onManualStoppage?: () => void;
@@ -31,11 +68,11 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
     shiftCode,
   } = useShiftStore();
 
-
-  const [clock, setClock] = useState('');
-  const [currentDateStr, setCurrentDateStr] = useState('');
   const { basePath } = useWorkspaceBase();
-  const { panelOrder, machineActive, machineCode, manualStoppage } = useSixHiStore();
+  const panelOrder = useSixHiStore((s) => s.panelOrder);
+  const machineActive = useSixHiStore((s) => s.machineActive);
+  const machineCode = useSixHiStore((s) => s.machineCode);
+  const manualStoppage = useSixHiStore((s) => s.manualStoppage);
   const isCrmMill = isCrmMillPath(location.pathname);
   const line = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
@@ -54,54 +91,6 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
     : !runningStoppage;
 
 
-
-  useEffect(() => {
-    console.info('[StatusRail] Component mounted');
-    console.info('[StatusRail] Clock initialized. Timezone: Asia/Kolkata (IST)');
-
-    let lastDateStr = '';
-
-    const tick = () => {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }) + ' IST';
-
-      const dateStr = now.toLocaleDateString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-
-      const isoStr = now.toLocaleDateString('en-CA', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      });
-
-      setClock(timeStr);
-      setCurrentDateStr(dateStr);
-
-      if (lastDateStr && lastDateStr !== dateStr) {
-        console.info(`[StatusRail] Date rolled over at midnight to: ${isoStr}`);
-      }
-      lastDateStr = dateStr;
-    };
-    tick();
-    const id = setInterval(tick, 1000) as unknown as number;
-    console.info(`[StatusRail] Clock timer created with ID: ${id}`);
-    
-    return () => {
-      clearInterval(id);
-      console.info(`[StatusRail] Clock timer cleanup for ID: ${id}`);
-    };
-  }, []);
 
   const handoverPath = basePath ? `${basePath}/handover` : '/coming-soon/6HI';
 
@@ -176,9 +165,7 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
           <DeviceStatusIndicators />
 
           <SyncStatusBadge />
-          <span className="font-mono text-xs text-muted-foreground tabular-nums hidden lg:block">
-            {currentDateStr} {clock}
-          </span>
+          <RailClock />
           <GloveModeToggle />
           {isCrmMill && onShiftReadings && (
             <button

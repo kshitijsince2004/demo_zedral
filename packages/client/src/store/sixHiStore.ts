@@ -1,21 +1,20 @@
 import { create } from 'zustand';
-import type { SixHiOrderDetail, SixHiQueueCard, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiOrderStatus, SixHiQueueCard, SixHiShiftSummary, SixHiSubProcess } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
 import { setActiveCrmMill } from '../lib/crmMillContext';
 import { defaultMillTab } from '../lib/millConfig';
 import type { MillCode } from '../lib/millPath';
 import { canRecordStoppage } from '../lib/sixHiRuntime';
+import { seedOrderDetailFromQueueCard } from '../lib/sixHiQueueCardSeed';
 import { notifyProductionChanged } from '../lib/productionSync';
 import { useShiftStore } from './shiftStore';
 import {
-  detectCombinedRunFromQueue,
-  dedupeQueueCards,
   reconcileCombinedSelection,
 } from '../lib/combinedProductionRun';
-import { formatShiftDate } from '../lib/dateFormat';
 import { jsonEqual } from '../lib/silentRefresh';
 
 let machineStateRefreshGen = 0;
+const panelOrderInflight = new Map<string, Promise<SixHiOrderDetail | null>>();
 
 export type SixHiProcessTab = 'rolling' | 'skinpass';
 
@@ -70,6 +69,8 @@ interface SixHiStore {
   busy: boolean;
   manualOrderOpen: boolean;
   queueRefreshToken: number;
+  /** Optimistic end in-flight: used to paint Completed immediately and show an "Ending…" badge. */
+  optimisticEndingBatches: string[];
   /** Matching list — every order that *could* combine. Detection owns this. */
   combinedRun: CombinedProductionRun | null;
   /** Picked list — orders the operator ticked to start/run together. */
@@ -82,7 +83,7 @@ interface SixHiStore {
   openManualOrder: () => void;
   closeManualOrder: () => void;
   requestQueueRefresh: () => void;
-  openWorkspace: (batchNo: string) => void;
+  openWorkspace: (batchNo: string, queueCard?: SixHiQueueCard) => void;
   closeWorkspace: () => void;
   setPanelOrder: (order: SixHiOrderDetail | null) => void;
   setMachineActive: (active: ActiveMachineOrder | null) => void;
@@ -96,9 +97,9 @@ interface SixHiStore {
   requestRejectionDialog?: (batchNo: string) => void;
 
   loadPanelOrder: (batchNo: string) => Promise<SixHiOrderDetail | null>;
-  refreshMachineState: () => Promise<void>;
+  refreshMachineState: (opts?: { skipCombinedQueueFetch?: boolean }) => Promise<void>;
   loadShiftSummary: (shiftLogId: string) => Promise<void>;
-  runOrderAction: (batchNo: string, fn: () => Promise<unknown>) => Promise<SixHiOrderDetail | null>;
+  runOrderAction: (batchNo: string, fn: () => Promise<unknown>, opts?: { optimisticEndBatchNumbers?: string[] }) => Promise<SixHiOrderDetail | null>;
   resetSession: () => void;
 }
 
@@ -114,6 +115,7 @@ const INITIAL_SixHi_STATE = {
   busy: false,
   manualOrderOpen: false,
   queueRefreshToken: 0,
+  optimisticEndingBatches: [] as string[],
   combinedRun: null as CombinedProductionRun | null,
   combinedSelectedBatches: [] as string[],
   stoppageModalBatch: null as string | null,
@@ -135,8 +137,8 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   openManualOrder: () => set({ manualOrderOpen: true }),
   closeManualOrder: () => set({ manualOrderOpen: false }),
   requestQueueRefresh: () => set({ queueRefreshToken: get().queueRefreshToken + 1 }),
-  openWorkspace: (batchNo) => {
-    const { combinedRun, combinedSelectedBatches } = get();
+  openWorkspace: (batchNo, queueCard) => {
+    const { combinedRun, combinedSelectedBatches, panelOrder } = get();
     const pickedPrimary = combinedSelectedBatches.length > 0
       ? (combinedSelectedBatches.includes(combinedRun?.primaryBatchNumber ?? '')
         ? combinedRun!.primaryBatchNumber
@@ -145,6 +147,14 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     const batch = combinedRun?.batchNumbers.includes(batchNo)
       ? (pickedPrimary ?? combinedRun.primaryBatchNumber)
       : batchNo;
+
+    if (queueCard && queueCard.batchNumber === batch) {
+      const seeded = seedOrderDetailFromQueueCard(queueCard);
+      if (!panelOrder || panelOrder.batchNumber !== batch || !jsonEqual(panelOrder, seeded)) {
+        set({ panelOrder: seeded });
+      }
+    }
+
     set({ workspaceOpen: true, workspaceBatch: batchNo });
     void get().loadPanelOrder(batch);
   },
@@ -200,17 +210,27 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   closeStoppageDialog: () => set({ stoppageModalBatch: null }),
 
   loadPanelOrder: async (batchNo) => {
-    try {
-      const order = await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNo)}`);
-      const prev = get().panelOrder;
-      if (prev?.batchNumber === batchNo && jsonEqual(prev, order)) {
-        return prev;
+    const inflight = panelOrderInflight.get(batchNo);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      try {
+        const order = await apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNo)}`);
+        const prev = get().panelOrder;
+        if (prev?.batchNumber === batchNo && jsonEqual(prev, order)) {
+          return prev;
+        }
+        set({ panelOrder: order });
+        return order;
+      } catch {
+        return null;
+      } finally {
+        panelOrderInflight.delete(batchNo);
       }
-      set({ panelOrder: order });
-      return order;
-    } catch {
-      return null;
-    }
+    })();
+
+    panelOrderInflight.set(batchNo, promise);
+    return promise;
   },
 
   refreshMachineState: async () => {
@@ -228,24 +248,9 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       let nextCombinedRun = combinedRun;
 
       if (active?.batchNumber) {
-        try {
-          const { shiftDate, shiftCode } = useShiftStore.getState();
-          const params = `machine=${mc}&date=${formatShiftDate(shiftDate)}&shift=${shiftCode || 'A'}`;
-          const [rolling, skinPass] = await Promise.all([
-            apiClient.get<{ queue: SixHiQueueCard[] }>(`/6hi/queue?${params}&subProcess=ROLLING`),
-            apiClient.get<{ queue: SixHiQueueCard[] }>(`/6hi/queue?${params}&subProcess=SKIN_PASS`),
-          ]);
-          const queue = dedupeQueueCards([...(rolling.queue ?? []), ...(skinPass.queue ?? [])]);
-          const detected = detectCombinedRunFromQueue(queue, mc, active.batchNumber);
-          if (detected) {
-            nextCombinedRun = detected;
-          } else if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
-            nextCombinedRun = null;
-          }
-        } catch {
-          if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
-            nextCombinedRun = null;
-          }
+        // Phase 2.2: derive combined run from store — no dual full-queue fetch.
+        if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
+          nextCombinedRun = null;
         }
       } else if (!workspaceOpen) {
         nextCombinedRun = null;
@@ -303,27 +308,67 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     }
   },
 
-  runOrderAction: async (batchNo, fn) => {
-    set({ busy: true });
+  runOrderAction: async (batchNo, fn, opts) => {
+    const optimisticEndingBatches = opts?.optimisticEndBatchNumbers?.filter(Boolean) ?? [];
+    const isOptimisticEnd = optimisticEndingBatches.length > 0;
+
+    if (isOptimisticEnd) {
+      // Optimistic end: keep console responsive and paint Completed immediately.
+      set({ optimisticEndingBatches });
+      set({ machineActive: null });
+
+      const prevPanelOrder = get().panelOrder;
+      if (prevPanelOrder && optimisticEndingBatches.includes(prevPanelOrder.batchNumber)) {
+        set({
+          panelOrder: {
+            ...prevPanelOrder,
+            status: 'COMPLETED' as SixHiOrderStatus,
+          },
+        });
+      }
+    } else {
+      set({ busy: true });
+    }
+
     try {
       const result = await fn();
-      let order: SixHiOrderDetail;
-      if (result && typeof result === 'object' && 'batchNumber' in (result as object)) {
-        order = result as SixHiOrderDetail;
-      } else {
-        const loaded = await get().loadPanelOrder(batchNo);
-        if (!loaded) return null;
-        order = loaded;
+
+      let order: SixHiOrderDetail | null = null;
+      if (!isOptimisticEnd) {
+        if (result && typeof result === 'object' && 'batchNumber' in (result as object)) {
+          order = result as SixHiOrderDetail;
+        } else {
+          const loaded = await get().loadPanelOrder(batchNo);
+          if (!loaded) return null;
+          order = loaded;
+        }
+        set({ panelOrder: order });
       }
-      set({ panelOrder: order });
+
       await get().refreshMachineState();
       const shiftLogId = useShiftStore.getState().shiftLogId;
       if (shiftLogId) await get().loadShiftSummary(shiftLogId);
-      get().requestQueueRefresh();
+
+      if (isOptimisticEnd) {
+        notifyProductionChanged({ shiftLogId: shiftLogId ?? undefined, batchNumber: batchNo });
+        set({ optimisticEndingBatches: [] });
+        return null;
+      }
+
       notifyProductionChanged({ shiftLogId: shiftLogId ?? undefined, batchNumber: batchNo });
       return order;
+    } catch (err) {
+      if (isOptimisticEnd) {
+        // Roll back optimistic painting with a best-effort refresh.
+        set({ optimisticEndingBatches: [] });
+        await get().refreshMachineState();
+        const shiftLogId = useShiftStore.getState().shiftLogId;
+        if (shiftLogId) await get().loadShiftSummary(shiftLogId);
+        notifyProductionChanged({ shiftLogId: shiftLogId ?? undefined, batchNumber: batchNo });
+      }
+      throw err;
     } finally {
-      set({ busy: false });
+      if (!isOptimisticEnd) set({ busy: false });
     }
   },
 

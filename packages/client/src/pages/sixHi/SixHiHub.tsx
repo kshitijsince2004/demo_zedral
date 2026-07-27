@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
+import { useSixHiHubQueue } from '../../hooks/useSixHiHubQueue';
 import {
   hubTabsForMill,
   normalizeMillTab,
@@ -10,13 +11,14 @@ import { Search, RefreshCw } from 'lucide-react';
 import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
 import { SixHiPillTabs } from '../../components/sixHi/SixHiPillTabs';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
-import { SixHiBacklogBadge } from '../../components/sixHi/SixHiBacklogBadge';
 import { SixHiBatchDetailPanel } from '../../components/sixHi/SixHiBatchDetailPanel';
+import { SixHiQueueRow } from '../../components/sixHi/SixHiQueueRow';
+import { VirtualizedQueueRows } from '../../components/sixHi/VirtualizedQueueRows';
 import { MachineAllocationModal, type CrmMillCode, type MachineAllocationMode } from '../../components/sixHi/MachineAllocationModal';
 import { invalidateMachineRegistryCache } from '../../lib/machineRegistry';
-import { apiClient, ApiError } from '../../lib/apiClient';
+import { ApiError } from '../../lib/apiClient';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
-import { subscribeProductionChanged } from '../../lib/productionSync';
+import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateMachine,
   startCombinedOrders,
@@ -37,11 +39,38 @@ import {
 } from '../../lib/combinedProductionRun';
 import {
   displayMotherCoilId,
-  finishOf,
-  selectIdOf,
 } from '../../lib/sixHiOrderIdentity';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
-import { jsonFingerprint } from '../../lib/silentRefresh';
+
+function applyOptimisticEndOverlay(
+  data: {
+    queue: SixHiQueueCard[];
+    pendingAllocation: SixHiQueueCard[];
+    backlog: SixHiQueueCard[];
+    completed: SixHiQueueCard[];
+    rejected: SixHiQueueCard[];
+  },
+  endingBatches: string[],
+) {
+  if (endingBatches.length === 0) return data;
+  const batchSet = new Set(endingBatches);
+  const moved: SixHiQueueCard[] = [];
+  const strip = (cards: SixHiQueueCard[]) => cards.filter((c) => {
+    if (!batchSet.has(c.batchNumber)) return true;
+    moved.push({ ...c, status: 'COMPLETED' as SixHiOrderStatus });
+    return false;
+  });
+  return {
+    queue: strip(data.queue),
+    pendingAllocation: strip(data.pendingAllocation),
+    backlog: strip(data.backlog),
+    completed: dedupeQueueCards([
+      ...data.completed.filter((c) => !batchSet.has(c.batchNumber)),
+      ...moved,
+    ]),
+    rejected: data.rejected,
+  };
+}
 
 type StatusFilter = 'ALL' | SixHiOrderStatus;
 
@@ -75,7 +104,12 @@ export function SixHiHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { shiftCode, shiftLogId, detectedShift } = useShiftStore();
-  const { openWorkspace, machineActive, setProcessTab, queueRefreshToken, setMachineCode } = useSixHiStore();
+  const openWorkspace = useSixHiStore((s) => s.openWorkspace);
+  const machineActive = useSixHiStore((s) => s.machineActive);
+  const setProcessTab = useSixHiStore((s) => s.setProcessTab);
+  const queueRefreshToken = useSixHiStore((s) => s.queueRefreshToken);
+  const setMachineCode = useSixHiStore((s) => s.setMachineCode);
+  const optimisticEndingBatches = useSixHiStore((s) => s.optimisticEndingBatches);
   const { machineCode: pathMachine } = useWorkspaceBase();
   const logout = useAuthStore((s) => s.logout);
 
@@ -85,23 +119,15 @@ export function SixHiHub() {
   const apiSubProcess = activeTab === 'rolling' ? 'ROLLING' : 'SKIN_PASS';
   const subProcessLabel = activeTab === 'rolling' ? 'Rolling' : 'Skin Pass';
 
-  const [queue, setQueue] = useState<SixHiQueueCard[]>([]);
-  const [pendingQueue, setPendingQueue] = useState<SixHiQueueCard[]>([]);
-  const [backlogQueue, setBacklogQueue] = useState<SixHiQueueCard[]>([]);
-  const [completedQueue, setCompletedQueue] = useState<SixHiQueueCard[]>([]);
-  const [rejectedQueue, setRejectedQueue] = useState<SixHiQueueCard[]>([]);
   const [viewDate, setViewDate] = useState(currentPlantDate());
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [allocOpen, setAllocOpen] = useState(false);
   const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
   const [allocBatches, setAllocBatches] = useState<SixHiQueueCard[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [queueError, setQueueError] = useState<string | null>(null);
-  // Refs for silent background refresh
-  const isFirstLoad = useRef(true);
-  const prevDataRef = useRef<string>('');
+  const previousCompletedRef = useRef<SixHiQueueCard[]>([]);
+  const optimisticEndingSet = useMemo(() => new Set(optimisticEndingBatches), [optimisticEndingBatches]);
 
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
@@ -117,8 +143,78 @@ export function SixHiHub() {
   // Only send shift once session/bootstrap confirmed — default 'A' was poisoning completed/hold.
   const shift = detectedShift?.shiftCode || (shiftLogId ? shiftCode : undefined);
   const queueMachine = pathMachine;
+  const shiftReady = Boolean(shiftLogId || shift);
   const userRoles = useAuthStore((s) => s.user?.roles || []);
   const canTransfer = userRoles.includes('ADMIN') || userRoles.includes('MACHINE_HEAD');
+
+  const {
+    data: queueData,
+    error: queueFetchError,
+    isLoading,
+    isValidating,
+    mutate: mutateQueue,
+  } = useSixHiHubQueue({
+    apiSubProcess,
+    date,
+    queueMachine,
+    shift,
+    shiftLogId,
+    operationalDate,
+    refreshToken: queueRefreshToken,
+  });
+
+  const queueError = queueFetchError
+    ? (queueFetchError instanceof ApiError
+      ? queueFetchError.message
+      : queueFetchError instanceof Error
+        ? queueFetchError.message
+        : 'Failed to load queue')
+    : null;
+
+  useEffect(() => {
+    if (queueFetchError instanceof ApiError && queueFetchError.status === 401) {
+      logout();
+      navigate('/login', { replace: true });
+    }
+  }, [queueFetchError, logout, navigate]);
+
+  const {
+    queue,
+    pendingQueue,
+    backlogQueue,
+    completedQueue,
+    rejectedQueue,
+  } = useMemo(() => {
+    const base = queueData ?? {
+      queue: [],
+      pendingAllocation: [],
+      backlog: [],
+      completed: previousCompletedRef.current,
+      rejected: [],
+    };
+    let completed = base.completed;
+    if (!shiftReady && previousCompletedRef.current.length > 0) {
+      completed = previousCompletedRef.current;
+    } else if (shiftReady && queueData) {
+      previousCompletedRef.current = queueData.completed;
+    }
+    const overlay = applyOptimisticEndOverlay({ ...base, completed }, optimisticEndingBatches);
+    return {
+      queue: overlay.queue,
+      pendingQueue: overlay.pendingAllocation,
+      backlogQueue: overlay.backlog,
+      completedQueue: overlay.completed,
+      rejectedQueue: overlay.rejected,
+    };
+  }, [queueData, shiftReady, optimisticEndingBatches]);
+
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shiftLogId) return;
+    previousCompletedRef.current = [];
+    void mutateQueue();
+  }, [shiftLogId, mutateQueue]);
 
   // Align date filter to operational prod date when the live session's day differs
   // from the calendar (overnight Shift C / SESSION pin past midnight).
@@ -145,98 +241,6 @@ export function SixHiHub() {
   useEffect(() => {
     void useSixHiStore.getState().refreshMachineState();
   }, [pathMachine]);
-
-  const loadQueue = useCallback(async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-      setQueueError(null);
-    }
-    try {
-      const params = new URLSearchParams({
-        subProcess: apiSubProcess,
-        date,
-        machine: queueMachine,
-      });
-      if (shift) params.set('shift', shift);
-      // Completed + Order Hold: pin to live session only when viewing that session's prod date.
-      if (shiftLogId && date === operationalDate) params.set('shiftLogId', shiftLogId);
-      const res = await apiClient.get(`/6hi/queue?${params.toString()}`);
-      const items: SixHiQueueCard[] = Array.isArray(res) ? res : (res.queue ?? []);
-      const pending: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.pendingAllocation ?? []);
-      const backlog: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.backlog ?? []);
-      // Until shift context is ready, keep terminal lists empty (avoid other-shift bleed).
-      const shiftReady = Boolean(shiftLogId || shift);
-      const completed: SixHiQueueCard[] = shiftReady
-        ? (Array.isArray(res) ? [] : (res.completed ?? []))
-        : [];
-      // Hold is machine-wide (SPEC §2) — do not wait for shift context.
-      const rejected: SixHiQueueCard[] = Array.isArray(res) ? [] : (res.rejected ?? []);
-
-      const fingerprint = jsonFingerprint({ items, pending, backlog, completed, rejected });
-      if (!silent || fingerprint !== prevDataRef.current) {
-        prevDataRef.current = fingerprint;
-        setQueue(items);
-        setPendingQueue(pending);
-        setBacklogQueue(backlog);
-        setCompletedQueue(completed);
-        setRejectedQueue(rejected);
-      }
-
-      if (!silent) isFirstLoad.current = false;
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        logout();
-        navigate('/login', { replace: true });
-        return;
-      }
-      // Only surface errors on the initial load to avoid toast-spam during background syncs
-      if (!silent) {
-        if (err instanceof ApiError) {
-          setQueueError(err.message || `Queue unavailable (${err.status})`);
-        } else {
-          setQueueError(err instanceof Error ? err.message : 'Failed to load queue');
-        }
-        setQueue([]);
-        setPendingQueue([]);
-        setBacklogQueue([]);
-        setCompletedQueue([]);
-        setRejectedQueue([]);
-      }
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [apiSubProcess, date, shift, queueMachine, shiftLogId, operationalDate, logout, navigate]);
-
-  useEffect(() => {
-    isFirstLoad.current = true;
-    prevDataRef.current = '';
-    void loadQueue(false);
-    const id = setInterval(() => void loadQueue(true), 15_000);
-    return () => clearInterval(id);
-  }, [loadQueue]);
-
-  useEffect(() => subscribeProductionChanged(() => {
-    void loadQueue(true);
-  }), [loadQueue]);
-
-  const queueRefreshMountedRef = useRef(false);
-
-  useEffect(() => {
-    if (!queueRefreshMountedRef.current) {
-      queueRefreshMountedRef.current = true;
-      return;
-    }
-    void loadQueue(true);
-  }, [queueRefreshToken, loadQueue]);
-
-  // Keep In Progress / status lists in sync when machine active order changes.
-  const machineActiveKey = machineActive
-    ? `${machineActive.batchNumber}:${machineActive.status}`
-    : '';
-  useEffect(() => {
-    if (!machineActiveKey) return;
-    void loadQueue(true);
-  }, [machineActiveKey, loadQueue]);
 
   const allOrders = useMemo(
     () => dedupeQueueCards([...backlogQueue, ...pendingQueue, ...queue, ...completedQueue, ...rejectedQueue]),
@@ -337,6 +341,9 @@ export function SixHiHub() {
     : 0)
     + (showCompletedSection ? filteredCompleted.length : 0)
     + (showRejectedSection ? filteredRejected.length : 0);
+  const loading = isLoading && !queueData;
+  const showColdStartLoading = loading && visibleOrderCount === 0;
+  const showEmptyState = !showColdStartLoading && !loading && visibleOrderCount === 0;
 
   const isStartable = (card: SixHiQueueCard) =>
     card.status === 'PENDING' || card.status === 'PREPARING';
@@ -469,9 +476,9 @@ export function SixHiHub() {
     useSixHiStore.getState().setCombinedRun(started, { selectedBatches: batchNumbers });
     setAutoCombinedBatchNumbers(new Set());
     combinedSelectionManual.current = false;
-    useSixHiStore.getState().requestQueueRefresh();
+    notifyProductionChanged();
     invalidateAfterWrite();
-    await loadQueue();
+    await mutateQueue();
     openProductionForCard(cards.find((c) => c.batchNumber === primaryBatch) ?? cards[0]);
   };
 
@@ -481,7 +488,7 @@ export function SixHiHub() {
     if (cards.length > 1 && cardsShareProductionAction(cards)) {
       if (cards.every(isStartable)) {
         void startCombinedProduction(cards).catch((err) => {
-          setQueueError(err instanceof Error ? err.message : 'Failed to start combined production');
+          setActionError(err instanceof Error ? err.message : 'Failed to start combined production');
         });
         return;
       }
@@ -497,7 +504,7 @@ export function SixHiHub() {
     if (activeTab !== tab) {
       setSearchParams({ tab, status: statusFilter });
     }
-    openWorkspace(card.batchNumber);
+    openWorkspace(card.batchNumber, card);
   };
 
   const moveToProduction = (card: SixHiQueueCard) => {
@@ -542,8 +549,8 @@ export function SixHiHub() {
       const targetBatch = allocBatches[0]?.batchNumber;
       setAllocOpen(false);
       setAllocBatches([]);
-      useSixHiStore.getState().requestQueueRefresh();
-      await loadQueue();
+      notifyProductionChanged();
+      await mutateQueue();
       if (allocBatches.length > 1 && machineCode === queueMachine) {
         await startCombinedProduction(allocBatches.map((batch) => ({
           ...batch,
@@ -565,98 +572,42 @@ export function SixHiHub() {
     setAllocOpen(false);
     setIsTransferMode(false);
     setSelectedForTransfer(new Set());
-    useSixHiStore.getState().requestQueueRefresh();
+    notifyProductionChanged();
     setAllocBatches([]);
-    await loadQueue();
+    await mutateQueue();
   };
 
-  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean; backlog?: boolean }) => {
-    const isSelected = isTransferMode
-      ? selectedForTransfer.has(card.batchNumber)
-      : card.batchNumber === selectedBatch;
-    const isInCombinedSelection = autoCombinedBatchNumbers.has(card.batchNumber);
-    const showCombineCheckbox = !isTransferMode && compatiblePool.size > 1 && compatiblePool.has(card.batchNumber);
-    const isActive = machineActive?.batchNumber === card.batchNumber;
-    const routeCode = card.subProcess === 'ROLLING' ? '4' : 'X';
+  const handleTransferToggle = useCallback((batchNumber: string) => {
+    setSelectedForTransfer((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchNumber)) next.delete(batchNumber);
+      else next.add(batchNumber);
+      return next;
+    });
+  }, []);
 
-    return (
-      <button
-        key={card.batchNumber}
-        type="button"
-        onClick={() => {
-          if (isTransferMode) {
-            const next = new Set(selectedForTransfer);
-            if (next.has(card.batchNumber)) next.delete(card.batchNumber);
-            else next.add(card.batchNumber);
-            setSelectedForTransfer(next);
-          } else {
-            selectOrder(card);
-          }
-        }}
-        className={[
-          'w-full text-left border-b border-border px-5 py-4 transition-colors min-h-[88px]',
-          'hover:bg-secondary active:bg-secondary',
-          isSelected ? 'bg-accent/10 border-l-4 border-l-primary' : 'border-l-4 border-l-transparent',
-          isSelected && isTransferMode ? 'bg-primary/5 border-l-4 border-l-primary' : '',
-          isInCombinedSelection && selectedProductionOrders.length > 1 ? 'ring-1 ring-inset ring-success/25' : '',
-          isActive ? 'ring-1 ring-inset ring-warning/30' : '',
-          opts?.pending ? 'bg-secondary/40' : '',
-          card.isBacklog ? 'bg-destructive/5' : '',
-        ].join(' ')}
-      >
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="min-w-0 flex items-start gap-2">
-            {showCombineCheckbox && (
-              <input
-                type="checkbox"
-                className="mt-1.5 h-4 w-4 shrink-0 accent-primary"
-                checked={isInCombinedSelection}
-                aria-label={`Include ${card.batchNumber} in combined start`}
-                onClick={(e) => toggleCombinedBatch(card.batchNumber, e)}
-                onChange={() => undefined}
-              />
-            )}
-            <div className="min-w-0">
-            <span className="font-mono text-lg font-bold text-foreground block truncate">{displayMotherCoilId(card)}</span>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Slit ID {selectIdOf(card)} · Batch {card.batchNumber}
-            </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {card.isBacklog && <SixHiBacklogBadge planDate={card.planDate} />}
-            {isInCombinedSelection && selectedProductionOrders.length > 1 && (
-              <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-success/15 text-success">
-                Combined
-              </span>
-            )}
-            {opts?.pending && (
-              <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-warning/15 text-warning">
-                Awaiting mill
-              </span>
-            )}
-            <SixHiStatusPill status={card.status} prepReady={card.prepReady} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span className="truncate">{card.customer}</span>
-          <span className="font-mono truncate">Finish {finishOf(card)}</span>
-          <span className="font-mono">
-            {card.inputThkMm}→{card.targetThkMm} mm
-            {card.finishThkMm != null && card.finishThkMm !== card.targetThkMm ? ` (fin ${card.finishThkMm})` : ''}
-            {card.rollingPassNo && card.rollingPassNo > 1 ? ` · P${card.rollingPassNo}` : ''}
-          </span>
-          <span className="font-mono">{card.weightMt} MT</span>
-          <span className="font-mono text-[10px] uppercase tracking-wide">Route {routeCode}</span>
-          <span className="font-semibold text-foreground col-span-1 md:col-span-3">
-            {card.machineAllocated === false
-              ? `Unassigned${card.suggestedMachineCode ? ` · hint ${card.suggestedMachineCode}` : ''}`
-              : `Mill ${card.machineCode}`}
-          </span>
-        </div>
-      </button>
-    );
-  };
+  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean }) => (
+    <SixHiQueueRow
+      key={card.batchNumber}
+      card={card}
+      pending={opts?.pending}
+      isEnding={optimisticEndingSet.has(card.batchNumber)}
+      isSelected={isTransferMode ? selectedForTransfer.has(card.batchNumber) : card.batchNumber === selectedBatch}
+      isTransferMode={isTransferMode}
+      isInCombinedSelection={autoCombinedBatchNumbers.has(card.batchNumber)}
+      showCombineCheckbox={!isTransferMode && compatiblePool.size > 1 && compatiblePool.has(card.batchNumber)}
+      isActive={machineActive?.batchNumber === card.batchNumber}
+      combinedSelectionCount={selectedProductionOrders.length}
+      onSelect={selectOrder}
+      onTransferToggle={handleTransferToggle}
+      onCombineToggle={toggleCombinedBatch}
+    />
+  );
+
+  const sortedAssigned = useMemo(
+    () => sortQueueSection(filteredAssigned),
+    [sortQueueSection, filteredAssigned],
+  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-3 overflow-hidden">
@@ -708,7 +659,7 @@ export function SixHiHub() {
               type="button"
               onClick={() => {
                 setSyncing(true);
-                void loadQueue(true).finally(() => setSyncing(false));
+                void mutateQueue().finally(() => setSyncing(false));
               }}
               title="Refresh Queue"
               className="min-h-9 px-3 rounded-md border border-border bg-white text-muted-foreground hover:bg-secondary flex items-center justify-center transition-colors"
@@ -735,9 +686,9 @@ export function SixHiHub() {
         </div>
       )}
 
-      {queueError && (
+      {(queueError || actionError) && (
         <div className="shrink-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {queueError}
+          {queueError ?? actionError}
         </div>
       )}
 
@@ -764,6 +715,9 @@ export function SixHiHub() {
             <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               {subProcessLabel} Queue · {visibleOrderCount} orders
             </h2>
+            {isValidating && !showColdStartLoading && visibleOrderCount > 0 && (
+              <span className="text-xs font-semibold text-muted-foreground">Refreshing…</span>
+            )}
             {machineActive && (
               <span className="text-xs font-semibold text-warning">
                 Active: {machineActive.batchNumber}
@@ -771,25 +725,25 @@ export function SixHiHub() {
             )}
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto" data-queue-scroll>
             {/* Show spinner only on first/empty load — never during background refreshes */}
-            {loading && visibleOrderCount === 0 && <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>}
-            {!loading && visibleOrderCount === 0 && (
+            {showColdStartLoading && <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>}
+            {showEmptyState && (
               <div className="text-center py-12 px-6">
                 <p className="text-muted-foreground text-base mb-2">No orders match this filter</p>
               </div>
             )}
-            {!loading && showOperationalSections && filteredBacklog.length > 0 && (
+            {showOperationalSections && filteredBacklog.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">
                     Backlog · {filteredBacklog.length}
                   </p>
                 </div>
-                {sortQueueSection(filteredBacklog).map((card) => renderQueueRow(card, { backlog: true }))}
+                {sortQueueSection(filteredBacklog).map((card) => renderQueueRow(card))}
               </>
             )}
-            {!loading && showOperationalSections && filteredPending.length > 0 && (
+            {showOperationalSections && filteredPending.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-secondary/60 border-b border-border">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -799,15 +753,17 @@ export function SixHiHub() {
                 {sortQueueSection(filteredPending).map((card) => renderQueueRow(card, { pending: true }))}
               </>
             )}
-            {!loading && showOperationalSections && filteredAssigned.length > 0 && (
+            {showOperationalSections && filteredAssigned.length > 0 && (
               <div className="px-5 py-2 bg-muted/30 border-b border-border">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   {queueMachine} queue · {filteredAssigned.length}
                 </p>
               </div>
             )}
-            {!loading && showOperationalSections && sortQueueSection(filteredAssigned).map((card) => renderQueueRow(card))}
-            {!loading && showCompletedSection && filteredCompleted.length > 0 && (
+            {showOperationalSections && sortedAssigned.length > 0 && (
+              <VirtualizedQueueRows cards={sortedAssigned} renderRow={(card) => renderQueueRow(card)} />
+            )}
+            {showCompletedSection && filteredCompleted.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-secondary/60 border-b border-border">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -817,7 +773,7 @@ export function SixHiHub() {
                 {sortQueueSection(filteredCompleted).map((card) => renderQueueRow(card))}
               </>
             )}
-            {!loading && showRejectedSection && filteredRejected.length > 0 && (
+            {showRejectedSection && filteredRejected.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-destructive/10 border-b border-destructive/20">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-destructive">

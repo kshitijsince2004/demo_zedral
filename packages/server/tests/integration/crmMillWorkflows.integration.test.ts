@@ -183,8 +183,13 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     });
     expect(res.status).toBe(200);
 
-    // 7. End order
+    // 7. End order (slim payload — full detail via GET)
     res = await request(app).post(`/6hi/orders/${batchNo}/end?machine=4HI`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.batchNumber).toBe(batchNo);
+    expect(res.body.endedBatchNumbers).toEqual([batchNo]);
+
+    res = await request(app).get(`/6hi/orders/${batchNo}?machine=4HI`);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('COMPLETED');
   });
@@ -238,8 +243,13 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
     });
     expect(res.status).toBe(200);
 
-    // 6. End order
+    // 6. End order (slim payload — full detail via GET)
     res = await request(app).post(`/6hi/orders/${batchNo}/end?machine=2HI`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.batchNumber).toBe(batchNo);
+    expect(res.body.endedBatchNumbers).toEqual([batchNo]);
+
+    res = await request(app).get(`/6hi/orders/${batchNo}?machine=2HI`);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('COMPLETED');
   });

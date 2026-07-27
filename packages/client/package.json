@@ -31,6 +31,7 @@
     "@capacitor/splash-screen": "^8.0.1",
     "@hookform/resolvers": "^5.4.0",
     "@m1/shared-validation": "*",
+    "@tanstack/react-virtual": "^3.14.8",
     "idb": "^8.0.3",
     "idb-keyval": "^6.2.1",
     "lucide-react": "^1.17.0",
