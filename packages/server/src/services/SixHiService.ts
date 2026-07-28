@@ -2996,7 +2996,9 @@ export class SixHiService {
     await trx.updateTable('txn.crm_order')
       .set({
         status: target,
+        prod_start_at: null,
         prod_end_at: null,
+        prod_duration_min: null,
         updated_at: new Date(),
       })
       .where('order_id', '=', orderId as any)

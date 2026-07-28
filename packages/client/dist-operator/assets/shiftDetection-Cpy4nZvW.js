@@ -1,0 +1,1 @@
+import{gt as e,pt as t}from"./authStore-DziPMBj8.js";async function n(n){let r=n?`?machine=${encodeURIComponent(n)}`:``,i=await t.get(`/shifts/current${r}`);return e.getState().applyDetectedShift(i),i}export{n as t};

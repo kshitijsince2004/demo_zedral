@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiClient } from '../lib/apiClient';
+import { apiClient, getServerTime } from '../lib/apiClient';
 import { useShiftStore } from '../store/shiftStore';
 import type { DetectedShift } from '../lib/shiftDetection';
 import { addPlantDays, formatPlantDate, IST_OFFSET } from '@m1/shared-validation';
@@ -126,7 +126,7 @@ export function useShiftEndWatcher(
       return;
     }
     const check = () => {
-      const isEnded = Date.now() >= endInstant;
+      const isEnded = getServerTime() >= endInstant;
       setEnded((prev) => (prev !== isEnded ? isEnded : prev));
       // Only force a re-render while an alert is pending so a lapsed snooze re-shows.
       if (alertActiveRef.current) setNowTick((t) => (t + 1) % 1_000_000);
@@ -174,11 +174,11 @@ export function useShiftEndWatcher(
   }, [enabled]);
 
   const remindLater = useCallback(() => {
-    setSnoozeUntil(Date.now() + reminderMs);
+    setSnoozeUntil(getServerTime() + reminderMs);
   }, [reminderMs]);
 
   const status: ShiftEndStatus = changed ? 'changed' : ended ? 'ended' : 'none';
-  const visible = enabled && status !== 'none' && Date.now() >= snoozeUntil;
+  const visible = enabled && status !== 'none' && getServerTime() >= snoozeUntil;
 
   return {
     status,

@@ -14,6 +14,21 @@
 import { useAuthStore } from './authStore';
 import { getActiveCrmMill } from './crmMillContext';
 
+let serverOffset = 0;
+
+function updateServerOffset(serverDateStr: string | null) {
+  if (!serverDateStr) return;
+  const serverTime = new Date(serverDateStr).getTime();
+  if (isNaN(serverTime)) return;
+  // Offset = Server - Local. If Server is ahead, offset is positive.
+  serverOffset = serverTime - Date.now();
+}
+
+/** Returns the current time adjusted for clock skew between client and server. */
+export function getServerTime(): number {
+  return Date.now() + serverOffset;
+}
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 400;
@@ -202,6 +217,7 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
   };
 
   let res: Response = await doFetch();
+  updateServerOffset(res.headers.get('Date'));
 
   if (res.status === 401 && !isPublicAuthPath(path)) {
     console.warn(`[apiClient] 401 Unauthorized for ${path}. Auth Gen: ${generationAtStart}, Headers:`,

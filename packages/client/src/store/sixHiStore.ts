@@ -302,13 +302,26 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
       }
 
       if (active?.batchNumber) {
-        const { workspaceOpen: wsOpen, workspaceBatch, combinedSelectedBatches } = get();
+        const { workspaceOpen: wsOpen, workspaceBatch, combinedSelectedBatches, panelOrder: prevOrder } = get();
         const pickedPrimary = combinedSelectedBatches.length > 0
           ? (combinedSelectedBatches.includes(nextCombinedRun?.primaryBatchNumber ?? '')
             ? nextCombinedRun!.primaryBatchNumber
             : combinedSelectedBatches[0])
           : null;
         const formBatch = pickedPrimary ?? nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
+
+        // RACE CONDITION FIX: If we have an active panelOrder with a valid start time,
+        // and we are refreshing for the SAME batch, do not trigger a fresh load
+        // which might return a stale version (without prodStartAt) during transition.
+        const matchesCurrent = prevOrder?.batchNumber === formBatch;
+        const alreadyRunning = prevOrder?.status === 'IN_PROGRESS' || prevOrder?.status === 'STOPPAGE';
+        const hasStartTime = !!prevOrder?.prodStartAt;
+
+        if (matchesCurrent && alreadyRunning && hasStartTime) {
+          // Keep current authoritative panelOrder from the action response.
+          return;
+        }
+
         if (!wsOpen || workspaceBatch === active.batchNumber || workspaceBatch === formBatch) {
           await get().loadPanelOrder(formBatch);
         }

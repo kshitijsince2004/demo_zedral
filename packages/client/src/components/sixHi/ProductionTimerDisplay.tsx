@@ -43,7 +43,9 @@ export const ProductionRuntimeFooterText = memo(function ProductionRuntimeFooter
   preparing: boolean;
   className?: string;
 }) {
-  const formatted = useNetProductionTimer(order);
+  const isRunning = order.status === 'IN_PROGRESS' || order.status === 'STOPPAGE';
+  const formatted = useNetProductionTimer(isRunning ? order : null);
+
   const label = order.prodDurationMin
     ? `${order.prodDurationMin} minutes`
     : formatted

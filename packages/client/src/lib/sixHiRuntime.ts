@@ -1,14 +1,16 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
+import { getServerTime } from './apiClient';
 
 /** Sum recorded + live stoppage milliseconds for an order. */
 export function totalStoppageMs(order: SixHiOrderDetail, includeActive = true): number {
   let ms = 0;
   const activeId = order.activeStoppage?.id;
+  const now = getServerTime();
   for (const s of order.stoppages ?? []) {
     if (s.endAt) {
       ms += Math.max(0, new Date(s.endAt).getTime() - new Date(s.startAt).getTime());
     } else if (includeActive && activeId === s.id) {
-      ms += Math.max(0, Date.now() - new Date(s.startAt).getTime());
+      ms += Math.max(0, now - new Date(s.startAt).getTime());
     } else if (s.durationMin != null && s.durationMin > 0) {
       ms += s.durationMin * 60_000;
     }
@@ -19,7 +21,7 @@ export function totalStoppageMs(order: SixHiOrderDetail, includeActive = true): 
 /** Wall-clock span from production start to end (or now). */
 export function wallProductionMs(order: SixHiOrderDetail): number | null {
   if (!order.prodStartAt) return null;
-  const endMs = order.prodEndAt ? new Date(order.prodEndAt).getTime() : Date.now();
+  const endMs = order.prodEndAt ? new Date(order.prodEndAt).getTime() : getServerTime();
   return Math.max(0, endMs - new Date(order.prodStartAt).getTime());
 }
 
