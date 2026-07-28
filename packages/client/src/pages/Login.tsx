@@ -5,6 +5,7 @@ import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
 import { isNative } from '../operator/native/init';
+import { App } from '@capacitor/app';
 
 /** Pilot dev credentials — match `npm run seed:users` / `seed:profiles`. */
 const DEV_OPERATOR_BADGE = '3000';
@@ -27,6 +28,15 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
   const [error, setError] = useState('');
   const sessionExpired = new URLSearchParams(window.location.search).get('session') === 'expired';
   const [clock, setClock] = useState('');
+  const [appVersion, setAppVersion] = useState(import.meta.env.VITE_APP_VERSION || '');
+
+  useEffect(() => {
+    if (isNative()) {
+      App.getInfo().then((info) => {
+        setAppVersion(`${info.version} (${info.build})`);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const tick = () => {
@@ -217,7 +227,6 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
 
           {import.meta.env.DEV && !operatorOnly && (
             <div className="mt-3 space-y-2 text-center text-[10px] text-muted-foreground font-mono">
-              <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
               <p>Staff ({DEV_STAFF_PASSWORD}) — click to fill:</p>
               <div className="flex flex-wrap justify-center gap-1.5">
                 {(Object.keys(DEV_STAFF) as (keyof typeof DEV_STAFF)[]).map((key) => (
@@ -238,15 +247,15 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
             </div>
           )}
 
-          {import.meta.env.DEV && operatorOnly && (
-            <div className="mt-3 text-center text-[10px] text-muted-foreground font-mono">
-              <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
-            </div>
-          )}
+          {/* Operator credentials hint removed per request */}
 
           <div className="mt-4 flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground font-medium tracking-wider uppercase text-center">
             <span>Hero Steel · MES Console</span>
-            <span className="font-mono text-primary/70 bg-secondary px-1.5 py-0.5 rounded border border-border/50">v{import.meta.env.VITE_APP_VERSION}</span>
+            {appVersion && (
+              <span className="font-mono text-primary/70 bg-secondary px-1.5 py-0.5 rounded border border-border/50">
+                v{appVersion}
+              </span>
+            )}
           </div>
         </div>
       </main>

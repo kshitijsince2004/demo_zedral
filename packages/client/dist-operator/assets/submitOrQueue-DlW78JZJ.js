@@ -1,0 +1,1 @@
+import{C as e,m as t,o as n,t as r}from"./authStore-DcpENIx_.js";import{r as i}from"./engine-BFqtyVf3.js";async function a(a){let o=crypto.randomUUID(),s=t(a.url);if(s){let{role:t,machineAccess:n}=r.getState();if(!e(t,n,s))return{id:o,queued:!1}}return await n({id:o,...a}),i(`submit`),{id:o,queued:typeof navigator<`u`&&!navigator.onLine}}export{a as t};

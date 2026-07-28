@@ -120,7 +120,9 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       'Accept', 
       'X-App-Version', 
       'x-app-version', 
-      'X-Requested-With', 
+      'X-Idempotency-Key',
+      'x-idempotency-key',
+      'X-Requested-With',
       'Origin', 
       ...supertokens.getAllCORSHeaders()
     ],

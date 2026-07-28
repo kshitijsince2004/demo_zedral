@@ -1,0 +1,1 @@
+import{ht as e,pt as t}from"./authStore-DcpENIx_.js";async function n(n){let r=n?`?machine=${encodeURIComponent(n)}`:``,i=await t.get(`/shifts/current${r}`);return e.getState().applyDetectedShift(i),i}export{n as t};

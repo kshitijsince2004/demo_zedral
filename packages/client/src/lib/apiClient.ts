@@ -180,8 +180,8 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
   const doFetch = async (): Promise<Response> => {
     const { signal: timeoutSignal, cancel } = withTimeout(timeoutMs);
     const signal = mergeAbortSignals(callerSignal, timeoutSignal);
+    const url = `${API_BASE}${finalPath}`;
     try {
-      const url = `${API_BASE}${finalPath}`;
       return await fetch(url, {
         ...fetchOpts,
         headers,
