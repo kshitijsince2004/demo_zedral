@@ -219,6 +219,8 @@ const ALLOCATION_SAFE_FIELDS = [
   'import_remark',
   'min_thk_tol_mm',
   'max_thk_tol_mm',
+  'sp_ra_max_um',
+  'sp_ra_min_um',
   'import_batch_id',
   'raw_row_json',
 ] as const;
@@ -1045,6 +1047,8 @@ export class PPCImportService {
       import_remark: row.importRemark ?? null,
       min_thk_tol_mm: row.minThkTolMm ?? null,
       max_thk_tol_mm: row.maxThkTolMm ?? null,
+      sp_ra_max_um: row.spRaMaxUm ?? null,
+      sp_ra_min_um: row.spRaMinUm ?? null,
       process_route_raw: row.processRouteRaw,
       process_route_canonical: row.processRouteCanonical,
       import_batch_id: importBatchId,

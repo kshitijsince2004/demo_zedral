@@ -43,6 +43,8 @@ export interface ParsedRollingPlanRow {
   importRemark?: string;
   minThkTolMm?: number;
   maxThkTolMm?: number;
+  spRaMaxUm?: number;
+  spRaMinUm?: number;
   rollingPassPlans: RollingPassPlanInput[];
   errors: string[];
 }
@@ -364,6 +366,8 @@ export function parseRollingPlanXlsx(
       importRemark: raw.importRemark ? String(raw.importRemark).trim() : undefined,
       minThkTolMm: num(raw.minThkTolMm),
       maxThkTolMm: num(raw.maxThkTolMm),
+      spRaMaxUm: num(raw.spRaMax),
+      spRaMinUm: num(raw.spRaMin),
       rollingPassPlans,
       errors,
     });

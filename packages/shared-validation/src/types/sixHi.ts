@@ -281,6 +281,10 @@ export interface SixHiOrderDetail {
 
   maxThkTolMm?: number;
 
+  raMaxUm?: number;
+
+  raMinUm?: number;
+
   machineCode?: string;
 
   /** Per-machine OCR auto-accept threshold (0..100); default 60 when unset. */

@@ -578,6 +578,8 @@ export interface PlanningPpcBatch {
   machine_code: string;
   max_thk_tol_mm: Numeric | null;
   min_thk_tol_mm: Numeric | null;
+  sp_ra_max_um: Numeric | null;
+  sp_ra_min_um: Numeric | null;
   plan_date: Timestamp;
   ppc_remarks: string | null;
   ppc_reroll_flag: Generated<boolean | null>;

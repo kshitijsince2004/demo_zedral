@@ -83,6 +83,22 @@ describe('parseRollingPlanXlsx', () => {
     expect(valid[0].processRouteCanonical).toBeTruthy();
   });
 
+  it('parses SP Ramax and SP Ramin into spRaMaxUm and spRaMinUm', () => {
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Batch Number', 'Mother Coil', 'Customer Name', 'Grade', 'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width', 'Process Route', 'Plan Date', 'Count', 'SP Ramax', 'SP Ramin'],
+      ['B-RA', 'COIL-RA-1', 'Hero Steels', 'CRCA', 0.5, 2.0, 12.5, 1000, 'SP4RFXCZ', '2026-06-08', 1, 1.2, 0.8],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'Rolling');
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'ROLLING', shiftCode: 'B' });
+    expect(result.headerError).toBeUndefined();
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].spRaMaxUm).toBe(1.2);
+    expect(result.rows[0].spRaMinUm).toBe(0.8);
+  });
+
   it('flags rows missing required fields', () => {
     const XLSX = require('xlsx') as typeof import('xlsx');
     const wb = XLSX.utils.book_new();

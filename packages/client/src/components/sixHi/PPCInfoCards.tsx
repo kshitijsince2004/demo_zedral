@@ -17,6 +17,8 @@ type PPCSource = Pick<
   | 'ppcDestination'
   | 'ppcRollFinish'
   | 'ppcRerollFlag'
+  | 'raMaxUm'
+  | 'raMinUm'
 > | SixHiQueueCard;
 
 function label(v: string) {
@@ -93,7 +95,23 @@ export function PPCInfoCards({
         )}
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
           {label('Finish')}
-          <p className="text-sm font-semibold text-foreground truncate">{finishOf(data)}</p>
+          <div className={`flex items-start min-w-0 ${compact ? 'gap-2' : 'gap-3'}`}>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground truncate">{finishOf(data)}</p>
+            </div>
+            {'raMinUm' in data && data.raMinUm != null && (
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-muted-foreground block">SP RA min</span>
+                <p className="text-[10px] font-mono text-muted-foreground truncate">{data.raMinUm} mm</p>
+              </div>
+            )}
+            {'raMaxUm' in data && data.raMaxUm != null && (
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-muted-foreground block">SP RA max</span>
+                <p className="text-[10px] font-mono text-muted-foreground truncate">{data.raMaxUm} mm</p>
+              </div>
+            )}
+          </div>
         </div>
         {batch && (
           <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>

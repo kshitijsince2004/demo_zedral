@@ -1150,6 +1150,8 @@ export class SixHiService {
       finishThkMm: finishThk,
       minThkTolMm: ppcBatch?.min_thk_tol_mm != null ? Number(ppcBatch.min_thk_tol_mm) : undefined,
       maxThkTolMm: ppcBatch?.max_thk_tol_mm != null ? Number(ppcBatch.max_thk_tol_mm) : undefined,
+      raMaxUm: ppcBatch?.sp_ra_max_um != null ? Number(ppcBatch.sp_ra_max_um) : undefined,
+      raMinUm: ppcBatch?.sp_ra_min_um != null ? Number(ppcBatch.sp_ra_min_um) : undefined,
       machineCode: ppcBatch?.machine_code,
       ocrMinConfidence,
       machineAllocated: ppcBatch?.machine_allocated ?? true,
