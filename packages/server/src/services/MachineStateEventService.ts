@@ -248,15 +248,31 @@ export class MachineStateEventService {
 
   /**
    * Get the currently active (open) event for a machine.
+   * When multiple open events exist (race / legacy data), prefer MAINTENANCE > STOPPAGE > RUNNING > IDLE.
    */
   static async getCurrentEvent(machineCode: string) {
-    return db
+    const openEvents = await db
       .selectFrom('txn.machine_state_event')
       .selectAll()
       .where('machine_code', '=', machineCode)
       .where('ended_at', 'is', null)
-      .orderBy('occurred_at', 'desc')
-      .executeTakeFirst();
+      .execute();
+
+    if (openEvents.length === 0) return undefined;
+    if (openEvents.length === 1) return openEvents[0];
+
+    const priority: Record<string, number> = {
+      MAINTENANCE_STARTED: 50,
+      STOPPAGE_STARTED: 40,
+      RUNNING_STARTED: 30,
+      IDLE_STARTED: 20,
+    };
+    return [...openEvents].sort((a, b) => {
+      const priA = priority[a.event_type] ?? 0;
+      const priB = priority[b.event_type] ?? 0;
+      if (priB !== priA) return priB - priA;
+      return new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime();
+    })[0];
   }
 
   /** Update fields on an open machine state event (e.g. manual stoppage details). */

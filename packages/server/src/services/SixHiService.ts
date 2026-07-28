@@ -3189,6 +3189,9 @@ export class SixHiService {
       .where('machine_code', '=', machineCode)
       .where('order_id', 'is', null)
       .where('end_at', 'is', null)
+      .$if(Boolean(currentEvent.shift_code), (qb) =>
+        qb.where('shift_code', '=', currentEvent.shift_code!),
+      )
       .execute();
 
     return this.getManualStoppageStatus(machineCode);
@@ -3202,13 +3205,16 @@ export class SixHiService {
 
     const shiftCode = currentEvent.shift_code ?? undefined;
     const endAt = new Date();
-    const openManual = await db.selectFrom('txn.stoppage')
+    let openManualQ = db.selectFrom('txn.stoppage')
       .select(['stoppage_id', 'start_at'])
       .where('machine_code', '=', machineCode)
       .where('order_id', 'is', null)
       .where('end_at', 'is', null)
-      .orderBy('start_at', 'desc')
-      .executeTakeFirst();
+      .orderBy('start_at', 'desc');
+    if (shiftCode) {
+      openManualQ = openManualQ.where('shift_code', '=', shiftCode);
+    }
+    const openManual = await openManualQ.executeTakeFirst();
     if (openManual) {
       const durationMin = resolveStoppageMinutes(openManual.start_at as Date, endAt, null);
       await db.updateTable('txn.stoppage')

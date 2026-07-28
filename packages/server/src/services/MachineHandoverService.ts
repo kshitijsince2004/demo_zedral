@@ -12,6 +12,7 @@ import {
 } from '../validation/manufacturingValidation';
 import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
+import { toPgJsonb } from '../utils/pgJsonb';
 import { getOrderSourceStrategy } from './handover/OrderSource';
 import { reparentOpenWork } from './handover/carryForward';
 import type { SixHiQueueCard } from '@m1/shared-validation';
@@ -231,6 +232,8 @@ export class MachineHandoverService {
         .where('os.machine_code', '=', machineCode)
         .where('os.order_id', 'is', null)
         .where('os.end_at', 'is', null)
+        .where('os.shift_code', '=', shift.shiftCode)
+        .where('os.prod_date', '=', postgresDateOnly(shift.prodDate) as any)
         .orderBy('os.start_at', 'desc')
         .execute();
       if (openManual.length > 0) {
@@ -452,7 +455,7 @@ export class MachineHandoverService {
           downtime_minutes: input.downtimeMinutes ?? null,
           maintenance_status: input.maintenanceStatus ?? null,
           production_snapshot: enrichedProductionSnapshot as any,
-          open_stoppages: preview.openStoppages as any,
+          open_stoppages: toPgJsonb(preview.openStoppages) as any,
           queue_snapshot: preview.queueSnapshot as any,
           batch_number: active?.batchNumber ?? null,
           order_id: orderId,
@@ -482,7 +485,7 @@ export class MachineHandoverService {
         remarks: input.remarks?.trim() ?? '',
         handover_priority: normalizeHandoverPriority(input.handoverPriority),
         production_snapshot: enrichedProductionSnapshot as any,
-        open_stoppages: preview.openStoppages as any,
+        open_stoppages: toPgJsonb(preview.openStoppages) as any,
         queue_snapshot: preview.queueSnapshot as any,
         status: 'DRAFT',
         created_by_boundary: false,
@@ -587,7 +590,7 @@ export class MachineHandoverService {
           remarks: input.remarks.trim(),
           handover_priority: normalizeHandoverPriority(input.handoverPriority),
           production_snapshot: enrichedProductionSnapshot as any,
-          open_stoppages: preview.openStoppages as any,
+          open_stoppages: toPgJsonb(preview.openStoppages) as any,
           queue_snapshot: preview.queueSnapshot as any,
           status: 'PENDING',
           created_by_boundary: false,
