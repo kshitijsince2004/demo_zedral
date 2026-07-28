@@ -20,8 +20,14 @@ function updateServerOffset(serverDateStr: string | null) {
   if (!serverDateStr) return;
   const serverTime = new Date(serverDateStr).getTime();
   if (isNaN(serverTime)) return;
+
   // Offset = Server - Local. If Server is ahead, offset is positive.
-  serverOffset = serverTime - Date.now();
+  const nextOffset = serverTime - Date.now();
+
+  // Minor smoothing: don't jump for small jitters < 200ms
+  if (Math.abs(nextOffset - serverOffset) > 200 || serverOffset === 0) {
+    serverOffset = nextOffset;
+  }
 }
 
 /** Returns the current time adjusted for clock skew between client and server. */
@@ -217,7 +223,8 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
   };
 
   let res: Response = await doFetch();
-  updateServerOffset(res.headers.get('Date'));
+  // Prefer custom X-Server-Date as 'Date' is often hidden by browsers/WebViews.
+  updateServerOffset(res.headers.get('X-Server-Date') ?? res.headers.get('Date'));
 
   if (res.status === 401 && !isPublicAuthPath(path)) {
     console.warn(`[apiClient] 401 Unauthorized for ${path}. Auth Gen: ${generationAtStart}, Headers:`,

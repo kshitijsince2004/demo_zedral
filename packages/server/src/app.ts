@@ -126,12 +126,20 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       'Origin', 
       ...supertokens.getAllCORSHeaders()
     ],
+    exposedHeaders: ['Date', 'X-App-Version', 'X-Idempotency-Key', 'X-Server-Date'],
     optionsSuccessStatus: 204
   }));
   app.use(express.json());
 
   app.use(contextMiddleware);
   app.use(tenantScopeMiddleware);
+
+  // Time sync middleware: provides server clock to offline tablets via custom header.
+  // Standard 'Date' header is often blocked/hidden in Android WebViews.
+  app.use((_req, res, next) => {
+    res.setHeader('X-Server-Date', new Date().toISOString());
+    next();
+  });
 
   const m1Guard = requireModule('M1', m1ManifestMeta.featureFlag, getTenantModuleConfig);
 

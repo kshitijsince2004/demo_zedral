@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getServerTime } from '../lib/apiClient';
 
 /**
  * useElapsedTimer
@@ -18,8 +19,8 @@ export function useElapsedTimer(sinceIso: string | undefined): string {
       if (!sinceIso) return setElapsed('—');
       const sinceMs = new Date(sinceIso).getTime();
       if (!Number.isFinite(sinceMs)) return setElapsed('—');
-      const diffMs = Date.now() - sinceMs;
-      if (diffMs < 0) return setElapsed('—');
+      const diffMs = getServerTime() - sinceMs;
+      if (diffMs < 0) return setElapsed('00:00:00');
       const totalSeconds = Math.floor(diffMs / 1000);
       const h = Math.floor(totalSeconds / 3600);
       const m = Math.floor((totalSeconds % 3600) / 60);

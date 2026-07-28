@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getServerTime } from '../lib/apiClient';
 import { subscribeTimerTick } from './useTimerTick';
 
 export function formatDuration(ms: number) {
@@ -19,7 +20,7 @@ export function useLiveTimer(startTime?: string | Date | null, isActive: boolean
   const startMs = startTime ? new Date(startTime).getTime() : NaN;
   const canTick = isActive && Number.isFinite(startMs);
   const [formatted, setFormatted] = useState(() =>
-    canTick ? formatDuration(Date.now() - startMs) : '',
+    canTick ? formatDuration(getServerTime() - startMs) : '',
   );
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function useLiveTimer(startTime?: string | Date | null, isActive: boolean
     }
 
     const tick = () => {
-      const next = formatDuration(Date.now() - startMs);
+      const next = formatDuration(getServerTime() - startMs);
       setFormatted((prev) => (prev === next ? prev : next));
     };
 
@@ -38,7 +39,7 @@ export function useLiveTimer(startTime?: string | Date | null, isActive: boolean
   }, [canTick, startMs]);
 
   return {
-    elapsedMs: canTick ? Math.max(0, Date.now() - startMs) : 0,
+    elapsedMs: canTick ? Math.max(0, getServerTime() - startMs) : 0,
     formatted: canTick ? formatted : '',
   };
 }
