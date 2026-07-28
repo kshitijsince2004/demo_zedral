@@ -4,6 +4,10 @@ import { Pool } from 'pg';
 import type { DB } from '../src/db-types';
 import { toPgJsonb } from '../src/utils/pgJsonb';
 
+/**
+ * CI runs migrations only (no user seed). This test hits a real Postgres to verify
+ * node-pg JSONB array binding — so it must create its own FK targets.
+ */
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -15,14 +19,44 @@ const pool = new Pool({
 const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
 
 const REMARKS = 'handover-jsonb-integration-test';
+const TEST_USERNAME = 'handover_jsonb_test_user';
+const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+
+async function ensureOperatorUserId(): Promise<number> {
+  const existing = await db
+    .selectFrom('security.app_user')
+    .select('user_id')
+    .where('username', '=', TEST_USERNAME)
+    .executeTakeFirst();
+
+  if (existing) {
+    return Number(existing.user_id);
+  }
+
+  const inserted = await db
+    .insertInto('security.app_user')
+    .values({
+      username: TEST_USERNAME,
+      full_name: 'Handover JSONB Test User',
+      emp_code: 'HO-JSONB',
+      status: 'ACTIVE',
+      tenant_id: DEFAULT_TENANT_ID,
+    })
+    .returning('user_id')
+    .executeTakeFirstOrThrow();
+
+  return Number(inserted.user_id);
+}
 
 describe('handover open_stoppages jsonb insert', () => {
   afterAll(async () => {
     await db.deleteFrom('txn.machine_handover').where('remarks', '=', REMARKS).execute();
+    await db.deleteFrom('security.app_user').where('username', '=', TEST_USERNAME).execute();
     await pool.end();
   });
 
   it('inserts non-empty open_stoppages array via toPgJsonb', async () => {
+    const operatorId = await ensureOperatorUserId();
     const openStoppages = [
       {
         id: '1',
@@ -42,7 +76,7 @@ describe('handover open_stoppages jsonb insert', () => {
         incoming_shift_code: 'B',
         outgoing_prod_date: new Date(),
         incoming_prod_date: new Date(),
-        outgoing_operator_id: 1,
+        outgoing_operator_id: operatorId,
         machine_status: 'STOPPAGE',
         remarks: REMARKS,
         production_snapshot: { batchNumber: 'B1' } as any,
