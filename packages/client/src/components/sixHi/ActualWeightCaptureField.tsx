@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { resolveOcrMinConfidence } from '@m1/shared-validation';
 import type { ActualWeightOcrFields } from '@m1/shared-validation';
 import { ZInput } from '../primitives/ZInput';
@@ -41,26 +40,12 @@ export function ActualWeightCaptureField({
 }: ActualWeightCaptureFieldProps) {
   const native = isNative();
   const minConfidence = resolveOcrMinConfidence(ocrMinConfidence);
-  const ocrLocked = native && ocr.actualWeightSource === 'ocr' && !!ocr.actualWeightPhotoHash;
-  const [manualUnlocked, setManualUnlocked] = useState(ocr.actualWeightSource === 'manual');
-  const [captureFailed, setCaptureFailed] = useState(false);
+  const isOcr = ocr.actualWeightSource === 'ocr' && !!ocr.actualWeightPhotoHash;
 
-  // Android: no free-typing — capture or supervisor manual override only.
-  const inputDisabled = formLocked || (native && !manualUnlocked);
-
-  const showOverride =
-    native
-    && !formLocked
-    && !manualUnlocked
-    && (ocrLocked || captureFailed);
-
-  const overrideMessage = captureFailed
-    ? 'Camera/OCR unavailable — supervisor override for manual entry'
-    : 'Supervisor override to enter weight manually';
+  // Manual entry always allowed if form is not locked.
+  const inputDisabled = formLocked;
 
   const handleCaptured = (r: WeightCaptureResult) => {
-    setManualUnlocked(false);
-    setCaptureFailed(false);
     onWeightConfirmed(r.value);
     onOcrChange({
       actualWeightSource: 'ocr',
@@ -70,9 +55,7 @@ export function ActualWeightCaptureField({
     });
   };
 
-  const handleOverride = () => {
-    setManualUnlocked(true);
-    setCaptureFailed(false);
+  const handleClearOcr = () => {
     onOcrChange({
       actualWeightSource: 'manual',
       actualWeightPhotoHash: undefined,
@@ -86,9 +69,6 @@ export function ActualWeightCaptureField({
       key={`${ocr.actualWeightSource ?? 'none'}-${ocr.actualWeightPhotoHash ?? 'none'}`}
       label={label}
       prominent={prominent}
-      isWarning={showOverride || undefined}
-      error={showOverride ? overrideMessage : undefined}
-      onOverride={handleOverride}
     >
       <div className="flex gap-2 items-stretch">
         <div className="flex-1 min-w-0">
@@ -98,7 +78,13 @@ export function ActualWeightCaptureField({
             enterKeyHint="next"
             autoComplete="off"
             value={value}
-            onChange={(e) => onDraftChange(e.target.value)}
+            onChange={(e) => {
+              onDraftChange(e.target.value);
+              // If they start typing over an OCR result, revert to manual source
+              if (native && isOcr) {
+                handleClearOcr();
+              }
+            }}
             onBlur={onDraftCommit}
             className={inputClassName}
             disabled={inputDisabled}
@@ -109,17 +95,25 @@ export function ActualWeightCaptureField({
           <WeightCaptureButton
             disabled={formLocked}
             minConfidence={minConfidence}
-            recapture={ocrLocked}
+            recapture={isOcr}
             onCaptured={handleCaptured}
-            onError={() => setCaptureFailed(true)}
           />
         )}
       </div>
       {hint}
-      {ocrLocked && !manualUnlocked && ocr.ocrConfidence != null && (
-        <p className="text-xs text-muted-foreground mt-1">
-          OCR confirmed · confidence {ocr.ocrConfidence}%
-        </p>
+      {isOcr && ocr.ocrConfidence != null && (
+        <div className="flex items-center justify-between mt-1.5 px-0.5">
+          <p className="text-xs text-muted-foreground">
+            OCR confirmed · confidence {ocr.ocrConfidence}%
+          </p>
+          <button
+            type="button"
+            className="text-[10px] uppercase font-bold text-primary hover:underline"
+            onClick={handleClearOcr}
+          >
+            Clear Photo
+          </button>
+        </div>
       )}
     </FieldWrapper>
   );

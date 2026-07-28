@@ -1,0 +1,1 @@
+import{A as e,dt as t,ut as n}from"./authStore-DOYbMiwB.js";function r(r,i,a,o){let s=i??[],c=a??[];switch(r){case`SUPERVISOR`:return`/live`;case`MACHINE_HEAD`:return`/machine-head-dashboard`;case`OPERATOR`:return o&&t(r)?n(o,r):e(r,c,s)??`/coming-soon`;case`PLANT_HEAD`:return`/plant`;case`ADMIN`:return`/admin/master-data`;default:return`/login`}}export{r as t};

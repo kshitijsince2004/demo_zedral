@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-BOE_BdBB.js","assets/dist-CYulq2Mu.js"])))=>i.map(i=>d[i]);
-import{Dt as e}from"./authStore-WgtOatIn.js";import{o as t}from"./dist-CYulq2Mu.js";var n=t(`Network`,{web:()=>e(()=>import(`./web-BOE_BdBB.js`).then(e=>new e.NetworkWeb),__vite__mapDeps([0,1]))});export{n as t};

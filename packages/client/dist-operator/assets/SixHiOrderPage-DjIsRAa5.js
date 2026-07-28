@@ -1,1 +1,0 @@
-import{F as e,R as t}from"./session-CFCyAlU0.js";import{c as n,s as r}from"./chunk-KS7C4IRE-CnCJZFRp.js";import{t as i}from"./useWorkspaceBase-DXErAiHX.js";var a=t(e(),1);function o(){let{batchNo:e}=n(),t=r(),{basePath:o}=i();return(0,a.useEffect)(()=>{t(e?`${o}?open=${encodeURIComponent(decodeURIComponent(e))}`:o,{replace:!0})},[e,o,t]),null}export{o as SixHiOrderPage};
