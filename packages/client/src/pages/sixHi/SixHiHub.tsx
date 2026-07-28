@@ -20,7 +20,7 @@ import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateMachine,
-  startCombinedOrders,
+  startCombinedOrdersImmediate,
   transferMachines,
 } from '../../lib/sync/sixHiWrites';
 import { useAuthStore } from '../../lib/authStore';
@@ -469,7 +469,7 @@ export function SixHiHub() {
     const primaryBatch = anchorBatch && cards.some((c) => c.batchNumber === anchorBatch)
       ? anchorBatch
       : cards[0].batchNumber;
-    await startCombinedOrders(batchNumbers);
+    await startCombinedOrdersImmediate(batchNumbers);
     // After start the run *is* the started subset.
     const started = buildCombinedRunFromCards(cards, primaryBatch);
     useSixHiStore.getState().setCombinedRun(started, { selectedBatches: batchNumbers });

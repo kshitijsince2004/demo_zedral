@@ -121,7 +121,15 @@ export function SixHiCapturePage() {
   }, [effectiveBatch, allQueueItems, machineCode, hydrateCombinedRunFromQueue]);
 
   useEffect(() => {
-    if (effectiveBatch && (!panelOrder || panelOrder.batchNumber !== effectiveBatch)) {
+    if (!effectiveBatch) return;
+    if (!panelOrder || panelOrder.batchNumber !== effectiveBatch) {
+      loadPanelOrder(effectiveBatch);
+      return;
+    }
+    if (
+      (panelOrder.status === 'IN_PROGRESS' || panelOrder.status === 'STOPPAGE')
+      && !panelOrder.prodStartAt
+    ) {
       loadPanelOrder(effectiveBatch);
     }
   }, [effectiveBatch, panelOrder, loadPanelOrder]);

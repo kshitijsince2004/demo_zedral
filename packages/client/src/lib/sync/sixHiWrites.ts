@@ -1,11 +1,22 @@
 import { deleteQueued, patchQueued, postQueued } from './queuedApi';
 import { apiClient } from '../apiClient';
+import type { SixHiOrderDetail } from '@m1/shared-validation';
 
 const enc = encodeURIComponent;
 
 /** Production PATCH must hit the server immediately — outbox queue causes end-before-sync failures. */
 export function patchOrderImmediate(batchNumber: string, suffix: string, payload: unknown) {
   return apiClient.patch(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload);
+}
+
+/** Start must hit the server immediately so prodStartAt is available for the live timer. */
+export function startOrderImmediate(batchNumber: string) {
+  return apiClient.post<SixHiOrderDetail>(`/6hi/orders/${enc(batchNumber)}/start`, {});
+}
+
+/** Combined start must return prodStartAt before the operator timer can tick. */
+export function startCombinedOrdersImmediate(batchNumbers: string[]) {
+  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', { batchNumbers });
 }
 
 /** Combined end must carry combinedActualMt to the server in the same request (not a parked outbox row). */

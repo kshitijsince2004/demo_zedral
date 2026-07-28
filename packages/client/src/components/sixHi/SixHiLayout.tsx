@@ -16,12 +16,13 @@ import {
   patchManualStoppage,
   rejectOrder,
   rollChange,
-  startCombinedOrders,
+  startCombinedOrdersImmediate,
   startManualStoppage,
-  startOrder,
+  startOrderImmediate,
   startStoppage,
   updateStoppage,
 } from '../../lib/sync/sixHiWrites';
+import { subscribeProductionChanged } from '../../lib/productionSync';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { useAuthStore } from '../../lib/authStore';
 import { canWriteMachine } from '../../lib/machineRouting';
@@ -224,6 +225,12 @@ export function SixHiLayout() {
   }, [pathMill]);
 
   useEffect(() => {
+    return subscribeProductionChanged(() => {
+      void refreshMachineState();
+    });
+  }, [refreshMachineState]);
+
+  useEffect(() => {
     const openBatch = searchParams.get('open');
     if (openBatch) {
       openWorkspace(openBatch);
@@ -292,11 +299,14 @@ export function SixHiLayout() {
     setStartError(null);
     try {
       const startPrimary = pickedPrimary ?? activeBatch;
-      await runOrderAction(startPrimary, async () =>
-        pickedBatches.length >= 2
-          ? startCombinedOrders(pickedBatches)
-          : startOrder(pickedBatches[0] ?? startPrimary),
-      );
+      const startBatch = pickedBatches[0] ?? startPrimary;
+      await runOrderAction(startPrimary, async () => {
+        if (pickedBatches.length >= 2) {
+          const { orders } = await startCombinedOrdersImmediate(pickedBatches);
+          return orders.find((o) => o.batchNumber === startBatch) ?? orders[0];
+        }
+        return startOrderImmediate(startBatch);
+      });
       // After start: matching list becomes the started subset (leftovers stay in queue).
       if (combinedRun && pickedBatches.length >= 2) {
         const started = buildCombinedRunFromSelected(combinedRun, pickedBatches);
