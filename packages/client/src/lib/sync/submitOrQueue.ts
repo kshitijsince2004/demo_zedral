@@ -1,4 +1,5 @@
 import { useAuthStore } from '../authStore';
+import { newId } from '../newId';
 import { canWriteMachine } from '../machineRouting';
 import * as outbox from './outboxRepo';
 import { machineCodeFromOutboxUrl } from './outboxPolicy';
@@ -10,7 +11,7 @@ export async function submitOrQueue(opts: {
   payload: unknown;
   aggregateKey: string;
 }): Promise<{ queued: boolean; id: string }> {
-  const id = crypto.randomUUID();
+  const id = newId();
   const mill = machineCodeFromOutboxUrl(opts.url);
   if (mill) {
     const { role, machineAccess } = useAuthStore.getState();
