@@ -10,6 +10,7 @@ import {
 } from '../utils/csvParser';
 import { ImportRowError, validateImportRow } from './importRowValidator';
 import { parseDateOnly } from '../utils/dateOnly';
+import { QualitySpecService } from './QualitySpecService';
 
 export type ImportSource = 'CSV' | 'SAP' | 'MANUAL' | 'XLSX';
 export type ImportBatchStatus = 'PENDING' | 'VALIDATED' | 'LOADED' | 'FAILED' | 'PARTIAL';
@@ -284,6 +285,13 @@ export class ImportService {
       } else {
         await trx.insertInto('planning.coil_plan').values(coilPlanValues).execute();
       }
+    }
+
+    // Snapshot quality spec for this plan order (fail-soft — never block import)
+    try {
+      await QualitySpecService.attachResolvedSpec(planOrderId, 'SYSTEM', { trx });
+    } catch (err) {
+      console.error('[ImportService] plan_order_spec attach failed safely:', err);
     }
   }
 

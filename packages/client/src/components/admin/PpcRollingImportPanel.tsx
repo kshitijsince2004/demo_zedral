@@ -17,6 +17,7 @@ const SHEET_TYPE_OPTIONS: { value: PpcXlsxSheetType; label: string }[] = [
   { value: 'SKIN_PASS', label: 'Skin Pass' },
   { value: 'REWINDING', label: 'Rewinding' },
   { value: 'ANNEALING', label: 'Annealing' },
+  { value: 'CTL', label: 'Cut-to-Length' },
 ];
 
 const OP_LABEL = 'block text-[10px] uppercase tracking-[0.14em] font-medium text-muted-foreground mb-1';

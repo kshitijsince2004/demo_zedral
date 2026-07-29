@@ -22,7 +22,7 @@ interface RoleRouteProps {
  * - Authenticated users who meet or exceed `minRole` see the children.
  *
  * Role hierarchy (ascending privilege):
- *   OPERATOR < MACHINE_HEAD < PLANT_HEAD < ADMIN
+ *   OPERATOR < MACHINE_HEAD < QUALITY < PLANT_HEAD < ADMIN
  *
  * Note: ADMIN is treated as a superuser and always passes any role check
  * (consistent with authStore.hasRole).
@@ -96,6 +96,11 @@ export function PlantRoute({ children }: { children: React.ReactNode }) {
 /** Requires MACHINE_HEAD or higher (machine-scoped ops). */
 export function MachineHeadRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute minRole={UserRole.MACHINE_HEAD}>{children}</RoleRoute>;
+}
+
+/** Requires QUALITY or higher (spec authoring). */
+export function QualityRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute minRole={UserRole.QUALITY}>{children}</RoleRoute>;
 }
 
 /** Requires ADMIN (admin routes). */

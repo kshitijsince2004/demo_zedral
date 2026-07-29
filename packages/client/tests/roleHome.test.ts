@@ -23,12 +23,16 @@ describe('getRoleHomePath', () => {
     const paths = [
       getRoleHomePath(UserRole.OPERATOR, ['HRS'], ['HRS'], 'operator'),
       getRoleHomePath(UserRole.MACHINE_HEAD, [], ['4HI'], 'machinehead'),
-
+      getRoleHomePath(UserRole.QUALITY),
       getRoleHomePath(UserRole.PLANT_HEAD),
       getRoleHomePath(UserRole.ADMIN),
     ];
     for (const p of paths) {
       expect(p).not.toBe('/login');
     }
+  });
+
+  it('maps QUALITY to /quality/specs', () => {
+    expect(getRoleHomePath(UserRole.QUALITY)).toBe('/quality/specs');
   });
 });

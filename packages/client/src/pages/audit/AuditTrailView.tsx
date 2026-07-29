@@ -2,6 +2,30 @@ import { useEffect, useState } from 'react';
 import { auditService, type AuditRecord } from '../../services/auditService';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 
+function formatAuditValue(val: string | null) {
+  if (!val) return '—';
+  
+  // Sometimes postgres or systems wrap json in parentheses e.g. '({"a":1})'
+  let parseable = val;
+  if (parseable.startsWith('(') && parseable.endsWith(')')) {
+    parseable = parseable.slice(1, -1);
+  }
+
+  try {
+    const parsed = JSON.parse(parseable);
+    if (typeof parsed === 'object' && parsed !== null) {
+      return (
+        <pre className="whitespace-pre-wrap text-[10px] bg-secondary/30 p-2 rounded max-w-xs overflow-x-auto break-all">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      );
+    }
+  } catch {
+    // If it's not JSON, just return the raw value
+  }
+  return val;
+}
+
 export function AuditTrailView() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,13 +78,13 @@ export function AuditTrailView() {
             <tbody>
               {records.map((row) => (
                 <tr key={row.id} className="border-t border-border">
-                  <td className="px-3 py-2">{row.table_name}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{row.record_id}</td>
-                  <td className="px-3 py-2">{row.action}</td>
-                  <td className="px-3 py-2">{row.field ?? '—'}</td>
-                  <td className="px-3 py-2">{row.old_value ?? '—'}</td>
-                  <td className="px-3 py-2">{row.new_value ?? '—'}</td>
-                  <td className="px-3 py-2">{formatPlantDateTime(row.timestamp)}</td>
+                  <td className="px-3 py-2 align-top">{row.table_name}</td>
+                  <td className="px-3 py-2 font-mono text-xs align-top">{row.record_id}</td>
+                  <td className="px-3 py-2 align-top">{row.action}</td>
+                  <td className="px-3 py-2 align-top">{row.field ?? '—'}</td>
+                  <td className="px-3 py-2 align-top">{formatAuditValue(row.old_value)}</td>
+                  <td className="px-3 py-2 align-top">{formatAuditValue(row.new_value)}</td>
+                  <td className="px-3 py-2 align-top whitespace-nowrap">{formatPlantDateTime(row.timestamp)}</td>
                 </tr>
               ))}
             </tbody>

@@ -63,7 +63,7 @@ export class CrewService {
   }
 
   static async create(payload: { shiftLogId: string; operatorId: string | number; roleCode: string }) {
-    const validRoles = ['OPERATOR', 'ASST', 'HELPER', 'CRANE', 'MTL'];
+    const validRoles = ['OPERATOR', 'ASST', 'HELPER', 'CRANE', 'MTL', 'SHIFT_INCHARGE', 'SHIFT_MANAGER'];
     if (!validRoles.includes(payload.roleCode)) {
       throw new Error(`Invalid role code. Must be one of: ${validRoles.join(', ')}`);
     }

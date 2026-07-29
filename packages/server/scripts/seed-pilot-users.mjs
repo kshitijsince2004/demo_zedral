@@ -20,7 +20,7 @@ supertokens.init({
   framework: 'express',
   supertokens: {
     connectionURI: process.env.SUPERTOKENS_CORE_URI || 'http://localhost:3567',
-    apiKey: process.env.SUPERTOKENS_API_KEY || 'local_development_key',
+    apiKey: process.env.SUPERTOKENS_API_KEY || 'local-development-key',
   },
   appInfo: {
     appName: 'Zedral M1',
@@ -49,6 +49,8 @@ const USERS = [
   { username: 'operator2hi', emp_code: '3002', full_name: '2HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['2HI'] },
   { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
   { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
+  { username: 'supervisor', emp_code: '6000', full_name: 'Shift Supervisor', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
+  { username: 'quality', emp_code: '7000', full_name: 'Quality Engineer', role_id: 6, lines: [], machines: [], staff: true },
 ];
 
 const PIN = process.env.SEED_PIN || '1234';
@@ -82,7 +84,8 @@ async function seedRoles(client) {
       (1, 'OPERATOR', 'Line Operator: Can submit shift logs'),
       (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
       (4, 'ADMIN', 'System Administrator: Manage master data'),
-      (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines')
+      (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines'),
+      (6, 'QUALITY', 'Quality: Authors and publishes material specification sheets')
     ON CONFLICT (role_id) DO NOTHING;
   `);
 }

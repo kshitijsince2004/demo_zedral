@@ -15,3 +15,5 @@ export function registerM1Module(registry: ModuleRegistry): ModuleManifest {
   registry.register(manifest);
   return manifest;
 }
+
+export { registerJourneyAdvanceConsumer } from './consumers/JourneyAdvanceConsumer';

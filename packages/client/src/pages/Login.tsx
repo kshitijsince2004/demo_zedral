@@ -14,6 +14,7 @@ const DEV_STAFF = {
   admin: 'admin@zedral.local',
   machinehead: 'machinehead@zedral.local',
   planthead: 'planthead@zedral.local',
+  quality: 'quality@zedral.local',
 } as const;
 
 export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boolean } = {}) {
@@ -212,7 +213,7 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
             <div className="mt-3 space-y-1 text-center text-[10px] text-muted-foreground font-mono">
               <p>Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}</p>
               <p>Staff ({DEV_STAFF_PASSWORD}):</p>
-              <p>{DEV_STAFF.admin} · {DEV_STAFF.machinehead} · {DEV_STAFF.planthead}</p>
+              <p>{DEV_STAFF.admin} · {DEV_STAFF.machinehead} · {DEV_STAFF.planthead} · {DEV_STAFF.quality}</p>
             </div>
           )}
 

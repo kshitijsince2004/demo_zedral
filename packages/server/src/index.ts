@@ -10,6 +10,7 @@ import { validateAuthConfigAtStartup } from './config/authConfig';
 import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
 import { buildApp } from './app';
 import { buildModuleRegistry } from './modules/registerModules';
+import { registerJourneyAdvanceConsumer } from './modules/m1-collection/register';
 import { startModuleRuntime, type ModuleRuntime } from './modules/moduleRuntime';
 
 validateAuthConfigAtStartup();
@@ -19,6 +20,7 @@ const host = process.env.HOST?.trim() || '0.0.0.0';
 process.env.CANONICAL_WRITEBACK_URL ??= `http://127.0.0.1:${port}/v1/canon`;
 
 initEventBus();
+registerJourneyAdvanceConsumer();
 const registry = buildModuleRegistry();
 const { app } = buildApp(registry);
 

@@ -4,6 +4,7 @@ import { ProcessRouteTimeline } from './ProcessRouteTimeline';
 import { ZBadge } from '../primitives/ZBadge';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
+import { OrderSpecReference } from '../orders/OrderSpecReference';
 import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
 import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
 import { useEffect, useState } from 'react';
@@ -136,6 +137,14 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
                     </div>
                   </div>
                 </section>
+
+                <OrderSpecReference
+                  grade={order.grade}
+                  sapOrderNo={order.sapOrderNo}
+                  widthMm={order.widthMm}
+                  targetThkMm={order.targetThkMm}
+                  processCode={order.currentProcess}
+                />
                 
                 {order.stoppages.length > 0 && (
                   <section className="bg-background rounded-2xl border border-border p-5 shadow-sm">

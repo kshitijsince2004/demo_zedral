@@ -154,6 +154,7 @@ router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole(
       sheetTypeRaw === 'SKIN_PASS' ? 'SKIN_PASS'
       : sheetTypeRaw === 'REWINDING' ? 'REWINDING'
       : sheetTypeRaw === 'ANNEALING' ? 'ANNEALING'
+      : sheetTypeRaw === 'CTL' ? 'CTL'
       : 'ROLLING';
     const result = await PPCImportService.previewRollingXlsx(
       req.file.buffer,

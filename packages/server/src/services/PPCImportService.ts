@@ -11,7 +11,10 @@ import {
   type ParsedRollingPlanRow,
   type PpcXlsxSheetType,
 } from '../utils/rollingPlanXlsxParser';
+import { parseRewindingPlanXlsx } from '../utils/rewindingPlanXlsxParser';
+import { parseCtlPlanXlsx } from '../utils/ctlPlanXlsxParser';
 import { ProcessRouteService } from './ProcessRouteService';
+import { QualitySpecService } from './QualitySpecService';
 import {
   getLiveSession,
   previewSessionStore,
@@ -560,6 +563,23 @@ export class PPCImportService {
       weightMt: row.ppc_weight_mt,
     });
 
+    // Snapshot quality spec for planning (fail-soft)
+    try {
+      await QualitySpecService.attachFromPpc({
+        sapOrderNo: row.sap_order_no,
+        coilNo: row.coil_no,
+        gradeCode: row.grade_code,
+        customerName: row.customer_name,
+        widthMm: row.width_mm,
+        finishThkMm: row.ppc_thk_mm,
+        surfaceFinish: row.roll_finish ?? null,
+        resolvedBy: 'SYSTEM',
+        trx,
+      });
+    } catch (err) {
+      console.error('[PPCImportService] plan_order_spec attach failed safely:', err);
+    }
+
     if (row.process_route) {
       await ProcessRouteService.linkBatchToJourney(
         batchId,
@@ -709,7 +729,11 @@ export class PPCImportService {
     sheetType: PpcXlsxSheetType,
   ) {
     const detectedShift = await ShiftDetectionService.getCurrentShift();
-    const parsed = parseRollingPlanXlsx(buffer, { sheetType, shiftCode: detectedShift.shiftCode });
+    const parsed = sheetType === 'REWINDING'
+      ? parseRewindingPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
+      : sheetType === 'CTL'
+        ? parseCtlPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
+      : parseRollingPlanXlsx(buffer, { sheetType, shiftCode: detectedShift.shiftCode });
     if (parsed.headerError) {
       return {
         headerError: parsed.headerError,
@@ -915,8 +939,12 @@ export class PPCImportService {
           return this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
         });
         if (result.action === 'inserted') {
-          const { SixHiConfigService } = await import('./sixHi');
-          await SixHiConfigService.ensureOrder(row.batchNumber, userId);
+          // CRM mill orders only — RWD/CTL plan rows join their queues via journey link.
+          if (session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
+            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL') {
+            const { SixHiConfigService } = await import('./sixHi');
+            await SixHiConfigService.ensureOrder(row.batchNumber, userId);
+          }
           loaded++;
         } else {
           if (!existedByBatchNumber) merged++;

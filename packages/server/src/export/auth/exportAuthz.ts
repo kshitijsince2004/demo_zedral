@@ -54,7 +54,12 @@ export function assertExportPermission(
   type: ExportType,
   _scope: Record<string, unknown>,
 ): void {
-  if (!user.roles.some((r) => EXPORT_ROLES.includes(r))) {
+  const roles = user.roles ?? [];
+  const isQuality = roles.includes(UserRole.QUALITY as string) || roles.includes(UserRole.ADMIN as string);
+  if (type === 'QC_FAILS' && isQuality) {
+    return;
+  }
+  if (!roles.some((r) => EXPORT_ROLES.includes(r))) {
     throw new Error('Forbidden: export requires supervisor, plant head, machine head, or admin role');
   }
 

@@ -30,6 +30,8 @@ export function getRoleHomePath(
     }
     case 'PLANT_HEAD':
       return '/plant';
+    case 'QUALITY':
+      return '/quality/specs';
     case 'ADMIN':
       return '/admin/master-data';
     default:

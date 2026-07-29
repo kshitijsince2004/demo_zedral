@@ -16,7 +16,7 @@ import { apiClient, getAuthHeaders } from '../lib/apiClient';
 // Shared types
 // ---------------------------------------------------------------------------
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING';
+export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL';
 
 export type PpcPreviewRowStatus =
   | 'new'

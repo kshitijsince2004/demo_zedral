@@ -1,0 +1,619 @@
+[
+  {
+    "parameter_code": "C_PCT",
+    "label": "Carbon",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "PKL",
+      "ANN",
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 10
+  },
+  {
+    "parameter_code": "MN_PCT",
+    "label": "Manganese",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 20
+  },
+  {
+    "parameter_code": "SI_PCT",
+    "label": "Silicon",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 30
+  },
+  {
+    "parameter_code": "S_PCT",
+    "label": "Sulphur",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 40
+  },
+  {
+    "parameter_code": "P_PCT",
+    "label": "Phosphorus",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 50
+  },
+  {
+    "parameter_code": "AL_PCT",
+    "label": "Aluminium (1)",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 60
+  },
+  {
+    "parameter_code": "AL_SOL_PCT",
+    "label": "Aluminium (2)",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 70
+  },
+  {
+    "parameter_code": "N_PCT",
+    "label": "Nitrogen",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 80
+  },
+  {
+    "parameter_code": "TI_PCT",
+    "label": "Titanium",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 90
+  },
+  {
+    "parameter_code": "B_PCT",
+    "label": "Boron",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 100
+  },
+  {
+    "parameter_code": "NB_PCT",
+    "label": "Niobium",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 110
+  },
+  {
+    "parameter_code": "MICROALLOY_PCT",
+    "label": "Micro Alloy (total)",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 120
+  },
+  {
+    "parameter_code": "RPC_PCT",
+    "label": "RPC",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "CHEM",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 130
+  },
+  {
+    "parameter_code": "INNER_DIA_MM",
+    "label": "Inner Diameter",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "TARGET_TOL",
+    "param_group": "DIM_TGT",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 140
+  },
+  {
+    "parameter_code": "FIN_WIDTH_TOL",
+    "label": "Finish Width tolerance",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "HRS",
+      "CRS"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 150
+  },
+  {
+    "parameter_code": "FIN_THK_TOL",
+    "label": "Finish Thickness tolerance",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "CRM",
+      "CTL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 160
+  },
+  {
+    "parameter_code": "COIL_WT_TOL",
+    "label": "Coil Weight tolerance",
+    "unit": "kg",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 170
+  },
+  {
+    "parameter_code": "CTL_TOL",
+    "label": "CTL length tolerance",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 180
+  },
+  {
+    "parameter_code": "FINISH_VAL_TOL",
+    "label": "'Finish' value tolerance",
+    "unit": "-",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 190
+  },
+  {
+    "parameter_code": "COIL_OD_MM",
+    "label": "Coil OD",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "DIM_TOL",
+    "applies_to": [
+      "CRS",
+      "RWD"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 200
+  },
+  {
+    "parameter_code": "HARDNESS",
+    "label": "Hardness",
+    "unit": "(see HARDNESS_UNIT)",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN",
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 210
+  },
+  {
+    "parameter_code": "ECV",
+    "label": "ECV (Erichsen?)",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 220
+  },
+  {
+    "parameter_code": "YIELD_STRESS",
+    "label": "Yield Stress",
+    "unit": "N/mm2",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN",
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 230
+  },
+  {
+    "parameter_code": "UTS",
+    "label": "UTS",
+    "unit": "N/mm2",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN",
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 240
+  },
+  {
+    "parameter_code": "ELONGATION",
+    "label": "Elongation",
+    "unit": "%",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN",
+      "ALL"
+    ],
+    "is_mandatory_default": true,
+    "sort_order": 250
+  },
+  {
+    "parameter_code": "RBAR",
+    "label": "r-bar (plastic strain ratio)",
+    "unit": "-",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "MECH",
+    "applies_to": [
+      "ANN"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 260
+  },
+  {
+    "parameter_code": "BEND_TEST",
+    "label": "Bend test",
+    "unit": "-",
+    "data_type": "ENUM",
+    "limit_kind": "EXACT",
+    "param_group": "MECH",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 270
+  },
+  {
+    "parameter_code": "GRAIN_SIZE",
+    "label": "Grain size",
+    "unit": "ASTM",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "METAL",
+    "applies_to": [
+      "ANN"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 280
+  },
+  {
+    "parameter_code": "INCLUSION_RATING",
+    "label": "Inclusion rating",
+    "unit": "rating",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "METAL",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 290
+  },
+  {
+    "parameter_code": "RZ",
+    "label": "Roughness Rz",
+    "unit": "um",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "SURF",
+    "applies_to": [
+      "CRM"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 300
+  },
+  {
+    "parameter_code": "FLATNESS",
+    "label": "Flatness",
+    "unit": "I-units",
+    "data_type": "NUMERIC",
+    "limit_kind": "MAX_ONLY",
+    "param_group": "SURF",
+    "applies_to": [
+      "CRM",
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 310
+  },
+  {
+    "parameter_code": "WAVINESS",
+    "label": "Waviness",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "MAX_ONLY",
+    "param_group": "SURF",
+    "applies_to": [
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 320
+  },
+  {
+    "parameter_code": "RPOIL_WT",
+    "label": "Rust-preventive oil weight",
+    "unit": "g/m2",
+    "data_type": "NUMERIC",
+    "limit_kind": "MIN_MAX",
+    "param_group": "SURF",
+    "applies_to": [
+      "RWD",
+      "CRM"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 330
+  },
+  {
+    "parameter_code": "HARDNESS_UNIT",
+    "label": "Unit of Hardness",
+    "unit": "-",
+    "data_type": "ENUM",
+    "limit_kind": "EXACT",
+    "param_group": "TEST_CFG",
+    "applies_to": [],
+    "is_mandatory_default": false,
+    "sort_order": 340
+  },
+  {
+    "parameter_code": "GAUGE_LEN",
+    "label": "Gauge length",
+    "unit": "mm",
+    "data_type": "NUMERIC",
+    "limit_kind": "EXACT",
+    "param_group": "TEST_CFG",
+    "applies_to": [],
+    "is_mandatory_default": false,
+    "sort_order": 350
+  },
+  {
+    "parameter_code": "SAMPLE",
+    "label": "Sample",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "TEST_CFG",
+    "applies_to": [],
+    "is_mandatory_default": false,
+    "sort_order": 360
+  },
+  {
+    "parameter_code": "CTL_PCS",
+    "label": "No. of CTL pieces",
+    "unit": "pcs",
+    "data_type": "NUMERIC",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 370
+  },
+  {
+    "parameter_code": "CTL_ROWS_PACK",
+    "label": "Rows in CTL packing",
+    "unit": "rows",
+    "data_type": "NUMERIC",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 380
+  },
+  {
+    "parameter_code": "PACKING",
+    "label": "Packing type",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 390
+  },
+  {
+    "parameter_code": "PALLET_WT",
+    "label": "Pallet weight",
+    "unit": "kg",
+    "data_type": "NUMERIC",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 400
+  },
+  {
+    "parameter_code": "PACKET_WT",
+    "label": "Packet weight",
+    "unit": "kg",
+    "data_type": "NUMERIC",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "CTL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 410
+  },
+  {
+    "parameter_code": "CHAMBER",
+    "label": "Chamber",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "PACK",
+    "applies_to": [
+      "ANN"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 420
+  },
+  {
+    "parameter_code": "REQ_1",
+    "label": "Requirement 1",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "REQ",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 430
+  },
+  {
+    "parameter_code": "REQ_2",
+    "label": "Requirement 2",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "REQ",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 440
+  },
+  {
+    "parameter_code": "REQ_3",
+    "label": "Requirement 3",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "REQ",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 450
+  },
+  {
+    "parameter_code": "REQ_4",
+    "label": "Requirement 4",
+    "unit": "-",
+    "data_type": "TEXT",
+    "limit_kind": "EXACT",
+    "param_group": "REQ",
+    "applies_to": [
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 460
+  },
+  {
+    "parameter_code": "RA_UM",
+    "label": "Roughness Ra",
+    "unit": "um",
+    "data_type": "NUMERIC",
+    "limit_kind": "MAX_ONLY",
+    "param_group": "SURF",
+    "applies_to": [
+      "CRM",
+      "ALL"
+    ],
+    "is_mandatory_default": false,
+    "sort_order": 470
+  }
+]

@@ -15,6 +15,7 @@ import machineCrewRoutes from './routes/machineCrewRoutes';
 import defectRoutes from './routes/defectRoutes';
 import importRoutes from './routes/importRoutes';
 import masterDataRoutes from './routes/masterDataRoutes';
+import qualityRoutes from './routes/qualityRoutes';
 import userRoutes from './routes/userRoutes';
 import exportRoutes from './routes/exportRoutes';
 import reportRoutes from './routes/reportRoutes';
@@ -30,6 +31,8 @@ import machineHandoverRoutes from './routes/machineHandoverRoutes';
 import auditRoutes from './routes/auditRoutes';
 import canonRoutes from './routes/canonRoutes';
 import productionRoutes from './modules/m1-collection/routes/productionRoutes';
+import processStationRoutes from './routes/processStationRoutes';
+import tenantFlagsRoutes from './routes/tenantFlagsRoutes';
 import { db } from './db';
 import { contextMiddleware } from './middleware/contextMiddleware';
 import { tenantScopeMiddleware } from './middleware/tenantScopeMiddleware';
@@ -143,6 +146,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       '/defects',
       '/crew',
       '/production',
+      '/stations',
       '/6hi',
       '/machines/handover',
     ],
@@ -157,12 +161,14 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   app.use('/machines/handover', m1Guard, machineHandoverRoutes);
   app.use('/shifts', m1Guard, shiftRoutes);
   app.use('/shift-logs', m1Guard, shiftLogRoutes);
+  app.use('/tenant-flags', m1Guard, tenantFlagsRoutes);
   app.use('/stoppages', m1Guard, stoppageRoutes);
   app.use('/crew', m1Guard, crewRoutes);
   app.use('/machine-crew', m1Guard, machineCrewRoutes);
   app.use('/defects', m1Guard, defectRoutes);
   app.use('/import', m1Guard, importRoutes);
   app.use('/master-data', m1Guard, masterDataRoutes);
+  app.use('/quality', m1Guard, qualityRoutes);
   app.use('/users', m1Guard, userRoutes);
   app.use('/reports', m1Guard, reportRoutes);
   app.use('/exports', m1Guard, exportRoutes);
@@ -171,6 +177,7 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   app.use('/api/v1/validation-rules', m1Guard, validationRulesRoutes);
   app.use('/audit', m1Guard, auditRoutes);
   app.use('/production', m1Guard, productionRoutes);
+  app.use('/stations', m1Guard, processStationRoutes);
 
   app.get('/health', async (_req, res) => {
     const payload: Record<string, unknown> = {

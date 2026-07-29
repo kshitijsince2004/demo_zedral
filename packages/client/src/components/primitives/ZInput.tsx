@@ -14,8 +14,12 @@ function openKeyboardOnTap(e: React.PointerEvent<HTMLInputElement>) {
   requestAnimationFrame(() => {
     el.focus({ preventScroll: true });
     if (typeof el.setSelectionRange === 'function') {
-      const len = el.value.length;
-      el.setSelectionRange(len, len);
+      try {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      } catch (err) {
+        // Ignored. setSelectionRange is not supported on some input types (like email).
+      }
     }
   });
 }
