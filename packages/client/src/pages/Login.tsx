@@ -16,6 +16,7 @@ const DEV_STAFF = {
   machinehead: 'machinehead@zedral.local',
   supervisor: 'supervisor@zedral.local',
   planthead: 'planthead@zedral.local',
+  quality: 'quality@zedral.local',
 } as const;
 
 export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boolean } = {}) {

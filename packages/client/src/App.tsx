@@ -10,14 +10,21 @@ import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
 import { RoleHomeRedirect } from './components/RoleHomeRedirect';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { AdminRoute, PlantRoute, MachineHeadRoute } from './components/RoleRoute';
 import { AdminShell } from './components/layout/admin/AdminShell';
 import { UserRole } from '@m1/shared-validation';
+import { AdminRoute, PlantRoute, MachineHeadRoute, QualityRoute } from './components/RoleRoute';
 // SixHi Hub & Routes
 import { SixHiQueuePage } from './pages/sixHi/SixHiQueuePage';
 import { SixHiOrderPage } from './pages/sixHi/SixHiOrderPage';
 import { CrmOutgoingHandoverPage } from './pages/sixHi/CrmOutgoingHandoverPage';
+import { ProcessHubPage } from './pages/process/ProcessHubPage';
+import { ProcessCapturePage } from './pages/process/ProcessCapturePage';
+import { ProcessHandoverPage } from './pages/process/ProcessHandoverPage';
+import { PklChartPage } from './pages/process/PklChartPage';
+import { AnnChargePage } from './pages/process/AnnChargePage';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
+import { ScopeCaptureRoute } from './components/ScopeCaptureRoute';
+import { ScopeHandoverRoute } from './components/ScopeHandoverRoute';
 
 // Reports & Admin
 import { ExportHistory } from './pages/reports/ExportHistory';
@@ -38,6 +45,8 @@ import { PlanningAdmin } from './pages/admin/PlanningAdmin';
 import { UsersAdmin } from './pages/admin/UsersAdmin';
 import { SystemAdmin } from './pages/admin/SystemAdmin';
 import { ValidationRulesAdmin } from './pages/admin/ValidationRulesAdmin';
+import { QualitySpecsPage } from './pages/quality/QualitySpecsPage';
+import { QualitySpecEditorPage } from './pages/quality/QualitySpecEditorPage';
 import { MachineAssignmentPage } from './pages/admin/MachineAssignmentPage';
 import { RollingImportPage } from './pages/import/RollingImportPage';
 import { OrderAssignmentPage } from './pages/orderAssignment/OrderAssignmentPage';
@@ -202,6 +211,9 @@ function App() {
         <Route path="/machine-head/exports/history" element={<MachineHeadRoute><ExportHistory embedded /></MachineHeadRoute>} />
         <Route path="/machine-head/traceability" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><PlantOrderTracking standalone /></MachineHeadRoute>} />
 
+        <Route path="/quality/specs" element={<QualityRoute><QualitySpecsPage /></QualityRoute>} />
+        <Route path="/quality/specs/:id" element={<QualityRoute><QualitySpecEditorPage /></QualityRoute>} />
+
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
@@ -222,8 +234,11 @@ function App() {
         {/* User workspace — /username.role (must be last — catches dotted paths only) */}
         <Route path="/:userScope" element={<ProtectedRoute><UserScopeShell /></ProtectedRoute>}>
           <Route index element={<UserScopeIndex />} />
-          <Route path="capture" element={<SixHiCapturePage />} />
-          <Route path="handover" element={<CrmOutgoingHandoverPage />} />
+          <Route path="capture" element={<ScopeCaptureRoute />} />
+          <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
+          <Route path="chart" element={<PklChartPage />} />
+          <Route path="charge/:chargeNo" element={<AnnChargePage />} />
+          <Route path="handover" element={<ScopeHandoverRoute />} />
           <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
           <Route path="rolling" element={<SixHiQueuePage />} />
           <Route path="skinpass" element={<SixHiQueuePage />} />

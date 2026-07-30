@@ -22,8 +22,10 @@
     "smoke:api": "npm run smoke:api -w @m1/server",
     "migrate": "npm run migrate -w @m1/server",
     "seed:pilot": "npm run seed:pilot -w @m1/server",
+    "seed:process-queues": "npm run seed:process-queues -w @m1/server",
     "seed:profiles": "npm run seed:profiles -w @m1/server",
     "seed:admin": "npm run seed:admin -w @m1/server",
+    "seed:quality": "npm run seed:quality -w @m1/server",
     "lint": "npm run lint --workspaces --if-present",
     "docker:prod": "docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d",
     "e2e:smoke": "npm run test:smoke --prefix e2e"

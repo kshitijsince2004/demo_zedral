@@ -18,7 +18,7 @@ export function validateAuthConfigAtStartup(): void {
 
 export function getSuperTokensConfig() {
   const connectionURI = process.env.SUPERTOKENS_CORE_URI || 'http://localhost:3567';
-  const apiKey = process.env.SUPERTOKENS_API_KEY || 'local_development_key';
+  const apiKey = process.env.SUPERTOKENS_API_KEY || 'local-development-key';
   const apiDomain = process.env.API_DOMAIN || 'http://localhost:3005';
   const websiteDomain = process.env.WEBSITE_DOMAIN || 'http://localhost:5173';
 

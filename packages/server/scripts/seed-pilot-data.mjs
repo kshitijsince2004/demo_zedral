@@ -6,6 +6,7 @@
 import pg from 'pg';
 import { seedSixHiPpc } from './seed-crm6-ppc.mjs';
 import { seedExportDemo } from './seed-export-demo.mjs';
+import { seedProcessQueues } from './seed-process-queues.mjs';
 
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_URL =
@@ -305,6 +306,11 @@ export async function seedPilotData(databaseUrl = DEFAULT_URL, opts = {}) {
         `  export_demo: ${exportSeed.startDate}→${exportSeed.endDate} shifts=${exportSeed.shifts} crm6=${exportSeed.crm6_orders} targets=${exportSeed.targets}`,
       );
     }
+
+    const processQueues = await seedProcessQueues(client);
+    console.log(
+      `  process_queues: created=${processQueues.created} skipped=${processQueues.skipped} (${processQueues.planDate} shift ${processQueues.shiftCode})`,
+    );
 
     await client.query('COMMIT');
 

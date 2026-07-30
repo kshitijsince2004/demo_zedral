@@ -1,6 +1,7 @@
 import type { Role } from './authStore';
 import { MACHINE_OPTIONS } from './accessOptions';
 import { isCrmMillCode } from './millConfig';
+import { isProcessStationCode } from './processConfig';
 import { millPathForCode } from './millPath';
 import { usesUserScopeHome, userScopePath } from './userScope';
 
@@ -42,6 +43,9 @@ export function pathForMachine(
       return userScopePath(workspace.username, workspace.role);
     }
     return millPathForCode(machineCode);
+  }
+  if (isProcessStationCode(machineCode) && workspace && usesUserScopeHome(workspace.role)) {
+    return userScopePath(workspace.username, workspace.role);
   }
   return `/capture/${machineCode}`;
 }

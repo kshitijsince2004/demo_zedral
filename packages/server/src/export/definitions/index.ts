@@ -7,6 +7,7 @@ import { RawRegisterReport } from './RawRegisterReport';
 
 import { RejectedOrdersReport } from './RejectedOrdersReport';
 import { ShiftSummaryReport } from './ShiftSummaryReport';
+import { QcFailsReport } from './QcFailsReport';
 
 const REGISTRY: Record<ExportType, ReportDefinition> = {
   RAW: RawRegisterReport,
@@ -15,6 +16,7 @@ const REGISTRY: Record<ExportType, ReportDefinition> = {
   COIL_TRACE: CoilTraceReport,
   REJECTED_ORDERS: RejectedOrdersReport,
   SHIFT_SUMMARY: ShiftSummaryReport,
+  QC_FAILS: QcFailsReport,
 };
 
 function stubDefinition(id: ExportType, formats: ExportFormat[]): ReportDefinition {

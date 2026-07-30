@@ -326,6 +326,11 @@ export class ProductionService {
   }
 
   static async saveCtl(entry: M1CTLForm): Promise<string> {
+    // P5/R9.2: total_prod_mt is server-derived; never trust client aggregate.
+    const weightMt = entry.weightMt ?? null;
+    const rejectionMt = entry.rejectionMt ?? 0;
+    const totalProdMt = weightMt != null ? Math.max(0, Number(weightMt) - Number(rejectionMt || 0)) : null;
+
     const row = await db
       .insertInto('txn.prod_ctl')
       .values({
@@ -334,12 +339,12 @@ export class ProductionService {
         coil_no: entry.coilNo,
         width_mm: entry.widthMm ?? null,
         thk_mm: entry.thkMm ?? null,
-        weight_mt: entry.weightMt ?? null,
+        weight_mt: weightMt,
         nominal_set_length_mm: entry.nominalSetLengthMm ?? null,
         actual_length_mm: entry.actualLengthMm ?? null,
         no_pieces: entry.noPieces ?? null,
         no_bundles: entry.noBundles ?? null,
-        total_prod_mt: entry.totalProdMt ?? null,
+        total_prod_mt: totalProdMt,
         hold_mt: entry.holdMt ?? null,
         rejection_mt: entry.rejectionMt ?? null,
         low_speed: emptyToNull(entry.lowSpeed),

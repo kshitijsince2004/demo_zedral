@@ -78,8 +78,10 @@ export function routeCodeFromBatch(machineCode: string, subProcess: string): str
     'PKL:': 'P',
     'ANN:': 'F',
     'RWD:': 'R',
+    'RWD:RWD': 'R',
     'CRS:': 'C',
     'CTL:': 'LE',
+    'CTL:CTL': 'LE',
   };
   const key = subProcess ? `${machineCode}:${subProcess}` : `${machineCode}:`;
   if (map[key]) return map[key];
@@ -370,10 +372,13 @@ export class ProcessRouteService {
       .where('step_id', '=', currentStep.step_id)
       .execute();
 
+    // Advance to the next non-skipped step (e.g. CRS For-CTL sets PKG/LE to SKIPPED).
     const nextStep = await db.selectFrom('planning.order_journey_step')
       .selectAll()
       .where('journey_id', '=', String(journeyId))
-      .where('step_no', '=', journey.current_step_no + 1)
+      .where('step_no', '>', journey.current_step_no)
+      .where('status', '!=', 'SKIPPED')
+      .orderBy('step_no', 'asc')
       .executeTakeFirst();
 
     if (!nextStep) {

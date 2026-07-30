@@ -63,7 +63,7 @@ describe('machineRouting', () => {
   it('builds all-machine nav items with CRM first', () => {
     const items = getMachineNavItems('OPERATOR', ['4HI', '6HI', 'HRS'], ['HRS'], 'operator');
     expect(items.map((i) => i.code)).toEqual(['6HI', '4HI', 'HRS']);
-    expect(items.map((i) => i.path)).toEqual(['/operator.operator', '/operator.operator', '/capture/HRS']);
+    expect(items.map((i) => i.path)).toEqual(['/operator.operator', '/operator.operator', '/operator.operator']);
   });
 
   it('filters CRM machines from assignments', () => {

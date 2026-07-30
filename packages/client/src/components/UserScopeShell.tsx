@@ -3,10 +3,14 @@ import { Navigate, Outlet, useParams } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
 import { getEffectiveMachineAccess } from '../lib/machineRouting';
 import { isCrmMillCode } from '../lib/millConfig';
+import { isProcessStationCode } from '../lib/processConfig';
 import { getRoleHomePath } from '../lib/roleHome';
 import { isUserScopePath, matchesUserScope } from '../lib/userScope';
+import { useTenantStationFlag } from '../hooks/useTenantStationFlag';
 import { MillAccessGate } from './MillAccessGate';
 import { SixHiLayout } from './sixHi/SixHiLayout';
+import { StationAccessGate } from './process/StationAccessGate';
+import { ProcessLayout } from './process/ProcessLayout';
 
 /**
  * Guards /:userScope routes (e.g. /operator.operator).
@@ -26,6 +30,9 @@ export function UserScopeShell() {
   const machine = active && machines.includes(active)
     ? active
     : machines[0] ?? null;
+
+  const stationCode = machine && isProcessStationCode(machine) ? machine : null;
+  const { enabled: stationEnabled, loading: flagsLoading } = useTenantStationFlag(stationCode);
 
   useEffect(() => {
     if (machine && machine !== activeMachine) {
@@ -47,6 +54,26 @@ export function UserScopeShell() {
       <MillAccessGate machine={machine}>
         <SixHiLayout />
       </MillAccessGate>
+    );
+  }
+
+  if (machine && isProcessStationCode(machine)) {
+    if (flagsLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+          Loading station feature flags…
+        </div>
+      );
+    }
+
+    if (!stationEnabled) {
+      return <Navigate to={`/capture/${encodeURIComponent(machine)}`} replace />;
+    }
+
+    return (
+      <StationAccessGate machine={machine}>
+        <ProcessLayout />
+      </StationAccessGate>
     );
   }
 

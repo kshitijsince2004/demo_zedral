@@ -9,6 +9,7 @@ export function roleSlug(role: Role): string {
 const SLUG_TO_ROLE: Record<string, Role> = {
   operator: UserRole.OPERATOR,
   machine_head: UserRole.MACHINE_HEAD,
+  quality: UserRole.QUALITY,
   plant_head: UserRole.PLANT_HEAD,
   admin: UserRole.ADMIN,
 };

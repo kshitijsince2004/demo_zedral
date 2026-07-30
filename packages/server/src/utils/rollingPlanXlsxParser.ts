@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { translatePpcRoute } from './PpcRouteTranslator';
 import { currentPlantDate, formatDateOnly, formatPlantDate } from './dateOnly';
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING';
+export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL';
 export type PpcMillCode = '6HI' | '4HI' | '2HI';
 
 export interface RollingPassPlanInput {
@@ -17,8 +17,9 @@ export interface ParsedRollingPlanRow {
   batchNumber: string;
   planDate: string;
   shiftCode: string;
-  machineCode: PpcMillCode;
-  subProcess: 'ROLLING' | 'SKIN_PASS';
+  /** Mill codes for CRM plans; `RWD` / `CTL` for process-plan import. */
+  machineCode: PpcMillCode | 'RWD' | 'CTL';
+  subProcess: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL';
   coilNo: string;
   slitId?: string;
   customerName: string;
@@ -31,7 +32,7 @@ export interface ParsedRollingPlanRow {
   ppcWeightMt: number;
   ppcRerollFlag: boolean;
   coilCount: number;
-  destination?: 'REWINDING' | 'ANNEALING';
+  destination?: 'REWINDING' | 'ANNEALING' | 'CTL';
   rollFinish?: string;
   processRouteRaw: string;
   processRouteCanonical: string;
@@ -45,6 +46,15 @@ export interface ParsedRollingPlanRow {
   maxThkTolMm?: number;
   spRaMaxUm?: number;
   spRaMinUm?: number;
+  /** CTL plan extras — stored in raw_row_json for prefill. */
+  lengthMm?: number;
+  plannedPcs?: number;
+  noOfRows?: number;
+  bundleWtMt?: number;
+  prodVersion?: string;
+  packingType?: string;
+  lengthTolNegMm?: number;
+  lengthTolPosMm?: number;
   rollingPassPlans: RollingPassPlanInput[];
   errors: string[];
 }
@@ -59,6 +69,7 @@ const SHEET_NAME_PATTERNS: Record<PpcXlsxSheetType, RegExp[]> = {
   SKIN_PASS: [/skin\s*pass/i, /skinpass/i],
   REWINDING: [/rewind/i, /r\/w/i],
   ANNEALING: [/anneal/i, /\bann\b/i],
+  CTL: [/cut\s*to\s*length/i, /\bctl\b/i, /^sheet\s*1$/i],
 };
 
 const HEADER_MAP: Record<string, string> = {
@@ -368,6 +379,14 @@ export function parseRollingPlanXlsx(
       maxThkTolMm: num(raw.maxThkTolMm),
       spRaMaxUm: num(raw.spRaMax),
       spRaMinUm: num(raw.spRaMin),
+      lengthMm: num(raw.lengthMm),
+      plannedPcs: num(raw.plannedPcs),
+      noOfRows: num(raw.noOfRows),
+      bundleWtMt: num(raw.bundleWtMt),
+      prodVersion: raw.prodVersion ? String(raw.prodVersion).trim() : undefined,
+      packingType: raw.packingType ? String(raw.packingType).trim() : undefined,
+      lengthTolNegMm: num(raw.lengthTolNegMm),
+      lengthTolPosMm: num(raw.lengthTolPosMm),
       rollingPassPlans,
       errors,
     });

@@ -8,7 +8,11 @@ import { ZButton } from '../../components/primitives/ZButton';
 /** Render stored audit values as plain text (not raw JSON). */
 function formatAuditValue(value: string | null): string {
   if (value == null || value === '') return '—';
-  const trimmed = value.trim();
+  let trimmed = value.trim();
+  // Some sources wrap JSON payloads as `(...)`.
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+    trimmed = trimmed.slice(1, -1);
+  }
   if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
     return value;
   }
@@ -40,10 +44,6 @@ function formatPlainLeaf(value: unknown): string {
 const ACTION_OPTIONS = ['', 'INSERT', 'UPDATE', 'DELETE'] as const;
 const PAGE_SIZE = 50;
 
-/**
- * Audit trail browser for Plant Head and Admin (read-only).
- * Search + filters: free text, action, table, user, date range.
- */
 export function AuditTrailView() {
   const today = currentPlantDate();
   const [records, setRecords] = useState<AuditRecord[]>([]);

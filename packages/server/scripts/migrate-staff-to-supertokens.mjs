@@ -14,7 +14,7 @@ supertokens.init({
   framework: 'express',
   supertokens: {
     connectionURI: process.env.SUPERTOKENS_CORE_URI || 'http://localhost:3567',
-    apiKey: process.env.SUPERTOKENS_API_KEY || 'local_development_key',
+    apiKey: process.env.SUPERTOKENS_API_KEY || 'local-development-key',
   },
   appInfo: {
     appName: 'Zedral M1',
