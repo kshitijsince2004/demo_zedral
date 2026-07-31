@@ -242,3 +242,10 @@ Living register of integration/branch context and agent changes. **Update this f
 - **Touched:** `OperatorNavRail.tsx`, `ProcessHub.tsx`, `processStore.ts`, `pklSiblingSelect.ts`, `CaptureWorkspace.tsx`, `PklCoilForm.tsx`, `pklMhDesk.ts`, `MachineHeadNav.tsx`, `MachineHeadShell.tsx`, `AutoSourceService.ts`, `ProcessStationService.ts`, `tests/pklMhDesk.test.ts`
 - **Decisions / skipped:** Option A only (no CRM combine); ANN desk priority over PKL when both; no new PKL live page.
 - **Follow-ups:** none
+
+### 2026-07-31 — Share code to zedral_test
+
+- **Goal:** Commit full working tree and push to `zedral_test` branch `share-the-code`.
+- **Touched:** branch `share-the-code` @ `a24d054` ? `https://github.com/kshitijsince2004/zedral_test.git`
+- **Decisions / skipped:** Kept `origin` as `hsl_zedral`; added remote `zedral_test`. `.env` not committed.
+- **Follow-ups:** none
