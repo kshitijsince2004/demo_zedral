@@ -28,6 +28,7 @@ const DATETIME_KEYS = new Set([
   'end_at',
   'rejected_at',
   'occurred_at',
+  'exp_unloading_time',
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
@@ -47,6 +48,16 @@ const FIELD_LABELS: Record<string, string> = {
   prod_date: 'Production date',
   shift_code: 'Shift',
   charge_no: 'Charge',
+  base_no: 'ANN base',
+  annealing_batch_no: 'Annealing batch',
+  furnace_id: 'F/C No',
+  dew_point_n2: 'Dew point N₂',
+  dew_point_h2: 'Dew point H₂',
+  exp_unloading_time: 'Exp. unloading',
+  unloading_wt_mt: 'Unload wt (MT)',
+  current_stage_code: 'Current stage',
+  soak_temp_degc: 'Soak temp (°C)',
+  soak_time_hr: 'Soak time (hr)',
   slit_count: 'Slit count',
   remarks: 'Remarks',
   for_ctl: 'For CTL',
@@ -57,7 +68,21 @@ const PROCESS_FIELDS: Record<string, string[]> = {
   CRM: ['mill_type', 'input_thk_mm', 'output_thk_mm', 'weight_mt', 'grade_code'],
   HRS: ['grade_code', 'weight_mt', 'slit_count', 'prod_date', 'shift_code'],
   PKL: ['grade_code', 'weight_mt', 'input_thk_mm', 'output_thk_mm', 'prod_date'],
-  ANN: ['charge_no', 'grade_code', 'weight_mt', 'prod_date'],
+  ANN: [
+    'base_no',
+    'annealing_batch_no',
+    'charge_no',
+    'status',
+    'furnace_id',
+    'dew_point_n2',
+    'dew_point_h2',
+    'exp_unloading_time',
+    'unloading_wt_mt',
+    'current_stage_code',
+    'soak_temp_degc',
+    'soak_time_hr',
+    'grade_code',
+  ],
   SKP: ['input_thk_mm', 'output_thk_mm', 'weight_mt', 'grade_code'],
   RWD: ['weight_mt', 'grade_code', 'prod_date', 'shift_code'],
   CRS: ['grade_code', 'weight_mt', 'for_ctl', 'prod_date'],
@@ -115,5 +140,6 @@ export function formatTraceabilityRecordDetails(
     pairs.push({ label: 'Charge siblings', value: extras.siblings.join(', ') });
   }
 
-  return pairs.slice(0, 6);
+  const max = process === 'ANN' ? 12 : 6;
+  return pairs.slice(0, max);
 }

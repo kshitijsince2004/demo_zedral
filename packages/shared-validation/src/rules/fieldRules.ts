@@ -9,21 +9,70 @@ const timeHHmm = z
 
 // ─── Slit slot (HR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_hrs_slit
-export const HRSSlitSlotSchema = z.object({
-  label: z.enum(['A', 'B', 'C', 'D']),
-  widthMm: z.number().positive('Width must be positive'),
+export const HRSSlitSlotSchema = z.preprocess((raw) => {
+  if (raw && typeof raw === 'object' && raw !== null) {
+    const o = raw as Record<string, unknown>;
+    if ((o.slot == null || o.slot === '') && typeof o.label === 'string') {
+      return { ...o, slot: o.label };
+    }
+  }
+  return raw;
+}, z.object({
+  // ponytail: reconcile to `slot` (plan §1); label aliases via preprocess
+  slot: z.string().trim().min(1).max(8),
+  label: z.string().trim().min(1).max(8).optional(),
+  widthMm: z.number().positive('Width must be positive').optional(),
+  targetWidthMm: z.number().positive().optional(),
+  actualWidthMm: z.number().positive().optional(),
   thkMm: z.number().positive().optional(),
+  plannedThkMm: z.number().positive().optional(),
+  thkIdMm: z.number().positive().optional(),
+  thkCentreMm: z.number().positive().optional(),
+  thkOdMm: z.number().positive().optional(),
+  plannedWeightMt: z.number().positive().optional(),
+  actualWeightMt: z.number().positive().optional(),
   taper: z.string().optional(),
   childCoilNo: z.string().optional(),
-});
+  customer: z.string().optional(),
+  sapBatchNumber: z.string().optional(),
+  surfaceFinish: z.string().optional(),
+  finishThicknessMm: z.number().positive().optional(),
+  routeRaw: z.string().optional(),
+  resolvedNextStep: z.string().optional(),
+  downstreamCrsCombination: z.string().optional(),
+  holdFlag: z.boolean().optional(),
+  forCtlFlag: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  const w = data.targetWidthMm ?? data.widthMm;
+  if (w == null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Width required', path: ['widthMm'] });
+  }
+}));
 export const SlitSlotSchema = HRSSlitSlotSchema;
 
 // ─── Slit slot (CR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_crs_slit
 export const CRSSlitSlotSchema = z.object({
-  label: z.enum(['A', 'B', 'C', 'D']),
+  label: z.enum(['A', 'B', 'C', 'D', 'E']),
   widthMm: z.number().positive('Width must be positive'),
   childCoilNo: z.string().optional(),
+  slitNo: z.string().optional(),
+  finishWidthMm: z.number().positive().optional(),
+  noOfSlit: z.number().int().positive().optional(),
+  actualWidthMm: z.number().positive().optional(),
+  actualThkFrontMm: z.number().positive().optional(),
+  actualThkRearMm: z.number().positive().optional(),
+  outputWtMt: z.number().positive().optional(),
+  scrapMt: z.number().min(0).optional(),
+  rejectionOdMt: z.number().min(0).optional(),
+  rejectionIdMt: z.number().min(0).optional(),
+  holdFlag: z.boolean().optional(),
+  forCtlFlag: z.boolean().optional(),
+  routeCode: z.string().optional(),
+  sapBatchNumber: z.string().optional(),
+  camberWaviness: z.string().optional(),
+  raUm: z.number().optional(),
+  rzUm: z.number().optional(),
 });
 
 // ─── Base process entry ───────────────────────────────────────────────────────
@@ -50,7 +99,7 @@ export const HRSSchema = BaseProcessEntrySchema.extend({
   // scrapPct is derived — not captured
   actualSlitWidthFromMm: z.number().positive().optional(),
   actualSlitWidthToMm: z.number().positive().optional(),
-  slitSlots: z.array(HRSSlitSlotSchema).max(4, 'Maximum of 4 slit slots (A–D) allowed'),
+  slitSlots: z.array(HRSSlitSlotSchema).max(12, 'Practical UI cap 12 slits'),
 }).superRefine((data, ctx) => {
   if (data.actualWidthMm > data.nominalWidthMm) {
     ctx.addIssue({
@@ -71,7 +120,7 @@ export const HRSSchema = BaseProcessEntrySchema.extend({
     });
   }
   // Slot labels must be unique
-  const labels = data.slitSlots.map((s) => s.label);
+  const labels = data.slitSlots.map((s) => s.slot || s.label);
   if (new Set(labels).size !== labels.length) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -80,7 +129,7 @@ export const HRSSchema = BaseProcessEntrySchema.extend({
     });
   }
   // Req: Sum of slit widths cannot exceed nominal width
-  const sumSlitWidths = data.slitSlots.reduce((sum, slot) => sum + slot.widthMm, 0);
+  const sumSlitWidths = data.slitSlots.reduce((sum, slot) => sum + (slot.targetWidthMm ?? slot.widthMm ?? 0), 0);
   if (sumSlitWidths > data.nominalWidthMm) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -97,11 +146,24 @@ export const PKLSchema = BaseProcessEntrySchema.extend({
   widthMm: z.number().positive(),
   thkMm: z.number().positive(),
   weightMt: z.number().positive(),
+  ppcWeightMt: z.number().positive().optional(),
   lineSpeedMpm: z.number().positive(),
   heatNo: z.string().min(1, 'Heat number is required'),
   source: z.string(),
-  wip: z.string().optional(),        // coded/text — not boolean
-  leaderEnd: z.string().optional(),  // coded/text — not boolean
+  wip: z.string().optional(),
+  leaderEnd: z.string().optional(),
+  repeats: z.number().int().nonnegative().optional(),
+  wp: z.enum(['W', 'P']).optional(),
+  endFilling: z.boolean().optional(),
+  ht: z.string().optional(),
+  motherCoilNo: z.string().optional(),
+  slitId: z.string().optional(),
+  customer: z.string().optional(),
+  gradeCode: z.string().optional(),
+  routeRaw: z.string().optional(),
+  status: z.string().optional(),
+  crewRef: z.string().optional(),
+  totalTimeMin: z.number().optional(),
 });
 
 // ─── Pickling – hourly process chart ─────────────────────────────────────────
@@ -308,7 +370,7 @@ export const CRSSchema = BaseProcessEntrySchema.extend({
   rpOilGrade: z.string().optional(),        // coded reference to master.rp_oil_grade — not boolean
   holdMt: z.number().min(0).optional(),
   forCtlMt: z.number().min(0).optional(),
-  slitSlots: z.array(CRSSlitSlotSchema).max(4, 'Maximum of 4 slit slots (A–D) allowed'),
+  slitSlots: z.array(CRSSlitSlotSchema).max(5, 'Maximum of 5 slit slots (A–E) allowed'),
 });
 
 // ─── Cut-to-Length ────────────────────────────────────────────────────────────

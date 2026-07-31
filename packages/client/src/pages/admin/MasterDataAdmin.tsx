@@ -398,6 +398,12 @@ export function MasterDataAdmin() {
           >
             Machines →
           </Link>
+          <Link
+            to="/admin/machine-specs"
+            className="h-9 rounded-sm px-3 text-[10px] font-semibold uppercase tracking-wider border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 inline-flex items-center"
+          >
+            CRS Specs →
+          </Link>
         </div>
       </AdminPanel>
 

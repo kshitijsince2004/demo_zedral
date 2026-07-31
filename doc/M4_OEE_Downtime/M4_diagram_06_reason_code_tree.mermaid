@@ -1,9 +1,0 @@
-flowchart TD
-  L1["Layer 1 · Category (2-3s tap; 6-8 max): Mechanical · Electrical · Material · Changeover · Operator/Process · Utility · Quality · Planned"]
-  L2["Layer 2 · Equipment / subsystem (15-25 per category, filtered): e.g. Mechanical -> roll / bearing / drive / hydraulics"]
-  L3["Layer 3 · Root-cause detail (optional under 15 min, required 15 min+): e.g. bearing failure · seal leak · misalignment"]
-  L1 --> L2 --> L3
-  L1 --> MIN["Minimum viable data captured even if shift ends after Layer 1"]
-  L3 --> MAP["Each leaf -> LossCategory -> OEE component (canonical mapping)"]
-  MAP --> PAR["Top-loss Pareto by minutes AND by cost"]
-  PAR --> OTH["Govern 'All Other': if it enters top-loss or above 10%, split with the crew"]

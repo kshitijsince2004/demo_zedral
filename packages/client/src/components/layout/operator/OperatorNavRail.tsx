@@ -1,9 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ClipboardList, ListOrdered, LogOut, Plus } from 'lucide-react';
+import { ClipboardList, FlaskConical, History, Layers, ListOrdered, LogOut, Plus } from 'lucide-react';
 import { useAuthStore } from '../../../lib/authStore';
 import { getMachineNavItems } from '../../../lib/machineRouting';
 import { useSixHiStore } from '../../../store/sixHiStore';
+import { useProcessStore } from '../../../store/processStore';
 import { isMillPath, millBasePath, millCodeFromPath } from '../../../lib/millPath';
+import { isCrmMillPath } from '../../../lib/millConfig';
+import { useProcessWorkspaceBase } from '../../../hooks/useProcessWorkspaceBase';
 import { ProcessLineSwitcher } from '../../capture/ProcessLineSwitcher';
 import ZedralLogo from '../../../assets/white logo.png';
 
@@ -12,39 +15,110 @@ interface OperatorNavRailProps {
   onLogout: () => void;
 }
 
-/** CRM (6HI) operator navigation — orders, capture, manual order. */
+/** Operator side nav — CRM mill, PKL, or ANN process. */
 export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { role, machineAccess, lineAccess, username, activeMachine } = useAuthStore();
   const openManualOrder = useSixHiStore((s) => s.openManualOrder);
+  const requestManualCoil = useProcessStore((s) => s.requestManualCoil);
+  const activeCoilNo = useProcessStore((s) => s.activeCoilNo);
+  const { basePath: processBase } = useProcessWorkspaceBase();
 
   const machineNav = getMachineNavItems(role, machineAccess, lineAccess, username);
+  const isCrm = isCrmMillPath(location.pathname);
+  const isPkl = !isCrm && processCode === 'PKL';
+  const isAnn = !isCrm && processCode === 'ANN';
+
   const millBase = millBasePath(
     (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname) ?? '6HI',
     username && role ? { username, role } : null,
   );
 
-  const items = [
-    {
-      id: 'orders',
-      label: 'Orders',
-      icon: ListOrdered,
-      path: millBase,
-      match: (p: string) => isMillPath(p) && !p.includes('/capture') && !p.includes('/handover'),
-    },
-    {
-      id: 'capture',
-      label: 'Capture',
-      icon: ClipboardList,
-      path: `${millBase}/capture`,
-      match: (p: string) => p.endsWith('/capture'),
-    },
-  ];
+  const search = location.search;
+  const items = isAnn
+    ? [
+        {
+          id: 'base',
+          label: 'Base',
+          icon: Layers,
+          path: `${processBase || '/'}?tab=charges`,
+          match: () =>
+            !location.pathname.includes('/history')
+            && !location.pathname.includes('/charge/')
+            && (search.includes('tab=charges') || (!search.includes('tab=coils') && !location.pathname.includes('/history'))),
+        },
+        {
+          id: 'batches',
+          label: 'Batches',
+          icon: ListOrdered,
+          path: `${processBase || '/'}?tab=coils`,
+          match: () => !location.pathname.includes('/history') && search.includes('tab=coils'),
+        },
+        {
+          id: 'history',
+          label: 'History',
+          icon: History,
+          path: `${processBase}/history`,
+          match: () => location.pathname.includes('/history'),
+        },
+      ]
+    : isPkl
+      ? [
+          {
+            id: 'orders',
+            label: 'Orders',
+            icon: ListOrdered,
+            path: processBase || '/',
+            match: (p: string) =>
+              !p.includes('/capture') && !p.includes('/chart') && !p.includes('/handover'),
+          },
+          {
+            id: 'capture',
+            label: 'Capture',
+            icon: ClipboardList,
+            path: activeCoilNo
+              ? `${processBase}/capture/${encodeURIComponent(activeCoilNo)}`
+              : processBase || '/',
+            match: (p: string) => p.includes('/capture'),
+          },
+          {
+            id: 'readings',
+            label: 'Readings',
+            icon: FlaskConical,
+            path: `${processBase}/chart`,
+            match: (p: string) => p.includes('/chart'),
+          },
+        ]
+      : [
+          {
+            id: 'orders',
+            label: 'Orders',
+            icon: ListOrdered,
+            path: millBase,
+            match: (p: string) => isMillPath(p) && !p.includes('/capture') && !p.includes('/handover'),
+          },
+          {
+            id: 'capture',
+            label: 'Capture',
+            icon: ClipboardList,
+            path: `${millBase}/capture`,
+            match: (p: string) => p.endsWith('/capture'),
+          },
+        ];
 
   const itemActiveClass = 'bg-white/20 text-white border border-white/30';
   const itemIdleClass = 'text-white/70 hover:text-white hover:bg-white/10 border border-transparent';
   const footerClass = 'text-white/70 hover:text-white hover:bg-white/10 border border-transparent';
+
+  function onManual() {
+    if (isPkl) {
+      requestManualCoil();
+      if (processBase) navigate(processBase);
+      return;
+    }
+    openManualOrder();
+  }
 
   return (
     <nav
@@ -76,15 +150,19 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
           );
         })}
 
-        <button
-          type="button"
-          title="New Order"
-          onClick={openManualOrder}
-          className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-sm transition-colors text-accent hover:bg-white/10 border border-accent/40"
-        >
-          <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-          <span className="text-[8px] uppercase tracking-wider font-bold">New</span>
-        </button>
+        {!isAnn && (
+          <button
+            type="button"
+            title={isPkl ? 'Manual Coil' : 'New Order'}
+            onClick={onManual}
+            className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-sm transition-colors text-accent hover:bg-white/10 border border-accent/40"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+            <span className="text-[8px] uppercase tracking-wider font-bold">
+              {isPkl ? 'Manual' : 'New'}
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="flex-1 min-h-4" />

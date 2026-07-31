@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
+import { getProcessConfig, isProcessStationCode } from '../../../lib/processConfig';
 import { CircleStop, Moon, PauseCircle } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
 import { useSixHiStore } from '../../../store/sixHiStore';
@@ -73,7 +74,11 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const machineCode = useSixHiStore((s) => s.machineCode);
   const manualStoppage = useSixHiStore((s) => s.manualStoppage);
   const isCrmMill = isCrmMillPath(location.pathname);
-  const line = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
+  const lineCode = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
+  const line =
+    !isCrmMill && processCode && isProcessStationCode(processCode)
+      ? (getProcessConfig(processCode).label ?? processCode)
+      : lineCode;
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
   const paceTone: Tone =
     progressPct >= 80 ? 'success' : progressPct >= 50 ? 'warning' : 'destructive';

@@ -24,6 +24,10 @@ export interface ProcessPrefill {
   heatNo?: PrefillField<string>;
   routeRaw?: PrefillField<string>;
   batchNumber?: PrefillField<string>;
+  /** PKL / HRS trace — mother coil. */
+  motherCoilNo?: PrefillField<string>;
+  /** PKL slit id from plan. */
+  slitId?: PrefillField<string>;
   /** Pre-Stage thickness used when operator leaves observed blank (RWD-Q1). */
   outputThkMmFallback?: PrefillField<number>;
   /** Plan surface as M/B; null/absent → operator must choose (RWD-Q2). */
@@ -208,6 +212,17 @@ export class AutoSourceService {
       if (batch.batch_number) {
         result.batchNumber = field(batch.batch_number, 'Plan');
       }
+      if (code === 'PKL') {
+        if (batch.slit_id) result.slitId = field(batch.slit_id, 'Plan');
+        // Plan coil_no is the mother when journey coil is a slit child.
+        if (batch.coil_no && batch.coil_no !== coilNo) {
+          result.motherCoilNo = field(batch.coil_no, 'Plan');
+        } else {
+          const { coilNo: base } = parseCoilIdentity(coilNo);
+          if (base && base !== coilNo) result.motherCoilNo = field(base, 'Plan');
+          else if (batch.coil_no) result.motherCoilNo = field(batch.coil_no, 'Plan');
+        }
+      }
       if (code === 'RWD') {
         const fallbackThk = batch.input_thk_mm ?? batch.ppc_thk_mm;
         result.outputThkMmFallback = field(
@@ -234,6 +249,7 @@ export class AutoSourceService {
         'c.coil_thk_mm',
         'c.weight_mt',
         'c.heat_no',
+        'c.parent_coil_no',
         'cu.customer_name as customer_name',
       ])
       .where('c.coil_no', '=', coilNo)
@@ -253,6 +269,9 @@ export class AutoSourceService {
         result.weightMt = field(coil.weight_mt != null ? Number(coil.weight_mt) : undefined, 'Master');
       }
       if (!result.heatNo) result.heatNo = field(coil.heat_no ?? undefined, 'Master');
+      if (code === 'PKL' && !result.motherCoilNo && coil.parent_coil_no) {
+        result.motherCoilNo = field(coil.parent_coil_no, 'Master');
+      }
       if (code === 'RWD' && !result.outputThkMmFallback && coil.coil_thk_mm != null) {
         result.outputThkMmFallback = field(Number(coil.coil_thk_mm), 'Master');
       }

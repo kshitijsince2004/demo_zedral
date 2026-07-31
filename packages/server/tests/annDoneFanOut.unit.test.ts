@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const advanceJourneyByCoil = vi.fn().mockResolvedValue(null);
 
-// Mock DB access for transitionAnnCharge.
 const dbMock = {
   selectFrom: vi.fn((table: string) => {
     const ctx: Record<string, any> = {};
@@ -18,23 +17,27 @@ const dbMock = {
       },
       executeTakeFirst: async () => {
         if (table === 'txn.ann_charge') {
-          return { status: 'RW' };
+          return { status: 'IN_PROCESS' };
         }
         if (table === 'planning.order_journey') {
-          // ctx.coil_no is set from where('coil_no', '=', ...)
-          return ctx.coil_no === 'C1'
-            ? { journey_id: 10, current_step_no: 2 }
+          return ctx.coil_no === 'C1' || ctx.coil_no === 'C3'
+            ? { journey_id: ctx.coil_no === 'C1' ? 10 : 30, current_step_no: 2 }
             : { journey_id: 20, current_step_no: 2 };
         }
         if (table === 'planning.order_journey_step') {
-          // determined by where('journey_id', '=', ...)
-          return String(ctx.journey_id) === '10' ? { status: 'ACTIVE' } : null;
+          return String(ctx.journey_id) === '10' || String(ctx.journey_id) === '30'
+            ? { status: 'ACTIVE' }
+            : null;
         }
         return null;
       },
       execute: async () => {
         if (table === 'txn.ann_charge_coil') {
-          return [{ coil_no: 'C1' }, { coil_no: 'C2' }];
+          return [
+            { coil_no: 'C1', disposition: 'ADVANCE' },
+            { coil_no: 'C2', disposition: 'ADVANCE' },
+            { coil_no: 'C3', disposition: 'HOLD' },
+          ];
         }
         if (table === 'txn.ann_charge_coil as acc') {
           return [{ weight_mt: 1 }, { weight_mt: 2 }];
@@ -64,7 +67,7 @@ describe('ANN charge DONE fan-out', () => {
     advanceJourneyByCoil.mockClear();
   });
 
-  it('advances only coils whose ANN step is currently ACTIVE', async () => {
+  it('advances ADVANCE coils with ACTIVE ANN step; skips HOLD', async () => {
     const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
     const { ProcessStationService } = await import('../src/services/ProcessStationService');
 
@@ -72,9 +75,20 @@ describe('ANN charge DONE fan-out', () => {
 
     await ProcessStationService.transitionAnnCharge('CH-1', 'DONE', {});
 
-    // C1 has ACTIVE ANN step; C2 is not currently at ANN => should not advance.
     expect(advanceJourneyByCoil).toHaveBeenCalledTimes(1);
     expect(advanceJourneyByCoil).toHaveBeenCalledWith('C1', {});
   });
 });
 
+describe('ANN stage totals', () => {
+  it('sums non-skipped duration_min', () => {
+    const stages = [
+      { duration_min: 10, skipped: false },
+      { duration_min: 20, skipped: false },
+      { duration_min: 5, skipped: true },
+      { duration_min: null, skipped: false },
+    ];
+    const total = stages.filter((s) => !s.skipped).reduce((sum, s) => sum + Number(s.duration_min ?? 0), 0);
+    expect(total).toBe(30);
+  });
+});

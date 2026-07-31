@@ -71,7 +71,7 @@ export function ProcessLayout() {
     <HandoverAcceptGate machineCode={machine}>
       <OperatorShell processCode={machine}>
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <div className="flex-1 min-w-0 overflow-hidden pr-[5.5rem]">
+          <div className="flex-1 min-w-0 h-full min-h-0 overflow-hidden pr-[5.5rem]">
             <Outlet context={{ config, processCode: machine }} />
           </div>
           {activeCoilNo && config.archetype !== 'B' && (

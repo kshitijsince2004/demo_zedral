@@ -1,8 +1,0 @@
-stateDiagram-v2
-  [*] --> Accumulating: shift runs; events/confirmations logged (M1 + M3)
-  Accumulating --> Drafted: outgoing supervisor compiles handover (auto-pulled actuals + notes)
-  Drafted --> Reviewed: mandatory sections enforced (safety, open orders, exceptions cannot be skipped)
-  Reviewed --> Handover: outgoing + incoming meet (written + verbal), incoming acknowledges
-  Handover --> SignedOff: both sign; carryover items transferred; audit-logged
-  SignedOff --> [*]
-  Drafted --> Drafted: open order / WIP / stoppage auto-carried (nothing orphaned)

@@ -7,11 +7,7 @@ import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useShiftStore, type ProcessLine } from '../../store/shiftStore';
 import { formatShiftDate } from '../../lib/dateFormat';
 import {
-  AnnCaptureForm,
-  CrsCaptureForm,
   CtlCaptureForm,
-  HrsCaptureForm,
-  PklCaptureForm,
   RwdCaptureForm,
 } from './ProcessForms';
 
@@ -23,7 +19,8 @@ interface ActiveShiftResponse {
   producedMt: number;
 }
 
-const supportedMachines = ['HRS', 'PKL', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL'] as const;
+/** HRS / CRS / PKL / ANN use process hub — not GenericCapture. */
+const supportedMachines = ['SKP', 'RWD', 'CTL'] as const;
 type SupportedMachine = (typeof supportedMachines)[number];
 
 function isSupportedMachine(value: string): value is SupportedMachine {
@@ -32,12 +29,7 @@ function isSupportedMachine(value: string): value is SupportedMachine {
 
 function formFor(machineCode: SupportedMachine, shiftLogId: string) {
   const props = { machineCode, shiftLogId };
-  if (machineCode === 'HRS') return <HrsCaptureForm {...props} />;
-  if (machineCode === 'PKL') return <PklCaptureForm {...props} />;
-  if (machineCode === 'ANN') return <AnnCaptureForm {...props} />;
-
   if (machineCode === 'RWD') return <RwdCaptureForm {...props} />;
-  if (machineCode === 'CRS') return <CrsCaptureForm {...props} />;
   return <CtlCaptureForm {...props} />;
 }
 
@@ -93,6 +85,11 @@ export function GenericCapturePage() {
   }, [activeMachine, canLoadCapture, machineCode, setActiveMachine]);
 
   if (!rawMachineCode) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Plan — HRS/CRS/PKL/ANN capture lives on the process hub.
+  if (machineCode === 'CRS' || machineCode === 'HRS' || machineCode === 'PKL' || machineCode === 'ANN') {
     return <Navigate to="/" replace />;
   }
 

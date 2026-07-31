@@ -7,6 +7,7 @@ import {
   parseRouteString,
   type CompletionPayload,
 } from '../../../services/ProcessRouteService';
+import { resolveCrsSlitPreferredRoute } from '../../../utils/crsSlitRoute';
 
 const ADVANCE_PROCESSES = new Set(['HRS', 'PKL', 'RWD', 'CRS', 'CTL']);
 const SLIT_PROCESSES = new Set(['HRS', 'CRS']);
@@ -23,6 +24,14 @@ interface SlitSlotRow {
   width_mm: number | string | null;
   thk_mm?: number | string | null;
   child_coil_no: string | null;
+  hold_flag?: boolean | null;
+  for_ctl_flag?: boolean | null;
+  route_code?: string | null;
+  route_raw?: string | null;
+  output_wt_mt?: number | string | null;
+  actual_weight_mt?: number | string | null;
+  actual_thk_front_mm?: number | string | null;
+  thk_id_mm?: number | string | null;
 }
 
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
@@ -70,14 +79,33 @@ async function isStepCompleted(coilNo: string, processCode: string): Promise<boo
 
 async function loadHrsSlits(entryId: string): Promise<SlitSlotRow[]> {
   return db.selectFrom('txn.prod_hrs_slit')
-    .select(['slot', 'width_mm', 'thk_mm', 'child_coil_no'])
+    .select([
+      'slot',
+      'width_mm',
+      'thk_mm',
+      'child_coil_no',
+      'hold_flag',
+      'for_ctl_flag',
+      'route_raw',
+      'actual_weight_mt',
+      'thk_id_mm',
+    ])
     .where('entry_id', '=', entryId)
     .execute();
 }
 
 async function loadCrsSlits(entryId: string): Promise<SlitSlotRow[]> {
   return db.selectFrom('txn.prod_crs_slit')
-    .select(['slot', 'width_mm', 'child_coil_no'])
+    .select([
+      'slot',
+      'width_mm',
+      'child_coil_no',
+      'hold_flag',
+      'for_ctl_flag',
+      'route_code',
+      'output_wt_mt',
+      'actual_thk_front_mm',
+    ])
     .where('entry_id', '=', entryId)
     .execute();
 }
@@ -226,9 +254,6 @@ async function spawnChildCoils(
     .orderBy('journey_id', 'desc')
     .executeTakeFirst();
   const routeRaw = journey?.route_raw ?? 'S-P-4-R-F-C-LE-PKG';
-  const childRoute = preferredNextRouteCode
-    ? routeAfterStepPreferred(routeRaw, processCode, preferredNextRouteCode)
-    : routeAfterStep(routeRaw, processCode);
 
   const seen = new Set<string>();
   for (const slit of slits) {
@@ -251,6 +276,13 @@ async function spawnChildCoils(
       .where('coil_no', '=', coilNo)
       .executeTakeFirst();
 
+    const thk = slit.thk_id_mm ?? slit.actual_thk_front_mm ?? slit.thk_mm;
+    const wt = slit.actual_weight_mt != null
+      ? Number(slit.actual_weight_mt)
+      : slit.output_wt_mt != null
+        ? Number(slit.output_wt_mt)
+        : mother.weight_mt;
+
     if (!existing) {
       await db.insertInto('coil.coil')
         .values({
@@ -260,11 +292,31 @@ async function spawnChildCoils(
           parent_coil_no: motherCoilNo,
           nominal_width_mm: slit.width_mm ?? mother.nominal_width_mm,
           coil_width_mm: slit.width_mm ?? mother.coil_width_mm,
-          coil_thk_mm: slit.thk_mm ?? mother.coil_thk_mm,
-          weight_mt: mother.weight_mt,
-          status: 'PLANNED',
+          coil_thk_mm: thk ?? mother.coil_thk_mm,
+          weight_mt: wt,
+          status: slit.hold_flag ? 'HOLD' : 'PLANNED',
         })
         .execute();
+    }
+
+    // ponytail: HRS HOLD mints but does not spawn journey (plan §13)
+    if (slit.hold_flag) continue;
+
+    const lineRoute = (slit.route_raw?.trim() || routeRaw);
+    let childRoute: string;
+    if (processCode === 'HRS') {
+      // Birth point: next step is usually P — never jump to LE/PKG preference
+      childRoute = routeAfterStep(lineRoute, processCode);
+    } else {
+      const linePreferred =
+        resolveCrsSlitPreferredRoute({
+          holdFlag: false,
+          forCtlFlag: slit.for_ctl_flag,
+          routeCode: slit.route_code,
+        }) ?? preferredNextRouteCode;
+      childRoute = linePreferred
+        ? routeAfterStepPreferred(lineRoute, processCode, linePreferred)
+        : routeAfterStep(lineRoute, processCode);
     }
 
     await ProcessRouteService.createJourney(coilNo, childRoute);
@@ -300,17 +352,18 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
   const quality = await validateCrsQuality(entry);
   if (!quality.pass) {
     console.warn(`[JourneyAdvanceConsumer] CRS quality gate failed for ${coilNo}:`, quality.failures);
-    await setCoilHold(coilNo);
-    return;
   }
 
   const slits = await loadCrsSlits(entryId);
   const hasSlits = slits.some((s) => s.width_mm != null || s.child_coil_no);
 
+  // Pass-level HOLD only when there is no fan-out; with slits, hold is per-line.
+  if (!quality.pass && !hasSlits) {
+    await setCoilHold(coilNo);
+    return;
+  }
+
   if (hasSlits) {
-    // For-CTL routing must also apply when spawning CRS slit children.
-    // We do it by (1) skipping undesired next route on the mother journey
-    // and (2) biasing the child route so the desired first step is active.
     const forCtlMt = entry.for_ctl_mt != null ? Number(entry.for_ctl_mt) : 0;
     const preferredNext = forCtlMt > 0 ? 'LE' : 'PKG';
 
@@ -325,7 +378,6 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
       const leIdx = steps.findIndex((s) => s.routeCode === 'LE');
       if (pkgIdx >= 0 && leIdx >= 0) {
         if (forCtlMt > 0) {
-          // When PKG comes before LE in the route, skip PKG so LE becomes next.
           if (pkgIdx < leIdx) {
             await db.updateTable('planning.order_journey_step')
               .set({ status: 'SKIPPED' })
@@ -333,15 +385,12 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
               .where('route_code', '=', 'PKG')
               .execute();
           }
-        } else {
-          // When LE comes before PKG, skip LE so PKG becomes next.
-          if (leIdx < pkgIdx) {
-            await db.updateTable('planning.order_journey_step')
-              .set({ status: 'SKIPPED' })
-              .where('journey_id', '=', String(journey.journey_id))
-              .where('route_code', '=', 'LE')
-              .execute();
-          }
+        } else if (leIdx < pkgIdx) {
+          await db.updateTable('planning.order_journey_step')
+            .set({ status: 'SKIPPED' })
+            .where('journey_id', '=', String(journey.journey_id))
+            .where('route_code', '=', 'LE')
+            .execute();
         }
       }
     }

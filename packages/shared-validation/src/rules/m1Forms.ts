@@ -21,17 +21,53 @@ export const baseProcessEntrySchema = z.object({
 });
 
 export const hrsSlitSlotSchema = z.object({
-  slot: z.enum(['A', 'B', 'C', 'D']),
-  widthMm: optionalPositiveNumber,
-  thkMm: optionalPositiveNumber,
+  // ponytail: dynamic slot label (plan drops A–D enum)
+  slot: z.string().trim().min(1).max(8),
+  widthMm: optionalPositiveNumber, // target (legacy alias)
+  targetWidthMm: optionalPositiveNumber,
+  actualWidthMm: optionalPositiveNumber,
+  thkMm: optionalPositiveNumber, // deprecated single thk — keep optional
+  plannedThkMm: optionalPositiveNumber,
+  thkIdMm: optionalPositiveNumber,
+  thkCentreMm: optionalPositiveNumber,
+  thkOdMm: optionalPositiveNumber,
+  plannedWeightMt: optionalPositiveNumber,
+  actualWeightMt: optionalPositiveNumber,
   taper: optionalString,
   childCoilNo: optionalString,
+  customer: optionalString,
+  sapBatchNumber: optionalString,
+  surfaceFinish: optionalString,
+  finishThicknessMm: optionalPositiveNumber,
+  routeRaw: optionalString,
+  resolvedNextStep: optionalString,
+  downstreamCrsCombination: optionalString,
+  holdFlag: z.boolean().optional(),
+  forCtlFlag: z.boolean().optional(),
 });
 
 export const crsSlitSlotSchema = z.object({
-  slot: z.enum(['A', 'B', 'C', 'D']),
+  slot: z.enum(['A', 'B', 'C', 'D', 'E']),
   widthMm: optionalPositiveNumber,
   childCoilNo: optionalString,
+  // ponytail: per-line CRS fan-out fields (plan §5.4)
+  slitNo: optionalString,
+  finishWidthMm: optionalPositiveNumber,
+  noOfSlit: z.coerce.number().int().positive().optional(),
+  actualWidthMm: optionalPositiveNumber,
+  actualThkFrontMm: optionalPositiveNumber,
+  actualThkRearMm: optionalPositiveNumber,
+  outputWtMt: optionalPositiveNumber,
+  scrapMt: optionalNumber,
+  rejectionOdMt: optionalNumber,
+  rejectionIdMt: optionalNumber,
+  holdFlag: z.boolean().optional(),
+  forCtlFlag: z.boolean().optional(),
+  routeCode: optionalString, // LE | PKG
+  sapBatchNumber: optionalString,
+  camberWaviness: optionalString,
+  raUm: optionalNumber,
+  rzUm: optionalNumber,
 });
 
 export const skpPassSchema = z.object({
@@ -65,11 +101,19 @@ export const hrsSchema = baseProcessEntrySchema.extend({
   nominalWidthMm: optionalPositiveNumber,
   actualWidthMm: optionalPositiveNumber,
   nominalThkMm: optionalPositiveNumber,
-  weightMt: optionalPositiveNumber,
+  weightMt: optionalPositiveNumber, // produced total (Σ lines)
+  motherCoilWeightMt: optionalPositiveNumber,
+  source: optionalString,
+  gradeCode: optionalString,
   actualSlitWidthFromMm: optionalPositiveNumber,
   actualSlitWidthToMm: optionalPositiveNumber,
   scrapMt: optionalNumber,
   scrapPct: optionalNumber,
+  netRuntimeMin: optionalNumber,
+  status: optionalString,
+  crewRef: optionalString,
+  settingCount: z.coerce.number().int().nonnegative().optional(),
+  specVersionId: z.coerce.number().int().positive().optional(),
   slitSlots: z.array(hrsSlitSlotSchema).optional(),
 });
 
@@ -77,11 +121,24 @@ export const pklSchema = baseProcessEntrySchema.extend({
   widthMm: optionalPositiveNumber,
   thkMm: optionalPositiveNumber,
   weightMt: optionalPositiveNumber,
+  ppcWeightMt: optionalPositiveNumber,
   lineSpeedMpm: optionalPositiveNumber,
   heatNo: optionalString,
   source: optionalString,
   wip: optionalString,
   leaderEnd: optionalString,
+  repeats: z.coerce.number().int().nonnegative().optional(),
+  wp: z.enum(['W', 'P']).optional(),
+  endFilling: z.boolean().optional(),
+  ht: optionalString,
+  motherCoilNo: optionalString,
+  slitId: optionalString,
+  customer: optionalString,
+  gradeCode: optionalString,
+  routeRaw: optionalString,
+  status: optionalString,
+  crewRef: optionalString,
+  totalTimeMin: optionalNumber,
   charts: z.array(pklChartRowSchema).optional(),
 });
 
@@ -153,7 +210,9 @@ export const crsSchema = baseProcessEntrySchema.extend({
   camberWaviness: optionalString,
   raUm: optionalNumber,
   rzUm: optionalNumber,
+  inputWtMt: optionalPositiveNumber,
   outputWtMt: optionalPositiveNumber,
+  scrapMt: optionalNumber,
   rejectionOdMt: optionalNumber,
   rejectionIdMt: optionalNumber,
   coatingWtBr: optionalNumber,
@@ -161,6 +220,9 @@ export const crsSchema = baseProcessEntrySchema.extend({
   rpOilGrade: optionalString,
   holdMt: optionalNumber,
   forCtlMt: optionalNumber,
+  settingCount: z.coerce.number().int().nonnegative().optional(),
+  crewRef: optionalString,
+  specVersionId: z.coerce.number().int().positive().optional(),
   slitSlots: z.array(crsSlitSlotSchema).optional(),
 });
 

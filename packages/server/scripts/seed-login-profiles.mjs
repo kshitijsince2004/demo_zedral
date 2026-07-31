@@ -35,12 +35,14 @@ async function main() {
   }
   console.log('\nStaff (email tab):');
   console.log(`  admin@zedral.local / ${staffPassword} → Admin`);
-  console.log(`  machinehead@zedral.local / ${staffPassword} → Machine Head`);
+  console.log(`  machinehead@zedral.local / ${staffPassword} → Machine Head (6HI/4HI/2HI/ANN — switch Line to ANN)`);
+  console.log(`  machinehead.ann@zedral.local / ${staffPassword} → ANN Machine Head (ANN desk only)`);
   console.log(`  supervisor@zedral.local / ${staffPassword} → Supervisor`);
   console.log(`  planthead@zedral.local / ${staffPassword} → Plant Head`);
   console.log('\nOperator (badge tab):');
   console.log(`  Badge 3000 / PIN ${pin} → Operator (/operator.operator → 6HI)`);
-  console.log('\nFor demo coils + PPC queue, run: npm run seed:admin');
+  console.log(`  Badge 3010 / PIN ${pin} → ANN Operator`);
+  console.log('\nFor demo coils + ANN board/batching: npm run seed:process-queues');
 }
 
 main().catch((err) => {

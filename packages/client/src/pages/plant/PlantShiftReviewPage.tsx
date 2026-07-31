@@ -8,6 +8,40 @@ import { useAuthStore } from '../../lib/authStore';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../components/primitives/ZButton';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
+import { isAnnMhDesk, useMhDeskFocus } from '../../lib/annMhDesk';
+import { useShiftStore } from '../../store/shiftStore';
+
+interface AnnShiftReviewPayload {
+  shiftLogId: string;
+  process: Array<{
+    base_no: string | null;
+    charge_no: string;
+    annealing_batch_no: string | null;
+    grade_code: string | null;
+    no_of_coils: number | null;
+    charge_wt_mt: number | string | null;
+    status: string | null;
+    exp_unloading_time: string | null;
+    unloading_wt_mt: number | string | null;
+    temp: number | string | null;
+    furnace_id: number | null;
+  }>;
+  stoppages: Array<{
+    charge_no: string;
+    category_code: string;
+    category_label?: string | null;
+    reason: string | null;
+    remark: string | null;
+    duration_min: number | string | null;
+  }>;
+  delaySummary: Array<{ bucket: string; minutes: number }>;
+  remarks: string | null;
+  crew: { opn: string; helper: string; signature: string };
+  production: { unloadMt: number; loadMt: number };
+  dew: { n2: number | string | null; h2: number | string | null };
+  inProcess: { forAnn: number; rw: number; inProcess: number; total: number };
+  cumulative: { unloadMt: number; loadMt: number };
+}
 
 interface ShiftLogRow {
   id: string;
@@ -494,12 +528,56 @@ export function PlantShiftReviewPage() {
    * When false, MH/PH narrowed via the date/shift picker.
    */
   const [shiftPinnedToActive, setShiftPinnedToActive] = useState(true);
+  const [annReview, setAnnReview] = useState<AnnShiftReviewPayload | null>(null);
+  const [annReviewShiftId, setAnnReviewShiftId] = useState<string | null>(null);
 
   const machineAccess = useOperationalMachineAccess();
   const role = useAuthStore((s) => s.role);
+  const deskFocus = useMhDeskFocus((s) => s.focus);
+  const annDesk = isAnnMhDesk(machineAccess, deskFocus);
+
+  useEffect(() => {
+    if (annDesk) setFilterMachine('ANN');
+  }, [annDesk]);
+
+  useEffect(() => {
+    if (!annDesk) {
+      setAnnReview(null);
+      setAnnReviewShiftId(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        await bootstrapShiftContext('ANN');
+        let id = useShiftStore.getState().shiftLogId;
+        if (!id) {
+          const { shiftDate, shiftCode } = useShiftStore.getState();
+          const qs = `?date=${encodeURIComponent(shiftDate)}&shift=${encodeURIComponent(shiftCode)}`;
+          const data = await apiClient.get<{ shiftLogId: string }>(`/shift-logs/active/ANN${qs}`);
+          id = data.shiftLogId;
+          if (id) useShiftStore.setState({ shiftLogId: id });
+        }
+        if (!id || cancelled) return;
+        setAnnReviewShiftId(id);
+        const review = await apiClient.get<AnnShiftReviewPayload>(
+          `/stations/ann/shift-review?shiftLogId=${encodeURIComponent(id)}`,
+        );
+        if (!cancelled) setAnnReview(review);
+      } catch {
+        if (!cancelled) setAnnReview(null);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [annDesk]);
 
   const resolveActiveShift = useCallback(() => {
-    const machine = machineAccess[0];
+    const machine = annDesk ? 'ANN' : machineAccess[0];
     void bootstrapShiftContext(machine)
       .then((shift) => {
         const prodDate = formatShiftDate(shift.prodDate);
@@ -517,7 +595,7 @@ export function PlantShiftReviewPage() {
         setActiveShiftCode(null);
         setCurrentShiftLabel(`${currentPlantDate()} · Shift detection unavailable`);
       });
-  }, [machineAccess, shiftPinnedToActive]);
+  }, [annDesk, machineAccess, shiftPinnedToActive]);
 
   useEffect(() => {
     resolveActiveShift();
@@ -526,6 +604,7 @@ export function PlantShiftReviewPage() {
   }, [resolveActiveShift]);
 
   const machineOptions = useMemo(() => {
+    if (annDesk) return ['ANN'];
     if (role === 'MACHINE_HEAD') return machineAccess;
     const all = new Set<string>();
     for (const log of logs) {
@@ -534,7 +613,7 @@ export function PlantShiftReviewPage() {
       if (log.millType) all.add(log.millType);
     }
     return [...all].sort();
-  }, [logs, machineAccess, role]);
+  }, [annDesk, logs, machineAccess, role]);
 
   const logsByDay = useMemo(() => {
     const map = new Map<string, ShiftLogRow[]>();
@@ -644,12 +723,147 @@ export function PlantShiftReviewPage() {
     <MachineHeadShell
       title="Shift Review"
       subtitle={
-        currentShiftLabel
-          ? `Active: ${currentShiftLabel} — also lists previous production days`
-          : 'Active and previous-date shifts — open a row for production summary'
+        annDesk
+          ? (currentShiftLabel
+            ? `ANN — Active: ${currentShiftLabel}`
+            : 'ANN shift stoppages, production, and base status')
+          : currentShiftLabel
+            ? `Active: ${currentShiftLabel} — also lists previous production days`
+            : 'Active and previous-date shifts — open a row for production summary'
       }
     >
       <div className="flex flex-col gap-6 max-w-5xl">
+        {annDesk && (
+          <section className="rounded-xl border border-border bg-background p-4 shadow-sm space-y-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-bold text-foreground">ANN shift review</h2>
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {annReviewShiftId ? `log ${annReviewShiftId}` : 'No active ANN shift'}
+              </p>
+            </div>
+
+            {!annReview ? (
+              <p className="text-sm text-muted-foreground">No ANN review data for the active shift.</p>
+            ) : (
+              <>
+                <div className="space-y-2 overflow-x-auto">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Process</h3>
+                  <table className="w-full min-w-[48rem] text-xs border rounded-lg overflow-hidden">
+                    <thead className="bg-secondary/40 text-left">
+                      <tr>
+                        <th className="p-2">Base</th>
+                        <th>Charge / Batch</th>
+                        <th>Grade</th>
+                        <th>#coils</th>
+                        <th>Charge wt</th>
+                        <th>Status</th>
+                        <th>Exp unload</th>
+                        <th>Unload wt</th>
+                        <th>Temp</th>
+                        <th>F/C No</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {annReview.process.length === 0 && (
+                        <tr><td className="p-2 text-muted-foreground" colSpan={10}>No charges this shift.</td></tr>
+                      )}
+                      {annReview.process.map((r) => (
+                        <tr key={r.charge_no} className="border-t">
+                          <td className="p-2 font-mono">{r.base_no ?? '—'}</td>
+                          <td className="font-mono">{r.charge_no}{r.annealing_batch_no ? ` / ${r.annealing_batch_no}` : ''}</td>
+                          <td>{r.grade_code ?? '—'}</td>
+                          <td>{r.no_of_coils ?? '—'}</td>
+                          <td>{r.charge_wt_mt != null ? Number(r.charge_wt_mt).toFixed(2) : '—'}</td>
+                          <td>{r.status ?? '—'}</td>
+                          <td>{r.exp_unloading_time ? formatPlantDateTime(r.exp_unloading_time) : '—'}</td>
+                          <td>{r.unloading_wt_mt != null ? Number(r.unloading_wt_mt).toFixed(2) : '—'}</td>
+                          <td>{r.temp != null ? Number(r.temp).toFixed(0) : '—'}</td>
+                          <td>{r.furnace_id ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="space-y-2 overflow-x-auto">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Stoppage details</h3>
+                  <table className="w-full min-w-[36rem] text-xs border rounded-lg overflow-hidden">
+                    <thead className="bg-secondary/40 text-left">
+                      <tr>
+                        <th className="p-2">Charge</th>
+                        <th>Category</th>
+                        <th>Reason / details</th>
+                        <th>Duration (min)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {annReview.stoppages.length === 0 && (
+                        <tr><td className="p-2 text-muted-foreground" colSpan={4}>No stoppages.</td></tr>
+                      )}
+                      {annReview.stoppages.map((s, i) => (
+                        <tr key={`${s.charge_no}-${i}`} className="border-t">
+                          <td className="p-2 font-mono">{s.charge_no}</td>
+                          <td>{s.category_label ?? s.category_code}</td>
+                          <td>{[s.reason, s.remark].filter(Boolean).join(' — ') || '—'}</td>
+                          <td>{s.duration_min != null ? Number(s.duration_min) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Remarks & delay summary</h3>
+                    <table className="w-full text-xs border rounded-lg overflow-hidden">
+                      <thead className="bg-secondary/40 text-left">
+                        <tr><th className="p-2">Bucket</th><th>Minutes</th></tr>
+                      </thead>
+                      <tbody>
+                        {annReview.delaySummary.length === 0 && (
+                          <tr><td className="p-2 text-muted-foreground" colSpan={2}>No delays.</td></tr>
+                        )}
+                        {annReview.delaySummary.map((d) => (
+                          <tr key={d.bucket} className="border-t">
+                            <td className="p-2">{d.bucket}</td>
+                            <td>{d.minutes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-muted-foreground">Remarks: {annReview.remarks ?? '—'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      OPN: {annReview.crew.opn} · Helper: {annReview.crew.helper} · Signature: {annReview.crew.signature}
+                    </p>
+                  </div>
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Shift production</h3>
+                      <p>Unload: {annReview.production.unloadMt.toFixed(2)} MT · Load: {annReview.production.loadMt.toFixed(2)} MT</p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Dew</h3>
+                      <p>N₂: {annReview.dew.n2 ?? '—'} · H₂: {annReview.dew.h2 ?? '—'}</p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">In process</h3>
+                      <p>
+                        FOR_ANN: {annReview.inProcess.forAnn}
+                        {' · '}RW: {annReview.inProcess.rw}
+                        {' · '}IN_PROCESS: {annReview.inProcess.inProcess}
+                        {' · '}Total: {annReview.inProcess.total}
+                      </p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Cumulative</h3>
+                      <p>Unload: {annReview.cumulative.unloadMt.toFixed(2)} MT · Load: {annReview.cumulative.loadMt.toFixed(2)} MT</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+        )}
         {currentShiftLabel && (
           <div className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-foreground flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -714,9 +928,10 @@ export function PlantShiftReviewPage() {
             <select
               value={filterMachine}
               onChange={(e) => setFilterMachine(e.target.value)}
-              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+              disabled={annDesk}
+              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm disabled:opacity-70"
             >
-              <option value="">All machines</option>
+              {!annDesk && <option value="">All machines</option>}
               {machineOptions.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}

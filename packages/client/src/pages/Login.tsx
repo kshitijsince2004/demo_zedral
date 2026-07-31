@@ -14,6 +14,7 @@ const DEV_STAFF_PASSWORD = 'Password123!';
 const DEV_STAFF = {
   admin: 'admin@zedral.local',
   machinehead: 'machinehead@zedral.local',
+  'mh.ann': 'machinehead.ann@zedral.local',
   supervisor: 'supervisor@zedral.local',
   planthead: 'planthead@zedral.local',
   quality: 'quality@zedral.local',
@@ -228,6 +229,9 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
 
           {import.meta.env.DEV && !operatorOnly && (
             <div className="mt-3 space-y-2 text-center text-[10px] text-muted-foreground font-mono">
+              <p>
+                Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}
+              </p>
               <p>Staff ({DEV_STAFF_PASSWORD}) — click to fill:</p>
               <div className="flex flex-wrap justify-center gap-1.5">
                 {(Object.keys(DEV_STAFF) as (keyof typeof DEV_STAFF)[]).map((key) => (
@@ -248,7 +252,13 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
             </div>
           )}
 
-          {/* Operator credentials hint removed per request */}
+          {import.meta.env.DEV && operatorOnly && (
+            <div className="mt-3 text-center text-[10px] text-muted-foreground font-mono">
+              <p>
+                Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground font-medium tracking-wider uppercase text-center">
             <span>Hero Steel · MES Console</span>

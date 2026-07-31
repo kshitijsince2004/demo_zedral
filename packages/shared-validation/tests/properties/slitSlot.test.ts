@@ -46,7 +46,7 @@ const validLabels = ['A', 'B', 'C', 'D'] as const;
 
 /** Arbitrary for a single valid slit slot */
 const validSlitSlotArb = fc.record({
-  label: fc.constantFrom(...validLabels),
+  slot: fc.constantFrom(...validLabels),
   widthMm: fc.double({ min: 1, max: 2000, noNaN: true }),
   thkMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
   taper: fc.option(fc.string({ minLength: 0, maxLength: 20 }), { nil: undefined }),
@@ -66,7 +66,7 @@ const validSlitSlotsArb = fc
         fc.tuple(
           ...labels.map((label) =>
             fc.record({
-              label: fc.constant(label),
+              slot: fc.constant(label),
               widthMm: fc.double({ min: 1, max: 200, noNaN: true }),
               thkMm: fc.option(fc.double({ min: 0.1, max: 20, noNaN: true }), { nil: undefined }),
               taper: fc.option(fc.string({ minLength: 0, maxLength: 20 }), { nil: undefined }),
@@ -76,7 +76,7 @@ const validSlitSlotsArb = fc
         )
       )
   )
-  .map((slots) => slots as Array<{ label: string; widthMm: number; thkMm?: number; taper?: string; childCoilNo?: string }>);
+  .map((slots) => slots as Array<{ slot: string; widthMm: number; thkMm?: number; taper?: string; childCoilNo?: string }>);
 
 /** Arbitrary for an invalid label (anything not in A–D) */
 const invalidLabelArb = fc.string({ minLength: 1, maxLength: 5 }).filter(
@@ -97,23 +97,9 @@ describe('Property 7: Slit-slot constraint (schema side)', () => {
       );
     });
 
-    it('7b: should reject any slot whose label is outside {A, B, C, D}', () => {
-      fc.assert(
-        fc.property(
-          invalidLabelArb,
-          fc.double({ min: 1, max: 2000, noNaN: true }),
-          (label, widthMm) => {
-            const slot = { label, widthMm };
-            const result = SlitSlotSchema.safeParse(slot);
-            expect(result.success).toBe(false);
-            if (!result.success) {
-              const labelIssue = result.error.issues.find((i) => i.path.includes('label'));
-              expect(labelIssue).toBeDefined();
-            }
-          }
-        ),
-        { numRuns: 200 }
-      );
+    it('7b: should reject empty slot labels', () => {
+      expect(SlitSlotSchema.safeParse({ slot: '', widthMm: 100 }).success).toBe(false);
+      expect(SlitSlotSchema.safeParse({ label: '', widthMm: 100 }).success).toBe(false);
     });
   });
 
@@ -131,64 +117,21 @@ describe('Property 7: Slit-slot constraint (schema side)', () => {
       );
     });
 
-    it('7d: should reject HRS entries with 5 or more slit slots', () => {
-      // Build a 5-slot array: use all 4 valid labels + one duplicate (which also
-      // triggers the unique-label check, but the max(4) check fires first).
-      const fiveSlots = [
-        { label: 'A', widthMm: 100 },
-        { label: 'B', widthMm: 100 },
-        { label: 'C', widthMm: 100 },
-        { label: 'D', widthMm: 100 },
-        { label: 'A', widthMm: 100 }, // 5th slot — must be rejected
-      ];
-
-      fc.assert(
-        fc.property(
-          // Generate extra slots beyond 4 by appending duplicates
-          fc.integer({ min: 1, max: 10 }).chain((extra) =>
-            fc.tuple(
-              ...Array.from({ length: extra }, () =>
-                fc.record({
-                  label: fc.constantFrom(...validLabels),
-                  widthMm: fc.double({ min: 1, max: 2000, noNaN: true }),
-                })
-              )
-            )
-          ),
-          (extraSlots) => {
-            const slots = [...fiveSlots, ...extraSlots];
-            const entry = { ...baseHRS, slitSlots: slots };
-            const result = HRSSchema.safeParse(entry);
-            expect(result.success).toBe(false);
-            if (!result.success) {
-              // Should have a slitSlots-level error (max 4 or unique labels)
-              const slitIssue = result.error.issues.find((i) =>
-                i.path.some((p) => p === 'slitSlots')
-              );
-              expect(slitIssue).toBeDefined();
-            }
-          }
-        ),
-        { numRuns: 100 }
-      );
+    it('7d: should reject HRS entries with more than 12 slit slots', () => {
+      const thirteenSlots = Array.from({ length: 13 }, (_, i) => ({
+        slot: `S${i}`,
+        widthMm: 10,
+      }));
+      const result = HRSSchema.safeParse({ ...baseHRS, slitSlots: thirteenSlots });
+      expect(result.success).toBe(false);
     });
 
-    it('7e: should reject HRS entries with a slot label outside A–D', () => {
-      fc.assert(
-        fc.property(
-          invalidLabelArb,
-          fc.double({ min: 1, max: 2000, noNaN: true }),
-          (badLabel, widthMm) => {
-            const entry = {
-              ...baseHRS,
-              slitSlots: [{ label: badLabel, widthMm }],
-            };
-            const result = HRSSchema.safeParse(entry);
-            expect(result.success).toBe(false);
-          }
-        ),
-        { numRuns: 200 }
-      );
+    it('7e: should reject HRS entries with empty slot label', () => {
+      const result = HRSSchema.safeParse({
+        ...baseHRS,
+        slitSlots: [{ slot: '', widthMm: 100 }],
+      });
+      expect(result.success).toBe(false);
     });
 
     it('7f: should reject HRS entries with duplicate slot labels', () => {
@@ -201,8 +144,8 @@ describe('Property 7: Slit-slot constraint (schema side)', () => {
             const entry = {
               ...baseHRS,
               slitSlots: [
-                { label, widthMm: width1 },
-                { label, widthMm: width2 }, // duplicate label
+                { slot: label, widthMm: width1 },
+                { slot: label, widthMm: width2 }, // duplicate
               ],
             };
             const result = HRSSchema.safeParse(entry);
@@ -226,7 +169,11 @@ describe('Property 7: Slit-slot constraint (schema side)', () => {
     it('7g: should accept CRS entries with 1–4 uniquely-labeled slit slots (A–D)', () => {
       fc.assert(
         fc.property(validSlitSlotsArb, (slitSlots) => {
-          const entry = { ...baseCRS, slitSlots };
+          const crsSlots = slitSlots.map((s) => ({
+            label: s.slot as 'A' | 'B' | 'C' | 'D',
+            widthMm: s.widthMm,
+          }));
+          const entry = { ...baseCRS, slitSlots: crsSlots };
           const result = CRSSchema.safeParse(entry);
           expect(result.success).toBe(true);
         }),

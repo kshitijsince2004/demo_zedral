@@ -3,27 +3,62 @@ import { BaseProcessEntry } from './models';
 // ─── Slit slot (HR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_hrs_slit
 export interface HRSSlitSlot {
-  /** Slot label A–D (max 4 per entry) */
-  label: 'A' | 'B' | 'C' | 'D';
-  /** Slit width in mm */
-  widthMm: number;
-  /** Slit thickness in mm */
+  /** Dynamic slit label (A, B, C, …) — plan drops A–D cap */
+  slot: string;
+  /** @deprecated use slot */
+  label?: string;
+  /** Target / PPC width (also written to width_mm) */
+  widthMm?: number;
+  targetWidthMm?: number;
+  actualWidthMm?: number;
+  /** @deprecated use thkId/Centre/Od */
   thkMm?: number;
-  /** Taper description */
+  plannedThkMm?: number;
+  thkIdMm?: number;
+  thkCentreMm?: number;
+  thkOdMm?: number;
+  plannedWeightMt?: number;
+  actualWeightMt?: number;
   taper?: string;
-  /** Child coil number produced from this slot */
   childCoilNo?: string;
+  customer?: string;
+  sapBatchNumber?: string;
+  surfaceFinish?: string;
+  finishThicknessMm?: number;
+  routeRaw?: string;
+  resolvedNextStep?: string;
+  downstreamCrsCombination?: string;
+  holdFlag?: boolean;
+  forCtlFlag?: boolean;
 }
 
 // ─── Slit slot (CR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_crs_slit
 export interface CRSSlitSlot {
-  /** Slot label A–D (max 4 per entry) */
-  label: 'A' | 'B' | 'C' | 'D';
-  /** Slit width in mm */
+  /** Slot label A–E (seen up to 5) */
+  label: 'A' | 'B' | 'C' | 'D' | 'E';
+  /** Slit width in mm (finish / plan width) */
   widthMm: number;
   /** Child coil number produced from this slot */
   childCoilNo?: string;
+  slitNo?: string;
+  finishWidthMm?: number;
+  noOfSlit?: number;
+  actualWidthMm?: number;
+  actualThkFrontMm?: number;
+  actualThkRearMm?: number;
+  outputWtMt?: number;
+  scrapMt?: number;
+  rejectionOdMt?: number;
+  rejectionIdMt?: number;
+  holdFlag?: boolean;
+  forCtlFlag?: boolean;
+  /** LE = For-CTL, PKG = ship as coil */
+  routeCode?: string;
+  sapBatchNumber?: string;
+  camberWaviness?: string;
+  raUm?: number;
+  rzUm?: number;
 }
 
 // ─── HR Slitting ─────────────────────────────────────────────────────────────
@@ -35,8 +70,11 @@ export interface HRSEntry extends BaseProcessEntry {
   actualWidthMm: number;
   /** Nominal thickness in mm (txn.prod_hrs.nominal_thk_mm) */
   nominalThkMm: number;
-  /** Weight in MT (txn.prod_hrs.weight_mt) */
+  /** Produced total MT (Σ line actuals) */
   weightMt: number;
+  motherCoilWeightMt?: number;
+  source?: string;
+  gradeCode?: string;
   /** Scrap weight in MT (txn.prod_hrs.scrap_mt) */
   scrapMt: number;
   /** Derived: scrap % — computed, not captured (txn.prod_hrs.scrap_pct) */
@@ -45,7 +83,10 @@ export interface HRSEntry extends BaseProcessEntry {
   actualSlitWidthFromMm?: number;
   /** Actual slit width range to (txn.prod_hrs.actual_slit_width_to_mm) */
   actualSlitWidthToMm?: number;
-  /** Slit slots A–D (txn.prod_hrs_slit) */
+  crewRef?: string;
+  settingCount?: number;
+  specVersionId?: number;
+  /** Dynamic slit lines (txn.prod_hrs_slit) */
   slitSlots: HRSSlitSlot[];
 }
 
@@ -56,18 +97,32 @@ export interface PKLEntry extends BaseProcessEntry {
   widthMm: number;
   /** Thickness in mm (txn.prod_pkl.thk_mm) */
   thkMm: number;
-  /** Weight in MT (txn.prod_pkl.weight_mt) */
+  /** Weight in MT (txn.prod_pkl.weight_mt) — PPC-authoritative order weight */
   weightMt: number;
+  ppcWeightMt?: number;
   /** Line speed in m/min (txn.prod_pkl.line_speed_mpm) */
   lineSpeedMpm: number;
   /** Heat number (txn.prod_pkl.heat_no) */
   heatNo: string;
   /** Source (txn.prod_pkl.source) */
   source: string;
-  /** WIP status as coded/text (txn.prod_pkl.wip) */
+  /** WIP status as coded/text (txn.prod_pkl.wip) — not W/P */
   wip?: string;
   /** Leader end as coded/text (txn.prod_pkl.leader_end) */
   leaderEnd?: string;
+  repeats?: number;
+  /** Literal W/P selector */
+  wp?: 'W' | 'P';
+  endFilling?: boolean;
+  ht?: string;
+  motherCoilNo?: string;
+  slitId?: string;
+  customer?: string;
+  gradeCode?: string;
+  routeRaw?: string;
+  status?: string;
+  crewRef?: string;
+  totalTimeMin?: number;
 }
 
 // ─── Pickling – hourly process chart ─────────────────────────────────────────
@@ -298,8 +353,12 @@ export interface CRSEntry extends BaseProcessEntry {
   raUm?: number;
   /** Surface roughness Rz µm (txn.prod_crs.rz_um) */
   rzUm?: number;
-  /** Output weight in MT (txn.prod_crs.output_wt_mt) */
+  /** Input weight in MT (txn.prod_crs.input_wt_mt) — prior-process output */
+  inputWtMt?: number;
+  /** Output weight in MT (txn.prod_crs.output_wt_mt) — Σ lines when fan-out */
   outputWtMt: number;
+  scrapMt?: number;
+  settingCount?: number;
   /** Rejection OD in MT (txn.prod_crs.rejection_od_mt) */
   rejectionOdMt?: number;
   /** Rejection ID in MT (txn.prod_crs.rejection_id_mt) */

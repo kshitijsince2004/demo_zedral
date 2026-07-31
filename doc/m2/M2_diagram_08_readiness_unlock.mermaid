@@ -1,9 +1,0 @@
-flowchart TD
-  Q{"Does the client run a CMMS/EAM?"}
-  Q -- "Yes (SAP PM / Maximo)" --> ING["Manifold connector + maintenance sector template → map to canonical"]
-  Q -- "No, but has M1" --> M1B["Bootstrap from M1 stoppages (MECH/ELECT) → FailureEvents"]
-  Q -- "No CMMS, no M1" --> CAP["M2 first-party capture (breakdown + PM execution)"]
-  ING --> RDY["Readiness scoring (doc 01 §16): Required gate + Quality + History"]
-  M1B --> RDY
-  CAP --> RDY
-  RDY --> UNLOCK["Unlock: preventive analytics now · predictive when History gate passes"]

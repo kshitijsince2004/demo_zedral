@@ -3,24 +3,30 @@ import { MachineHeadShell } from '../../components/layout/machinehead/MachineHea
 import { DprExportPanel } from '../../components/export/DprExportPanel';
 import { ShiftSummaryExportPanel } from '../../components/export/ShiftSummaryExportPanel';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
+import { isAnnMhDesk, useMhDeskFocus } from '../../lib/annMhDesk';
 
 type ExportTab = 'dpr' | 'shift-summary';
 
 export function MachineDprExport() {
   const machineAccess = useOperationalMachineAccess();
+  const focus = useMhDeskFocus((s) => s.focus);
+  const annDesk = isAnnMhDesk(machineAccess, focus);
+  const scopedMachines = annDesk ? ['ANN'] : machineAccess;
   const [tab, setTab] = useState<ExportTab>('dpr');
 
   const scopeHint = useMemo(() => {
-    if (machineAccess.length === 0) {
+    if (scopedMachines.length === 0) {
       return 'No machines assigned — contact admin to assign machine access before exporting.';
     }
-    return `Scoped to assigned machines: ${machineAccess.join(', ')}. Other areas export as zero.`;
-  }, [machineAccess]);
+    return annDesk
+      ? 'Scoped to ANN only.'
+      : `Scoped to assigned machines: ${scopedMachines.join(', ')}. Other areas export as zero.`;
+  }, [annDesk, scopedMachines]);
 
   return (
     <MachineHeadShell
       title="Export"
-      subtitle="DPR and shift summary exports for your assigned machines"
+      subtitle={annDesk ? 'ANN DPR and shift summary' : 'DPR and shift summary exports for your assigned machines'}
     >
       <div className="flex flex-col gap-6">
         <div className="flex gap-2 border-b border-border">
@@ -48,18 +54,22 @@ export function MachineDprExport() {
 
         {tab === 'dpr' ? (
           <DprExportPanel
-            title="Machine DPR export"
-            subtitle="Export machine-specific DPR reports and performance summaries for assigned machines."
+            title={annDesk ? 'ANN DPR export' : 'Machine DPR export'}
+            subtitle={annDesk
+              ? 'Export Annealing DPR for the current desk.'
+              : 'Export machine-specific DPR reports and performance summaries for assigned machines.'}
             scopeHint={scopeHint}
             historyPath="/machine-head/exports/history"
           />
         ) : (
           <ShiftSummaryExportPanel
-            title="Machine Shift Summary export"
-            subtitle="Export shift production report for your assigned machines."
+            title={annDesk ? 'ANN Shift Summary' : 'Machine Shift Summary export'}
+            subtitle={annDesk
+              ? 'Export ANN shift production report.'
+              : 'Export shift production report for your assigned machines.'}
             scopeHint={scopeHint}
             historyPath="/machine-head/exports/history"
-            machineCodes={machineAccess}
+            machineCodes={scopedMachines}
           />
         )}
       </div>

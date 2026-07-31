@@ -338,6 +338,46 @@ export interface MasterMachine {
   process_id: number | null;
 }
 
+export interface MasterMachineSpec {
+  activated_at: Timestamp | null;
+  air_mode: string | null;
+  coil_wt_max_mt: Numeric | null;
+  coil_wt_min_mt: Numeric | null;
+  created_at: Generated<Timestamp>;
+  created_by: number | null;
+  cutter_dia_mm: Numeric | null;
+  exit_od_max_mm: Numeric | null;
+  is_reference_seed: Generated<boolean>;
+  line_speed_mpm: Numeric | null;
+  machine_code: string;
+  mandrel_ids: unknown;
+  notes: string | null;
+  rev: number;
+  spec_id: Generated<Int8>;
+  status: Generated<string>;
+  thk_max_mm: Numeric | null;
+  thk_min_mm: Numeric | null;
+  width_max_mm: Numeric | null;
+  width_min_mm: Numeric | null;
+}
+
+export interface MasterPklSpecLimit {
+  is_active: Generated<boolean>;
+  max_val: Numeric | null;
+  min_val: Numeric | null;
+  param_key: string;
+  tank_scope: string;
+  unit: string | null;
+}
+
+export interface MasterPklChartConfig {
+  config_id: Generated<Int8>;
+  interval_hours: Numeric;
+  is_active: Generated<boolean>;
+  reading_labels: unknown;
+  reminder_mode: Generated<string>;
+}
+
 export interface MasterMachineCrewRoster {
   created_at: Generated<Timestamp>;
   crew_id: Generated<Int8>;
@@ -876,26 +916,85 @@ export interface TotpUsers {
   user_id: string;
 }
 
+export interface MasterAnnBase {
+  base_no: string;
+  capacity_max_coils: number | null;
+  capacity_max_wt_mt: Numeric | null;
+  capacity_max_height_mm: Numeric | null;
+  soak_time_adj_hr: Numeric | null;
+  is_active: Generated<boolean>;
+}
+
+export interface MasterAnnCoolingHood {
+  cooling_hood_id: Generated<number>;
+  hood_code: string;
+  name: string | null;
+  is_active: Generated<boolean>;
+}
+
+export interface MasterAnnReadingConfig {
+  config_id: Generated<Int8>;
+  interval_min: Numeric;
+  reminder_enabled: Generated<boolean>;
+  is_active: Generated<boolean>;
+}
+
+export interface MasterAnnSpecLimit {
+  param_key: string;
+  scope: string;
+  min_val: Numeric | null;
+  max_val: Numeric | null;
+  unit: string | null;
+  is_active: Generated<boolean>;
+}
+
+export interface MasterAnnStage {
+  stage_code: string;
+  seq: number;
+  label: string;
+  is_skippable: Generated<boolean>;
+  is_active: Generated<boolean>;
+}
+
+export interface MasterAnnStoppageCategory {
+  category_code: string;
+  description: string;
+  is_active: Generated<boolean>;
+}
+
 export interface TxnAnnCharge {
+  annealing_batch_no: string | null;
+  ann_cycle_code: string | null;
   base_no: string | null;
   charge_no: string;
   charge_wt_mt: Numeric | null;
+  charged_condition: string | null;
+  cooling_hood_id: number | null;
+  created_by_user_id: number | null;
   cumm_loading_mt: Numeric | null;
   cumm_unloading_mt: Numeric | null;
+  current_stage_code: string | null;
   dew_point_h2: Numeric | null;
   dew_point_n2: Numeric | null;
   exp_unloading_time: Timestamp | null;
   furnace_id: number | null;
   grade_code: string | null;
+  height_mm: Numeric | null;
   loading_mt: Numeric | null;
   no_of_coils: number | null;
   oxygen_pct: Numeric | null;
   prod_date: Timestamp | null;
   shift_code: string | null;
   shift_log_id: Int8;
+  soak_temp_degc: Numeric | null;
+  soak_time_hr: Numeric | null;
   status: string | null;
   temperature_degc: Numeric | null;
   tenant_id: Generated<string>;
+  tightness_drop_mmwc: Numeric | null;
+  total_active_min: Numeric | null;
+  total_h2_flow_cycle: Numeric | null;
+  total_idle_min: Numeric | null;
   unloading_mt: Numeric | null;
   unloading_wt_mt: Numeric | null;
 }
@@ -903,8 +1002,55 @@ export interface TxnAnnCharge {
 export interface TxnAnnChargeCoil {
   charge_no: string;
   coil_no: string;
+  disposition: Generated<string>;
   seq_no: number | null;
   tenant_id: Generated<string>;
+  unload_remark: string | null;
+}
+
+export interface TxnAnnChargeReading {
+  base_no: string | null;
+  base_fan_rpm: Numeric | null;
+  base_press: Numeric | null;
+  charge_no: string;
+  charge_temp: Numeric | null;
+  fc_temp: Numeric | null;
+  fuel_flow: Numeric | null;
+  gas_temp: Numeric | null;
+  n2h2_flow: Numeric | null;
+  operator_user_id: number | null;
+  rcf_rpm: Numeric | null;
+  reading_id: Generated<Int8>;
+  shift_code: string | null;
+  stage_code: string | null;
+  taken_at: Generated<Timestamp>;
+}
+
+export interface TxnAnnChargeStage {
+  charge_no: string;
+  duration_min: Numeric | null;
+  end_at: Timestamp | null;
+  seq: number;
+  skip_authorized_by: number | null;
+  skip_reason: string | null;
+  skipped: Generated<boolean>;
+  stage_code: string;
+  stage_id: Generated<Int8>;
+  start_at: Timestamp | null;
+  started_by_user_id: number | null;
+  transition_temp_degc: Numeric | null;
+}
+
+export interface TxnAnnChargeStoppage {
+  base_no: string | null;
+  category_code: string;
+  charge_no: string;
+  duration_min: Numeric | null;
+  end_at: Timestamp | null;
+  reason: string | null;
+  remark: string | null;
+  start_at: Timestamp;
+  stoppage_id: Generated<Int8>;
 }
 
 export interface TxnCrmOrder {
@@ -1166,6 +1312,7 @@ export interface TxnProdCrs {
   coating_wt_matt: Numeric | null;
   coil_no: string;
   coil_width_mm: Numeric | null;
+  crew_ref: string | null;
   elongation_pct: Numeric | null;
   entry_id: Generated<Int8>;
   for_ctl_mt: Numeric | null;
@@ -1173,6 +1320,7 @@ export interface TxnProdCrs {
   hardness_vpn: Numeric | null;
   hold_mt: Numeric | null;
   ib_tiecv: string | null;
+  input_wt_mt: Numeric | null;
   nominal_thk_mm: Numeric | null;
   output_wt_mt: Numeric | null;
   prod_date: Timestamp | null;
@@ -1182,6 +1330,9 @@ export interface TxnProdCrs {
   remarks: string | null;
   rp_oil_grade: string | null;
   rz_um: Numeric | null;
+  scrap_mt: Numeric | null;
+  setting_count: number | null;
+  spec_version_id: Int8 | null;
   shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
@@ -1192,9 +1343,26 @@ export interface TxnProdCrs {
 }
 
 export interface TxnProdCrsSlit {
+  actual_thk_front_mm: Numeric | null;
+  actual_thk_rear_mm: Numeric | null;
+  actual_width_mm: Numeric | null;
+  camber_waviness: string | null;
   child_coil_no: string | null;
   entry_id: Int8;
+  finish_width_mm: Numeric | null;
+  for_ctl_flag: Generated<boolean>;
+  hold_flag: Generated<boolean>;
+  no_of_slit: number | null;
+  output_wt_mt: Numeric | null;
+  ra_um: Numeric | null;
+  rejection_id_mt: Numeric | null;
+  rejection_od_mt: Numeric | null;
+  route_code: string | null;
+  rz_um: Numeric | null;
+  sap_batch_number: string | null;
+  scrap_mt: Numeric | null;
   slit_id: Generated<Int8>;
+  slit_no: string | null;
   slot: string | null;
   tenant_id: Generated<string>;
   width_mm: Numeric | null;
@@ -1230,16 +1398,24 @@ export interface TxnProdHrs {
   actual_slit_width_to_mm: Numeric | null;
   actual_width_mm: Numeric | null;
   coil_no: string;
+  crew_ref: string | null;
   entry_id: Generated<Int8>;
+  grade_code: string | null;
+  mother_coil_weight_mt: Numeric | null;
+  net_runtime_min: Numeric | null;
   nominal_thk_mm: Numeric | null;
   nominal_width_mm: Numeric | null;
   prod_date: Timestamp | null;
   remarks: string | null;
   scrap_mt: Numeric | null;
   scrap_pct: Numeric | null;
+  setting_count: number | null;
   shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
+  source: string | null;
+  spec_version_id: Int8 | null;
+  status: string | null;
   tenant_id: Generated<string>;
   time_from: string | null;
   time_to: string | null;
@@ -1247,35 +1423,66 @@ export interface TxnProdHrs {
 }
 
 export interface TxnProdHrsSlit {
+  actual_weight_mt: Numeric | null;
+  actual_width_mm: Numeric | null;
   child_coil_no: string | null;
+  customer: string | null;
+  downstream_crs_combination: string | null;
   entry_id: Int8;
+  finish_thickness_mm: Numeric | null;
+  for_ctl_flag: Generated<boolean>;
+  hold_flag: Generated<boolean>;
+  planned_thk_mm: Numeric | null;
+  planned_weight_mt: Numeric | null;
+  qc_measurement_ref: string | null;
+  resolved_next_step: string | null;
+  route_raw: string | null;
+  sap_batch_number: string | null;
   slit_id: Generated<Int8>;
   slot: string;
+  surface_finish: string | null;
   taper: string | null;
+  target_width_mm: Numeric | null;
   tenant_id: Generated<string>;
+  thk_centre_mm: Numeric | null;
+  thk_id_mm: Numeric | null;
   thk_mm: Numeric | null;
+  thk_od_mm: Numeric | null;
   width_mm: Numeric | null;
 }
 
 export interface TxnProdPkl {
   coil_no: string;
+  crew_ref: string | null;
+  customer: string | null;
+  end_filling: boolean | null;
   entry_id: Generated<Int8>;
+  grade_code: string | null;
   heat_no: string | null;
+  ht: string | null;
   leader_end: string | null;
   line_speed_mpm: Numeric | null;
+  mother_coil_no: string | null;
+  ppc_weight_mt: Numeric | null;
   prod_date: Timestamp | null;
   remarks: string | null;
+  repeats: Generated<number>;
+  route_raw: string | null;
   shift_code: string | null;
   shift_log_id: Int8;
   sl_no: number | null;
+  slit_id: string | null;
   source: string | null;
+  status: string | null;
   tenant_id: Generated<string>;
   thk_mm: Numeric | null;
   time_from: string | null;
   time_to: string | null;
+  total_time_min: Numeric | null;
   weight_mt: Numeric | null;
   width_mm: Numeric | null;
   wip: string | null;
+  wp: string | null;
 }
 
 export interface TxnProdPklChart {
@@ -1510,6 +1717,9 @@ export interface DB {
   "master.grade_spec": MasterGradeSpec;
   "master.line_area": MasterLineArea;
   "master.machine": MasterMachine;
+  "master.machine_spec": MasterMachineSpec;
+  "master.pkl_chart_config": MasterPklChartConfig;
+  "master.pkl_spec_limit": MasterPklSpecLimit;
   "master.machine_crew_roster": MasterMachineCrewRoster;
   "master.operator": MasterOperator;
   "master.process": MasterProcess;
@@ -1564,8 +1774,17 @@ export interface DB {
   totp_used_codes: TotpUsedCodes;
   totp_user_devices: TotpUserDevices;
   totp_users: TotpUsers;
+  "master.ann_base": MasterAnnBase;
+  "master.ann_cooling_hood": MasterAnnCoolingHood;
+  "master.ann_reading_config": MasterAnnReadingConfig;
+  "master.ann_spec_limit": MasterAnnSpecLimit;
+  "master.ann_stage": MasterAnnStage;
+  "master.ann_stoppage_category": MasterAnnStoppageCategory;
   "txn.ann_charge": TxnAnnCharge;
   "txn.ann_charge_coil": TxnAnnChargeCoil;
+  "txn.ann_charge_reading": TxnAnnChargeReading;
+  "txn.ann_charge_stage": TxnAnnChargeStage;
+  "txn.ann_charge_stoppage": TxnAnnChargeStoppage;
   "txn.crm_order": TxnCrmOrder;
   "txn.crm_roll_change": TxnCrmRollChange;
   "txn.crm_rolling": TxnCrmRolling;

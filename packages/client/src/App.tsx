@@ -22,6 +22,8 @@ import { ProcessCapturePage } from './pages/process/ProcessCapturePage';
 import { ProcessHandoverPage } from './pages/process/ProcessHandoverPage';
 import { PklChartPage } from './pages/process/PklChartPage';
 import { AnnChargePage } from './pages/process/AnnChargePage';
+import { AnnOperatorHistoryPage } from './pages/process/AnnOperatorHistoryPage';
+import { AnnMhChargeDetailPage } from './pages/machinehead/ann/AnnMhChargeDetailPage';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 import { ScopeCaptureRoute } from './components/ScopeCaptureRoute';
 import { ScopeHandoverRoute } from './components/ScopeHandoverRoute';
@@ -41,6 +43,9 @@ import { AuditTrailView } from './pages/audit/AuditTrailView';
 // Admin
 import { MasterDataAdmin } from './pages/admin/MasterDataAdmin';
 import { MachineMasterAdmin } from './pages/admin/MachineMasterAdmin';
+import { MachineSpecAdmin } from './pages/admin/MachineSpecAdmin';
+import { PklSpecAdmin } from './pages/admin/PklSpecAdmin';
+import { AnnSpecAdmin } from './pages/admin/AnnSpecAdmin';
 import { PlanningAdmin } from './pages/admin/PlanningAdmin';
 import { UsersAdmin } from './pages/admin/UsersAdmin';
 import { SystemAdmin } from './pages/admin/SystemAdmin';
@@ -50,13 +55,18 @@ import { QualitySpecEditorPage } from './pages/quality/QualitySpecEditorPage';
 import { MachineAssignmentPage } from './pages/admin/MachineAssignmentPage';
 import { RollingImportPage } from './pages/import/RollingImportPage';
 import { OrderAssignmentPage } from './pages/orderAssignment/OrderAssignmentPage';
+import { CrsAssignmentPage } from './pages/process/CrsAssignmentPage';
 import { MachineComingSoon } from './pages/MachineComingSoon';
 import { GenericCapturePage } from './pages/capture/GenericCapturePage';
 import { UserScopeShell } from './components/UserScopeShell';
 import { UserScopeIndex } from './pages/UserScopeIndex';
 import { LegacyMillRedirect } from './components/LegacyMillRedirect';
-import { MachineHeadDashboard } from './pages/live/MachineHeadDashboard';
 import { MachineHeadCrewPage } from './pages/machinehead/MachineHeadCrewPage';
+import { MhLiveEntry } from './pages/machinehead/ann/MhLiveEntry';
+import { AnnMhLiveDashboard } from './pages/machinehead/ann/AnnMhLiveDashboard';
+import { AnnMhBatchingPage } from './pages/machinehead/ann/AnnMhBatchingPage';
+import { AnnMhTrendsPage } from './pages/machinehead/ann/AnnMhTrendsPage';
+import { AnnMhImportPage } from './pages/machinehead/ann/AnnMhImportPage';
 import { LiveDashboard } from './pages/live/LiveDashboard';
 import { UnifiedShell } from './components/layout/UnifiedShell';
 import { PlantShiftReviewPage } from './pages/plant/PlantShiftReviewPage';
@@ -193,18 +203,24 @@ function App() {
 
         <Route path="/import/rolling" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><RollingImportPage /></MachineHeadRoute>} />
         <Route path="/order-assignment" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><OrderAssignmentPage /></MachineHeadRoute>} />
+        <Route path="/crs/order-assignment" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><CrsAssignmentPage /></MachineHeadRoute>} />
         <Route path="/admin/machine-assignment" element={<AdminRoute><MachineAssignmentPage /></AdminRoute>} />
-        <Route path="/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><MachineHeadDashboard /></MachineHeadRoute>} />
+        <Route path="/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><MhLiveEntry /></MachineHeadRoute>} />
         <Route
           path="/machine-head-dashboard"
           element={(
             <MachineHeadRoute allow={[UserRole.SUPERVISOR]}>
               <RedirectSupervisorFromMachineHeadHome>
-                <MachineHeadDashboard />
+                <MhLiveEntry />
               </RedirectSupervisorFromMachineHeadHome>
             </MachineHeadRoute>
           )}
         />
+        <Route path="/machine-head/ann/live" element={<MachineHeadRoute><AnnMhLiveDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/charge/:chargeNo" element={<MachineHeadRoute><AnnMhChargeDetailPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/trends" element={<MachineHeadRoute><AnnMhTrendsPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/batching" element={<MachineHeadRoute><AnnMhBatchingPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/import" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><AnnMhImportPage /></MachineHeadRoute>} />
         <Route path="/machine-head/shift-review" element={<MachineHeadRoute><PlantShiftReviewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
@@ -216,6 +232,9 @@ function App() {
 
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />
+        <Route path="/admin/machine-specs" element={<MachineHeadRoute><MachineSpecAdmin /></MachineHeadRoute>} />
+        <Route path="/admin/pkl-specs" element={<MachineHeadRoute><PklSpecAdmin /></MachineHeadRoute>} />
+        <Route path="/admin/ann-specs" element={<MachineHeadRoute><AnnSpecAdmin /></MachineHeadRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
         <Route
@@ -238,6 +257,7 @@ function App() {
           <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
           <Route path="chart" element={<PklChartPage />} />
           <Route path="charge/:chargeNo" element={<AnnChargePage />} />
+          <Route path="history" element={<AnnOperatorHistoryPage />} />
           <Route path="handover" element={<ScopeHandoverRoute />} />
           <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
           <Route path="rolling" element={<SixHiQueuePage />} />

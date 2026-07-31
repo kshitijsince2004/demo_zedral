@@ -1,0 +1,62 @@
+import { describe, it, expect } from 'vitest';
+import { isPklMhDesk } from '../src/lib/pklMhDesk';
+import {
+  findPklSiblingCoils,
+  pklGroupWeightMt,
+  pklSiblingKey,
+  parsePklCoilIdentity,
+} from '../src/lib/pklSiblingSelect';
+import type { ProcessQueueCard } from '../src/store/processStore';
+
+function card(partial: Partial<ProcessQueueCard> & Pick<ProcessQueueCard, 'coilNo'>): ProcessQueueCard {
+  return {
+    gradeCode: 'D',
+    customerName: 'X',
+    widthMm: 1000,
+    thicknessMm: 2,
+    weightMt: 5,
+    status: 'PENDING',
+    journeyId: '1',
+    stepNo: 1,
+    ...partial,
+  };
+}
+
+describe('isPklMhDesk', () => {
+  it('true when focus is PKL', () => {
+    expect(isPklMhDesk(['6HI', 'PKL'], 'PKL')).toBe(true);
+  });
+
+  it('true when sole operational machine is PKL', () => {
+    expect(isPklMhDesk(['PKL'], null)).toBe(true);
+  });
+
+  it('false for multi-machine without PKL focus', () => {
+    expect(isPklMhDesk(['6HI', 'PKL'], null)).toBe(false);
+    expect(isPklMhDesk(['6HI'], '6HI')).toBe(false);
+  });
+});
+
+describe('pklSiblingSelect', () => {
+  it('parses mother-slit identity', () => {
+    expect(parsePklCoilIdentity('1100038398-G')).toEqual({ motherCoilNo: '1100038398', slitId: 'G' });
+    expect(parsePklCoilIdentity('1100038398')).toEqual({ motherCoilNo: '1100038398', slitId: null });
+  });
+
+  it('groups by mother+slit+grade', () => {
+    const a = card({ coilNo: 'M1-A', gradeCode: 'D', motherCoilNo: 'M1', slitId: 'A', weightMt: 10 });
+    const b = card({ coilNo: 'OTHER', gradeCode: 'D', motherCoilNo: 'M1', slitId: 'A', weightMt: 7 });
+    const c = card({ coilNo: 'M1-B', gradeCode: 'D', motherCoilNo: 'M1', slitId: 'B', weightMt: 3 });
+    const d = card({ coilNo: 'M1-A2', gradeCode: 'PT', motherCoilNo: 'M1', slitId: 'A', weightMt: 4 });
+    expect(pklSiblingKey(a)).toBe(pklSiblingKey(b));
+    const sibs = findPklSiblingCoils(a, [a, b, c, d]);
+    expect(sibs.map((s) => s.coilNo).sort()).toEqual(['M1-A', 'OTHER']);
+    expect(pklGroupWeightMt(sibs)).toBe(17);
+  });
+
+  it('ignores HOLD/COMPLETED for grouping', () => {
+    const a = card({ coilNo: 'M1-A', motherCoilNo: 'M1', slitId: 'A', status: 'PENDING' });
+    const hold = card({ coilNo: 'M1-A2', motherCoilNo: 'M1', slitId: 'A', status: 'HOLD' });
+    expect(findPklSiblingCoils(a, [a, hold])).toEqual([a]);
+  });
+});

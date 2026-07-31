@@ -19,6 +19,25 @@ export interface ProcessQueueCard {
   journeyId: string;
   stepNo: number;
   batchNumber?: string;
+  /** PKL sibling key — mother coil (trace). */
+  motherCoilNo?: string;
+  /** PKL sibling key — slit id. */
+  slitId?: string;
+  lineCount?: number;
+  combination?: string;
+  orderLines?: Array<{
+    batchNumber?: string;
+    widthMm?: number;
+    weightMt?: number;
+    thicknessMm?: number;
+    finishThicknessMm?: number;
+    customerName?: string;
+    routeRaw?: string;
+    slitId?: string;
+    surfaceFinish?: string;
+    toWorkCenter?: string;
+    suggestedMachine?: string;
+  }>;
   prefill?: Record<string, unknown>;
 }
 
@@ -38,11 +57,21 @@ interface ProcessStore {
   busy: boolean;
   queueRefreshToken: number;
   hubTab: 'coils' | 'chart' | 'charges';
+  /** PKL Option A: selected sibling coil nos (order preserved). */
+  pklGroupCoilNos: string[];
+  pklGroupWeightMt: number;
+  /** Incremented when operator nav requests Manual Add. */
+  manualModalToken: number;
 
   setProcessCode: (code: ProcessStationCode) => void;
   setStatusFilter: (filter: QueueStatusFilter) => void;
   setHubTab: (tab: 'coils' | 'chart' | 'charges') => void;
   setActiveCoil: (coilNo: string | null, prefill?: Record<string, unknown> | null) => void;
+  setPklGroup: (coilNos: string[], weightMt: number) => void;
+  clearPklGroup: () => void;
+  /** After a coil save — drop it from the group; return next coil or null. */
+  advancePklGroup: (doneCoilNo: string) => string | null;
+  requestManualCoil: () => void;
   startCapture: (coilNo: string) => void;
   stopCapture: () => void;
   resumeCapture: (coilNo: string) => Promise<void>;
@@ -76,11 +105,29 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
   busy: false,
   queueRefreshToken: 0,
   hubTab: 'coils',
+  pklGroupCoilNos: [],
+  pklGroupWeightMt: 0,
+  manualModalToken: 0,
 
   setProcessCode: (code) => set({ processCode: code }),
   setStatusFilter: (filter) => set({ statusFilter: filter }),
   setHubTab: (tab) => set({ hubTab: tab }),
   setActiveCoil: (coilNo, prefill = null) => set({ activeCoilNo: coilNo, activePrefill: prefill }),
+  setPklGroup: (coilNos, weightMt) => set({ pklGroupCoilNos: coilNos, pklGroupWeightMt: weightMt }),
+  clearPklGroup: () => set({ pklGroupCoilNos: [], pklGroupWeightMt: 0 }),
+  advancePklGroup: (doneCoilNo) => {
+    const remaining = get().pklGroupCoilNos.filter((c) => c !== doneCoilNo);
+    if (remaining.length === 0) {
+      set({ pklGroupCoilNos: [], pklGroupWeightMt: 0 });
+      return null;
+    }
+    const weightMt = get().queue
+      .filter((c) => remaining.includes(c.coilNo))
+      .reduce((sum, c) => sum + (Number(c.weightMt) || 0), 0);
+    set({ pklGroupCoilNos: remaining, pklGroupWeightMt: weightMt });
+    return remaining[0] ?? null;
+  },
+  requestManualCoil: () => set((s) => ({ manualModalToken: s.manualModalToken + 1 })),
   startCapture: (coilNo) => {
     // Use resumeCapture() so stoppage end (if any) can be persisted.
     void get().resumeCapture(coilNo);

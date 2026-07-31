@@ -3,6 +3,8 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { MachineRegistryService } from '../services/MachineRegistryService';
 import { MachineMasterService } from '../services/MachineMasterService';
+import { MachineSpecService } from '../services/MachineSpecService';
+import { isEligible } from '../utils/machineEligibility';
 
 const router = Router();
 router.use(requireAuth);
@@ -75,5 +77,59 @@ router.patch(
     }
   },
 );
+
+router.get('/specs', requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD]), async (req, res) => {
+  try {
+    const machineCode = req.query.machineCode ? String(req.query.machineCode) : undefined;
+    res.json({ specs: await MachineSpecService.list(machineCode) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load specs' });
+  }
+});
+
+router.get('/specs/:machineCode/active', requireAuth, async (req, res) => {
+  try {
+    const spec = await MachineSpecService.getActive(req.params.machineCode);
+    res.json({ spec });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load active spec' });
+  }
+});
+
+router.post('/specs', requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), async (req, res) => {
+  try {
+    const spec = await MachineSpecService.createDraft(req.body, req.user!.id);
+    res.status(201).json(spec);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Create draft failed' });
+  }
+});
+
+router.post('/specs/:specId/activate', requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD]), async (req, res) => {
+  try {
+    const spec = await MachineSpecService.activate(req.params.specId);
+    res.json(spec);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Activate failed' });
+  }
+});
+
+router.post('/eligibility', requireAuth, async (req, res) => {
+  try {
+    const machineCode = String(req.body?.machineCode ?? '').toUpperCase();
+    const spec = await MachineSpecService.getActive(machineCode);
+    const result = isEligible({
+      requiredMandrelIdMm: req.body?.requiredMandrelIdMm,
+      widthMm: req.body?.widthMm,
+      thicknessMm: req.body?.thicknessMm,
+      coilWeightMt: req.body?.coilWeightMt,
+      exitOdMm: req.body?.exitOdMm,
+      suggestedMachine: req.body?.suggestedMachine ?? null,
+    }, spec);
+    res.json({ ...result, spec });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Eligibility check failed' });
+  }
+});
 
 export default router;

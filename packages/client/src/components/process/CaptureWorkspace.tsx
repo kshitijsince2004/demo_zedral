@@ -43,6 +43,10 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     stoppageRemarks,
     setStoppageCode,
     setStoppageRemarks,
+    pklGroupCoilNos,
+    pklGroupWeightMt,
+    advancePklGroup,
+    clearPklGroup,
   } = useProcessStore();
   const [prefill, setPrefill] = useState<Record<string, unknown>>(activePrefill ?? {});
 
@@ -115,6 +119,13 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         <div>
           <h1 className="font-bold text-lg">{config.label} Capture</h1>
           <p className="text-sm text-muted-foreground">{coilNo}</p>
+          {processCode === 'PKL' && pklGroupCoilNos.length > 1 && (
+            <p className="text-xs mt-1 font-medium tabular-nums">
+              Group {pklGroupCoilNos.length} coils · Σ {pklGroupWeightMt.toFixed(2)} MT
+              {' · '}
+              {pklGroupCoilNos.indexOf(coilNo) + 1}/{pklGroupCoilNos.length}
+            </p>
+          )}
         </div>
         <ZButton type="button" variant="secondary" onClick={() => navigate(basePath)}>Back to Hub</ZButton>
       </div>
@@ -128,6 +139,14 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
           requestQueueRefresh();
           closeDefectPanel();
           closeCrewPanel();
+          if (processCode === 'PKL') {
+            const next = advancePklGroup(coilNo);
+            if (next) {
+              navigate(`${basePath}/capture/${encodeURIComponent(next)}`);
+              return;
+            }
+            clearPklGroup();
+          }
           navigate(basePath);
         }}
       />

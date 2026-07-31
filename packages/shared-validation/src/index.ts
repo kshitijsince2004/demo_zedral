@@ -8,6 +8,7 @@ export * from './rules/fieldRegistry';
 export * from './rules/configurableRuleEvaluator';
 export * from './rules/m1Forms';
 export * from './utils/calculationEngine';
+export * from './utils/crsWidthCombination';
 export * from './utils/plantTime';
 export * from './utils/combinedWeightAllocation';
 export * from './utils/weightOcr';

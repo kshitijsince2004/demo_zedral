@@ -44,6 +44,13 @@
   --color-destructive: #EF4444;
   --color-purple: #8B5CF6;
 
+  /* Operator console status aliases (design spec → semantic) */
+  --color-status-running: var(--color-success);
+  --color-status-stopped: var(--color-warning);
+  --color-status-setup: var(--color-info);
+  --color-status-reject: var(--color-destructive);
+  --color-status-idle: #69807A;
+
   /* Navigation */
   --color-nav: #163328;
   --color-nav-foreground: #FFFFFF;
@@ -158,6 +165,12 @@
   --color-warning: #F59E0B;
   --color-info: #3B82F6;
   --color-destructive: #EF4444;
+
+  --color-status-running: var(--color-success);
+  --color-status-stopped: var(--color-warning);
+  --color-status-setup: var(--color-info);
+  --color-status-reject: var(--color-destructive);
+  --color-status-idle: #69807A;
 
   --color-nav: #163328;
   --color-nav-foreground: #FFFFFF;

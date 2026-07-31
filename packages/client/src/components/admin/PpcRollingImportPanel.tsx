@@ -48,9 +48,9 @@ function isRowImportable(row: PpcRollingPreviewRow): boolean {
   return row.errors.length === 0 && !DANGEROUS_STATUSES.includes(row.previewStatus);
 }
 
-export function PpcRollingImportPanel() {
+export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: PpcXlsxSheetType } = {}) {
   const [file, setFile] = useState<File | null>(null);
-  const [sheetType, setSheetType] = useState<PpcXlsxSheetType>('ROLLING');
+  const [sheetType, setSheetType] = useState<PpcXlsxSheetType>(lockedSheetType ?? 'ROLLING');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [parsedSheetName, setParsedSheetName] = useState('');
   const [rows, setRows] = useState<PpcRollingPreviewRow[]>([]);
@@ -170,17 +170,21 @@ export function PpcRollingImportPanel() {
       <div className="grid grid-cols-1 gap-3">
         <div>
           <label className={OP_LABEL}>Sheet to import</label>
-          <select
-            value={sheetType}
-            onChange={(e) => setSheetType(e.target.value as PpcXlsxSheetType)}
-            className={OP_SELECT}
-          >
-            {SHEET_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          {lockedSheetType ? (
+            <p className={`${OP_SELECT} flex items-center text-sm font-medium`}>Annealing (locked)</p>
+          ) : (
+            <select
+              value={sheetType}
+              onChange={(e) => setSheetType(e.target.value as PpcXlsxSheetType)}
+              className={OP_SELECT}
+            >
+              {SHEET_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

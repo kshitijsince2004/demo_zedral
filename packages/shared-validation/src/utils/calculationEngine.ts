@@ -31,6 +31,19 @@ export const calculateChargeWeight = (coilWeights: number[]): number => {
   return coilWeights.reduce((sum, weight) => sum + weight, 0);
 };
 
+/** CRS mass balance: Σ line output + scrap + rejection ≈ input. Warn beyond relTol (default 2%). */
+export const crsMassBalanceWarn = (
+  inputWtMt: number,
+  lineOutputs: number[],
+  scrapMt = 0,
+  rejectionMt = 0,
+  relTol = 0.02,
+): boolean => {
+  if (inputWtMt <= 0) return false;
+  const sum = lineOutputs.reduce((a, b) => a + b, 0) + scrapMt + rejectionMt;
+  return Math.abs(sum - inputWtMt) > inputWtMt * relTol;
+};
+
 /**
  * Calculates the total production from an array of process entries.
  * Assuming each entry has a `weightMt` property.

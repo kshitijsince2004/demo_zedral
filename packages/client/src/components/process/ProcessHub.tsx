@@ -9,6 +9,9 @@ import { useProcessStore, type ProcessQueueCard, type QueueStatusFilter } from '
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { getProcessConfig } from '../../lib/processConfig';
 import { useShiftStore } from '../../store/shiftStore';
+import { apiClient } from '../../lib/apiClient';
+import { AnnBatchesPanel } from './bodies/AnnBatchesPanel';
+import { findPklSiblingCoils, pklGroupWeightMt } from '../../lib/pklSiblingSelect';
 
 const STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
   { id: 'ALL', label: 'All' },
@@ -43,14 +46,31 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     setHubTab,
     loadQueue,
     setActiveCoil,
+    setPklGroup,
+    clearPklGroup,
     createManualCoil,
     busy,
+    manualModalToken,
+    pklGroupCoilNos,
+    pklGroupWeightMt: groupWt,
   } = useProcessStore();
 
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCoil, setManualCoil] = useState({ coilNo: '', gradeCode: '', customerName: '', widthMm: 0, thicknessMm: 0, weightMt: 0 });
+  const [crsMetrics, setCrsMetrics] = useState<{
+    totalProdMt: number; forCtlMt: number; holdMt: number; coilShipMt: number;
+    rejectionOdMt: number; rejectionIdMt: number; scrapPct: number; settingCount: number;
+  } | null>(null);
+  const [hrsMetrics, setHrsMetrics] = useState<{
+    targetMt: number; totalProdMt: number; scrapMt: number; scrapPct: number;
+    coilsDone: number; settingCount: number;
+  } | null>(null);
+  const [pklMetrics, setPklMetrics] = useState<{
+    totalProdMt: number; coilsDone: number; avgLineSpeed: number; repeats: number;
+    chartReadings: number; chartDue: number;
+  } | null>(null);
 
   const tab = searchParams.get('tab') ?? hubTab;
 
@@ -58,10 +78,43 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     setLoading(true);
     try {
       await loadQueue();
+      if (processCode === 'CRS' && shiftLogId) {
+        try {
+          const m = await apiClient.get<{
+            totalProdMt: number; forCtlMt: number; holdMt: number; coilShipMt: number;
+            rejectionOdMt: number; rejectionIdMt: number; scrapPct: number; settingCount: number;
+          }>(`/stations/crs/shift-metrics/${encodeURIComponent(shiftLogId)}`);
+          setCrsMetrics(m);
+        } catch {
+          setCrsMetrics(null);
+        }
+      }
+      if (processCode === 'HRS' && shiftLogId) {
+        try {
+          const m = await apiClient.get<{
+            targetMt: number; totalProdMt: number; scrapMt: number; scrapPct: number;
+            coilsDone: number; settingCount: number;
+          }>(`/stations/hrs/shift-metrics/${encodeURIComponent(shiftLogId)}`);
+          setHrsMetrics(m);
+        } catch {
+          setHrsMetrics(null);
+        }
+      }
+      if (processCode === 'PKL' && shiftLogId) {
+        try {
+          const m = await apiClient.get<{
+            totalProdMt: number; coilsDone: number; avgLineSpeed: number; repeats: number;
+            chartReadings: number; chartDue: number;
+          }>(`/stations/pkl/shift-metrics/${encodeURIComponent(shiftLogId)}`);
+          setPklMetrics(m);
+        } catch {
+          setPklMetrics(null);
+        }
+      }
     } finally {
       setLoading(false);
     }
-  }, [loadQueue]);
+  }, [loadQueue, processCode, shiftLogId]);
 
   useEffect(() => {
     void refresh();
@@ -71,6 +124,18 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     setHubTab(tab === 'chart' ? 'chart' : tab === 'charges' ? 'charges' : 'coils');
   }, [tab, setHubTab]);
 
+  // ANN operators land on the base board first.
+  useEffect(() => {
+    if (processCode !== 'ANN') return;
+    if (searchParams.get('tab')) return;
+    setSearchParams({ tab: 'charges' }, { replace: true });
+  }, [processCode, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (processCode !== 'PKL') return;
+    if (manualModalToken > 0) setManualOpen(true);
+  }, [manualModalToken, processCode]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return queue.filter((c) => matchesFilter(c, statusFilter)).filter((c) =>
@@ -78,8 +143,35 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     );
   }, [queue, statusFilter, search]);
 
+  const selectedSet = useMemo(() => new Set(pklGroupCoilNos), [pklGroupCoilNos]);
+
   function openCapture(card: ProcessQueueCard) {
-    setActiveCoil(card.coilNo, card.prefill ?? null);
+    if (processCode === 'PKL') {
+      const siblings = findPklSiblingCoils(card, queue);
+      const nos = siblings.map((s) => s.coilNo);
+      setPklGroup(nos, pklGroupWeightMt(siblings));
+      setActiveCoil(card.coilNo, {
+        ...(card.prefill ?? {}),
+        orderLines: card.orderLines,
+        widthMm: card.widthMm,
+        thicknessMm: card.thicknessMm,
+        weightMt: card.weightMt,
+        gradeCode: card.gradeCode,
+        motherCoilNo: card.motherCoilNo,
+        slitId: card.slitId,
+      });
+      navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
+      return;
+    }
+    clearPklGroup();
+    setActiveCoil(card.coilNo, {
+      ...(card.prefill ?? {}),
+      orderLines: card.orderLines,
+      widthMm: card.widthMm,
+      thicknessMm: card.thicknessMm,
+      weightMt: card.weightMt,
+      gradeCode: card.gradeCode,
+    });
     navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
   }
 
@@ -89,16 +181,24 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   }
 
   const tabs = [
-    { id: 'coils', label: 'Coils' },
+    { id: 'coils', label: processCode === 'ANN' ? 'Batches' : 'Coils' },
     ...(config.extraTabs ?? []),
-    ...(config.archetype === 'B' ? [{ id: 'charges', label: 'Charges' }] : []),
+    ...(config.archetype === 'B' ? [{ id: 'charges', label: 'Bases' }] : []),
   ];
+
+  const subtitle = processCode === 'CRS' && crsMetrics
+    ? `Prod ${crsMetrics.totalProdMt.toFixed(2)} · CTL ${crsMetrics.forCtlMt.toFixed(2)} · Hold ${crsMetrics.holdMt.toFixed(2)} · Ship ${crsMetrics.coilShipMt.toFixed(2)} · Rej ${ (crsMetrics.rejectionOdMt + crsMetrics.rejectionIdMt).toFixed(2)} · Scrap ${crsMetrics.scrapPct}% · Settings ${crsMetrics.settingCount}`
+    : processCode === 'HRS' && hrsMetrics
+      ? `Target ${hrsMetrics.targetMt.toFixed(2)} · Prod ${hrsMetrics.totalProdMt.toFixed(2)} · Scrap ${hrsMetrics.scrapMt.toFixed(2)} (${hrsMetrics.scrapPct}%) · Coils ${hrsMetrics.coilsDone} · Settings ${hrsMetrics.settingCount}`
+      : processCode === 'PKL' && pklMetrics
+        ? `Prod ${pklMetrics.totalProdMt.toFixed(2)} · Coils ${pklMetrics.coilsDone} · Avg speed ${pklMetrics.avgLineSpeed} · Repeats ${pklMetrics.repeats} · Chart ${pklMetrics.chartReadings}/${pklMetrics.chartDue}`
+        : `Shift · ${producedMt ?? 0} / ${targetMt ?? '—'} MT`;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <ZPageHeader
         title={config.label}
-        subtitle={`Shift · ${producedMt ?? 0} / ${targetMt ?? '—'} MT`}
+        subtitle={subtitle}
       />
 
       {tabs.length > 1 && (
@@ -126,6 +226,8 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         <div className="flex-1 overflow-auto">
           <config.bodyComponent coilNo="" prefill={{}} shiftLogId={shiftLogId ?? ''} machineCode={processCode} />
         </div>
+      ) : processCode === 'ANN' && tab === 'coils' ? (
+        <AnnBatchesPanel />
       ) : (
         <>
           <div className="px-4 py-3 flex flex-wrap gap-3 items-center border-b border-border">
@@ -138,6 +240,11 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <ZInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search coil…" className="pl-9" />
             </div>
+            {processCode === 'PKL' && pklGroupCoilNos.length > 0 && (
+              <p className="text-sm font-medium tabular-nums">
+                Selected {pklGroupCoilNos.length} · Σ {groupWt.toFixed(2)} MT
+              </p>
+            )}
             <ZButton type="button" variant="secondary" onClick={() => void refresh()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </ZButton>
@@ -145,12 +252,17 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
           </div>
 
           <div className="flex-1 overflow-auto p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((card) => (
+            {filtered.map((card) => {
+              const selected = processCode === 'PKL' && selectedSet.has(card.coilNo);
+              return (
               <button
                 key={card.coilNo}
                 type="button"
                 onClick={() => openCapture(card)}
-                className="text-left border rounded-xl p-4 hover:border-primary/40 hover:bg-secondary/20 transition-colors"
+                className={[
+                  'text-left border rounded-xl p-4 hover:border-primary/40 hover:bg-secondary/20 transition-colors',
+                  selected ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : '',
+                ].join(' ')}
               >
                 <div className="flex justify-between items-start gap-2">
                   <span className="font-bold text-lg">{card.displayCoilNo ?? card.coilNo}</span>
@@ -159,9 +271,17 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 <p className="text-sm text-muted-foreground mt-1">{card.customerName}</p>
                 <p className="text-xs mt-2">
                   {card.gradeCode} · {card.widthMm} mm · {card.thicknessMm} mm · {card.weightMt} MT
+                  {card.lineCount != null && card.lineCount > 1 ? ` · ${card.lineCount} lines` : ''}
+                  {card.combination ? ` · ${card.combination}` : ''}
                 </p>
+                {processCode === 'PKL' && (card.motherCoilNo || card.slitId) && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Mother {card.motherCoilNo ?? '—'} · Slit {card.slitId ?? '—'}
+                  </p>
+                )}
               </button>
-            ))}
+              );
+            })}
             {!loading && filtered.length === 0 && (
               <p className="text-muted-foreground col-span-full text-center py-12">No coils in queue</p>
             )}

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * Seeds journey-driven queue orders for each process station (HRS, PKL, ANN, RWD, CRS, CTL).
  * Usage: npm run seed:process-queues
@@ -129,24 +129,139 @@ async function seedAnnCharge(client, planDate, shiftCode) {
   const shiftLogId = shiftRes.rows[0]?.shift_log_id;
   if (!shiftLogId) return { chargeNo: null, skipped: true };
 
-  const chargeNo = 'SEED-ANN-CHG-001';
-  await client.query(
-    `INSERT INTO txn.ann_charge (charge_no, shift_log_id, status, grade_code, no_of_coils, charge_wt_mt)
-     VALUES ($1, $2, 'IN_PROCESS', 'CRCA', 0, 0) ON CONFLICT (charge_no) DO NOTHING`,
-    [chargeNo, shiftLogId],
+  // Ensure bases exist (migration usually seeds these).
+  await client.query(`
+    INSERT INTO master.ann_base (base_no, capacity_max_coils, capacity_max_wt_mt, soak_time_adj_hr, is_active)
+    SELECT v.base_no, 12, 40, 0, true
+    FROM (VALUES ('AB01'), ('AB02'), ('AB03'), ('AB04'), ('AB05'), ('AB06')) AS v(base_no)
+    WHERE NOT EXISTS (SELECT 1 FROM master.ann_base b WHERE b.base_no = v.base_no)
+  `);
+
+  const stages = await client.query(
+    `SELECT stage_code, seq FROM master.ann_stage WHERE is_active = true ORDER BY seq`,
   );
 
-  for (const [coilNo, seq] of [['ANN-SEED-001', 1], ['ANN-SEED-002', 2]]) {
-    await client.query('INSERT INTO txn.ann_charge_coil (charge_no, coil_no, seq_no) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [chargeNo, coilNo, seq]);
+  async function upsertCharge({ chargeNo, annealingBatchNo, baseNo, roster, activeSeq, soakTemp }) {
+    await client.query(
+      `INSERT INTO txn.ann_charge (
+         charge_no, shift_log_id, status, grade_code, no_of_coils, charge_wt_mt,
+         annealing_batch_no, base_no, soak_temp_degc, soak_time_hr
+       )
+       VALUES ($1, $2, 'IN_PROCESS', 'CRCA', 0, 0, $3, $4, $5, 10)
+       ON CONFLICT (charge_no) DO UPDATE SET
+         annealing_batch_no = EXCLUDED.annealing_batch_no,
+         base_no = EXCLUDED.base_no,
+         soak_temp_degc = EXCLUDED.soak_temp_degc,
+         soak_time_hr = EXCLUDED.soak_time_hr,
+         status = CASE WHEN txn.ann_charge.status = 'DONE' THEN txn.ann_charge.status ELSE 'IN_PROCESS' END`,
+      [chargeNo, shiftLogId, annealingBatchNo, baseNo, soakTemp],
+    );
+
+    for (const [coilNo, seq] of roster) {
+      await client.query(
+        `INSERT INTO txn.ann_charge_coil (charge_no, coil_no, seq_no, disposition)
+         VALUES ($1, $2, $3, 'ADVANCE') ON CONFLICT DO NOTHING`,
+        [chargeNo, coilNo, seq],
+      );
+    }
+
+    for (const s of stages.rows) {
+      const done = s.seq < activeSeq;
+      const active = s.seq === activeSeq;
+      await client.query(
+        `INSERT INTO txn.ann_charge_stage (charge_no, stage_code, seq, start_at, end_at, skipped)
+         VALUES (
+           $1, $2, $3::int,
+           CASE WHEN $3::int <= $4::int THEN now() - ((($4::int - $3::int + 1) * interval '45 minutes')) ELSE NULL END,
+           CASE WHEN $3::int < $4::int THEN now() - ((($4::int - $3::int) * interval '45 minutes')) ELSE NULL END,
+           false
+         )
+         ON CONFLICT (charge_no, stage_code) DO UPDATE SET
+           start_at = COALESCE(txn.ann_charge_stage.start_at, EXCLUDED.start_at),
+           end_at = CASE
+             WHEN txn.ann_charge_stage.end_at IS NOT NULL THEN txn.ann_charge_stage.end_at
+             WHEN $3::int < $4::int THEN EXCLUDED.end_at
+             ELSE txn.ann_charge_stage.end_at
+           END`,
+        [chargeNo, s.stage_code, s.seq, activeSeq],
+      );
+      if (active) {
+        await client.query(
+          `UPDATE txn.ann_charge_stage SET end_at = NULL, start_at = COALESCE(start_at, now())
+           WHERE charge_no = $1 AND stage_code = $2`,
+          [chargeNo, s.stage_code],
+        );
+      }
+    }
+
+    const activeStage = stages.rows.find((s) => s.seq === activeSeq);
+    if (activeStage) {
+      await client.query(
+        `UPDATE txn.ann_charge SET current_stage_code = $2 WHERE charge_no = $1`,
+        [chargeNo, activeStage.stage_code],
+      );
+    }
+
+    const rosterWt = await client.query(
+      `SELECT c.weight_mt FROM txn.ann_charge_coil acc JOIN coil.coil c ON c.coil_no = acc.coil_no WHERE acc.charge_no = $1`,
+      [chargeNo],
+    );
+    const chargeWt = rosterWt.rows.reduce((sum, r) => sum + Number(r.weight_mt ?? 0), 0);
+    await client.query(
+      'UPDATE txn.ann_charge SET no_of_coils = $2, charge_wt_mt = $3 WHERE charge_no = $1',
+      [chargeNo, rosterWt.rows.length, chargeWt],
+    );
+
+    // Sample readings for Trends (idempotent: skip if already have ≥3).
+    const existing = await client.query(
+      `SELECT COUNT(*)::int AS n FROM txn.ann_charge_reading WHERE charge_no = $1`,
+      [chargeNo],
+    );
+    if ((existing.rows[0]?.n ?? 0) < 3 && activeStage) {
+      const temps = [420, 510, 620, 670, 685];
+      for (let i = 0; i < temps.length; i++) {
+        await client.query(
+          `INSERT INTO txn.ann_charge_reading (
+             charge_no, base_no, taken_at, stage_code, shift_code,
+             charge_temp, gas_temp, fc_temp, n2h2_flow, base_press, base_fan_rpm, fuel_flow, rcf_rpm
+           ) VALUES (
+             $1, $2, now() - ((($5::int - $6::int) * interval '30 minutes')), $3, $4,
+             $7::numeric, $7::numeric + 15, $7::numeric - 40, 12.5, 180 + $6::int, 950 + ($6::int * 10), 8.2, 720
+           )`,
+          [chargeNo, baseNo, activeStage.stage_code, shiftCode, temps.length, i, temps[i]],
+        );
+      }
+    }
+
+    return { chargeNo, annealingBatchNo, baseNo, rosterCount: rosterWt.rows.length, stage: activeStage?.stage_code };
   }
 
-  const roster = await client.query(
-    `SELECT c.weight_mt FROM txn.ann_charge_coil acc JOIN coil.coil c ON c.coil_no = acc.coil_no WHERE acc.charge_no = $1`,
-    [chargeNo],
-  );
-  const chargeWt = roster.rows.reduce((sum, r) => sum + Number(r.weight_mt ?? 0), 0);
-  await client.query('UPDATE txn.ann_charge SET no_of_coils = $2, charge_wt_mt = $3 WHERE charge_no = $1', [chargeNo, roster.rows.length, chargeWt]);
-  return { chargeNo, shiftLogId, rosterCount: roster.rows.length };
+  const c1 = await upsertCharge({
+    chargeNo: 'SEED-ANN-CHG-001',
+    annealingBatchNo: 'SEED-ANN-BATCH-001',
+    baseNo: 'AB01',
+    roster: [['ANN-SEED-001', 1], ['ANN-SEED-002', 2]],
+    activeSeq: 3, // HEATING
+    soakTemp: 680,
+  });
+
+  const c2 = await upsertCharge({
+    chargeNo: 'SEED-ANN-CHG-002',
+    annealingBatchNo: 'SEED-ANN-BATCH-002',
+    baseNo: 'AB06',
+    roster: [['ANN-SEED-003', 1]],
+    activeSeq: 4, // SOAKING
+    soakTemp: 660,
+  });
+
+  return {
+    chargeNo: c1.chargeNo,
+    annealingBatchNo: c1.annealingBatchNo,
+    baseNo: c1.baseNo,
+    shiftLogId,
+    rosterCount: c1.rosterCount + c2.rosterCount,
+    charges: [c1, c2],
+  };
 }
 
 
@@ -193,6 +308,11 @@ export async function seedProcessQueues(client, opts = {}) {
     { coilNo: 'PKL-COIL-002', customerId: cust.CUST_MARUTI?.customer_id, customerName: cust.CUST_MARUTI?.customer_name ?? 'Maruti Suzuki', gradeCode: 'D513', widthMm: 1500, thicknessMm: 3.2, weightMt: 26.5 },
     { coilNo: 'ANN-SEED-001', customerId: cust.CUST_TATA?.customer_id, customerName: cust.CUST_TATA?.customer_name ?? 'Tata Motors', gradeCode: 'CRCA', widthMm: 1250, thicknessMm: 2.5, weightMt: 21.0 },
     { coilNo: 'ANN-SEED-002', customerId: cust.CUST_MARUTI?.customer_id, customerName: cust.CUST_MARUTI?.customer_name ?? 'Maruti Suzuki', gradeCode: 'D513', widthMm: 1500, thicknessMm: 2.0, weightMt: 24.0 },
+    { coilNo: 'ANN-SEED-003', customerId: cust.CUST_HONDA?.customer_id, customerName: cust.CUST_HONDA?.customer_name ?? 'Honda Cars India', gradeCode: 'CRCA', widthMm: 1220, thicknessMm: 2.2, weightMt: 20.5 },
+    { coilNo: 'ANN-Q-001', customerId: cust.CUST_TATA?.customer_id, customerName: cust.CUST_TATA?.customer_name ?? 'Tata Motors', gradeCode: 'CRCA', widthMm: 1250, thicknessMm: 2.4, weightMt: 18.0 },
+    { coilNo: 'ANN-Q-002', customerId: cust.CUST_MARUTI?.customer_id, customerName: cust.CUST_MARUTI?.customer_name ?? 'Maruti Suzuki', gradeCode: 'D513', widthMm: 1480, thicknessMm: 1.9, weightMt: 17.2 },
+    { coilNo: 'ANN-Q-003', customerId: cust.CUST_HONDA?.customer_id, customerName: cust.CUST_HONDA?.customer_name ?? 'Honda Cars India', gradeCode: 'CRCA', widthMm: 1200, thicknessMm: 2.1, weightMt: 16.5 },
+    { coilNo: 'ANN-Q-004', customerId: cust.CUST_TATA?.customer_id, customerName: cust.CUST_TATA?.customer_name ?? 'Tata Motors', gradeCode: 'D513', widthMm: 1300, thicknessMm: 2.0, weightMt: 15.8 },
     { coilNo: 'RWD-SEED-001', customerId: cust.CUST_TATA?.customer_id, customerName: cust.CUST_TATA?.customer_name ?? 'Tata Motors', gradeCode: 'CRCA', widthMm: 1250, thicknessMm: 1.8, weightMt: 19.5 },
     { coilNo: 'RWD-SEED-002', customerId: cust.CUST_HONDA?.customer_id, customerName: cust.CUST_HONDA?.customer_name ?? 'Honda Cars India', gradeCode: 'HROP', widthMm: 1500, thicknessMm: 1.6, weightMt: 18.0 },
     { coilNo: 'CRS-COIL-001', customerId: cust.CUST_TATA?.customer_id, customerName: cust.CUST_TATA?.customer_name ?? 'Tata Motors', gradeCode: 'CRCA', widthMm: 1200, thicknessMm: 1.2, weightMt: 10.5 },
@@ -208,7 +328,12 @@ export async function seedProcessQueues(client, opts = {}) {
     { processCode: 'PKL', activeRouteCode: 'P', coilNo: 'PKL-COIL-001', stepStatus: 'ACTIVE', batchNumber: 'SEED-PKL-001' },
     { processCode: 'PKL', activeRouteCode: 'P', coilNo: 'PKL-COIL-002', stepStatus: 'PENDING', batchNumber: 'SEED-PKL-002' },
     { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-SEED-001', stepStatus: 'ACTIVE', batchNumber: 'SEED-ANN-001' },
-    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-SEED-002', stepStatus: 'PENDING', batchNumber: 'SEED-ANN-002' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-SEED-002', stepStatus: 'ACTIVE', batchNumber: 'SEED-ANN-002' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-SEED-003', stepStatus: 'ACTIVE', batchNumber: 'SEED-ANN-003' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-Q-001', stepStatus: 'PENDING', batchNumber: 'SEED-ANN-Q-001' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-Q-002', stepStatus: 'PENDING', batchNumber: 'SEED-ANN-Q-002' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-Q-003', stepStatus: 'PENDING', batchNumber: 'SEED-ANN-Q-003' },
+    { processCode: 'ANN', activeRouteCode: 'F', coilNo: 'ANN-Q-004', stepStatus: 'PENDING', batchNumber: 'SEED-ANN-Q-004' },
     { processCode: 'RWD', activeRouteCode: 'R', coilNo: 'RWD-SEED-001', stepStatus: 'ACTIVE', batchNumber: 'SEED-RWD-001' },
     { processCode: 'RWD', activeRouteCode: 'R', coilNo: 'RWD-SEED-002', stepStatus: 'PENDING', batchNumber: 'SEED-RWD-002' },
     { processCode: 'CRS', activeRouteCode: 'C', coilNo: 'CRS-COIL-001', stepStatus: 'ACTIVE', batchNumber: 'SEED-CRS-001' },
@@ -238,7 +363,17 @@ async function main() {
     await client.query('COMMIT');
     console.log('Process queue seed (' + summary.planDate + ' shift ' + summary.shiftCode + '):');
     console.log('  journeys created=' + summary.created + ' skipped=' + summary.skipped);
-    if (summary.annCharge?.chargeNo) console.log('  ANN charge ' + summary.annCharge.chargeNo + ' (' + summary.annCharge.rosterCount + ' coils)');
+    if (summary.annCharge?.chargeNo) {
+      console.log(
+        '  ANN charge ' + summary.annCharge.chargeNo +
+        ' batch=' + summary.annCharge.annealingBatchNo +
+        ' base=' + summary.annCharge.baseNo +
+        ' (' + summary.annCharge.rosterCount + ' coils across charges)',
+      );
+      for (const c of summary.annCharge.charges ?? []) {
+        console.log('    · ' + c.chargeNo + ' base=' + c.baseNo + ' stage=' + c.stage + ' coils=' + c.rosterCount);
+      }
+    }
     for (const r of summary.results) if (!r.skipped) console.log('    + ' + r.processCode + ' ' + r.coilNo);
   } catch (err) {
     await client.query('ROLLBACK');

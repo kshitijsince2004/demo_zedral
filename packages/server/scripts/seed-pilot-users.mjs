@@ -47,10 +47,11 @@ const USERS = [
   { username: 'operator', emp_code: '3000', full_name: 'Shift Operator', role_id: 1, lines: ['HRS', 'ROLLING'], machines: ['6HI'] },
   { username: 'operator4hi', emp_code: '3004', full_name: '4HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['4HI'] },
   { username: 'operator2hi', emp_code: '3002', full_name: '2HI Operator', role_id: 1, lines: ['ROLLING'], machines: ['2HI'] },
-  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
+  { username: 'machinehead', emp_code: '4000', full_name: 'Machine Head', role_id: 5, lines: ['ROLLING', '4HI', '2HI', 'ANN'], machines: ['6HI', '4HI', '2HI', 'ANN'], staff: true },
+  { username: 'machinehead.ann', emp_code: '4001', full_name: 'ANN Machine Head', role_id: 5, lines: ['ANN'], machines: ['ANN'], staff: true },
+  { username: 'operator.ann', emp_code: '3010', full_name: 'ANN Operator', role_id: 1, lines: ['ANN'], machines: ['ANN'] },
   { username: 'supervisor', emp_code: '4500', full_name: 'Supervisor', role_id: 2, lines: [], machines: [], staff: true },
   { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
-  { username: 'supervisor', emp_code: '6000', full_name: 'Shift Supervisor', role_id: 5, lines: ['ROLLING', '4HI', '2HI'], machines: ['6HI', '4HI', '2HI'], staff: true },
   { username: 'quality', emp_code: '7000', full_name: 'Quality Engineer', role_id: 6, lines: [], machines: [], staff: true },
 ];
 
@@ -86,7 +87,7 @@ async function seedRoles(client) {
       (2, 'SUPERVISOR', 'Oversight: live dashboards, import, traceability, assignment'),
       (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
       (4, 'ADMIN', 'System Administrator: Manage master data'),
-      (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines')
+      (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines'),
       (6, 'QUALITY', 'Quality: Authors and publishes material specification sheets')
     ON CONFLICT (role_id) DO UPDATE
       SET role_name = EXCLUDED.role_name,

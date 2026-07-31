@@ -1,0 +1,26 @@
+---
+description: Always append session changes to doc/AGENT_CONTEXT_LOG.md
+alwaysApply: true
+---
+
+# Agent context log habit
+
+At the **end of every agent turn that changes code or makes decisions**, append a short dated entry to `doc/AGENT_CONTEXT_LOG.md`.
+
+## Entry template
+
+```markdown
+### YYYY-MM-DD — <one-line title>
+
+- **Goal:** …
+- **Touched:** `path1`, `path2`
+- **Decisions / skipped:** …
+- **Follow-ups:** …
+```
+
+## Rules
+
+- Append only; never rewrite prior entries.
+- Prefer file paths over prose.
+- If no code changed (Q&A only), skip the log.
+- Keep CRS / process work aligned with `doc/ZEDRAL_CRS_OPERATOR_IMPLEMENTATION_PLAN.md` and ponytail when `/ponytail` is active.
