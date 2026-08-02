@@ -28,10 +28,11 @@ export const useMhDeskFocus = create<{
   },
 }));
 
-/** True when MH should show the 7-item ANN nav. */
+/** True when MH should show the 7-item ANN nav — only if ANN is assigned. */
 export function isAnnMhDesk(operationalMachines: string[], focus: string | null): boolean {
-  if (focus?.toUpperCase() === 'ANN') return true;
   const ops = operationalMachines.map((m) => m.toUpperCase());
+  if (!ops.includes('ANN')) return false;
+  if (focus?.toUpperCase() === 'ANN') return true;
   return ops.length === 1 && ops[0] === 'ANN';
 }
 

@@ -1,0 +1,75 @@
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft } from 'lucide-react';
+import { MachineHeadShell } from '../../../components/layout/machinehead/MachineHeadShell';
+import { ZButton } from '../../../components/primitives/ZButton';
+import { apiClient } from '../../../lib/apiClient';
+import { formatPlantDateTime } from '../../../lib/dateFormat';
+
+type Prefill = {
+  coilNo?: string;
+  gradeCode?: string;
+  weightMt?: number;
+  motherCoilNo?: string;
+  slitId?: string;
+  prefill?: Record<string, unknown>;
+};
+
+/** Full-screen PKL coil detail for MH desk. */
+export function PklMhCoilDetailPage() {
+  const { coilNo: raw } = useParams();
+  const coilNo = raw ? decodeURIComponent(raw) : '';
+  const navigate = useNavigate();
+  const [data, setData] = useState<Prefill | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!coilNo) return;
+    void apiClient
+      .get<Prefill>(`/stations/pkl/entry/${encodeURIComponent(coilNo)}`)
+      .then(setData)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Load failed'));
+  }, [coilNo]);
+
+  const p = data?.prefill ?? {};
+  const rows: Array<[string, string]> = [
+    ['Coil', data?.coilNo ?? coilNo],
+    ['Grade', String(data?.gradeCode ?? p.gradeCode ?? '—')],
+    ['Weight (MT)', data?.weightMt != null ? Number(data.weightMt).toFixed(2) : String(p.weightMt ?? '—')],
+    ['Mother', String(data?.motherCoilNo ?? p.motherCoilNo ?? '—')],
+    ['Slit', String(data?.slitId ?? p.slitId ?? '—')],
+    ['Line speed', String(p.lineSpeedMpm ?? p.line_speed_mpm ?? '—')],
+    ['Repeats', String(p.repeats ?? '—')],
+    ['HT', String(p.ht ?? p.HT ?? '—')],
+    ['W/P', String(p.wp ?? p.WP ?? '—')],
+    ['End filling', p.endFilling === true || p.end_filling === true ? 'Yes' : p.endFilling === false || p.end_filling === false ? 'No' : '—'],
+    ['Captured at', p.createdAt || p.created_at ? formatPlantDateTime(String(p.createdAt ?? p.created_at)) : '—'],
+    ['Operator', String(p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
+  ];
+
+  return (
+    <MachineHeadShell
+      title={`PKL · ${coilNo || 'Coil'}`}
+      subtitle="Operator-captured values"
+      fillViewport
+      headerActions={
+        <ZButton variant="secondary" size="sm" onClick={() => navigate('/machine-head/pkl/live')}>
+          <ChevronLeft className="h-4 w-4" /> Live
+        </ZButton>
+      }
+    >
+      {error && <p className="text-sm text-destructive p-4">{error}</p>}
+      {!error && !data && <p className="text-sm text-muted-foreground p-4">Loading…</p>}
+      {data && (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 p-1">
+          {rows.map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-border bg-card px-3 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
+              <p className="mt-0.5 text-sm font-semibold font-mono tabular-nums">{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </MachineHeadShell>
+  );
+}

@@ -959,6 +959,7 @@ export interface MasterAnnStage {
 export interface MasterAnnStoppageCategory {
   category_code: string;
   description: string;
+  delay_bucket: string | null;
   is_active: Generated<boolean>;
 }
 
@@ -1442,13 +1443,35 @@ export interface TxnProdHrsSlit {
   slot: string;
   surface_finish: string | null;
   taper: string | null;
+  taper_latest: string | null;
   target_width_mm: Numeric | null;
   tenant_id: Generated<string>;
   thk_centre_mm: Numeric | null;
   thk_id_mm: Numeric | null;
+  thk_latest_mm: Numeric | null;
   thk_mm: Numeric | null;
   thk_od_mm: Numeric | null;
   width_mm: Numeric | null;
+}
+
+export interface TxnProdHrsSlitReading {
+  created_at: Generated<Timestamp>;
+  entry_id: Int8;
+  reading_id: Generated<Int8>;
+  reading_time: Timestamp;
+  slot: string;
+  taper: string | null;
+  tenant_id: Generated<string>;
+  thk_mm: Numeric | null;
+}
+
+export interface TxnProdHrsWidthReading {
+  actual_width_mm: Numeric;
+  created_at: Generated<Timestamp>;
+  entry_id: Int8;
+  reading_id: Generated<Int8>;
+  reading_time: Timestamp;
+  tenant_id: Generated<string>;
 }
 
 export interface TxnProdPkl {
@@ -1495,6 +1518,7 @@ export interface TxnProdPklChart {
   dosage_water: Numeric | null;
   hot_air_temp_degc: Numeric | null;
   iron_strength_pct: Numeric | null;
+  line_incharge: string | null;
   rinse_acid_pct: Numeric | null;
   rinse_cl: Numeric | null;
   rinse_flow: Numeric | null;
@@ -1503,6 +1527,7 @@ export interface TxnProdPklChart {
   rinse_temp_degc: Numeric | null;
   shift_log_id: Int8;
   steam_inlet_kgcm2: Numeric | null;
+  steam_outlet_burner_kgcm2: Numeric | null;
   steam_outlet_kgcm2: Numeric | null;
   tank_level: Numeric | null;
   tank_no: number | null;
@@ -1582,16 +1607,105 @@ export interface TxnShiftOverrideAudit {
   user_id: number;
 }
 
+export interface TxnRwdOrder {
+  batch_id: Int8;
+  batch_number: string;
+  coil_no: string;
+  combined_group_id: string | null;
+  created_at: Generated<Timestamp>;
+  customer_name: string;
+  grade_code: string;
+  held_at: Timestamp | null;
+  held_by: number | null;
+  hold_reason: string | null;
+  hold_remarks: string | null;
+  input_thk_mm: Numeric | null;
+  logged_in_user_id: number | null;
+  machine_code: string;
+  order_id: Generated<Int8>;
+  ppc_thk_mm: Numeric;
+  ppc_weight_mt: Numeric;
+  prod_date: Timestamp | null;
+  prod_duration_min: number | null;
+  prod_end_at: Timestamp | null;
+  prod_start_at: Timestamp | null;
+  production_day: Timestamp | null;
+  shift_code: string | null;
+  shift_log_id: Int8 | null;
+  slit_id: string | null;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  width_mm: Numeric;
+}
+
+export interface TxnHrsOrder {
+  coil_no: string;
+  created_at: Generated<Timestamp>;
+  customer_name: string;
+  grade_code: string;
+  held_at: Timestamp | null;
+  held_by: number | null;
+  hold_reason: string | null;
+  hold_remarks: string | null;
+  logged_in_user_id: number | null;
+  machine_code: Generated<string>;
+  mother_coil_weight_mt: Numeric;
+  nominal_thk_mm: Numeric;
+  nominal_width_mm: Numeric;
+  order_id: Generated<Int8>;
+  prod_date: Timestamp | null;
+  prod_duration_min: number | null;
+  prod_end_at: Timestamp | null;
+  prod_start_at: Timestamp | null;
+  production_day: Timestamp | null;
+  shift_code: string | null;
+  shift_log_id: Int8 | null;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TxnPklOrder {
+  coil_no: string;
+  created_at: Generated<Timestamp>;
+  customer_name: string;
+  grade_code: string;
+  held_at: Timestamp | null;
+  held_by: number | null;
+  hold_reason: string | null;
+  hold_remarks: string | null;
+  logged_in_user_id: number | null;
+  machine_code: Generated<string>;
+  mother_coil_no: string | null;
+  mother_coil_weight_mt: Numeric;
+  nominal_thk_mm: Numeric;
+  nominal_width_mm: Numeric;
+  order_id: Generated<Int8>;
+  prod_date: Timestamp | null;
+  prod_duration_min: number | null;
+  prod_end_at: Timestamp | null;
+  prod_start_at: Timestamp | null;
+  production_day: Timestamp | null;
+  shift_code: string | null;
+  shift_log_id: Int8 | null;
+  slit_id: string | null;
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface TxnStoppage {
   breakdown_code: string | null;
   category_code: string;
   duration_min: number | null;
   end_at: Timestamp | null;
+  hrs_order_id: Int8 | null;
   machine_code: string | null;
   operator_id: number | null;
   order_id: Int8 | null;
+  order_kind: Generated<string>;
+  pkl_order_id: Int8 | null;
   prod_date: Timestamp | null;
   remarks: string | null;
+  rwd_order_id: Int8 | null;
   shift_code: string | null;
   shift_log_id: Int8 | null;
   start_at: Generated<Timestamp>;
@@ -1806,9 +1920,14 @@ export interface DB {
   "txn.prod_ctl": TxnProdCtl;
   "txn.prod_hrs": TxnProdHrs;
   "txn.prod_hrs_slit": TxnProdHrsSlit;
+  "txn.prod_hrs_slit_reading": TxnProdHrsSlitReading;
+  "txn.prod_hrs_width_reading": TxnProdHrsWidthReading;
   "txn.prod_pkl": TxnProdPkl;
   "txn.prod_pkl_chart": TxnProdPklChart;
   "txn.prod_rwd": TxnProdRwd;
+  "txn.hrs_order": TxnHrsOrder;
+  "txn.pkl_order": TxnPklOrder;
+  "txn.rwd_order": TxnRwdOrder;
   "txn.session_crew": TxnSessionCrew;
   "txn.shift_event_audit": TxnShiftEventAudit;
   "txn.shift_log": TxnShiftLog;

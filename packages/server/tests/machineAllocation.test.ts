@@ -16,6 +16,8 @@ describe('machine allocation helpers', () => {
     expect(routeCodeFromBatch('4HI', 'ROLLING')).toBe('4');
     expect(routeCodeFromBatch('2HI', 'SKIN_PASS')).toBe('X');
     expect(routeCodeFromBatch('6HI', 'SKIN_PASS')).toBe('X');
+    expect(routeCodeFromBatch('2HI', 'REWINDING')).toBe('R');
+    expect(routeCodeFromBatch('RWD', '')).toBe('R');
   });
 
   it('lists allowed mills per subprocess', () => {

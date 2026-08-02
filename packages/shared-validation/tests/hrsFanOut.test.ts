@@ -7,9 +7,12 @@ describe('HRS fan-out contract', () => {
     const slots = ['A', 'B', 'C', 'D', 'E', 'F'].map((slot) => ({
       slot,
       targetWidthMm: 100,
-      actualWidthMm: 100,
+      plannedWeightMt: 1,
       routeRaw: 'SP4RFXCLE',
-      actualWeightMt: 1,
+      thicknessReadings: [{ time: '10:00', thkMm: 2.5 }],
+      taperReadings: [{ time: '10:05', taper: 'OK' }],
+      thkLatestMm: 2.5,
+      taperLatest: 'OK',
     }));
     const parsed = hrsSchema.safeParse({
       machineCode: 'HRS',
@@ -18,6 +21,8 @@ describe('HRS fan-out contract', () => {
       motherCoilWeightMt: 6,
       weightMt: 6,
       scrapMt: 0,
+      motherWidthReadings: [{ time: '09:55', widthMm: 1250 }],
+      actualWidthMm: 1250,
       slitSlots: slots,
     });
     expect(parsed.success).toBe(true);

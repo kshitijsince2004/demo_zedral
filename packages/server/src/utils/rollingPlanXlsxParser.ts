@@ -19,7 +19,7 @@ export interface ParsedRollingPlanRow {
   shiftCode: string;
   /** Mill codes for CRM plans; `RWD` / `CTL` for process-plan import. */
   machineCode: PpcMillCode | 'RWD' | 'CTL';
-  subProcess: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL';
+  subProcess: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL' | 'REWINDING';
   coilNo: string;
   slitId?: string;
   customerName: string;

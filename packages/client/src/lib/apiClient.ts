@@ -198,7 +198,23 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
     }
   }
 
+  const attachSessionHeaders = async () => {
+    if (isPublicAuthPath(path) || path.startsWith('/auth/')) return false;
+    try {
+      const Session = (await import('supertokens-auth-react/recipe/session')).default;
+      if (!(await Session.doesSessionExist())) return false;
+      const accessToken = await Session.getAccessToken();
+      if (!accessToken) return false;
+      headers.set('Authorization', `Bearer ${accessToken}`);
+      headers.set('st-auth-mode', 'header');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const doFetch = async (): Promise<Response> => {
+    await attachSessionHeaders();
     const { signal: timeoutSignal, cancel } = withTimeout(timeoutMs);
     const signal = mergeAbortSignals(callerSignal, timeoutSignal);
     const url = `${API_BASE}${finalPath}`;
@@ -238,7 +254,7 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
       if (await Session.doesSessionExist()) {
         const refreshed = await Session.attemptRefreshingSession();
         if (refreshed && authGeneration === generationAtStart) {
-          res = await doFetch();
+          res = await doFetch(); // re-reads access token after refresh
         }
       }
     } catch {

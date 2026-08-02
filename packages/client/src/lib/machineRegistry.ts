@@ -10,6 +10,7 @@ export type MachineRegistryEntry = {
   capacityMt: number | null;
   rolling: boolean;
   skinPass: boolean;
+  rewinding?: boolean;
   isCrmMill: boolean;
 };
 
@@ -32,15 +33,24 @@ export function invalidateMachineRegistryCache(): void {
 
 const ALLOWED_ROLLING = ['6HI', '4HI'];
 const ALLOWED_SKIN_PASS = ['2HI', '4HI', '6HI'];
+const ALLOWED_REWINDING = ['RWD', '2HI'];
 
 export async function millsForSubProcessFromRegistry(
-  subProcess: 'ROLLING' | 'SKIN_PASS',
+  subProcess: 'ROLLING' | 'SKIN_PASS' | 'REWINDING',
 ): Promise<string[]> {
-  const allowed = subProcess === 'ROLLING' ? ALLOWED_ROLLING : ALLOWED_SKIN_PASS;
+  const allowed = subProcess === 'ROLLING'
+    ? ALLOWED_ROLLING
+    : subProcess === 'REWINDING'
+      ? ALLOWED_REWINDING
+      : ALLOWED_SKIN_PASS;
   const machines = await fetchMachineRegistry();
-  const filtered = machines.filter(
-    (m) => (subProcess === 'ROLLING' ? m.rolling : m.skinPass) && allowed.includes(m.machineCode),
-  );
+  const filtered = machines.filter((m) => {
+    if (subProcess === 'ROLLING') return m.rolling && allowed.includes(m.machineCode);
+    if (subProcess === 'REWINDING') {
+      return allowed.includes(m.machineCode) && (m.rewinding !== false);
+    }
+    return m.skinPass && allowed.includes(m.machineCode);
+  });
   if (filtered.length > 0) return filtered.map((m) => m.machineCode);
   return allowed;
 }

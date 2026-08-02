@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
-import { getProcessConfig, isProcessStationCode } from '../../../lib/processConfig';
+import { isProcessStationCode } from '../../../lib/processConfig';
 import { CircleStop, Moon, PauseCircle } from 'lucide-react';
 import { useShiftStore } from '../../../store/shiftStore';
 import { useSixHiStore } from '../../../store/sixHiStore';
+import { useProcessStore } from '../../../store/processStore';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
 import { ZBadge } from '../../primitives/ZBadge';
 import { SyncStatusBadge } from '../../../lib/sync/SyncStatusBadge';
@@ -73,11 +74,14 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const machineActive = useSixHiStore((s) => s.machineActive);
   const machineCode = useSixHiStore((s) => s.machineCode);
   const manualStoppage = useSixHiStore((s) => s.manualStoppage);
-  const isCrmMill = isCrmMillPath(location.pathname);
+  const captureStatus = useProcessStore((s) => s.captureStatus);
+  // ponytail: process stations on user-scope URLs are not CRM (debug H-F)
+  const isProcess = !!(processCode && isProcessStationCode(processCode));
+  const isCrmMill = !isProcess && isCrmMillPath(location.pathname);
   const lineCode = isCrmMill ? machineCode : (processCode ?? processLine ?? 'HRS');
   const line =
-    !isCrmMill && processCode && isProcessStationCode(processCode)
-      ? (getProcessConfig(processCode).label ?? processCode)
+    isProcess
+      ? processCode
       : lineCode;
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
   const paceTone: Tone =
@@ -90,9 +94,10 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const crmStoppageActive = isCrmMill && (!!panelOrder?.activeStoppage || !!manualStoppage?.active);
   const manualStoppageEligible = isCrmMill && !!manualStoppage?.eligible && !manualStoppage?.active;
   const manualStoppageActive = isCrmMill && !!manualStoppage?.active;
-  const crmRunning = isCrmMill
-    ? activeStatus === 'IN_PROGRESS' && !crmStoppageActive
-    : !runningStoppage;
+  const crmRunning = isCrmMill && activeStatus === 'IN_PROGRESS' && !crmStoppageActive;
+  const processRunning = isProcess && (captureStatus === 'running' || captureStatus === 'stoppage');
+  const showStopped = crmStoppageActive || !!runningStoppage || (isProcess && captureStatus === 'stoppage');
+  const showRunning = isCrmMill ? crmRunning : processRunning;
 
 
 
@@ -158,9 +163,9 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
         {isCrmMill && <div className="flex-1 min-w-0" />}
 
         <div className="flex items-center gap-3 px-4">
-          {crmStoppageActive || runningStoppage ? (
+          {showStopped ? (
             <ZBadge tone="destructive" label="STOPPED" dot />
-          ) : crmRunning || !isCrmMill ? (
+          ) : showRunning ? (
             <ZBadge tone="success" label="Running" dot />
           ) : (
             <ZBadge tone="muted" label="Idle" dot />

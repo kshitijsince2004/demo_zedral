@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/authStore';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
@@ -11,14 +11,20 @@ import { apiClient, ApiError } from '../../lib/apiClient';
 import { ProductionActionRail } from './ProductionActionRail';
 import { ShiftEndModal } from '../sixHi/ShiftEndModal';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
-import { getProcessConfig, isProcessStationCode } from '../../lib/processConfig';
+import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from '../../lib/processConfig';
 import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
 
-export function ProcessLayout() {
+interface ProcessLayoutProps {
+  /** Resolved station from UserScopeShell (not stale activeMachine). */
+  stationCode: string;
+}
+
+export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
   const activeMachine = useAuthStore((s) => s.activeMachine);
+  const setActiveMachine = useAuthStore((s) => s.setActiveMachine);
   const logout = useAuthStore((s) => s.logout);
   const location = useLocation();
-  const { basePath, processCode } = useProcessWorkspaceBase();
+  const { basePath } = useProcessWorkspaceBase();
   const navigate = useNavigate();
   const {
     activeCoilNo,
@@ -29,20 +35,26 @@ export function ProcessLayout() {
     setProcessCode,
     startCapture,
     stopCapture,
-    openDefectPanel,
-    openCrewPanel,
+    openRemarkPanel,
+    holdCoil,
+    requestEndCapture,
   } = useProcessStore();
 
   const onHandoverRoute = /\/handover\/?$/.test(location.pathname);
   const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
   const handoverPath = basePath ? `${basePath}/handover` : null;
 
-  const machine = activeMachine && isProcessStationCode(activeMachine) ? activeMachine : processCode;
+  const machine: ProcessStationCode = isProcessStationCode(stationCode)
+    ? stationCode
+    : 'HRS';
   const config = getProcessConfig(machine);
+  /** RWD capture owns the rail; never show ProcessLayout rail for RWD (wrong /capture End path). */
+  const hideShellRail = machine === 'RWD' || /\/rewinding\//.test(location.pathname);
 
-  useEffect(() => {
-    if (machine) setProcessCode(machine);
-  }, [machine, setProcessCode]);
+  useLayoutEffect(() => {
+    setProcessCode(machine);
+    if (activeMachine !== machine) setActiveMachine(machine);
+  }, [machine, activeMachine, setActiveMachine, setProcessCode]);
 
   useEffect(() => {
     async function init() {
@@ -70,11 +82,14 @@ export function ProcessLayout() {
   return (
     <HandoverAcceptGate machineCode={machine}>
       <OperatorShell processCode={machine}>
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          <div className="flex-1 min-w-0 h-full min-h-0 overflow-hidden pr-[5.5rem]">
+        <div className={[
+          'flex flex-1 min-h-0 overflow-hidden',
+          activeCoilNo && !hideShellRail && config.archetype !== 'B' ? 'pr-[6.5rem]' : '',
+        ].join(' ')}>
+          <div className="flex flex-1 flex-col min-h-0 min-w-0 h-full overflow-hidden">
             <Outlet context={{ config, processCode: machine }} />
           </div>
-          {activeCoilNo && config.archetype !== 'B' && (
+          {activeCoilNo && !hideShellRail && config.archetype !== 'B' && (
             <ProductionActionRail
               coilNo={activeCoilNo}
               status={captureStatus}
@@ -82,12 +97,23 @@ export function ProcessLayout() {
               runStartedAt={runStartedAt ?? undefined}
               busy={busy}
               onStart={() => startCapture(activeCoilNo)}
-              onStop={() => stopCapture()}
-              onDefect={() => openDefectPanel()}
-              onCrew={() => openCrewPanel()}
-              onEndEntry={() => navigate(`${basePath}/capture/${encodeURIComponent(activeCoilNo)}`)}
-              onEndShift={() => {
-                if (handoverPath) navigate(handoverPath);
+              onEnd={() => {
+                const path = `${basePath}/capture/${encodeURIComponent(activeCoilNo)}`;
+                if (!location.pathname.includes('/capture/')) {
+                  navigate(path);
+                }
+                // CaptureWorkspace submits #process-capture-form (real /production/:line complete).
+                requestEndCapture();
+              }}
+              onStoppage={() => {
+                if (captureStatus === 'running') stopCapture();
+                if (!location.pathname.includes('/capture/')) {
+                  navigate(`${basePath}/capture/${encodeURIComponent(activeCoilNo)}`);
+                }
+              }}
+              onRemark={() => openRemarkPanel()}
+              onHold={() => {
+                void holdCoil(activeCoilNo).then(() => navigate(basePath));
               }}
             />
           )}

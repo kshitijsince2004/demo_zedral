@@ -5,6 +5,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
 import { ApiError } from '../../lib/apiClient';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
+import { useMhDeskFocus } from '../../lib/annMhDesk';
 
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message;
@@ -14,7 +15,9 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export function MachineHeadCrewPage() {
   const machines = useOperationalMachineAccess();
-  const [machineCode, setMachineCode] = useState(machines[0] ?? '');
+  const focus = useMhDeskFocus((s) => s.focus);
+  const preferred = focus && machines.includes(focus) ? focus : (machines[0] ?? '');
+  const [machineCode, setMachineCode] = useState(preferred);
   const [crew, setCrew] = useState<MachineCrewMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,10 +31,14 @@ export function MachineHeadCrewPage() {
       setMachineCode('');
       return;
     }
+    if (focus && machines.includes(focus)) {
+      setMachineCode(focus);
+      return;
+    }
     if (!machines.includes(machineCode)) {
       setMachineCode(machines[0]);
     }
-  }, [machines, machineCode]);
+  }, [machines, machineCode, focus]);
 
   const load = useCallback(async () => {
     if (!machineCode) {

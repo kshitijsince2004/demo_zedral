@@ -8,8 +8,10 @@ import type {
   M1RWDForm,
   M1SKPForm,
 } from '@m1/shared-validation';
+import { currentPlantDate, plantClockDate } from '@m1/shared-validation';
 import { db } from '../../../db';
 import { getTenantId } from '../../../context';
+import { mapPlanSurfaceToCode } from '../../../utils/rwdFieldMappers';
 
 function emptyToNull(value: string | undefined): string | null {
   return value?.trim() ? value.trim() : null;
@@ -17,6 +19,21 @@ function emptyToNull(value: string | undefined): string | null {
 
 function tenantIdOrDefault(): string {
   return getTenantId() ?? '00000000-0000-0000-0000-000000000001';
+}
+
+/** Resolve reading clock: HH:mm → plant timestamptz, else Date parse. */
+function readingInstant(time: string): Date {
+  const t = time.trim();
+  if (/^\d{1,2}:\d{2}/.test(t)) return plantClockDate(currentPlantDate(), t.slice(0, 5));
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function latestByTime<T extends { time: string }>(readings: T[] | undefined): T | undefined {
+  if (!readings?.length) return undefined;
+  return [...readings].sort(
+    (a, b) => readingInstant(a.time).getTime() - readingInstant(b.time).getTime(),
+  ).at(-1);
 }
 
 async function emitCaptured(processCode: string, shiftLogId: string, entryId: string, coilNo: string) {
@@ -39,6 +56,9 @@ async function emitCaptured(processCode: string, shiftLogId: string, entryId: st
 
 export class ProductionService {
   static async saveHrs(entry: M1HRSForm): Promise<string> {
+    const latestMotherWidth = latestByTime(entry.motherWidthReadings);
+    const actualWidthMm = latestMotherWidth?.widthMm ?? entry.actualWidthMm ?? null;
+
     const row = await db.transaction().execute(async (trx) => {
       const created = await trx
         .insertInto('txn.prod_hrs')
@@ -47,7 +67,7 @@ export class ProductionService {
           sl_no: entry.slNo ?? null,
           coil_no: entry.coilNo,
           nominal_width_mm: entry.nominalWidthMm ?? null,
-          actual_width_mm: entry.actualWidthMm ?? null,
+          actual_width_mm: actualWidthMm,
           nominal_thk_mm: entry.nominalThkMm ?? null,
           weight_mt: entry.weightMt ?? null,
           mother_coil_weight_mt: entry.motherCoilWeightMt ?? null,
@@ -69,25 +89,43 @@ export class ProductionService {
         .returning('entry_id')
         .executeTakeFirstOrThrow();
 
+      if (entry.motherWidthReadings?.length) {
+        await trx.insertInto('txn.prod_hrs_width_reading').values(
+          entry.motherWidthReadings.map((r) => ({
+            entry_id: created.entry_id,
+            reading_time: readingInstant(r.time),
+            actual_width_mm: r.widthMm,
+          })),
+        ).execute();
+      }
+
       if (entry.slitSlots?.length) {
         await trx.insertInto('txn.prod_hrs_slit').values(
           entry.slitSlots.map((slot) => {
             const target = slot.targetWidthMm ?? slot.widthMm ?? null;
+            const thkLatest = latestByTime(slot.thicknessReadings)?.thkMm
+              ?? slot.thkLatestMm
+              ?? null;
+            const taperLatest = latestByTime(slot.taperReadings)?.taper
+              ?? emptyToNull(slot.taperLatest)
+              ?? emptyToNull(slot.taper);
             return {
               entry_id: created.entry_id,
               slot: slot.slot,
               width_mm: target,
               target_width_mm: target,
-              actual_width_mm: slot.actualWidthMm ?? null,
-              // ponytail: stop writing single thk_mm; keep null for back-compat readers
+              actual_width_mm: null,
               thk_mm: null,
               planned_thk_mm: slot.plannedThkMm ?? null,
-              thk_id_mm: slot.thkIdMm ?? null,
-              thk_centre_mm: slot.thkCentreMm ?? null,
-              thk_od_mm: slot.thkOdMm ?? null,
+              // ponytail: retire ID/Centre/OD writes; columns stay nullable
+              thk_id_mm: null,
+              thk_centre_mm: null,
+              thk_od_mm: null,
+              thk_latest_mm: thkLatest,
               planned_weight_mt: slot.plannedWeightMt ?? null,
-              actual_weight_mt: slot.actualWeightMt ?? null,
-              taper: emptyToNull(slot.taper),
+              actual_weight_mt: null,
+              taper: taperLatest,
+              taper_latest: taperLatest,
               child_coil_no: emptyToNull(slot.childCoilNo),
               customer: emptyToNull(slot.customer),
               sap_batch_number: emptyToNull(slot.sapBatchNumber),
@@ -101,6 +139,27 @@ export class ProductionService {
             };
           }),
         ).execute();
+
+        const slitReadings = entry.slitSlots.flatMap((slot) => {
+          const thkRows = (slot.thicknessReadings ?? []).map((r) => ({
+            entry_id: created.entry_id,
+            slot: slot.slot,
+            reading_time: readingInstant(r.time),
+            thk_mm: r.thkMm,
+            taper: null as string | null,
+          }));
+          const taperRows = (slot.taperReadings ?? []).map((r) => ({
+            entry_id: created.entry_id,
+            slot: slot.slot,
+            reading_time: readingInstant(r.time),
+            thk_mm: null as number | null,
+            taper: r.taper,
+          }));
+          return [...thkRows, ...taperRows];
+        });
+        if (slitReadings.length) {
+          await trx.insertInto('txn.prod_hrs_slit_reading').values(slitReadings).execute();
+        }
       }
 
       return created;
@@ -286,6 +345,8 @@ export class ProductionService {
   }
 
   static async saveRwd(entry: M1RWDForm): Promise<string> {
+    // prod_rwd.surface_finish FK → master.surface_finish (B/M only). Map plan labels.
+    const surface = mapPlanSurfaceToCode(entry.surfaceFinish);
     const row = await db
       .insertInto('txn.prod_rwd')
       .values({
@@ -299,7 +360,7 @@ export class ProductionService {
         rw_tension_1_kg: entry.rwTension1Kg ?? null,
         rw_tension_2_kg: entry.rwTension2Kg ?? null,
         rw_tension_3_kg: entry.rwTension3Kg ?? null,
-        surface_finish: emptyToNull(entry.surfaceFinish),
+        surface_finish: surface,
         time_from: entry.timeFrom ?? null,
         time_to: entry.timeTo ?? null,
         remarks: emptyToNull(entry.remarks),

@@ -4,10 +4,8 @@ import { useShiftStore } from '../store/shiftStore';
 import { useSixHiStore } from '../store/sixHiStore';
 import {
   canAccessMachine,
-  filterCrmMachines,
-  getEffectiveMachineAccess,
   getWriteMachineAccess,
-  preferCrmMachine,
+  preferPrimaryMachine,
 } from './machineRouting';
 import { isCrmMillCode } from './millConfig';
 import { setActiveCrmMill } from './crmMillContext';
@@ -17,10 +15,13 @@ import { scheduleAccessTokenRefresh, stopAccessTokenRefresh } from './authSessio
 import Session from 'supertokens-auth-react/recipe/session';
 import { clearSessionCaches } from './cacheClear';
 import { discardInaccessibleMachineActions } from './sync/outboxRepo';
+import { useMhDeskFocus } from './annMhDesk';
 
 function resetSessionStores() {
   useShiftStore.getState().resetSession();
   useSixHiStore.getState().resetSession();
+  // Stale MH desk focus (e.g. PKL) must not follow the next HRS login.
+  useMhDeskFocus.getState().setFocus(null);
 }
 
 /**
@@ -88,12 +89,6 @@ function loadActiveMachine(): string | null {
   return sessionStorage.getItem('mock_active_machine');
 }
 
-function pickDefaultMachine(role: Role | null, machineAccess: string[]): string | null {
-  const machines = getEffectiveMachineAccess(role, machineAccess);
-  const crm = filterCrmMachines(machines);
-  return preferCrmMachine(crm) ?? machines[0] ?? null;
-}
-
 // In a real app, this would be a secure JWT parser, but we mock it here.
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: sessionStorage.getItem('mock_jwt'),
@@ -106,7 +101,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: (token, role, lineAccess = [], refreshToken, machineAccess = [], username) => {
     resetSessionStores();
-    const activeMachine = pickDefaultMachine(role, machineAccess);
+    const activeMachine = preferPrimaryMachine(role, machineAccess, lineAccess);
     sessionStorage.setItem('mock_jwt', token);
     sessionStorage.setItem('mock_role', role);
     sessionStorage.setItem('mock_line_access', JSON.stringify(lineAccess));

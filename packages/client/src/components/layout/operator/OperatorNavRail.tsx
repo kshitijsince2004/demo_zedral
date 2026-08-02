@@ -1,11 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ClipboardList, FlaskConical, History, Layers, ListOrdered, LogOut, Plus } from 'lucide-react';
+import { ClipboardList, History, Layers, ListOrdered, LogOut, Plus, Table2 } from 'lucide-react';
 import { useAuthStore } from '../../../lib/authStore';
 import { getMachineNavItems } from '../../../lib/machineRouting';
 import { useSixHiStore } from '../../../store/sixHiStore';
 import { useProcessStore } from '../../../store/processStore';
 import { isMillPath, millBasePath, millCodeFromPath } from '../../../lib/millPath';
-import { isCrmMillPath } from '../../../lib/millConfig';
+import { classifyOperatorNav } from '../../../lib/classifyOperatorNav';
 import { useProcessWorkspaceBase } from '../../../hooks/useProcessWorkspaceBase';
 import { ProcessLineSwitcher } from '../../capture/ProcessLineSwitcher';
 import ZedralLogo from '../../../assets/white logo.png';
@@ -22,13 +22,10 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
   const { role, machineAccess, lineAccess, username, activeMachine } = useAuthStore();
   const openManualOrder = useSixHiStore((s) => s.openManualOrder);
   const requestManualCoil = useProcessStore((s) => s.requestManualCoil);
-  const activeCoilNo = useProcessStore((s) => s.activeCoilNo);
   const { basePath: processBase } = useProcessWorkspaceBase();
 
   const machineNav = getMachineNavItems(role, machineAccess, lineAccess, username);
-  const isCrm = isCrmMillPath(location.pathname);
-  const isPkl = !isCrm && processCode === 'PKL';
-  const isAnn = !isCrm && processCode === 'ANN';
+  const { isProcess, isCrm, isPkl, isAnn } = classifyOperatorNav(processCode, location.pathname);
 
   const millBase = millBasePath(
     (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname) ?? '6HI',
@@ -36,6 +33,30 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
   );
 
   const search = location.search;
+  // Never navigate to bare "/capture" (that becomes /:userScope="capture"). Fall back to first path segment.
+  const scopeRoot = processBase || (() => {
+    const seg = location.pathname.split('/').filter(Boolean)[0];
+    return seg ? `/${seg}` : '';
+  })();
+  // Generic process lines (HRS/CRS/RWD/CTL) share hub+capture on processBase — not CRM mill paths.
+  const processHubItems = [
+    {
+      id: 'orders',
+      label: 'Orders',
+      icon: ListOrdered,
+      path: scopeRoot || '/',
+      match: (p: string) =>
+        !p.includes('/capture') && !p.includes('/chart') && !p.includes('/handover') && !p.includes('/history'),
+    },
+    {
+      id: 'capture',
+      label: 'Capture',
+      icon: ClipboardList,
+      path: scopeRoot ? `${scopeRoot}/capture` : '/',
+      match: (p: string) => p.includes('/capture'),
+    },
+  ] as const;
+
   const items = isAnn
     ? [
         {
@@ -65,32 +86,18 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
       ]
     : isPkl
       ? [
+          ...processHubItems,
           {
-            id: 'orders',
-            label: 'Orders',
-            icon: ListOrdered,
-            path: processBase || '/',
-            match: (p: string) =>
-              !p.includes('/capture') && !p.includes('/chart') && !p.includes('/handover'),
-          },
-          {
-            id: 'capture',
-            label: 'Capture',
-            icon: ClipboardList,
-            path: activeCoilNo
-              ? `${processBase}/capture/${encodeURIComponent(activeCoilNo)}`
-              : processBase || '/',
-            match: (p: string) => p.includes('/capture'),
-          },
-          {
-            id: 'readings',
-            label: 'Readings',
-            icon: FlaskConical,
-            path: `${processBase}/chart`,
+            id: 'chart',
+            label: 'Process Chart',
+            icon: Table2,
+            path: scopeRoot ? `${scopeRoot}/chart` : '/',
             match: (p: string) => p.includes('/chart'),
           },
         ]
-      : [
+      : isProcess
+        ? [...processHubItems]
+        : [
           {
             id: 'orders',
             label: 'Orders',
@@ -112,7 +119,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
   const footerClass = 'text-white/70 hover:text-white hover:bg-white/10 border border-transparent';
 
   function onManual() {
-    if (isPkl) {
+    if (isProcess) {
       requestManualCoil();
       if (processBase) navigate(processBase);
       return;
@@ -153,13 +160,13 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
         {!isAnn && (
           <button
             type="button"
-            title={isPkl ? 'Manual Coil' : 'New Order'}
+            title={isProcess ? 'Manual Coil' : 'New Order'}
             onClick={onManual}
             className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 rounded-sm transition-colors text-accent hover:bg-white/10 border border-accent/40"
           >
             <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
             <span className="text-[8px] uppercase tracking-wider font-bold">
-              {isPkl ? 'Manual' : 'New'}
+              {isProcess ? 'Manual' : 'New'}
             </span>
           </button>
         )}

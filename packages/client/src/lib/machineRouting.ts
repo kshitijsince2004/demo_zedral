@@ -7,7 +7,7 @@ import { usesUserScopeHome, userScopePath } from './userScope';
 
 /** CRM mills supported on the operator terminal (6HI primary). */
 export const CRM_MILL_CODES = ['6HI', '4HI', '2HI'] as const;
-const NON_CRM_MACHINE_CODES = ['HRS', 'PKL', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL'] as const;
+export const NON_CRM_MACHINE_CODES = ['HRS', 'PKL', 'ANN', 'SKP', 'RWD', 'CRS', 'CTL'] as const;
 
 const MACHINE_LABELS: Record<string, string> = {
   '6HI': '6HI Mill',
@@ -59,21 +59,41 @@ export function getEffectiveMachineAccess(role: Role | null, machineAccess: stri
   return normalized;
 }
 
+/**
+ * Default active machine after login.
+ * CRM mills first; else prefer a process machine that matches lineAccess;
+ * else stable NON_CRM order (HRS before PKL — never raw JWT array order).
+ */
+export function preferPrimaryMachine(
+  role: Role | null,
+  machineAccess: string[],
+  lineAccess: string[] = [],
+): string | null {
+  const machines = getEffectiveMachineAccess(role, machineAccess);
+  const crm = preferCrmMachine(filterCrmMachines(machines));
+  if (crm) return crm;
+
+  const lines = new Set(lineAccess.map((l) => l.toUpperCase()));
+  if (lines.size > 0) {
+    for (const code of NON_CRM_MACHINE_CODES) {
+      if (machines.includes(code) && lines.has(code)) return code;
+    }
+  }
+  for (const code of NON_CRM_MACHINE_CODES) {
+    if (machines.includes(code)) return code;
+  }
+  return machines[0] ?? null;
+}
+
 /** Operator landing: CRM mills first, then process capture for other assigned lines. */
 export function resolvePrimaryMachinePath(
   role: Role | null,
   machineAccess: string[],
-  _lineAccess: string[] = [],
+  lineAccess: string[] = [],
 ): string | null {
-  void _lineAccess;
-  const machines = getEffectiveMachineAccess(role, machineAccess);
-  const preferred = preferCrmMachine(filterCrmMachines(machines));
+  const preferred = preferPrimaryMachine(role, machineAccess, lineAccess);
   if (preferred) {
     return pathForMachine(preferred);
-  }
-  const firstMachine = machines[0];
-  if (firstMachine) {
-    return pathForMachine(firstMachine);
   }
   if (role === 'OPERATOR' || role === 'MACHINE_HEAD') {
     return null;

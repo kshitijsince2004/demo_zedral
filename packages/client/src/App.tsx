@@ -1,10 +1,12 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, type ReactNode } from 'react';
 import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from './lib/authStore';
 import { getRoleHomePath } from './lib/roleHome';
 import { pickPrimaryRole } from '@m1/shared-validation';
 import { useEffectiveSessionRole } from './lib/sessionRole';
+import { AnalyticErrorBoundary } from './components/shared/AnalyticErrorBoundary';
+import { preferPrimaryMachine } from './lib/machineRouting';
 
 import { Login } from './pages/Login';
 import { SetupPage } from './pages/SetupPage';
@@ -24,7 +26,11 @@ import { PklChartPage } from './pages/process/PklChartPage';
 import { AnnChargePage } from './pages/process/AnnChargePage';
 import { AnnOperatorHistoryPage } from './pages/process/AnnOperatorHistoryPage';
 import { AnnMhChargeDetailPage } from './pages/machinehead/ann/AnnMhChargeDetailPage';
+import { PklMhLiveDashboard } from './pages/machinehead/pkl/PklMhLiveDashboard';
+import { PklMhCoilDetailPage } from './pages/machinehead/pkl/PklMhCoilDetailPage';
+import { RwdMhLiveDashboard } from './pages/machinehead/RwdMhLiveDashboard';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
+import { TwoHiRewindingCapturePage } from './pages/sixHi/TwoHiRewindingCapturePage';
 import { ScopeCaptureRoute } from './components/ScopeCaptureRoute';
 import { ScopeHandoverRoute } from './components/ScopeHandoverRoute';
 
@@ -103,7 +109,7 @@ function RedirectSupervisorFromMachineHeadHome({ children }: { children: ReactNo
 
 function SuperTokensSync() {
   const session = useSessionContext();
-  const { login, logout, token } = useAuthStore();
+  const { login, logout, token, setActiveMachine } = useAuthStore();
   
   useEffect(() => {
     if (session.loading) return;
@@ -111,7 +117,7 @@ function SuperTokensSync() {
     if (session.doesSessionExist) {
       const payload = session.accessTokenPayload as Record<string, unknown>;
       const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
-      const role = pickPrimaryRole(roles) ?? 'OPERATOR';
+      const role = (pickPrimaryRole(roles) ?? 'OPERATOR') as import('./lib/authStore').Role;
       const lines = Array.isArray(payload.lineAccess) ? (payload.lineAccess as string[]) : [];
       const machines = Array.isArray(payload.machineAccess)
         ? (payload.machineAccess as string[])
@@ -127,8 +133,16 @@ function SuperTokensSync() {
         JSON.stringify(store.lineAccess) === JSON.stringify(lines) &&
         JSON.stringify(store.machineAccess) === JSON.stringify(machines) &&
         store.username === (username ?? null);
+      const preferred = preferPrimaryMachine(role, machines, lines);
       if (!same) {
         login('st-session', role, lines, undefined, machines, username);
+      } else {
+        // Drop activeMachine that is no longer on the JWT allow-list.
+        const active = store.activeMachine?.toUpperCase() ?? null;
+        const allowed = new Set(machines.map((m) => m.toUpperCase()));
+        if (preferred && (!active || !allowed.has(active))) {
+          setActiveMachine(preferred);
+        }
       }
     } else {
       const existingLegacy = sessionStorage.getItem('mock_jwt');
@@ -136,15 +150,16 @@ function SuperTokensSync() {
         logout();
       }
     }
-  }, [session, login, logout, token]);
+  }, [session, login, logout, token, setActiveMachine]);
   
   return null;
 }
 
-function App() {
+function AppRoutes() {
+  const { pathname } = useLocation();
+
   return (
-    <BrowserRouter>
-      <SuperTokensSync />
+    <AnalyticErrorBoundary analyticName="Application" resetKey={pathname}>
       <Routes>
         {/* Auth */}
         <Route path="/login" element={<Login />} />
@@ -221,6 +236,9 @@ function App() {
         <Route path="/machine-head/ann/trends" element={<MachineHeadRoute><AnnMhTrendsPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/batching" element={<MachineHeadRoute><AnnMhBatchingPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/import" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><AnnMhImportPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/pkl/live" element={<MachineHeadRoute><PklMhLiveDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/pkl/coil/:coilNo" element={<MachineHeadRoute><PklMhCoilDetailPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/rwd/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR, UserRole.OPERATOR]}><RwdMhLiveDashboard /></MachineHeadRoute>} />
         <Route path="/machine-head/shift-review" element={<MachineHeadRoute><PlantShiftReviewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
@@ -264,10 +282,20 @@ function App() {
           <Route path="skinpass" element={<SixHiQueuePage />} />
           <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />
           <Route path="skinpass/order/:batchNo" element={<SixHiOrderPage />} />
+          <Route path="rewinding/:coilNo" element={<TwoHiRewindingCapturePage />} />
         </Route>
 
         <Route path="*" element={<UnknownRouteRedirect />} />
       </Routes>
+    </AnalyticErrorBoundary>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <SuperTokensSync />
+      <AppRoutes />
     </BrowserRouter>
   );
 }

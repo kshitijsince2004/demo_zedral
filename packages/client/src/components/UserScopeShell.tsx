@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet, useParams } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
-import { getEffectiveMachineAccess } from '../lib/machineRouting';
+import { getEffectiveMachineAccess, preferPrimaryMachine } from '../lib/machineRouting';
 import { isCrmMillCode } from '../lib/millConfig';
 import { isProcessStationCode } from '../lib/processConfig';
 import { getRoleHomePath } from '../lib/roleHome';
@@ -27,9 +27,10 @@ export function UserScopeShell() {
 
   const machines = getEffectiveMachineAccess(role, machineAccess).map((m) => m.toUpperCase());
   const active = activeMachine?.toUpperCase() ?? null;
+  const primary = preferPrimaryMachine(role, machineAccess, lineAccess);
   const machine = active && machines.includes(active)
     ? active
-    : machines[0] ?? null;
+    : primary ?? machines[0] ?? null;
 
   const stationCode = machine && isProcessStationCode(machine) ? machine : null;
   const { enabled: stationEnabled, loading: flagsLoading } = useTenantStationFlag(stationCode);
@@ -72,7 +73,7 @@ export function UserScopeShell() {
 
     return (
       <StationAccessGate machine={machine}>
-        <ProcessLayout />
+        <ProcessLayout stationCode={machine} />
       </StationAccessGate>
     );
   }

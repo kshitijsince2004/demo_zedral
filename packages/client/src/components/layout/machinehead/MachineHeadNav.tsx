@@ -15,7 +15,14 @@ import { DeskSideNav, type DeskNavItem } from '../shared/DeskSideNav';
 import { useEffectiveSessionRole } from '../../../lib/sessionRole';
 import { useOperationalMachineAccess } from '../../../lib/useOperationalMachineAccess';
 import { isAnnMhDesk, useMhDeskFocus } from '../../../lib/annMhDesk';
-import { isPklMhDesk, syncMhDeskFocus } from '../../../lib/pklMhDesk';
+import {
+  hrsPklAssigned,
+  isHrsMhDesk,
+  isHrsPklMhDesk,
+  isPklMhDesk,
+  syncMhDeskFocus,
+} from '../../../lib/pklMhDesk';
+import { isRwdMhDesk, resolveRwdLiveLine, rwdAssigned } from '../../../lib/rwdMhDesk';
 
 const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'crs-assignment', 'import', 'traceability']);
 
@@ -163,14 +170,88 @@ const ANN_NAV_ITEMS: DeskNavItem[] = [
   },
 ];
 
-/** PKL-focused MH desk — Live / Crew / Review / Specs / Import / Export / Trace. */
-const PKL_NAV_ITEMS: DeskNavItem[] = [
+/** Shared HRS/PKL MH items — specs appended only for PKL. */
+function hrsPklNavItems(line: 'HRS' | 'PKL'): DeskNavItem[] {
+  const livePath = line === 'PKL' ? '/machine-head/pkl/live' : '/live';
+  const base: DeskNavItem[] = [
+    {
+      id: 'live',
+      label: 'Live Dashboard',
+      icon: Activity,
+      path: livePath,
+      match: (p) =>
+        p === '/live'
+        || p === '/machine-head-dashboard'
+        || p.startsWith('/machine-head/pkl/live')
+        || p.startsWith('/machine-head/pkl/coil'),
+    },
+    {
+      id: 'crew',
+      label: 'Crew Management',
+      icon: Users,
+      path: '/machine-head/crew',
+      match: (p) => p === '/machine-head/crew',
+    },
+    {
+      id: 'shift-review',
+      label: 'Shift Review',
+      icon: ClipboardCheck,
+      path: '/machine-head/shift-review',
+      match: (p) => p === '/machine-head/shift-review',
+    },
+  ];
+  if (line === 'PKL') {
+    base.push({
+      id: 'pkl-specs',
+      label: 'PKL Specs',
+      icon: FlaskConical,
+      path: '/admin/pkl-specs',
+      match: (p) => p.startsWith('/admin/pkl-specs'),
+    });
+  }
+  base.push(
+    {
+      id: 'import',
+      label: 'Import',
+      icon: Upload,
+      path: '/import/rolling',
+      match: (p) => p.startsWith('/import'),
+    },
+    {
+      id: 'dpr-export',
+      label: 'Export',
+      icon: FileSpreadsheet,
+      path: '/machine-head/dpr-export',
+      match: (p) => p === '/machine-head/dpr-export' || p.startsWith('/machine-head/exports'),
+    },
+    {
+      id: 'traceability',
+      label: 'Order Tracing',
+      icon: Activity,
+      path: '/machine-head/traceability',
+      match: (p) => p.startsWith('/machine-head/traceability'),
+    },
+  );
+  return base;
+}
+
+/** Rewinding MH desk — live + assignment + import/export. */
+const RWD_NAV_ITEMS: DeskNavItem[] = [
   {
-    id: 'live',
+    id: 'rwd-live',
     label: 'Live Dashboard',
     icon: Activity,
-    path: '/live',
-    match: (p) => p === '/live' || p === '/machine-head-dashboard',
+    path: '/machine-head/rwd/live',
+    match: (p) =>
+      p === '/machine-head/rwd/live' ||
+      p.startsWith('/machine-head/rwd'),
+  },
+  {
+    id: 'order-assignment',
+    label: 'Order Assignment',
+    icon: ArrowRightLeft,
+    path: '/order-assignment',
+    match: (p) => p.startsWith('/order-assignment') && !p.startsWith('/crs/'),
   },
   {
     id: 'crew',
@@ -185,13 +266,6 @@ const PKL_NAV_ITEMS: DeskNavItem[] = [
     icon: ClipboardCheck,
     path: '/machine-head/shift-review',
     match: (p) => p === '/machine-head/shift-review',
-  },
-  {
-    id: 'pkl-specs',
-    label: 'PKL Specs',
-    icon: FlaskConical,
-    path: '/admin/pkl-specs',
-    match: (p) => p.startsWith('/admin/pkl-specs'),
   },
   {
     id: 'import',
@@ -216,6 +290,35 @@ const PKL_NAV_ITEMS: DeskNavItem[] = [
   },
 ];
 
+function LineToggle({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (options.length < 2) return null;
+  return (
+    <div className="flex rounded-lg bg-white/10 p-0.5 ring-1 ring-white/15" role="group" aria-label="Desk line">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={[
+            'flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wide rounded-md transition-colors',
+            value === opt ? 'bg-white text-primary' : 'text-white/70 hover:text-white',
+          ].join(' ')}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function MachineHeadNav() {
   const { role } = useEffectiveSessionRole();
   const isSupervisor = role === 'SUPERVISOR';
@@ -228,29 +331,80 @@ export function MachineHeadNav() {
   }, [machines, focus, setFocus]);
 
   const annDesk = !isSupervisor && isAnnMhDesk(machines, focus);
-  const pklDesk = !isSupervisor && !annDesk && isPklMhDesk(machines, focus);
+  const rwdDesk = !isSupervisor && !annDesk && isRwdMhDesk(machines, focus);
+  const pair = hrsPklAssigned(machines);
+  const rwdPair = rwdAssigned(machines);
+  const combined = !isSupervisor && !annDesk && !rwdDesk && isHrsPklMhDesk(machines, focus);
+  const hrsDesk = !isSupervisor && !annDesk && !rwdDesk && !combined && isHrsMhDesk(machines, focus);
+  const pklDesk = !isSupervisor && !annDesk && !rwdDesk && !combined && isPklMhDesk(machines, focus);
+  const lineFocus: 'HRS' | 'PKL' = focus?.toUpperCase() === 'PKL' ? 'PKL' : 'HRS';
+  const rwdLine = resolveRwdLiveLine(machines, focus);
+
+  const deskLine: 'HRS' | 'PKL' | null = combined
+    ? lineFocus
+    : hrsDesk
+      ? 'HRS'
+      : pklDesk
+        ? 'PKL'
+        : null;
 
   const items = annDesk
     ? ANN_NAV_ITEMS
-    : pklDesk
-      ? PKL_NAV_ITEMS
+    : rwdDesk
+      ? RWD_NAV_ITEMS
+    : deskLine
+      ? hrsPklNavItems(deskLine)
       : isSupervisor
         ? ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id))
         : role
           ? ALL_NAV_ITEMS
           : ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id));
 
+  const brandLabel = isSupervisor
+    ? 'SUPERVISOR'
+    : annDesk
+      ? 'ANN MH'
+      : rwdDesk
+        ? `${rwdLine} MH`
+      : deskLine
+        ? `${deskLine} MH`
+        : 'MACHINE';
+
   return (
     <DeskSideNav
-      brandLabel={isSupervisor ? 'SUPERVISOR' : annDesk ? 'ANN MH' : pklDesk ? 'PKL MH' : 'MACHINE'}
+      brandLabel={brandLabel}
       brandSubtitle={
         isSupervisor
           ? 'Oversight console'
           : annDesk
             ? 'Annealing desk'
-            : pklDesk
-              ? 'Pickling desk'
+            : rwdDesk
+              ? 'Rewinding desk'
+            : deskLine
+              ? deskLine === 'HRS' ? 'HR Slitting desk' : 'Pickling desk'
               : 'Head overview'
+      }
+      brandAccessory={
+        combined ? (
+          <LineToggle
+            options={pair}
+            value={lineFocus}
+            onChange={(v) => {
+              setFocus(v);
+              window.location.assign(v === 'PKL' ? '/machine-head/pkl/live' : '/live');
+            }}
+          />
+        ) : rwdDesk && rwdPair.length > 1 ? (
+          <LineToggle
+            options={rwdPair}
+            value={rwdLine}
+            onChange={(v) => {
+              setFocus(v);
+              // Both RWD and 2HI stay on rewinding MH live (not CRM /live).
+              window.location.assign('/machine-head/rwd/live');
+            }}
+          />
+        ) : undefined
       }
       items={items}
       ariaLabel={isSupervisor ? 'Supervisor navigation' : 'Machine head navigation'}

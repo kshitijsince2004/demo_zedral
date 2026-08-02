@@ -82,10 +82,15 @@ function groupReplayable(rows: OutboxAction[]): OutboxAction[][] {
     groups.set(row.aggregateKey, group);
   }
 
+  // Include parked heads so Attention/syncNow can replay after a server-side fix
+  // (e.g. surface_finish FK). Only pending was replayed before — parked stuck forever.
   return Array.from(groups.values())
     .map((group) => group.sort((a, b) => a.seq - b.seq))
-    .filter((group) => group[0]?.status === 'pending')
-    .map((group) => group.filter((row) => row.status === 'pending'));
+    .filter((group) => {
+      const head = group[0]?.status;
+      return head === 'pending' || head === 'parked';
+    })
+    .map((group) => group.filter((row) => row.status === 'pending' || row.status === 'parked'));
 }
 
 export async function enqueue(action: OutboxActionInput): Promise<OutboxAction> {

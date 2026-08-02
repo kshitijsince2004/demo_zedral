@@ -18,12 +18,14 @@ interface DeskSideNavProps {
   brandSubtitle: string;
   items: DeskNavItem[];
   footer?: ReactNode;
+  /** Optional control under brand (e.g. HRS|PKL toggle). */
+  brandAccessory?: ReactNode;
   ariaLabel: string;
 }
 
 const NAV_WIDTH = 'w-[200px]';
 
-export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabel }: DeskSideNavProps) {
+export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, brandAccessory, ariaLabel }: DeskSideNavProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
@@ -44,6 +46,7 @@ export function DeskSideNav({ brandLabel, brandSubtitle, items, footer, ariaLabe
             <span className="text-[10px] uppercase tracking-[0.16em] text-white/55 truncate">{brandSubtitle}</span>
           </span>
         </div>
+        {brandAccessory ? <div className="mt-3">{brandAccessory}</div> : null}
       </div>
 
       <div className="flex flex-col gap-1 px-2.5 flex-1 min-h-0 overflow-y-auto">

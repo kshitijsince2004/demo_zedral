@@ -26,6 +26,8 @@ const HEADER_MAP: Record<string, string> = {
   'sales order': 'sapOrderNo',
   'item no': 'itemNo',
   remark: 'importRemark',
+  machine: 'machineCode',
+  'work center': 'machineCode',
 };
 
 function normalizeHeader(value: unknown): string {
@@ -134,14 +136,16 @@ export function parseRewindingPlanXlsx(
 
     const fromWc = String(raw.fromWorkCenter ?? 'R').trim() || 'R';
     const toWc = raw.toWorkCenter ? String(raw.toWorkCenter).trim() : undefined;
+    const planMachine = String(raw.machineCode ?? 'RWD').trim().toUpperCase();
+    const isTwoHi = planMachine === '2HI';
 
     rows.push({
       rowNum: i + 1,
       batchNumber,
       planDate: planDateIso ?? currentPlantDate(),
       shiftCode,
-      machineCode: 'RWD',
-      subProcess: 'RWD',
+      machineCode: isTwoHi ? '2HI' : 'RWD',
+      subProcess: isTwoHi ? 'REWINDING' : 'RWD',
       coilNo,
       slitId: raw.slitId ? String(raw.slitId).trim() : undefined,
       customerName,

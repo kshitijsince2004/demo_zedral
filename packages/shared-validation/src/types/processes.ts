@@ -1,5 +1,23 @@
 import { BaseProcessEntry } from './models';
 
+/** Timestamped thickness reading (HRS multi-reading capture). */
+export interface HRSThicknessReading {
+  time: string;
+  thkMm: number;
+}
+
+/** Timestamped taper reading (HRS multi-reading capture). */
+export interface HRSTaperReading {
+  time: string;
+  taper: string;
+}
+
+/** Timestamped mother actual-width reading. */
+export interface HRSMotherWidthReading {
+  time: string;
+  widthMm: number;
+}
+
 // ─── Slit slot (HR Slitting) ──────────────────────────────────────────────────
 // Maps to txn.prod_hrs_slit
 export interface HRSSlitSlot {
@@ -10,16 +28,26 @@ export interface HRSSlitSlot {
   /** Target / PPC width (also written to width_mm) */
   widthMm?: number;
   targetWidthMm?: number;
+  /** @deprecated removed from operator path — leave optional for back-compat */
   actualWidthMm?: number;
-  /** @deprecated use thkId/Centre/Od */
+  /** @deprecated use thkLatestMm / thicknessReadings */
   thkMm?: number;
   plannedThkMm?: number;
+  /** @deprecated retired ID/Centre/OD triple — columns kept nullable */
   thkIdMm?: number;
   thkCentreMm?: number;
   thkOdMm?: number;
   plannedWeightMt?: number;
+  /** @deprecated removed from operator path */
   actualWeightMt?: number;
+  /** @deprecated use taperLatest / taperReadings */
   taper?: string;
+  thicknessReadings?: HRSThicknessReading[];
+  taperReadings?: HRSTaperReading[];
+  /** Latest thickness reading — authoritative for child coil / QC / export */
+  thkLatestMm?: number;
+  /** Latest taper reading */
+  taperLatest?: string;
   childCoilNo?: string;
   customer?: string;
   sapBatchNumber?: string;
@@ -66,11 +94,11 @@ export interface CRSSlitSlot {
 export interface HRSEntry extends BaseProcessEntry {
   /** Nominal width in mm (txn.prod_hrs.nominal_width_mm) */
   nominalWidthMm: number;
-  /** Actual width in mm (txn.prod_hrs.actual_width_mm) */
-  actualWidthMm: number;
+  /** Latest mother actual width (txn.prod_hrs.actual_width_mm) */
+  actualWidthMm?: number;
   /** Nominal thickness in mm (txn.prod_hrs.nominal_thk_mm) */
   nominalThkMm: number;
-  /** Produced total MT (Σ line actuals) */
+  /** Produced total MT (Σ plan line weights when actuals not captured) */
   weightMt: number;
   motherCoilWeightMt?: number;
   source?: string;
@@ -86,6 +114,8 @@ export interface HRSEntry extends BaseProcessEntry {
   crewRef?: string;
   settingCount?: number;
   specVersionId?: number;
+  /** Mother actual-width readings (txn.prod_hrs_width_reading) */
+  motherWidthReadings?: HRSMotherWidthReading[];
   /** Dynamic slit lines (txn.prod_hrs_slit) */
   slitSlots: HRSSlitSlot[];
 }

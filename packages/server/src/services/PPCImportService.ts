@@ -386,11 +386,16 @@ export class PPCImportService {
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
       .leftJoin('txn.crm_skinpass as sp', 'sp.order_id', 'o.order_id')
+      .leftJoin('txn.rwd_order as rwd', 'rwd.batch_id', 'pb.batch_id')
+      .leftJoin('txn.prod_rwd as pr', 'pr.coil_no', 'pb.coil_no')
       .select([
         'pb.machine_allocated',
         'o.status as order_status',
         'r.actual_weight_mt as rolling_weight',
         'sp.actual_weight_mt as skinpass_weight',
+        'rwd.status as rwd_status',
+        'pr.entry_id as prod_rwd_id',
+        'pr.weight_mt as prod_rwd_weight',
       ])
       .where('pb.batch_id', '=', String(batchId))
       .executeTakeFirst();
@@ -401,20 +406,24 @@ export class PPCImportService {
     }
 
     const isAllocated = Boolean(row.machine_allocated);
-    const hasOrder = row.order_status != null;
-    const orderStatus = row.order_status ?? null;
+    const orderStatus = row.order_status ?? row.rwd_status ?? null;
+    const hasOrder = orderStatus != null;
     const hasProduction =
       (row.rolling_weight != null && Number(row.rolling_weight) > 0) ||
-      (row.skinpass_weight != null && Number(row.skinpass_weight) > 0);
+      (row.skinpass_weight != null && Number(row.skinpass_weight) > 0) ||
+      row.prod_rwd_id != null ||
+      (row.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0);
 
     const isDangerous =
       orderStatus === 'IN_PROGRESS' ||
       orderStatus === 'COMPLETED' ||
+      orderStatus === 'STOPPAGE' ||
       hasProduction;
 
     let skipReason: string | null = null;
-    if (orderStatus === 'IN_PROGRESS') skipReason = 'Order is currently IN_PROGRESS — cannot overwrite planning data';
-    else if (orderStatus === 'COMPLETED') skipReason = 'Order is COMPLETED — production data is immutable';
+    if (orderStatus === 'IN_PROGRESS' || orderStatus === 'STOPPAGE') {
+      skipReason = 'Order is currently IN_PROGRESS — cannot overwrite planning data';
+    } else if (orderStatus === 'COMPLETED') skipReason = 'Order is COMPLETED — production data is immutable';
     else if (hasProduction) skipReason = 'Production weight already captured — cannot overwrite planning data';
     else if (isAllocated) skipReason = 'Batch is already machine-allocated — operationally locked for import';
 
@@ -948,10 +957,18 @@ export class PPCImportService {
         });
         if (result.action === 'inserted') {
           // CRM mill orders only — RWD/CTL plan rows join their queues via journey link.
-          if (session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
-            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL') {
+          const willCallCrmEnsure = session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
+            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL';
+          const willCallRwdEnsure = session.sheetType === 'REWINDING'
+            || row.machineCode === 'RWD'
+            || (row.machineCode === '2HI' && row.fromWorkCenter === 'R');
+          if (willCallCrmEnsure) {
             const { SixHiConfigService } = await import('./sixHi');
             await SixHiConfigService.ensureOrder(row.batchNumber, userId);
+          }
+          if (willCallRwdEnsure) {
+            const { RewindingOrderService } = await import('./RewindingOrderService');
+            await RewindingOrderService.ensureOrder(row.batchNumber, userId);
           }
           loaded++;
         } else {

@@ -34,6 +34,8 @@ import {
   validateOrderStoppageStart,
 } from '../validation/orderStoppageValidation';
 import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
+import { formatDisplayCoilNo, mapPlanSurfaceToCode } from '../utils/rwdFieldMappers';
+import { finishGroup } from '../utils/orderLifecycleHelpers';
 import {
   actualWeightOcrDbPatch,
   assertActualWeightOcrCapture,
@@ -44,14 +46,6 @@ import {
   assertOrderRuntimeAccounting,
   assertShiftLogRuntimeAccounting,
 } from '../validation/crm6ProductionValidation';
-
-/** Finish-surface family for combined-run matching: LOW_MATT ≡ MATT, MIRROR ≡ BRIGHT. */
-function finishGroup(value: string | null | undefined): string {
-  const s = (value?.trim() || '').toUpperCase().replace(/[\s-]+/g, '_');
-  if (s === 'M' || s === 'MATTE' || s.includes('MATT')) return 'MATT';
-  if (s === 'B' || s === 'BRIGHT' || s === 'MIRROR') return 'BRIGHT';
-  return s;
-}
 
 const SIX_HI_PROCESS_CODE = 'ROLLING';
 
@@ -480,6 +474,72 @@ export class SixHiService {
       planDate: this.formatPlanDate(b.plan_date),
       shiftCode: b.shift_code,
       isBacklog: options?.isBacklog ?? false,
+    };
+  }
+
+  /**
+   * Lightweight 2HI rewinding queue — not SixHi getQueue (avoids rolling/skin-pass card builder).
+   * Batches planned on 2HI with from_work_center R and no prod_rwd yet.
+   */
+  static async getRewindingQueue(machineCode = '2HI'): Promise<{
+    machineCode: string;
+    queue: Array<{
+      batchNumber: string;
+      coilNo: string;
+      displayCoilNo: string;
+      slitId?: string;
+      customerName: string;
+      gradeCode: string;
+      widthMm: number;
+      thicknessMm: number;
+      weightMt: number;
+      surfaceFinish?: 'M' | 'B';
+      planDate?: string;
+      shiftCode?: string;
+    }>;
+  }> {
+    const rows = await db.selectFrom('planning.ppc_batch as pb')
+      .leftJoin('txn.prod_rwd as r', 'r.coil_no', 'pb.coil_no')
+      .select([
+        'pb.batch_number',
+        'pb.coil_no',
+        'pb.slit_id',
+        'pb.customer_name',
+        'pb.grade_code',
+        'pb.width_mm',
+        'pb.input_thk_mm',
+        'pb.ppc_thk_mm',
+        'pb.ppc_weight_mt',
+        'pb.roll_finish',
+        'pb.plan_date',
+        'pb.shift_code',
+      ])
+      .where('pb.machine_code', '=', machineCode)
+      .where('pb.from_work_center', '=', 'R')
+      .where('r.entry_id', 'is', null)
+      .orderBy('pb.queue_seq', 'asc')
+      .orderBy('pb.batch_number', 'asc')
+      .execute();
+
+    return {
+      machineCode,
+      queue: rows.map((b) => {
+        const thk = b.input_thk_mm ?? b.ppc_thk_mm;
+        return {
+          batchNumber: b.batch_number,
+          coilNo: b.coil_no,
+          displayCoilNo: formatDisplayCoilNo(b.coil_no, b.slit_id),
+          slitId: b.slit_id ?? undefined,
+          customerName: b.customer_name ?? '-',
+          gradeCode: b.grade_code ?? '-',
+          widthMm: Number(b.width_mm ?? 0),
+          thicknessMm: Number(thk ?? 0),
+          weightMt: Number(b.ppc_weight_mt ?? 0),
+          surfaceFinish: mapPlanSurfaceToCode(b.roll_finish) ?? undefined,
+          planDate: b.plan_date ? this.formatPlanDate(b.plan_date) : undefined,
+          shiftCode: b.shift_code ?? undefined,
+        };
+      }),
     };
   }
 

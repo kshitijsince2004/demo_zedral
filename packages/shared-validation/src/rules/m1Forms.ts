@@ -20,20 +20,37 @@ export const baseProcessEntrySchema = z.object({
   remarks: optionalString,
 });
 
+const hrsThicknessReadingSchema = z.object({
+  time: z.string().trim().min(1),
+  thkMm: z.coerce.number().positive(),
+});
+const hrsTaperReadingSchema = z.object({
+  time: z.string().trim().min(1),
+  taper: z.string().trim().min(1),
+});
+const hrsMotherWidthReadingSchema = z.object({
+  time: z.string().trim().min(1),
+  widthMm: z.coerce.number().positive(),
+});
+
 export const hrsSlitSlotSchema = z.object({
   // ponytail: dynamic slot label (plan drops A–D enum)
   slot: z.string().trim().min(1).max(8),
   widthMm: optionalPositiveNumber, // target (legacy alias)
   targetWidthMm: optionalPositiveNumber,
-  actualWidthMm: optionalPositiveNumber,
+  actualWidthMm: optionalPositiveNumber, // back-compat; not written from operator path
   thkMm: optionalPositiveNumber, // deprecated single thk — keep optional
   plannedThkMm: optionalPositiveNumber,
-  thkIdMm: optionalPositiveNumber,
+  thkIdMm: optionalPositiveNumber, // retired triple — accept but stop writing
   thkCentreMm: optionalPositiveNumber,
   thkOdMm: optionalPositiveNumber,
   plannedWeightMt: optionalPositiveNumber,
   actualWeightMt: optionalPositiveNumber,
   taper: optionalString,
+  thicknessReadings: z.array(hrsThicknessReadingSchema).optional(),
+  taperReadings: z.array(hrsTaperReadingSchema).optional(),
+  thkLatestMm: optionalPositiveNumber,
+  taperLatest: optionalString,
   childCoilNo: optionalString,
   customer: optionalString,
   sapBatchNumber: optionalString,
@@ -95,13 +112,15 @@ export const pklChartRowSchema = z.object({
   rinseIronPct: optionalNumber,
   burnerPressureKgcm2: optionalNumber,
   hotAirTempDegc: optionalNumber,
+  steamOutletBurnerKgcm2: optionalNumber,
+  lineIncharge: optionalString,
 });
 
 export const hrsSchema = baseProcessEntrySchema.extend({
   nominalWidthMm: optionalPositiveNumber,
-  actualWidthMm: optionalPositiveNumber,
+  actualWidthMm: optionalPositiveNumber, // latest mother width reading
   nominalThkMm: optionalPositiveNumber,
-  weightMt: optionalPositiveNumber, // produced total (Σ lines)
+  weightMt: optionalPositiveNumber, // produced total (Σ plan line weights)
   motherCoilWeightMt: optionalPositiveNumber,
   source: optionalString,
   gradeCode: optionalString,
@@ -114,7 +133,8 @@ export const hrsSchema = baseProcessEntrySchema.extend({
   crewRef: optionalString,
   settingCount: z.coerce.number().int().nonnegative().optional(),
   specVersionId: z.coerce.number().int().positive().optional(),
-  slitSlots: z.array(hrsSlitSlotSchema).optional(),
+  motherWidthReadings: z.array(hrsMotherWidthReadingSchema).optional(),
+  slitSlots: z.array(hrsSlitSlotSchema).max(12).optional(),
 });
 
 export const pklSchema = baseProcessEntrySchema.extend({

@@ -1,7 +1,7 @@
 import type { MillCode } from './millPath';
 import { isMillPath, millCodeFromPath } from './millPath';
 
-export type MillProcessTab = 'rolling' | 'skinpass';
+export type MillProcessTab = 'rolling' | 'skinpass' | 'rewinding';
 
 /** CRM 6HI / 4HI / 2HI share one operator UX; subprocess availability differs per mill. */
 export function isCrmMillCode(code: string): code is MillCode {
@@ -20,7 +20,7 @@ export function crmMillFromPath(pathname: string): MillCode {
 export const CRM_SHIFT_PROCESS_CODE = 'ROLLING';
 
 export function millProcessTabs(machine: MillCode): MillProcessTab[] {
-  if (machine === '2HI') return ['skinpass'];
+  if (machine === '2HI') return ['skinpass', 'rewinding'];
   return ['rolling', 'skinpass'];
 }
 
@@ -33,14 +33,16 @@ export function defaultMillTab(machine: MillCode): MillProcessTab {
 }
 
 export function normalizeMillTab(machine: MillCode, tab: string | null): MillProcessTab {
-  const resolved = tab === 'skinpass' ? 'skinpass' : 'rolling';
-  if (!millSupportsRolling(machine) && resolved === 'rolling') return 'skinpass';
-  return resolved;
+  if (tab === 'rewinding' && machine === '2HI') return 'rewinding';
+  if (tab === 'skinpass') return 'skinpass';
+  if (!millSupportsRolling(machine)) return 'skinpass';
+  return 'rolling';
 }
 
 export const MILL_HUB_TABS: { id: MillProcessTab; label: string }[] = [
   { id: 'rolling', label: 'Rolling' },
   { id: 'skinpass', label: 'Skin Pass' },
+  { id: 'rewinding', label: 'Rewinding' },
 ];
 
 export function hubTabsForMill(machine: MillCode) {

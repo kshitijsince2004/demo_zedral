@@ -18,8 +18,8 @@ export function ProcessLineSwitcher({ activeCode, className = '' }: ProcessLineS
   if (items.length <= 1) return null;
 
   const go = (code: string) => {
+    setActiveMachine(code);
     if (workspace && isCrmMillCode(code)) {
-      setActiveMachine(code);
       navigate(userScopePath(workspace.username, workspace.role));
       return;
     }

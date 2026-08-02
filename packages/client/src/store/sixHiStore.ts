@@ -17,7 +17,7 @@ import { jsonEqual } from '../lib/silentRefresh';
 let machineStateRefreshGen = 0;
 const panelOrderInflight = new Map<string, Promise<SixHiOrderDetail | null>>();
 
-export type SixHiProcessTab = 'rolling' | 'skinpass';
+export type SixHiProcessTab = 'rolling' | 'skinpass' | 'rewinding';
 
 interface ActiveMachineOrder {
   batchNumber: string;
@@ -144,10 +144,10 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
   setMachineCode: (machine: MillCode) => {
     const { processTab } = get();
     setActiveCrmMill(machine);
-    set({
-      machineCode: machine,
-      processTab: machine === '2HI' && processTab === 'rolling' ? defaultMillTab(machine) : processTab,
-    });
+    let nextTab = processTab;
+    if (machine === '2HI' && processTab === 'rolling') nextTab = defaultMillTab(machine);
+    if (machine !== '2HI' && processTab === 'rewinding') nextTab = defaultMillTab(machine);
+    set({ machineCode: machine, processTab: nextTab });
   },
   openManualOrder: () => set({ manualOrderOpen: true }),
   closeManualOrder: () => set({ manualOrderOpen: false }),

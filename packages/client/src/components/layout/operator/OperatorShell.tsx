@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../../lib/authStore';
 import { isCrmMillPath } from '../../../lib/millConfig';
+import { isProcessStationCode } from '../../../lib/processConfig';
 import { OfflineBanner } from '../../ui/OfflineBanner';
 import { OperatorNavRail } from './OperatorNavRail';
 import { StatusRail } from './StatusRail';
@@ -28,10 +29,11 @@ export function OperatorShell({
   const [logoutOpen, setLogoutOpen] = React.useState(false);
   const location = useLocation();
   const isCrmMill = isCrmMillPath(location.pathname);
+  const isProcessHint = isProcessStationCode(processCode);
   const workspaceOpen = useSixHiStore((s) => s.workspaceOpen);
 
-  const navOffset = isCrmMill ? 'ml-16' : 'ml-14';
-  const showStatusRail = !bare && !(isCrmMill && workspaceOpen);
+  const navOffset = isCrmMill && !isProcessHint ? 'ml-16' : 'ml-14';
+  const showStatusRail = !bare && !(isCrmMill && !isProcessHint && workspaceOpen);
 
   React.useEffect(() => {
     console.info(`[OperatorShell] Operator Screen initialized`, { processCode });

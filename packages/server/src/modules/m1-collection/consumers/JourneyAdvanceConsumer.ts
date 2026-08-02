@@ -32,6 +32,7 @@ interface SlitSlotRow {
   actual_weight_mt?: number | string | null;
   actual_thk_front_mm?: number | string | null;
   thk_id_mm?: number | string | null;
+  thk_latest_mm?: number | string | null;
 }
 
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
@@ -88,6 +89,7 @@ async function loadHrsSlits(entryId: string): Promise<SlitSlotRow[]> {
       'for_ctl_flag',
       'route_raw',
       'actual_weight_mt',
+      'thk_latest_mm',
       'thk_id_mm',
     ])
     .where('entry_id', '=', entryId)
@@ -276,7 +278,7 @@ async function spawnChildCoils(
       .where('coil_no', '=', coilNo)
       .executeTakeFirst();
 
-    const thk = slit.thk_id_mm ?? slit.actual_thk_front_mm ?? slit.thk_mm;
+    const thk = slit.thk_latest_mm ?? slit.thk_id_mm ?? slit.actual_thk_front_mm ?? slit.thk_mm;
     const wt = slit.actual_weight_mt != null
       ? Number(slit.actual_weight_mt)
       : slit.output_wt_mt != null

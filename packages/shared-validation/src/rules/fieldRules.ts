@@ -32,6 +32,16 @@ export const HRSSlitSlotSchema = z.preprocess((raw) => {
   plannedWeightMt: z.number().positive().optional(),
   actualWeightMt: z.number().positive().optional(),
   taper: z.string().optional(),
+  thicknessReadings: z.array(z.object({
+    time: z.string().trim().min(1),
+    thkMm: z.number().positive(),
+  })).optional(),
+  taperReadings: z.array(z.object({
+    time: z.string().trim().min(1),
+    taper: z.string().trim().min(1),
+  })).optional(),
+  thkLatestMm: z.number().positive().optional(),
+  taperLatest: z.string().optional(),
   childCoilNo: z.string().optional(),
   customer: z.string().optional(),
   sapBatchNumber: z.string().optional(),
@@ -92,16 +102,20 @@ export const BaseProcessEntrySchema = z.object({
 // Req 12.8: add actual_slit_width_from/to_mm, time_from/to; slit slot = {A–D, width, thickness, taper, child_coil_no}
 export const HRSSchema = BaseProcessEntrySchema.extend({
   nominalWidthMm: z.number().positive(),
-  actualWidthMm: z.number().positive(),
+  actualWidthMm: z.number().positive().optional(),
   nominalThkMm: z.number().positive(),
   weightMt: z.number().positive(),
   scrapMt: z.number().min(0),
   // scrapPct is derived — not captured
   actualSlitWidthFromMm: z.number().positive().optional(),
   actualSlitWidthToMm: z.number().positive().optional(),
-  slitSlots: z.array(HRSSlitSlotSchema).max(12, 'Practical UI cap 12 slits'),
+  motherWidthReadings: z.array(z.object({
+    time: z.string().trim().min(1),
+    widthMm: z.number().positive(),
+  })).optional(),
+  slitSlots: z.array(HRSSlitSlotSchema).max(12, 'Practical UI cap 12 slots'),
 }).superRefine((data, ctx) => {
-  if (data.actualWidthMm > data.nominalWidthMm) {
+  if (data.actualWidthMm != null && data.actualWidthMm > data.nominalWidthMm) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Actual width cannot exceed nominal width',

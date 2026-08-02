@@ -20,6 +20,9 @@ const UserScopeIndex = lazy(() =>
 const SixHiCapturePage = lazy(() =>
   import('../pages/sixHi/SixHiCapturePage').then((m) => ({ default: m.SixHiCapturePage })),
 );
+const TwoHiRewindingCapturePage = lazy(() =>
+  import('../pages/sixHi/TwoHiRewindingCapturePage').then((m) => ({ default: m.TwoHiRewindingCapturePage })),
+);
 const CrmOutgoingHandoverPage = lazy(() =>
   import('../pages/sixHi/CrmOutgoingHandoverPage').then((m) => ({ default: m.CrmOutgoingHandoverPage })),
 );
@@ -94,6 +97,7 @@ function OperatorApp() {
             <Route path="skinpass" element={<SixHiQueuePage />} />
             <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />
             <Route path="skinpass/order/:batchNo" element={<SixHiOrderPage />} />
+            <Route path="rewinding/:coilNo" element={<TwoHiRewindingCapturePage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/station" replace />} />

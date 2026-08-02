@@ -130,4 +130,139 @@ export class StoppageService {
 
     return String(row.stoppage_id);
   }
+
+  /** Open stoppage (no end yet) — process rail Stoppage enter. */
+  static async startOpen(payload: {
+    shiftLogId: string;
+    stoppageCode: string;
+    remarks?: string;
+    machineCode?: string;
+  }, userId: string) {
+    if (!payload.shiftLogId) throw new ManufacturingValidationError('shiftLogId is required');
+    if (!payload.stoppageCode) throw new ManufacturingValidationError('stoppageCode is required');
+
+    const shiftLog = await db
+      .selectFrom('txn.shift_log as sl')
+      .select(['sl.prod_date', 'sl.shift_code', 'sl.tenant_id'])
+      .where('sl.shift_log_id', '=', payload.shiftLogId)
+      .executeTakeFirst();
+    if (!shiftLog) throw new ManufacturingValidationError('Shift log not found');
+
+    const open = await db
+      .selectFrom('txn.stoppage')
+      .select('stoppage_id')
+      .where('shift_log_id', '=', payload.shiftLogId)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+    if (open) throw new ManufacturingValidationError('An active stoppage entry already exists for this shift log');
+
+    // ponytail: category_code FK → master.stoppage_category (01–16); breakdown optional → stoppage_code
+    const raw = String(payload.stoppageCode || '12').trim();
+    const padded = /^\d{1,2}$/.test(raw) ? raw.padStart(2, '0') : raw;
+    let categoryCode =
+      (await db
+        .selectFrom('master.stoppage_category')
+        .select('category_code')
+        .where('category_code', '=', padded)
+        .executeTakeFirst())?.category_code ?? null;
+
+    let breakdownCode: string | null =
+      (await db
+        .selectFrom('master.stoppage_code')
+        .select('stoppage_code')
+        .where('stoppage_code', '=', raw)
+        .executeTakeFirst())?.stoppage_code ?? null;
+
+    if (!categoryCode && breakdownCode) {
+      const bucket = await db
+        .selectFrom('master.stoppage_code')
+        .select('category')
+        .where('stoppage_code', '=', breakdownCode)
+        .executeTakeFirst();
+      const map: Record<string, string> = { MECH: '01', ELECT: '02', OPN: '12' };
+      categoryCode = map[String(bucket?.category ?? '')] ?? '12';
+    }
+    if (!categoryCode) categoryCode = '12';
+    if (!breakdownCode && payload.machineCode) {
+      breakdownCode =
+        (await db
+          .selectFrom('master.stoppage_code')
+          .select('stoppage_code')
+          .where('stoppage_code', 'like', `${payload.machineCode}-%`)
+          .orderBy('stoppage_code', 'asc')
+          .executeTakeFirst())?.stoppage_code ?? null;
+    }
+
+    const prodDate = shiftLog.prod_date instanceof Date ? shiftLog.prod_date : new Date(shiftLog.prod_date);
+    const startAt = new Date();
+    const row = await db
+      .insertInto('txn.stoppage')
+      .values({
+        tenant_id: shiftLog.tenant_id,
+        shift_log_id: payload.shiftLogId,
+        category_code: categoryCode,
+        breakdown_code: breakdownCode,
+        start_at: startAt,
+        end_at: null,
+        duration_min: null,
+        remarks: payload.remarks ?? null,
+        shift_code: shiftLog.shift_code,
+        prod_date: prodDate,
+        operator_id: Number(userId),
+        machine_code: payload.machineCode ?? null,
+      } as never)
+      .returning(['stoppage_id'])
+      .executeTakeFirstOrThrow();
+
+    return String(row.stoppage_id);
+  }
+
+  static async endOpen(stoppageId: string) {
+    const row = await db
+      .selectFrom('txn.stoppage')
+      .select(['stoppage_id', 'start_at', 'end_at', 'shift_log_id', 'breakdown_code'])
+      .where('stoppage_id', '=', stoppageId)
+      .executeTakeFirst();
+    if (!row) throw new ManufacturingValidationError('Stoppage not found');
+    if (row.end_at) return String(row.stoppage_id);
+
+    const endAt = new Date();
+    const startAt = new Date(row.start_at);
+    const durationMin = Math.max(1, Math.round((endAt.getTime() - startAt.getTime()) / 60000));
+    await db
+      .updateTable('txn.stoppage')
+      .set({ end_at: endAt, duration_min: durationMin })
+      .where('stoppage_id', '=', stoppageId)
+      .execute();
+
+    const clock = (d: Date) =>
+      d.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Kolkata',
+      });
+    const shiftLog = await db
+      .selectFrom('txn.shift_log')
+      .select('prod_date')
+      .where('shift_log_id', '=', String(row.shift_log_id))
+      .executeTakeFirst();
+    const prodDate = shiftLog?.prod_date instanceof Date
+      ? shiftLog.prod_date
+      : new Date(String(shiftLog?.prod_date ?? endAt));
+
+    void publishDowntimeLogged({
+      stoppageId: String(row.stoppage_id),
+      shiftLogId: String(row.shift_log_id),
+      stoppageCode: String(row.breakdown_code ?? ''),
+      fromTime: clock(startAt),
+      toTime: clock(endAt),
+      durationMin,
+      prodDate,
+    }).catch((error) => {
+      console.error('[M1] failed to publish downtime.logged', error);
+    });
+
+    return String(row.stoppage_id);
+  }
 }

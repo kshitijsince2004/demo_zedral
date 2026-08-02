@@ -74,6 +74,7 @@ export function routeCodeFromBatch(machineCode: string, subProcess: string): str
     '4HI:ROLLING': '4',
     '4HI:SKIN_PASS': 'Y',
     '2HI:SKIN_PASS': 'X',
+    '2HI:REWINDING': 'R',
     'HRS:': 'S',
     'PKL:': 'P',
     'ANN:': 'F',

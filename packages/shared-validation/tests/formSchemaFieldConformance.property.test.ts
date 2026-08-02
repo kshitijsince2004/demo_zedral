@@ -50,7 +50,7 @@ const hrsEntryArb = fc.record({
   coilNo: fc.string({ minLength: 1, maxLength: 20 }),
   startTime: fc.date(),
   nominalWidthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
-  actualWidthMm: fc.double({ min: 1, max: 3000, noNaN: true }),
+  actualWidthMm: fc.option(fc.double({ min: 1, max: 3000, noNaN: true }), { nil: undefined }),
   nominalThkMm: fc.double({ min: 0.1, max: 20, noNaN: true }),
   weightMt: fc.double({ min: 0, max: 50, noNaN: true }),
   scrapMt: fc.double({ min: 0, max: 5, noNaN: true }),
@@ -284,7 +284,7 @@ describe('Property 5: Formâ€“schema field conformance', () => {
         expect(isValidString(entry.coilNo)).toBe(true);
         expect(entry.coilNo.length).toBeGreaterThan(0);
         expect(isValidNumber(entry.nominalWidthMm)).toBe(true);
-        expect(isValidNumber(entry.actualWidthMm)).toBe(true);
+        if (entry.actualWidthMm != null) expect(isValidNumber(entry.actualWidthMm)).toBe(true);
         expect(isValidNumber(entry.nominalThkMm)).toBe(true);
         expect(isValidNumber(entry.weightMt)).toBe(true);
         expect(isValidNumber(entry.scrapMt)).toBe(true);

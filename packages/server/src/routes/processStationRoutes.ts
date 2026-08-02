@@ -23,6 +23,7 @@ const pklChartSchema = z.object({
   line: z.object({
     steamInletKgcm2: z.number().optional(),
     steamOutletKgcm2: z.number().optional(),
+    steamOutletBurnerKgcm2: z.number().optional(),
     dosageAcid: z.number().optional(),
     dosageWater: z.number().optional(),
     dosageInhibitor: z.number().optional(),
@@ -34,6 +35,7 @@ const pklChartSchema = z.object({
     rinseIronPct: z.number().optional(),
     burnerPressureKgcm2: z.number().optional(),
     hotAirTempDegc: z.number().optional(),
+    lineIncharge: z.string().optional(),
   }).optional(),
 });
 
@@ -129,6 +131,32 @@ router.post('/pkl/spec-limits', requireAuth, async (req, res) => {
     res.status(201).json({ ok: true });
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Upsert failed' });
+  }
+});
+
+/** Soft-delete via is_active=false (ponytail: no hard DELETE). */
+router.delete('/pkl/spec-limits', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'WRITE');
+    await ProcessStationService.upsertPklSpecLimit({
+      paramKey: String(req.body?.paramKey ?? req.query?.paramKey ?? ''),
+      tankScope: String(req.body?.tankScope ?? req.query?.tankScope ?? 'LINE'),
+      isActive: false,
+    });
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Delete failed' });
+  }
+});
+
+router.get('/pkl/shift-review', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'READ');
+    const shiftLogId = String(req.query.shiftLogId ?? '');
+    if (!shiftLogId) return res.status(400).json({ error: 'shiftLogId required' });
+    res.json(await ProcessStationService.getPklShiftReview(shiftLogId));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'PKL shift review failed' });
   }
 });
 
@@ -420,7 +448,7 @@ router.get('/:process/queue', requireAuth, async (req, res) => {
   try {
     const code = requireProcess(req.params.process);
     assertLineOperation(req.user!, code, 'READ');
-    const cards = await ProcessStationService.getQueue(code);
+    const cards = await ProcessStationService.getQueue(code, req.user!.id);
     res.json({ queue: cards });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Queue load failed';
@@ -445,11 +473,76 @@ router.post('/:process/manual', requireAuth, async (req, res) => {
   try {
     const code = requireProcess(req.params.process);
     assertLineOperation(req.user!, code, 'WRITE');
-    const result = await ProcessStationService.createManualCoil(code, req.body);
+    const result = await ProcessStationService.createManualCoil(code, req.body, req.user!.id);
     res.status(201).json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Manual coil creation failed';
     res.status(400).json({ error: msg });
+  }
+});
+
+router.get('/:process/shift/:shiftLogId/stoppages', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'READ');
+    res.json(await ProcessStationService.listShiftStoppages(code, String(req.params.shiftLogId)));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Stoppage history failed' });
+  }
+});
+
+router.post('/:process/start', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'WRITE');
+    const coilNo = String(req.body?.coilNo ?? '');
+    if (!coilNo) return res.status(400).json({ error: 'coilNo required' });
+    res.json(await ProcessStationService.startCoil(code, coilNo, req.user!.id));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Start failed' });
+  }
+});
+
+router.post('/:process/stoppages/start', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'WRITE');
+    const { StoppageService } = await import('../services/StoppageService');
+    const stoppageId = await StoppageService.startOpen({
+      shiftLogId: String(req.body?.shiftLogId ?? ''),
+      stoppageCode: String(req.body?.stoppageCode ?? ''),
+      remarks: req.body?.remarks ? String(req.body.remarks) : undefined,
+      machineCode: code,
+    }, String(req.user!.id));
+    res.status(201).json({ stoppageId });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage start failed' });
+  }
+});
+
+router.post('/:process/stoppages/:stoppageId/end', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'WRITE');
+    const { StoppageService } = await import('../services/StoppageService');
+    const stoppageId = await StoppageService.endOpen(String(req.params.stoppageId));
+    res.json({ stoppageId });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage end failed' });
+  }
+});
+
+router.post('/:process/hold', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'WRITE');
+    const coilNo = String(req.body?.coilNo ?? '');
+    if (!coilNo) return res.status(400).json({ error: 'coilNo required' });
+    const remarks = String(req.body?.remarks ?? 'Operator hold');
+    const reason = String(req.body?.reason ?? req.body?.rejectionReason ?? 'HOLD');
+    res.json(await ProcessStationService.holdCoil(code, coilNo, req.user!.id, reason, remarks));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Hold failed' });
   }
 });
 

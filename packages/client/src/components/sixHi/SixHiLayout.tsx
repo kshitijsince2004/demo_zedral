@@ -37,6 +37,7 @@ import type { ManualStoppageState } from '../../store/sixHiStore';
 import { OrderRejectionModal } from './OrderRejectionModal';
 import { OrderEndModal } from './OrderEndModal';
 import { SixHiManualOrderModal } from './SixHiManualOrderModal';
+import { RewindingManualOrderModal } from '../rewinding/RewindingManualOrderModal';
 import { ZButton } from '../primitives/ZButton';
 import { OrderRemarkModal } from './OrderRemarkModal';
 import { ShiftEndModal } from './ShiftEndModal';
@@ -89,6 +90,9 @@ export function SixHiLayout() {
     openStoppageDialog,
     manualStoppage,
     setCombinedRun,
+    manualOrderOpen,
+    closeManualOrder,
+    requestQueueRefresh,
   } = useSixHiStore();
 
   const [rejectionOpen, setRejectionOpen] = useState(false);
@@ -619,7 +623,16 @@ export function SixHiLayout() {
         }}
       />
 
-      <SixHiManualOrderModal />
+      {searchParams.get('tab') === 'rewinding' ? (
+        <RewindingManualOrderModal
+          open={manualOrderOpen}
+          defaultMachine="2HI"
+          onClose={closeManualOrder}
+          onCreated={() => requestQueueRefresh()}
+        />
+      ) : (
+        <SixHiManualOrderModal />
+      )}
 
       <ShiftEndModal
         open={shiftWatcher.visible}

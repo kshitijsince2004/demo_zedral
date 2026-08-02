@@ -7,7 +7,8 @@ import { deskNavOffsetClass } from '../shared/deskNavLayout';
 import { MachineHeadNav } from './MachineHeadNav';
 import { useOperationalMachineAccess } from '../../../lib/useOperationalMachineAccess';
 import { isAnnMhDesk, useMhDeskFocus } from '../../../lib/annMhDesk';
-import { isPklMhDesk, syncMhDeskFocus } from '../../../lib/pklMhDesk';
+import { isHrsMhDesk, isHrsPklMhDesk, isPklMhDesk, syncMhDeskFocus } from '../../../lib/pklMhDesk';
+import { isRwdMhDesk } from '../../../lib/rwdMhDesk';
 
 interface MachineHeadShellProps {
   title: string;
@@ -31,7 +32,17 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
 
   const showSwitcher = machines.length > 1;
   const annDesk = isAnnMhDesk(machines, focus);
-  const pklDesk = !annDesk && isPklMhDesk(machines, focus);
+  const rwdDesk = !annDesk && isRwdMhDesk(machines, focus);
+  const combined = !annDesk && !rwdDesk && isHrsPklMhDesk(machines, focus);
+  const hrsDesk = !annDesk && !rwdDesk && !combined && isHrsMhDesk(machines, focus);
+  const pklDesk = !annDesk && !rwdDesk && !combined && isPklMhDesk(machines, focus);
+  const deskLine = combined
+    ? (focus?.toUpperCase() === 'PKL' ? 'PKL' : 'HRS')
+    : hrsDesk
+      ? 'HRS'
+      : pklDesk
+        ? 'PKL'
+        : null;
 
   return (
     <div className="theme-operator min-h-screen bg-background text-foreground">
@@ -59,8 +70,10 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
                           value={
                             annDesk
                               ? 'ANN'
-                              : pklDesk
-                                ? 'PKL'
+                              : rwdDesk
+                                ? (focus?.toUpperCase() === '2HI' ? '2HI' : 'RWD')
+                              : deskLine
+                                ? deskLine
                                 : focus && machines.includes(focus)
                                   ? focus
                                   : (machines[0] ?? '')
@@ -69,8 +82,10 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
                             const v = e.target.value;
                             setFocus(v || null);
                             if (v === 'ANN') window.location.assign('/machine-head/ann/live');
-                            else if (annDesk) window.location.assign('/live');
-                            else if (v === 'PKL' || pklDesk) window.location.assign('/live');
+                            else if (v === 'PKL') window.location.assign('/machine-head/pkl/live');
+                            else if (v === 'HRS') window.location.assign('/live');
+                            else if (v === 'RWD') window.location.assign('/machine-head/rwd/live');
+                            else if (annDesk || deskLine || rwdDesk) window.location.assign('/live');
                           }}
                           aria-label="Desk line focus"
                         >

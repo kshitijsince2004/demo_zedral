@@ -33,7 +33,27 @@ export function initSuperTokens() {
     },
     recipeList: [
       EmailPassword.init(),
-      Session.init({ tokenTransferMethod: 'header' }),
+      Session.init({
+        tokenTransferMethod: 'header',
+        override: {
+          functions: (original) => ({
+            ...original,
+            // ponytail: ST strips a manually set Authorization on /api — only intercept /auth
+            // (refresh/signout). apiClient attaches Bearer + st-auth-mode for /api itself.
+            shouldDoInterceptionBasedOnUrl: (url, apiDom, sessionTokenBackendDomain) => {
+              try {
+                const path = new URL(url, typeof window !== 'undefined' ? window.location.origin : apiDom).pathname;
+                if (path.startsWith('/auth') || path.startsWith(apiBasePath)) {
+                  return original.shouldDoInterceptionBasedOnUrl(url, apiDom, sessionTokenBackendDomain);
+                }
+              } catch {
+                /* fall through */
+              }
+              return false;
+            },
+          }),
+        },
+      }),
     ],
   });
 

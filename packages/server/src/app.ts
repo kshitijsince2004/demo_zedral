@@ -24,6 +24,9 @@ import deviceRoutes from './routes/deviceRoutes';
 import traceabilityRoutes from './routes/traceabilityRoutes';
 import plannedCoilRoutes from './routes/plannedCoilRoutes';
 import SixHiRoutes from './routes/sixHiRoutes';
+import rewindingRoutes from './routes/rewindingRoutes';
+import hrsOrderRoutes from './routes/hrsOrderRoutes';
+import pklOrderRoutes from './routes/pklOrderRoutes';
 import liveRoutes from './routes/liveRoutes';
 import machineRoutes from './routes/machineRoutes';
 import machineAccessRoutes from './routes/machineAccessRoutes';
@@ -158,6 +161,9 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       '/production',
       '/stations',
       '/6hi',
+      '/rewinding',
+      '/hrs-order',
+      '/pkl-order',
       '/machines/handover',
     ],
     idempotencyMiddleware,
@@ -165,6 +171,9 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   app.use('/device', m1Guard, deviceRoutes);
   app.use('/planned-coils', m1Guard, plannedCoilRoutes);
   app.use('/6hi', m1Guard, SixHiRoutes);
+  app.use('/rewinding', m1Guard, rewindingRoutes);
+  app.use('/hrs-order', m1Guard, hrsOrderRoutes);
+  app.use('/pkl-order', m1Guard, pklOrderRoutes);
   app.use('/live', m1Guard, liveRoutes);
   app.use('/machines', m1Guard, machineRoutes);
   app.use('/machine-access', m1Guard, machineAccessRoutes);

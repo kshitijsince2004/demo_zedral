@@ -23,7 +23,12 @@ export interface BodyProps {
   prefill: Record<string, unknown>;
   shiftLogId: string;
   machineCode: string;
-  onSubmitted?: () => void;
+  onSubmitted?: () => void | Promise<void>;
+  /** When set, Save uses order-backed capture (completes rwd_order). */
+  batchNumber?: string;
+  /** RWD: pin Save outside scroll via form= id. */
+  formId?: string;
+  showSubmit?: boolean;
 }
 
 export interface ProcessConfig {
@@ -61,7 +66,7 @@ export const PROCESS_CONFIG: Record<ProcessStationCode, ProcessConfig> = {
     schema: pklSchema,
     bodyComponent: PklCoilForm,
     routeCode: 'P',
-    extraTabs: [{ id: 'chart', label: 'Process Chart', path: 'chart' }],
+    // ponytail: chart entry moved to OperatorNavRail (revamp §1)
   },
   ANN: {
     code: 'ANN',

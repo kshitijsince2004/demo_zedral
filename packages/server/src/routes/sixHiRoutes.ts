@@ -261,7 +261,8 @@ router.post('/orders/transfer-machine', denyPlantHeadPpc('PPC_TRANSFER_MACHINE')
   }
 });
 
-router.get('/master/stoppage-categories', requireSixHi('READ'), async (_req, res) => {
+// Master catalog — any authenticated user (RWD/HRS/PKL hubs also load these; no CRM mill).
+router.get('/master/stoppage-categories', async (_req, res) => {
   try {
     const data = await SixHiConfigService.getStoppageCategories();
     res.json(data.categories);
@@ -270,7 +271,7 @@ router.get('/master/stoppage-categories', requireSixHi('READ'), async (_req, res
   }
 });
 
-router.get('/master/defect-codes', requireSixHi('READ'), async (_req, res) => {
+router.get('/master/defect-codes', async (_req, res) => {
   try {
     const data = await SixHiConfigService.getDefectCodes();
     res.json(data);
@@ -445,6 +446,21 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
     res.json(result);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Queue load failed' });
+  }
+});
+
+/** Lightweight 2HI rewinding queue — separate from SixHi rolling/skin-pass getQueue. */
+router.get('/rewinding-queue', requireSixHi('READ'), async (req, res) => {
+  try {
+    const parsedMachine = resolveRequiredCrmMill(req, res);
+    if (!parsedMachine) return;
+    if (parsedMachine !== '2HI') {
+      return res.status(400).json({ error: 'Rewinding queue is only available for 2HI' });
+    }
+    const result = await SixHiQueueService.getRewindingQueue(parsedMachine);
+    res.json(result);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Rewinding queue load failed' });
   }
 });
 

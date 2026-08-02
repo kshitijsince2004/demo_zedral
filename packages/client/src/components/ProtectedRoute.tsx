@@ -1,15 +1,31 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { KeyRound } from 'lucide-react';
 import { useAuthStore } from '../lib/authStore';
 import { ZButton } from './primitives/ZButton';
 import { ZInput } from './primitives/ZInput';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const session = useSessionContext();
   const { token, isLocked, unlockScreen, logout } = useAuthStore();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [unlocking, setUnlocking] = useState(false);
+
+  // ponytail: wait for SuperTokens before mounting operator shells (avoids header-less 401 race)
+  if (session.loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">
+        Restoring session…
+      </div>
+    );
+  }
+
+  // Header-mode sessions: no live ST session ⇒ login (do not trust stale mock_jwt alone)
+  if (!session.doesSessionExist) {
+    return <Navigate to="/login?session=expired" replace />;
+  }
 
   if (!token) {
     return <Navigate to="/login" replace />;

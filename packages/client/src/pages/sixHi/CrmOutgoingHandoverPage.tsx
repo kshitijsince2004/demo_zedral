@@ -441,7 +441,7 @@ export function CrmOutgoingHandoverPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         {enrichmentError && (
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-2 bg-destructive/10 border-b border-destructive/20 text-sm text-destructive">
             <span className="flex items-center gap-2 min-w-0">
@@ -493,7 +493,7 @@ export function CrmOutgoingHandoverPage() {
         </div>
 
         {/* ── Scrollable Body ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="max-w-4xl mx-auto p-5 space-y-6 pb-40">
 
             {/* Active Stoppage Banner */}

@@ -6,6 +6,7 @@ import {
   hubTabsForMill,
   normalizeMillTab,
 } from '../../lib/millConfig';
+import { TwoHiRewindingHub } from './TwoHiRewindingHub';
 import { currentPlantDate } from '../../lib/dateFormat';
 import { Search, RefreshCw } from 'lucide-react';
 import type { SixHiOrderStatus, SixHiQueueCard } from '@m1/shared-validation';
@@ -100,6 +101,15 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 }
 
 export function SixHiHub() {
+  const [searchParams] = useSearchParams();
+  const { machineCode: pathMachine } = useWorkspaceBase();
+  const activeTab = normalizeMillTab(pathMachine, searchParams.get('tab'));
+  // Rewinding is a separate pipeline (prod_rwd) — never feed it through SixHi getQueue.
+  if (activeTab === 'rewinding') return <TwoHiRewindingHub />;
+  return <SixHiCrmHub />;
+}
+
+function SixHiCrmHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { shiftCode, shiftLogId, detectedShift } = useShiftStore();

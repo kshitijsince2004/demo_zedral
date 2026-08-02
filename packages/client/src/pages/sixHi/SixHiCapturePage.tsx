@@ -7,7 +7,6 @@ import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { formatPlantClock, formatShiftDate } from '../../lib/dateFormat';
 import { useShiftStore } from '../../store/shiftStore';
 import { subscribeProductionChanged } from '../../lib/productionSync';
-import { SixHiShiftSummaryPanel } from '../../components/sixHi/SixHiShiftSummaryPanel';
 import { SixHiStatusPill } from '../../components/sixHi/SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from '../../components/sixHi/CombinedProductionOrdersPanel';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
@@ -49,12 +48,10 @@ export function SixHiCapturePage() {
   const panelOrder = useSixHiStore((s) => s.panelOrder);
   const machineActive = useSixHiStore((s) => s.machineActive);
   const machineCode = useSixHiStore((s) => s.machineCode);
-  const shiftSummary = useSixHiStore((s) => s.shiftSummary);
   const combinedRun = useSixHiStore((s) => s.combinedRun);
   const manualStoppage = useSixHiStore((s) => s.manualStoppage);
   const openWorkspace = useSixHiStore((s) => s.openWorkspace);
   const loadPanelOrder = useSixHiStore((s) => s.loadPanelOrder);
-  const loadShiftSummary = useSixHiStore((s) => s.loadShiftSummary);
   const refreshMachineState = useSixHiStore((s) => s.refreshMachineState);
   const openStoppageDialog = useSixHiStore((s) => s.openStoppageDialog);
   const hydrateCombinedRunFromQueue = useSixHiStore((s) => s.hydrateCombinedRunFromQueue);
@@ -67,19 +64,15 @@ export function SixHiCapturePage() {
 
   useEffect(() => {
     refreshMachineState();
-    if (shiftLogId) loadShiftSummary(shiftLogId);
 
     const tick = async () => {
       if (await shouldPauseLivePolling()) return;
-      const store = useSixHiStore.getState();
-      void store.refreshMachineState();
-      const { shiftLogId: sid } = useShiftStore.getState();
-      if (sid) void store.loadShiftSummary(sid);
+      void useSixHiStore.getState().refreshMachineState();
     };
     void tick();
     const id = setInterval(() => void tick(), 15000);
     return () => clearInterval(id);
-  }, [shiftLogId, refreshMachineState, loadShiftSummary]);
+  }, [refreshMachineState]);
 
   const queueDate = formatShiftDate(shiftDate);
   const queueShift = shiftCode || undefined;
@@ -138,11 +131,6 @@ export function SixHiCapturePage() {
   const preparingOrder = allQueueItems.find(
     (q) => q.status === 'PREPARING' && q.batchNumber !== effectiveBatch,
   );
-
-  useEffect(() => {
-    if (!shiftLogId || !order) return;
-    void loadShiftSummary(shiftLogId);
-  }, [order?.rolling?.actualWeightMt, order?.skinPass?.actualWeightMt, shiftLogId, loadShiftSummary, order]);
 
   const combinedBatchNumbersKey = combinedRun?.batchNumbers.join(',') ?? '';
 
@@ -337,8 +325,7 @@ export function SixHiCapturePage() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
-        <div className="flex flex-col min-h-0 gap-4 overflow-auto">
+      <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-auto">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
               <div className="bg-primary text-white px-5 py-3 flex items-center justify-between">
@@ -480,11 +467,6 @@ export function SixHiCapturePage() {
           </div>
 
           <ShiftStoppageHistory stoppages={historyRows} />
-        </div>
-
-        <div className="min-h-0 overflow-auto">
-          <SixHiShiftSummaryPanel summary={shiftSummary} liveOrderProducedMt={order ? produced : undefined} />
-        </div>
       </div>
     </div>
   );
