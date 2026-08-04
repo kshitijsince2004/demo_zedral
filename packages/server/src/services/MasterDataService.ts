@@ -1,4 +1,19 @@
 import { db } from '../db';
+import { serializeMachineClassification } from '@m1/shared-validation';
+
+function normalizeAppliesTo(raw: unknown, fallback?: string | null): string | null {
+  if (Array.isArray(raw)) {
+    const joined = serializeMachineClassification(raw.map(String));
+    return joined || fallback || null;
+  }
+  if (typeof raw === 'string') {
+    const joined = serializeMachineClassification(
+      raw.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean),
+    );
+    return joined || fallback || null;
+  }
+  return fallback ?? null;
+}
 
 export class MasterDataService {
   /**
@@ -37,7 +52,24 @@ export class MasterDataService {
         defect_code: data.defect_code ?? data.code,
         description: data.description ?? data.name,
         symbol: data.symbol ?? null,
-        applies_to: data.applies_to ?? data.category ?? 'CRM6',
+        applies_to: normalizeAppliesTo(
+          data.applies_to ?? data.machineClassification ?? data.category,
+          'CRM6',
+        ),
+        is_active: data.is_active ?? data.isActive ?? true,
+      };
+    }
+
+    if (tableName === 'master.stoppage_code') {
+      values = {
+        stoppage_code: data.stoppage_code ?? data.code,
+        description: data.description ?? data.name,
+        category: data.category ?? 'OPN',
+        is_planned: data.is_planned ?? data.isPlanned ?? false,
+        applies_to: normalizeAppliesTo(
+          data.applies_to ?? data.machineClassification,
+          null,
+        ),
         is_active: data.is_active ?? data.isActive ?? true,
       };
     }
@@ -65,8 +97,32 @@ export class MasterDataService {
           ? { description: data.description ?? data.name }
           : {}),
         ...(data.symbol !== undefined ? { symbol: data.symbol } : {}),
-        ...(data.applies_to !== undefined || data.category !== undefined
-          ? { applies_to: data.applies_to ?? data.category }
+        ...(data.applies_to !== undefined || data.machineClassification !== undefined || data.category !== undefined
+          ? {
+              applies_to: normalizeAppliesTo(
+                data.applies_to ?? data.machineClassification ?? data.category,
+                null,
+              ),
+            }
+          : {}),
+        ...(data.is_active !== undefined || data.isActive !== undefined
+          ? { is_active: data.is_active ?? data.isActive }
+          : {}),
+      };
+    }
+    if (tableName === 'master.stoppage_code') {
+      values = {
+        ...(data.description != null || data.name != null
+          ? { description: data.description ?? data.name }
+          : {}),
+        ...(data.category !== undefined ? { category: data.category } : {}),
+        ...(data.applies_to !== undefined || data.machineClassification !== undefined
+          ? {
+              applies_to: normalizeAppliesTo(
+                data.applies_to ?? data.machineClassification,
+                null,
+              ),
+            }
           : {}),
         ...(data.is_active !== undefined || data.isActive !== undefined
           ? { is_active: data.is_active ?? data.isActive }

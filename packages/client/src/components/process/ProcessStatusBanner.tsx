@@ -1,25 +1,48 @@
 import { memo } from 'react';
 import { formatPlantClock } from '../../lib/dateFormat';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useProcessNetTimer } from '../../hooks/useProcessNetTimer';
 import { useProcessStore } from '../../store/processStore';
 
 /** Live production/stoppage banner — driven by processStore (not sixHiStore). */
 export const ProcessStatusBanner = memo(function ProcessStatusBanner({
   compact,
   stoppageLabel,
+  timerMode = 'wall',
+  hideStoppageTimer = false,
 }: {
   compact?: boolean;
   stoppageLabel?: string;
+  /** PKL: net production time while running. */
+  timerMode?: 'wall' | 'net';
+  /** When true, stoppage banner shows status only (timer on action rail). */
+  hideStoppageTimer?: boolean;
 }) {
   const captureStatus = useProcessStore((s) => s.captureStatus);
   const runStartedAt = useProcessStore((s) => s.runStartedAt);
   const stoppageStartedAt = useProcessStore((s) => s.stoppageStartedAt);
+  const runStoppages = useProcessStore((s) => s.runStoppages);
+  const activeStoppageId = useProcessStore((s) => s.activeStoppageId);
   const isRunning = captureStatus === 'running' && !!runStartedAt;
   const isStoppage = captureStatus === 'stoppage' && !!stoppageStartedAt;
-  const { formatted } = useLiveTimer(
-    isStoppage ? stoppageStartedAt : isRunning ? runStartedAt : undefined,
-    isRunning || isStoppage,
+  const showStoppageClock = isStoppage && !hideStoppageTimer;
+  const { formatted: wallFormatted } = useLiveTimer(
+    showStoppageClock ? stoppageStartedAt : isRunning ? runStartedAt : undefined,
+    isRunning || showStoppageClock,
   );
+  const netFormatted = useProcessNetTimer(
+    runStartedAt,
+    runStoppages,
+    timerMode === 'net' && isRunning,
+    activeStoppageId,
+  );
+  const formatted = showStoppageClock
+    ? wallFormatted
+    : timerMode === 'net' && isRunning
+      ? netFormatted
+      : isRunning
+        ? wallFormatted
+        : null;
 
   if (!isRunning && !isStoppage) return null;
 
@@ -43,9 +66,11 @@ export const ProcessStatusBanner = memo(function ProcessStatusBanner({
             : `Running since ${formatPlantClock(runStartedAt!)}`}
         </div>
       </div>
-      <span className={`font-mono font-bold tracking-tight shrink-0 ${compact ? 'text-2xl' : 'text-3xl'}`}>
-        {formatted || '—'}
-      </span>
+      {formatted != null && (
+        <span className={`font-mono font-bold tracking-tight shrink-0 ${compact ? 'text-2xl' : 'text-3xl'}`}>
+          {formatted || '—'}
+        </span>
+      )}
     </div>
   );
 });

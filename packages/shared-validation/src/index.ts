@@ -12,5 +12,6 @@ export * from './utils/crsWidthCombination';
 export * from './utils/plantTime';
 export * from './utils/combinedWeightAllocation';
 export * from './utils/weightOcr';
+export * from './utils/machineClassification';
 
 export const isSharedValidationWorking = (): boolean => true;

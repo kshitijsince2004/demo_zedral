@@ -114,4 +114,51 @@ describe('parseRollingPlanXlsx', () => {
     expect(result.rows[0].errors.some((e) => e.includes('coil'))).toBe(true);
     expect(result.rows[0].errors.some((e) => e.includes('grade'))).toBe(true);
   });
+
+  it('rejects rolling-only workbook when sheetType is PICKLING (no first-sheet fallback)', () => {
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Batch Number', 'Mother Coil', 'Customer Name', 'Grade', 'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width', 'Process Route', 'Plan Date', 'Count'],
+      ['B-PKL', 'COIL-1', 'Hero Steels', 'CRCA', 0.5, 2.0, 12.5, 1000, 'SP4RFXCZ', '2026-06-08', 1],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'Rolling');
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'PICKLING', shiftCode: 'B' });
+    expect(result.headerError).toBe('No PKL / Pickling sheet found');
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it('parses pickling-named sheet when sheetType is PICKLING', () => {
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Batch Number', 'Mother Coil', 'Customer Name', 'Grade', 'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width', 'Process Route', 'Plan Date', 'Count'],
+      ['B-PKL', 'COIL-PKL-1', 'Hero Steels', 'CRCA', 0.5, 2.0, 12.5, 1000, 'SP4RFXCZ', '2026-06-08', 1],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'Pickling');
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'PICKLING', shiftCode: 'B' });
+    expect(result.headerError).toBeUndefined();
+    expect(result.sheetName).toBe('Pickling');
+    expect(result.sheetType).toBe('PICKLING');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].errors).toEqual([]);
+    expect(result.rows[0].coilNo).toBe('COIL-PKL-1');
+  });
+
+  it('accepts PKL Sheet tab name for PICKLING', () => {
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Batch Number', 'Mother Coil', 'Customer Name', 'Grade', 'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width', 'Process Route', 'Plan Date', 'Count'],
+      ['B-SHEET', 'COIL-SHEET-1', 'Hero Steels', 'CRCA', 0.5, 2.0, 12.5, 1000, 'SP4RFXCZ', '2026-06-08', 1],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'PKL Sheet');
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'PICKLING', shiftCode: 'B' });
+    expect(result.headerError).toBeUndefined();
+    expect(result.sheetName).toBe('PKL Sheet');
+    expect(result.rows).toHaveLength(1);
+  });
 });

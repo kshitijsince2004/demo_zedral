@@ -303,7 +303,8 @@ IndexedDB offline cache and a sync engine.
 | --- | --- |
 | Auth/setup | `Login`, `SetupPage` |
 | Capture | `ShiftLogPage`, `OperatorDashboard`, `UserWorkspaceHome`, `UserScopeIndex` |
-| Forms | `forms/` — `HRSForm`, `PKLForm`, `PKLChartForm`, `CRMForm`, `ANNForm`, `SPMForm`, `RewindForm`, `CRSlitterForm`, `CTLForm` |
+| Forms | Process lines: `components/process/bodies/` via `lib/processConfig.ts` (`HrsSlitBuilder`, `PklCoilForm`, `PklChartGrid`, `AnnChargeBoard`, `RwdTensionForm`, `CrsQualityForm`, `CtlPieceCounter`). Legacy mill forms under `forms/` where still present (`CRMForm`, etc.). |
+| Process | `process/` — `ProcessHub`, `ProcessLayout`, `CaptureWorkspace`, `ProcessOutgoingHandoverShell`, chart/handover pages |
 | 6HI | `sixHi/` — `SixHiHub`, `SixHiCapturePage`, `SixHiQueuePage`, `SixHiOrderPage`, `SixHiShiftSummaryPage`, `SixHiRedirect` |
 | Review | `ReviewQueue`, `ReviewDetail`, `ReviewSubmit`, `CorrectionQueue`, `HandoverPage` |
 | Live | `live/LiveOperationsPage`, `live/MachineHeadDashboard` |
@@ -316,11 +317,9 @@ IndexedDB offline cache and a sync engine.
 
 - `admin/` — `AdminPanel`, `PpcRollingImportPanel`.
 - `analytics/` — `AnalyticsMetric`, `ChartPanel`, `ProductionPlanBars`.
-- `capture/` — `CaptureWorkspace`, `ProcessCaptureShell`, `ProcessLineSwitcher`, `QuickStoppageDrawer`.
-- `command/` — `CommandMetric`, `LineStatusBoard`.
-- `export/` — `ExportJobPanel`.
-- `forms/` — `ShiftLogHeader`, `CrewSubForm`, `DefectSubForm`, `StoppageSubForm`, `FieldWrapper`, `ReviewSubmitGate`, `sections/`.
-- `sections/` — per-process capture sections: `HRSSection`, `PKLSection`, `CRMSection`, `ANNSection`, `SKPSection`, `RWDSection`, `CRSSection`, `CTLSection`, `GLVSection`.
+- `capture/` — `ProcessLineSwitcher`, `QuickStoppageDrawer` (line switch UI).
+- `process/` — shared HRS/PKL/ANN/RWD/CRS/CTL engine: `ProcessHub`, `ProcessLayout`, `CaptureWorkspace`, `bodies/*` (`HrsSlitBuilder`, `PklCoilForm`, `PklChartGrid`, …) resolved via `lib/processConfig.ts`.
+- `forms/` — shared shift-log subforms (`ShiftLogHeader`, `CrewSubForm`, `DefectSubForm`, …).
 - `sixHi/` — large 6HI workspace suite (rolling/skin-pass workspaces, order/stoppage modals, pass tracker, stage strip, action rails, PPC info cards, etc.).
 - `live/` — `MachineStatusBoard`, `OrderDetailDrawer`, `ProcessRouteTimeline`.
 - `layout/` — role-specific shells & nav (`admin/`, `executive/`, `machinehead/`, `operator/`, `supervisor/`, `shared/`) plus `Shell`, `Sidebar`, `Topbar`, `Footer`, `ShiftLogShell`, `OperatorShiftLogShell`.
@@ -332,14 +331,14 @@ IndexedDB offline cache and a sync engine.
 
 - `src/lib/` — `apiClient`, `authStore`, `offlineStore`, `syncEngine`,
   `liveService`, `reportingService`, `millConfig`, `millPath`,
-  `machineRouting`, `processSectionRegistry.tsx` (resolves `:processId` →
-  section), `workspaceProcesses`, `userScope`, `roleHome`, `accessOptions`,
+  `machineRouting`, `processConfig.ts` (station → body/schema/endpoint),
+  `workspaceProcesses`, `userScope`, `roleHome`, `accessOptions`,
   `gloveModeStore`, `tones`.
 - `src/hooks/` — `useEntryForm`, `useShiftLogState`, `useNumericCapture`,
-  `useWorkspaceBase`, `useGloveModeClasses`.
+  `useWorkspaceBase`, `useProcessHubQueue`, `useSixHiHubQueue`, `useGloveModeClasses`.
 - `src/services/` — `adminService`, `autoSourceService`,
   `changeRequestService`, `offlineQueue`.
-- `src/store/` — `shiftStore`, `sixHiStore` (zustand).
+- `src/store/` — `shiftStore`, `sixHiStore`, `processStore` (zustand).
 
 ### 7.5 Client config
 

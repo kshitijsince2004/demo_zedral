@@ -54,9 +54,14 @@ interface StatusRailProps {
   processCode?: string;
   onManualStoppage?: () => void;
   onShiftReadings?: () => void;
+  /** PKL idle-machine manual stoppage (StatusRail Manual Stop). */
+  processManualStoppage?: {
+    eligible: boolean;
+    active: { startedAt: string; categoryLabel?: string } | null;
+  } | null;
 }
 
-export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: StatusRailProps) {
+export function StatusRail({ processCode, onManualStoppage, onShiftReadings, processManualStoppage }: StatusRailProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -75,6 +80,9 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const machineCode = useSixHiStore((s) => s.machineCode);
   const manualStoppage = useSixHiStore((s) => s.manualStoppage);
   const captureStatus = useProcessStore((s) => s.captureStatus);
+  const stoppageStartedAt = useProcessStore((s) => s.stoppageStartedAt);
+  const stoppageCode = useProcessStore((s) => s.stoppageCode);
+  const stoppageRemarks = useProcessStore((s) => s.stoppageRemarks);
   // ponytail: process stations on user-scope URLs are not CRM (debug H-F)
   const isProcess = !!(processCode && isProcessStationCode(processCode));
   const isCrmMill = !isProcess && isCrmMillPath(location.pathname);
@@ -86,6 +94,7 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const progressPct = targetMt > 0 ? Math.min((producedMt / targetMt) * 100, 100) : 0;
   const paceTone: Tone =
     progressPct >= 80 ? 'success' : progressPct >= 50 ? 'warning' : 'destructive';
+  const processOrderStoppage = isProcess && captureStatus === 'stoppage' && !!stoppageStartedAt;
   const totalStoppageMins = stoppages.reduce((sum, s) => sum + (s.durationMins || 0), 0);
   const activeBatch = machineActive?.batchNumber ?? panelOrder?.batchNumber;
   const activeStatus = panelOrder?.status ?? machineActive?.status;
@@ -94,9 +103,16 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
   const crmStoppageActive = isCrmMill && (!!panelOrder?.activeStoppage || !!manualStoppage?.active);
   const manualStoppageEligible = isCrmMill && !!manualStoppage?.eligible && !manualStoppage?.active;
   const manualStoppageActive = isCrmMill && !!manualStoppage?.active;
+  const pklManualEligible = processCode === 'PKL' && !!processManualStoppage?.eligible && !processManualStoppage?.active;
+  const pklManualActive = processCode === 'PKL' && !!processManualStoppage?.active;
+  const showManualStopBtn =
+    onManualStoppage
+    && ((isCrmMill && (manualStoppageEligible || manualStoppageActive))
+      || pklManualEligible
+      || pklManualActive);
   const crmRunning = isCrmMill && activeStatus === 'IN_PROGRESS' && !crmStoppageActive;
   const processRunning = isProcess && (captureStatus === 'running' || captureStatus === 'stoppage');
-  const showStopped = crmStoppageActive || !!runningStoppage || (isProcess && captureStatus === 'stoppage');
+  const showStopped = crmStoppageActive || !!runningStoppage || (isProcess && captureStatus === 'stoppage') || pklManualActive;
   const showRunning = isCrmMill ? crmRunning : processRunning;
 
 
@@ -185,14 +201,14 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
               Readings
             </button>
           )}
-          {isCrmMill && (manualStoppageEligible || manualStoppageActive) && onManualStoppage && (
+          {showManualStopBtn && (
             <button
               type="button"
               onClick={onManualStoppage}
               className="h-10 px-4 rounded-lg border border-destructive/40 bg-destructive/10 text-destructive text-sm font-bold uppercase tracking-wide hover:bg-destructive/20 transition-colors flex items-center gap-2"
             >
               <PauseCircle className="h-4 w-4" aria-hidden />
-              {manualStoppageActive ? 'Manage Stop' : 'Manual Stop'}
+              {(manualStoppageActive || pklManualActive) ? 'Manage Stop' : 'Manual Stop'}
             </button>
           )}
           <button
@@ -206,7 +222,7 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
         </div>
       </div>
 
-      {(crmStoppageActive || runningStoppage) && (
+      {(crmStoppageActive || runningStoppage || pklManualActive || processOrderStoppage) && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-destructive/30 bg-destructive/10 text-destructive text-sm">
           <CircleStop className="h-4 w-4 shrink-0" aria-hidden />
           <span className="truncate">
@@ -214,6 +230,10 @@ export function StatusRail({ processCode, onManualStoppage, onShiftReadings }: S
               ? `${panelOrder.activeStoppage.categoryLabel} — since ${formatPlantClock(panelOrder.activeStoppage.startAt)}`
               : manualStoppageActive
                 ? `Manual stoppage — since ${formatPlantClock(manualStoppage!.active!.startedAt)}`
+                : pklManualActive
+                ? `${processManualStoppage!.active!.categoryLabel ?? 'Manual stoppage'} — since ${formatPlantClock(processManualStoppage!.active!.startedAt)}`
+                : processOrderStoppage
+                ? `${stoppageRemarks.trim() || `Code ${stoppageCode}`} — since ${formatPlantClock(stoppageStartedAt!)}`
                 : runningStoppage
                 ? `${runningStoppage.reason} — since ${runningStoppage.fromTime}`
                 : 'Stoppage active'}

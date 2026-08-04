@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { patchQueued } from './sync/queuedApi';
 
 export type RwdOrderStatus =
   | 'PENDING'
@@ -61,8 +62,13 @@ export async function reinstateRwdOrder(batchNumber: string, target?: 'PREPARING
   return apiClient.post(`/rewinding/orders/${encodeURIComponent(batchNumber)}/reinstate`, { target });
 }
 
+/** Offline-queued capture — mirrors sixHiWrites patchQueued. */
 export async function captureRwdOrder(batchNumber: string, body: Record<string, unknown>) {
-  return apiClient.patch(`/rewinding/orders/${encodeURIComponent(batchNumber)}/capture`, body);
+  return patchQueued(
+    `/rewinding/orders/${encodeURIComponent(batchNumber)}/capture`,
+    body,
+    `rwd-capture:${batchNumber}`,
+  );
 }
 
 export async function createManualRwdOrder(body: Record<string, unknown>) {

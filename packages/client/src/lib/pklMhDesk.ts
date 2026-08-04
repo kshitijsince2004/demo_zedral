@@ -16,6 +16,23 @@ export function hrsPklAssigned(operationalMachines: string[]): Array<'HRS' | 'PK
   return out;
 }
 
+/** Lines that have a dedicated MH import page (independent of desk focus). */
+export type ImportableLine = 'HRS' | 'PKL' | 'ANN' | 'RWD';
+
+export function resolveImportableAssignedLines(operationalMachines: string[]): ImportableLine[] {
+  const ops = new Set(opsUpper(operationalMachines));
+  const out: ImportableLine[] = [];
+  if (ops.has('HRS')) out.push('HRS');
+  if (ops.has('PKL')) out.push('PKL');
+  if (ops.has('ANN')) out.push('ANN');
+  if (ops.has('RWD')) out.push('RWD');
+  return out;
+}
+
+export function importPathForLine(line: ImportableLine): string {
+  return `/machine-head/${line.toLowerCase()}/import`;
+}
+
 export function isHrsMhDesk(operationalMachines: string[], focus: string | null): boolean {
   const ops = opsUpper(operationalMachines);
   if (!ops.includes('HRS')) return false;

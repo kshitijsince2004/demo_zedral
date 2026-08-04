@@ -123,20 +123,27 @@ export class ProcessRouteService {
     subProcess?: string,
     conn: DbConn = db,
   ): Promise<number> {
-    const existing = await conn.selectFrom('planning.order_journey')
-      .select('journey_id')
-      .where('coil_no', '=', coilNo)
-      .where('status', '=', 'ACTIVE')
-      .executeTakeFirst();
-    if (existing) return Number(existing.journey_id);
-
-    const steps = parseRouteString(routeRaw);
-    const journey = await conn.insertInto('planning.order_journey')
+    // Race-safe: partial unique on (coil_no) WHERE status='ACTIVE' + upsert.
+    const inserted = await conn.insertInto('planning.order_journey')
       .values({ coil_no: coilNo, route_raw: routeRaw.toUpperCase(), current_step_no: 1, status: 'ACTIVE' })
+      .onConflict((oc) => oc
+        .column('coil_no')
+        .where('status', '=', 'ACTIVE')
+        .doNothing())
       .returning('journey_id')
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
 
-    const journeyId = Number(journey.journey_id);
+    if (!inserted) {
+      const existing = await conn.selectFrom('planning.order_journey')
+        .select('journey_id')
+        .where('coil_no', '=', coilNo)
+        .where('status', '=', 'ACTIVE')
+        .executeTakeFirstOrThrow();
+      return Number(existing.journey_id);
+    }
+
+    const journeyId = Number(inserted.journey_id);
+    const steps = parseRouteString(routeRaw);
     let activeStepNo = 1;
 
     if (batchId && machineCode) {
@@ -186,7 +193,7 @@ export class ProcessRouteService {
     if (!code) return;
 
     let journey = await conn.selectFrom('planning.order_journey')
-      .select('journey_id')
+      .select(['journey_id', 'current_step_no'])
       .where('coil_no', '=', coilNo)
       .where('status', '=', 'ACTIVE')
       .executeTakeFirst();
@@ -197,27 +204,44 @@ export class ProcessRouteService {
     }
 
     const journeyId = Number(journey.journey_id);
+    const currentStepNo = Number(journey.current_step_no);
     const step = await conn.selectFrom('planning.order_journey_step')
-      .select(['step_id', 'step_no'])
+      .select(['step_id', 'step_no', 'status', 'queue_batch_id', 'started_at'])
       .where('journey_id', '=', String(journeyId))
       .where('route_code', '=', code)
       .executeTakeFirst();
 
     if (!step) return;
 
-    await conn.updateTable('planning.order_journey_step')
-      .set({
-        status: 'ACTIVE',
-        started_at: new Date(),
-        queue_batch_id: batchId,
-      })
-      .where('step_id', '=', step.step_id)
-      .execute();
+    // Never move the pointer backward or re-activate finished steps.
+    if (Number(step.step_no) < currentStepNo) return;
+    if (step.status === 'COMPLETED' || step.status === 'SKIPPED') return;
 
-    await conn.updateTable('planning.order_journey')
-      .set({ current_step_no: step.step_no, updated_at: new Date() })
-      .where('journey_id', '=', String(journeyId))
-      .execute();
+    // Activate only a PENDING step with no live queue yet (fail-safe inject / first link).
+    if (step.status === 'PENDING' && step.queue_batch_id == null) {
+      await conn.updateTable('planning.order_journey_step')
+        .set({
+          status: 'ACTIVE',
+          started_at: new Date(),
+          queue_batch_id: batchId,
+        })
+        .where('step_id', '=', step.step_id)
+        .execute();
+
+      await conn.updateTable('planning.order_journey')
+        .set({ current_step_no: step.step_no, updated_at: new Date() })
+        .where('journey_id', '=', String(journeyId))
+        .execute();
+      return;
+    }
+
+    // Already live — attach batch idempotently; do not reset started_at or move pointer.
+    if (step.queue_batch_id == null) {
+      await conn.updateTable('planning.order_journey_step')
+        .set({ queue_batch_id: batchId })
+        .where('step_id', '=', step.step_id)
+        .execute();
+    }
   }
 
   private static mapSteps(steps: any[]): ProcessRouteStepView[] {
@@ -368,59 +392,63 @@ export class ProcessRouteService {
     if (!currentStep) return null;
 
     const now = new Date();
-    await db.updateTable('planning.order_journey_step')
-      .set({ status: 'COMPLETED', completed_at: now })
-      .where('step_id', '=', currentStep.step_id)
-      .execute();
 
-    // Advance to the next non-skipped step (e.g. CRS For-CTL sets PKG/LE to SKIPPED).
-    const nextStep = await db.selectFrom('planning.order_journey_step')
-      .selectAll()
-      .where('journey_id', '=', String(journeyId))
-      .where('step_no', '>', journey.current_step_no)
-      .where('status', '!=', 'SKIPPED')
-      .orderBy('step_no', 'asc')
-      .executeTakeFirst();
+    await db.transaction().execute(async (trx) => {
+      await trx.updateTable('planning.order_journey_step')
+        .set({ status: 'COMPLETED', completed_at: now })
+        .where('step_id', '=', currentStep.step_id)
+        .execute();
 
-    if (!nextStep) {
-      await db.updateTable('planning.order_journey')
-        .set({ status: 'COMPLETED', updated_at: now })
+      // Advance to the next non-skipped step (e.g. CRS For-CTL sets PKG/LE to SKIPPED).
+      const nextStep = await trx.selectFrom('planning.order_journey_step')
+        .selectAll()
+        .where('journey_id', '=', String(journeyId))
+        .where('step_no', '>', journey.current_step_no)
+        .where('status', '!=', 'SKIPPED')
+        .orderBy('step_no', 'asc')
+        .executeTakeFirst();
+
+      if (!nextStep) {
+        await trx.updateTable('planning.order_journey')
+          .set({ status: 'COMPLETED', updated_at: now })
+          .where('journey_id', '=', String(journeyId))
+          .execute();
+        return;
+      }
+
+      const { QueueTransferService } = await import('./QueueTransferService');
+      const newBatchId = await QueueTransferService.enqueueNextStep(
+        journeyId,
+        Number(currentStep.step_id),
+        nextStep,
+        batch,
+        payload,
+        trx,
+      );
+
+      await trx.updateTable('planning.order_journey_step')
+        .set({
+          status: 'PENDING',
+          queue_batch_id: newBatchId ?? nextStep.queue_batch_id,
+        })
+        .where('step_id', '=', nextStep.step_id)
+        .execute();
+
+      await trx.updateTable('planning.order_journey')
+        .set({ current_step_no: nextStep.step_no, updated_at: now })
         .where('journey_id', '=', String(journeyId))
         .execute();
-      return this.toView(journeyId);
-    }
 
-    const { QueueTransferService } = await import('./QueueTransferService');
-    const newBatchId = await QueueTransferService.enqueueNextStep(
-      journeyId,
-      Number(currentStep.step_id),
-      nextStep,
-      batch,
-      payload,
-    );
-
-    await db.updateTable('planning.order_journey_step')
-      .set({
-        status: 'PENDING',
-        queue_batch_id: newBatchId ?? nextStep.queue_batch_id,
-      })
-      .where('step_id', '=', nextStep.step_id)
-      .execute();
-
-    await db.updateTable('planning.order_journey')
-      .set({ current_step_no: nextStep.step_no, updated_at: now })
-      .where('journey_id', '=', String(journeyId))
-      .execute();
-
-    if (nextStep.process_code) {
-      await db.updateTable('coil.coil')
-        .set({
-          next_dest: nextStep.process_code,
-          current_process_id: null,
-        })
-        .where('coil_no', '=', batch.coil_no)
-        .execute();
-    }
+      if (nextStep.process_code) {
+        await trx.updateTable('coil.coil')
+          .set({
+            next_dest: nextStep.process_code,
+            current_process_id: null,
+          })
+          .where('coil_no', '=', batch.coil_no)
+          .execute();
+      }
+    });
 
     return this.toView(journeyId);
   }

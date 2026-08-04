@@ -5,14 +5,19 @@ import {
   assertMachineAccess,
   isMachineAccessForbidden,
 } from '../auth/machineAccessPolicy';
+import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { MachineHandoverService } from '../services/MachineHandoverService';
 
 const router = Router();
 router.use(requireAuth);
 
+/** Process lines use line ACL; CRM mills use machine ACL. */
+const PROCESS_HANDOVER_CODES = new Set(['HRS', 'PKL', 'ANN', 'RWD', 'CRS', 'CTL']);
+
 function handoverRouteStatus(error: unknown): number {
   if (isMachineAccessForbidden(error)) return 403;
   const message = error instanceof Error ? error.message : '';
+  if (/Forbidden/i.test(message)) return 403;
   if (/ACTIVE_SESSION_CONFLICT/i.test(message)) return 409;
   if (/not found/i.test(message)) return 404;
   return 400;
@@ -20,6 +25,15 @@ function handoverRouteStatus(error: unknown): number {
 
 function handoverRouteMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Handover request failed';
+}
+
+function assertHandoverCodeAccess(user: NonNullable<Request['user']>, machineCode: string): void {
+  const code = machineCode.toUpperCase();
+  if (PROCESS_HANDOVER_CODES.has(code)) {
+    assertLineOperation(user, code, 'WRITE');
+    return;
+  }
+  assertMachineAccess(user, code);
 }
 
 async function assertHandoverMachineAccess(
@@ -30,7 +44,7 @@ async function assertHandoverMachineAccess(
   if (!handover) {
     throw new Error('Handover not found');
   }
-  assertMachineAccess(user!, handover.machine_code);
+  assertHandoverCodeAccess(user!, handover.machine_code);
 }
 
 router.get('/overview', async (req, res) => {
@@ -59,7 +73,7 @@ router.get('/pending', async (req, res) => {
 router.get('/:machineCode/preview', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const preview = await MachineHandoverService.buildOutgoingPreview(
       machineCode,
       req.user!.id,
@@ -73,7 +87,7 @@ router.get('/:machineCode/preview', async (req, res) => {
 router.get('/:machineCode/pending', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const pending = await MachineHandoverService.getPendingForMachine(machineCode);
     res.json({ pending: pending ?? null });
   } catch (error: unknown) {
@@ -84,7 +98,7 @@ router.get('/:machineCode/pending', async (req, res) => {
 router.get('/:machineCode/draft', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const draft = await MachineHandoverService.getDraftForMachine(machineCode, req.user!.id);
     res.json({ draft: draft ?? null });
   } catch (error: unknown) {
@@ -95,7 +109,7 @@ router.get('/:machineCode/draft', async (req, res) => {
 router.post('/:machineCode/session', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const result = await MachineHandoverService.ensureActiveSession(machineCode, req.user!.id);
     res.json(result);
   } catch (error: unknown) {
@@ -107,7 +121,7 @@ router.post('/:machineCode/session', async (req, res) => {
 router.post('/:machineCode/draft', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const {
       machineStatus,
       machineCondition,
@@ -159,7 +173,7 @@ router.post('/:machineCode/draft', async (req, res) => {
 router.post('/:machineCode/outgoing', async (req, res) => {
   try {
     const machineCode = String(req.params.machineCode).toUpperCase();
-    assertMachineAccess(req.user!, machineCode);
+    assertHandoverCodeAccess(req.user!, machineCode);
     const {
       machineStatus,
       machineCondition,

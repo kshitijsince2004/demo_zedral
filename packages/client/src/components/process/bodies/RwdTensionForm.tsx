@@ -74,37 +74,46 @@ export function RwdTensionForm({
   const planWeight = Number(pv<number>(prefill.weightMt) ?? 0);
   const planThk = Number(pv<number>(prefill.thicknessMm) ?? pv<number>(prefill.outputThkMmFallback) ?? 0);
   const planSurface = pv<'M' | 'B'>(prefill.surfaceFinish) ?? null;
+  const planSurfaceBlank = planSurface == null;
 
   const [t1, setT1] = useState<number | ''>('');
   const [t2, setT2] = useState<number | ''>('');
   const [t3, setT3] = useState<number | ''>('');
   const [weightMt, setWeightMt] = useState<number | ''>(planWeight || '');
   const [observedThk, setObservedThk] = useState<number | ''>('');
+  // RWD-Q2: operator picks Matt/Bright only when plan surface is blank.
+  const [surfacePick, setSurfacePick] = useState<'M' | 'B' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const surfaceFinish = planSurfaceBlank ? surfacePick : planSurface;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
-    // Surface comes from PPC Current Order (plan); optional when plan blank (RWD-Q2).
+    if (planSurfaceBlank && !surfacePick) {
+      setError('Select Matt or Bright surface finish');
+      return;
+    }
+
     const capturedWeight = weightMt === '' ? planWeight : Number(weightMt);
     const outputThkMm = observedThk === '' ? planThk : Number(observedThk);
 
     setSubmitting(true);
     try {
       if (batchNumber) {
+        // Save ≠ End: write prod_rwd only; rail End marks COMPLETED.
         await captureRwdOrder(batchNumber, {
           weightMt: capturedWeight,
           outputThkMm,
           rwTension1Kg: t1 === '' ? undefined : Number(t1),
           rwTension2Kg: t2 === '' ? undefined : Number(t2),
           rwTension3Kg: t3 === '' ? undefined : Number(t3),
-          surfaceFinish: planSurface ?? undefined,
-          complete: true,
+          surfaceFinish: surfaceFinish ?? undefined,
+          complete: false,
         });
       } else {
-        // Legacy CaptureWorkspace path — no order lifecycle.
         await submitProcessCapture('/production/rwd', {
           machineCode,
           shiftLogId,
@@ -116,7 +125,7 @@ export function RwdTensionForm({
           rwTension1Kg: t1 === '' ? undefined : Number(t1),
           rwTension2Kg: t2 === '' ? undefined : Number(t2),
           rwTension3Kg: t3 === '' ? undefined : Number(t3),
-          surfaceFinish: planSurface ?? undefined,
+          surfaceFinish: surfaceFinish ?? undefined,
         }, coilNo);
       }
       await onSubmitted?.();
@@ -156,6 +165,37 @@ export function RwdTensionForm({
           onChange={setObservedThk}
           placeholder={planThk ? `Default ${planThk}` : 'Enter observed thickness'}
         />
+
+        {planSurfaceBlank ? (
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1.5">
+              Surface Finish
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { code: 'M' as const, label: 'Matt' },
+                { code: 'B' as const, label: 'Bright' },
+              ]).map((opt) => (
+                <ZButton
+                  key={opt.code}
+                  type="button"
+                  variant={surfacePick === opt.code ? 'primary' : 'secondary'}
+                  onClick={() => setSurfacePick(opt.code)}
+                  className="!min-h-12 !h-12 rounded-lg font-bold"
+                >
+                  {opt.label}
+                </ZButton>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
+              Surface Finish
+            </p>
+            <p className="text-sm font-semibold">{planSurface === 'B' ? 'Bright' : 'Matt'}</p>
+          </div>
+        )}
 
         {error && (
           <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{error}</p>

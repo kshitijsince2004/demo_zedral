@@ -25,7 +25,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
   const { basePath: processBase } = useProcessWorkspaceBase();
 
   const machineNav = getMachineNavItems(role, machineAccess, lineAccess, username);
-  const { isProcess, isCrm, isPkl, isAnn } = classifyOperatorNav(processCode, location.pathname);
+  const { isProcess, isCrm, isPkl, isAnn, wantsHistory } = classifyOperatorNav(processCode, location.pathname);
 
   const millBase = millBasePath(
     (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname) ?? '6HI',
@@ -57,6 +57,14 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
     },
   ] as const;
 
+  const historyItem = {
+    id: 'history',
+    label: 'History',
+    icon: History,
+    path: `${scopeRoot || processBase}/history`,
+    match: (p: string) => p.includes('/history'),
+  };
+
   const items = isAnn
     ? [
         {
@@ -76,13 +84,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
           path: `${processBase || '/'}?tab=coils`,
           match: () => !location.pathname.includes('/history') && search.includes('tab=coils'),
         },
-        {
-          id: 'history',
-          label: 'History',
-          icon: History,
-          path: `${processBase}/history`,
-          match: () => location.pathname.includes('/history'),
-        },
+        historyItem,
       ]
     : isPkl
       ? [
@@ -94,9 +96,10 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
             path: scopeRoot ? `${scopeRoot}/chart` : '/',
             match: (p: string) => p.includes('/chart'),
           },
+          ...(wantsHistory ? [historyItem] : []),
         ]
       : isProcess
-        ? [...processHubItems]
+        ? [...processHubItems, ...(wantsHistory ? [historyItem] : [])]
         : [
           {
             id: 'orders',

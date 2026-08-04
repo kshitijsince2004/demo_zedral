@@ -170,41 +170,68 @@ export class ProductionService {
     return id;
   }
 
-  static async savePkl(entry: M1PKLForm): Promise<string> {
+  static async savePkl(entry: M1PKLForm, opts?: { draft?: boolean }): Promise<string> {
+    const draft = opts?.draft === true;
+    const status = draft
+      ? 'IN_PROGRESS'
+      : (emptyToNull(entry.status) ?? 'COMPLETED');
+
+    const values = {
+      shift_log_id: entry.shiftLogId,
+      sl_no: entry.slNo ?? null,
+      coil_no: entry.coilNo,
+      width_mm: entry.widthMm ?? null,
+      thk_mm: entry.thkMm ?? null,
+      weight_mt: entry.weightMt ?? null,
+      ppc_weight_mt: entry.ppcWeightMt ?? null,
+      line_speed_mpm: entry.lineSpeedMpm ?? null,
+      heat_no: emptyToNull(entry.heatNo),
+      source: emptyToNull(entry.source),
+      wip: emptyToNull(entry.wip),
+      leader_end: emptyToNull(entry.leaderEnd),
+      repeats: entry.repeats ?? 0,
+      wp: entry.wp ?? null,
+      end_filling: entry.endFilling ?? null,
+      ht: emptyToNull(entry.ht),
+      mother_coil_no: emptyToNull(entry.motherCoilNo),
+      slit_id: emptyToNull(entry.slitId),
+      customer: emptyToNull(entry.customer),
+      grade_code: emptyToNull(entry.gradeCode),
+      route_raw: emptyToNull(entry.routeRaw),
+      status,
+      crew_ref: emptyToNull(entry.crewRef),
+      total_time_min: entry.totalTimeMin ?? null,
+      time_from: entry.timeFrom ?? null,
+      time_to: entry.timeTo ?? null,
+      remarks: emptyToNull(entry.remarks),
+    };
+
     const row = await db.transaction().execute(async (trx) => {
-      const created = await trx
-        .insertInto('txn.prod_pkl')
-        .values({
-          shift_log_id: entry.shiftLogId,
-          sl_no: entry.slNo ?? null,
-          coil_no: entry.coilNo,
-          width_mm: entry.widthMm ?? null,
-          thk_mm: entry.thkMm ?? null,
-          weight_mt: entry.weightMt ?? null,
-          ppc_weight_mt: entry.ppcWeightMt ?? null,
-          line_speed_mpm: entry.lineSpeedMpm ?? null,
-          heat_no: emptyToNull(entry.heatNo),
-          source: emptyToNull(entry.source),
-          wip: emptyToNull(entry.wip),
-          leader_end: emptyToNull(entry.leaderEnd),
-          repeats: entry.repeats ?? 0,
-          wp: entry.wp ?? null,
-          end_filling: entry.endFilling ?? null,
-          ht: emptyToNull(entry.ht),
-          mother_coil_no: emptyToNull(entry.motherCoilNo),
-          slit_id: emptyToNull(entry.slitId),
-          customer: emptyToNull(entry.customer),
-          grade_code: emptyToNull(entry.gradeCode),
-          route_raw: emptyToNull(entry.routeRaw),
-          status: emptyToNull(entry.status) ?? 'COMPLETED',
-          crew_ref: emptyToNull(entry.crewRef),
-          total_time_min: entry.totalTimeMin ?? null,
-          time_from: entry.timeFrom ?? null,
-          time_to: entry.timeTo ?? null,
-          remarks: emptyToNull(entry.remarks),
-        })
-        .returning('entry_id')
-        .executeTakeFirstOrThrow();
+      // Upsert latest row for this coil+shift so Save can run repeatedly without ending.
+      const existing = await trx
+        .selectFrom('txn.prod_pkl')
+        .select('entry_id')
+        .where('coil_no', '=', entry.coilNo)
+        .where('shift_log_id', '=', entry.shiftLogId)
+        .orderBy('entry_id', 'desc')
+        .executeTakeFirst();
+
+      let entryId: string;
+      if (existing) {
+        await trx
+          .updateTable('txn.prod_pkl')
+          .set(values as never)
+          .where('entry_id', '=', existing.entry_id)
+          .execute();
+        entryId = String(existing.entry_id);
+      } else {
+        const created = await trx
+          .insertInto('txn.prod_pkl')
+          .values(values as never)
+          .returning('entry_id')
+          .executeTakeFirstOrThrow();
+        entryId = String(created.entry_id);
+      }
 
       if (entry.charts?.length) {
         await trx.insertInto('txn.prod_pkl_chart').values(
@@ -233,12 +260,14 @@ export class ProductionService {
         ).execute();
       }
 
-      return created;
+      return entryId;
     });
 
-    const id = String(row.entry_id);
-    await emitCaptured('PKL', entry.shiftLogId, id, entry.coilNo);
-    return id;
+    // Draft saves must not emit production.captured (completion side-effects).
+    if (!draft) {
+      await emitCaptured('PKL', entry.shiftLogId, row, entry.coilNo);
+    }
+    return row;
   }
 
   static async saveAnn(entry: M1ANNForm): Promise<string> {

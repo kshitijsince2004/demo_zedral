@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { ZButton } from '../../components/primitives/ZButton';
+import { ZInput } from '../../components/primitives/ZInput';
 import { apiClient } from '../../lib/apiClient';
 import type { AnnBoardRow } from '../../components/process/bodies/AnnBaseCard';
 
@@ -89,48 +92,74 @@ export function AnnOperatorHistoryPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-4">
-      <h1 className="text-lg font-bold shrink-0">Reading history</h1>
+      <h1 className="text-lg font-bold shrink-0 text-foreground">Reading history</h1>
       <div className="flex flex-wrap gap-2 items-end shrink-0">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex flex-col gap-1">
+        <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground flex flex-col gap-1">
           Base
-          <select className="h-9 rounded-lg border border-input bg-background px-2 text-sm" value={baseNo} onChange={(e) => setBaseNo(e.target.value)}>
+          <select
+            className="h-10 min-h-10 rounded-lg border border-input bg-background px-2 text-sm text-foreground"
+            value={baseNo}
+            onChange={(e) => setBaseNo(e.target.value)}
+          >
             <option value="">All</option>
             {bases.map((b) => <option key={b} value={b}>{b}</option>)}
           </select>
         </label>
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex flex-col gap-1">
-          Batch / charge
-          <input className="h-9 rounded-lg border border-input bg-background px-3 text-sm" value={batchQ} onChange={(e) => setBatchQ(e.target.value)} placeholder="Search…" />
-        </label>
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex flex-col gap-1">
+        <div className="min-w-[10rem]">
+          <ZInput
+            label="Batch / charge"
+            value={batchQ}
+            onChange={(e) => setBatchQ(e.target.value)}
+            placeholder="Search…"
+            mono={false}
+            className="!h-10 rounded-lg"
+          />
+        </div>
+        <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground flex flex-col gap-1">
           From
-          <input type="datetime-local" className="h-9 rounded-lg border border-input bg-background px-2 text-sm" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input
+            type="datetime-local"
+            className="h-10 min-h-10 rounded-lg border border-input bg-background px-2 text-sm font-mono"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
         </label>
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex flex-col gap-1">
+        <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground flex flex-col gap-1">
           To
-          <input type="datetime-local" className="h-9 rounded-lg border border-input bg-background px-2 text-sm" value={to} onChange={(e) => setTo(e.target.value)} />
+          <input
+            type="datetime-local"
+            className="h-10 min-h-10 rounded-lg border border-input bg-background px-2 text-sm font-mono"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
         </label>
-        <button type="button" className="h-9 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground" onClick={() => void load()}>
+        <ZButton
+          type="button"
+          variant="primary"
+          className="!h-10 !min-h-10 rounded-lg"
+          onClick={() => void load()}
+        >
+          <RefreshCw className="h-4 w-4" aria-hidden />
           Refresh
-        </button>
+        </ZButton>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-background">
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-background">
         {loading ? (
           <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : (
           <table className="w-full text-xs text-left">
-            <thead className="sticky top-0 bg-secondary/80 text-[10px] uppercase tracking-wide">
+            <thead className="sticky top-0 bg-card text-[10px] uppercase tracking-[0.14em] text-muted-foreground border-b border-border">
               <tr>
-                <th className="p-2">Taken</th>
-                <th className="p-2">Base</th>
-                <th className="p-2">Batch</th>
-                <th className="p-2">Charge</th>
-                <th className="p-2">Stage</th>
-                <th className="p-2">Charge °C</th>
-                <th className="p-2">Gas °C</th>
-                <th className="p-2">F/C °C</th>
-                <th className="p-2">Base Press</th>
-                <th className="p-2">Base Fan</th>
+                <th className="p-2 font-medium">Taken</th>
+                <th className="p-2 font-medium">Base</th>
+                <th className="p-2 font-medium">Batch</th>
+                <th className="p-2 font-medium">Charge</th>
+                <th className="p-2 font-medium">Stage</th>
+                <th className="p-2 font-medium">Charge °C</th>
+                <th className="p-2 font-medium">Gas °C</th>
+                <th className="p-2 font-medium">F/C °C</th>
+                <th className="p-2 font-medium">Base Press</th>
+                <th className="p-2 font-medium">Base Fan</th>
               </tr>
             </thead>
             <tbody>
@@ -138,7 +167,7 @@ export function AnnOperatorHistoryPage() {
                 <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">No readings in range.</td></tr>
               )}
               {filtered.map((r) => (
-                <tr key={r.reading_id} className="border-t border-border font-mono tabular-nums">
+                <tr key={r.reading_id} className="border-t border-border font-mono tabular-nums text-foreground">
                   <td className="p-2 whitespace-nowrap">{new Date(r.taken_at).toLocaleString('en-IN')}</td>
                   <td className="p-2">{r.base_no}</td>
                   <td className="p-2">{r.batch_no}</td>

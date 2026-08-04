@@ -3,8 +3,8 @@
  *
  * - Prefixes all calls with the configured API host plus `/api` (Vite proxy
  *   still handles the empty-host web case).
- * - Sends cookies (`credentials: 'include'`); SuperTokens' fetch interceptor
- *   attaches/refreshes the session cookie.
+ * - Sends cookies (`credentials: 'include'`) and attaches SuperTokens Bearer
+ *   headers in header-transfer mode (ST does not intercept `/api/*`).
  * - Per-request timeout + bounded GET retry for weak-network zones.
  * - Unwraps the `{ data, meta, errors }` envelope when present, otherwise
  *   returns the raw JSON body (the current backend returns bare objects).
@@ -71,9 +71,22 @@ export function getAuthToken(): string | null {
   return sessionStorage.getItem('mock_jwt');
 }
 
-/** Headers for fetch calls that bypass apiClient (cookies via credentials:'include'). */
-export function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return { ...extra };
+/** Headers for fetch calls that bypass apiClient (SuperTokens header mode — ST skips /api/*). */
+export async function getAuthHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { ...extra };
+  try {
+    const Session = (await import('supertokens-auth-react/recipe/session')).default;
+    if (await Session.doesSessionExist()) {
+      const accessToken = await Session.getAccessToken();
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+        headers['st-auth-mode'] = 'header';
+      }
+    }
+  } catch {
+    // leave without session headers — caller will get 401 like apiClient
+  }
+  return headers;
 }
 
 interface RequestOptions {

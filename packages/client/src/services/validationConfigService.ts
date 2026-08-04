@@ -9,7 +9,7 @@ export const validationConfigService = {
    */
   async getConfiguredRules(): Promise<ValidationRule[]> {
     const res = await fetch(`${API_BASE}/validation-rules`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
     });
     if (!res.ok) {
@@ -23,7 +23,7 @@ export const validationConfigService = {
    */
   async getVersion(): Promise<number> {
     const res = await fetch(`${API_BASE}/validation-rules/version`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
     });
     if (!res.ok) {
@@ -39,7 +39,7 @@ export const validationConfigService = {
   async updateRule(fieldId: string, ruleData: Omit<ValidationRule, 'fieldId' | 'origin'>): Promise<void> {
     const res = await fetch(`${API_BASE}/validation-rules/${encodeURIComponent(fieldId)}`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify(ruleData),
     });

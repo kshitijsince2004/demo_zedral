@@ -33,6 +33,7 @@ export type PklQueueCard = {
   slitId?: string;
   journeyId?: string;
   stepNo?: number;
+  routeRaw?: string;
 };
 
 export type PklOrderDetail = {
@@ -263,18 +264,44 @@ export class PklOrderService {
     const queue: PklQueueCard[] = [];
     const seenCoils = new Set<string>();
 
-    for (const row of rows) {
-      seenCoils.add(row.coil_no);
-      await this.ensureOrder(row.coil_no, userId);
-      const order = await db
-        .selectFrom('txn.pkl_order')
-        .selectAll()
-        .where('coil_no', '=', row.coil_no)
-        .executeTakeFirstOrThrow();
+    const resolveRoute = async (coilNo: string): Promise<string | undefined> => {
+      const batch = await db
+        .selectFrom('planning.ppc_batch')
+        .select('process_route_raw')
+        .where('coil_no', '=', coilNo)
+        .where((eb) =>
+          eb.or([
+            eb('machine_code', '=', 'PKL'),
+            eb('sub_process', '=', 'PKL'),
+            eb('from_work_center', 'in', ['P', 'PKL']),
+          ]),
+        )
+        .orderBy('slit_id', 'asc')
+        .orderBy('batch_number', 'asc')
+        .executeTakeFirst();
+      return batch?.process_route_raw ? String(batch.process_route_raw) : undefined;
+    };
+
+    const pushOrder = async (
+      order: {
+        coil_no: string;
+        grade_code: string | null;
+        customer_name: string | null;
+        nominal_width_mm: number | string | null;
+        nominal_thk_mm: number | string | null;
+        mother_coil_weight_mt: number | string | null;
+        status: string;
+        mother_coil_no?: string | null;
+        slit_id?: string | null;
+      },
+      extra?: { journeyId?: string; stepNo?: number },
+    ) => {
+      if (seenCoils.has(order.coil_no)) return;
+      seenCoils.add(order.coil_no);
       queue.push({
         coilNo: order.coil_no,
-        gradeCode: order.grade_code,
-        customerName: order.customer_name,
+        gradeCode: order.grade_code ?? '',
+        customerName: order.customer_name ?? '',
         widthMm: Number(order.nominal_width_mm),
         thicknessMm: Number(order.nominal_thk_mm),
         weightMt: Number(order.mother_coil_weight_mt),
@@ -282,9 +309,20 @@ export class PklOrderService {
         machineCode: 'PKL',
         motherCoilNo: order.mother_coil_no ?? undefined,
         slitId: order.slit_id ?? undefined,
-        journeyId: String(row.journey_id),
-        stepNo: row.step_no,
+        journeyId: extra?.journeyId,
+        stepNo: extra?.stepNo,
+        routeRaw: await resolveRoute(order.coil_no),
       });
+    };
+
+    for (const row of rows) {
+      await this.ensureOrder(row.coil_no, userId);
+      const order = await db
+        .selectFrom('txn.pkl_order')
+        .selectAll()
+        .where('coil_no', '=', row.coil_no)
+        .executeTakeFirstOrThrow();
+      await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
     }
 
     const extraOrders = await db
@@ -293,19 +331,21 @@ export class PklOrderService {
       .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
       .execute();
     for (const order of extraOrders) {
-      if (seenCoils.has(order.coil_no)) continue;
-      queue.push({
-        coilNo: order.coil_no,
-        gradeCode: order.grade_code,
-        customerName: order.customer_name,
-        widthMm: Number(order.nominal_width_mm),
-        thicknessMm: Number(order.nominal_thk_mm),
-        weightMt: Number(order.mother_coil_weight_mt),
-        status: order.status as PklOrderStatus,
-        machineCode: 'PKL',
-        motherCoilNo: order.mother_coil_no ?? undefined,
-        slitId: order.slit_id ?? undefined,
-      });
+      await pushOrder(order);
+    }
+
+    // Completed for current plant day — status pill parity with Rolling.
+    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode: 'PKL' });
+    const prodDate = postgresDateOnly(shift.prodDate);
+    const completed = await db
+      .selectFrom('txn.pkl_order')
+      .selectAll()
+      .where('status', '=', 'COMPLETED')
+      .where('prod_date', '=', prodDate as any)
+      .orderBy('prod_end_at', 'desc')
+      .execute();
+    for (const order of completed) {
+      await pushOrder(order);
     }
 
     return { queue };
@@ -460,6 +500,8 @@ export class PklOrderService {
     remarks: string | undefined,
     userId: number,
   ): Promise<PklOrderDetail> {
+    const catMatch = categoryCode.trim().match(/^(?:PKL-)?(\d{1,2})$/i);
+    const normalizedCategory = catMatch ? catMatch[1].padStart(2, '0') : categoryCode.trim();
     const orderId = await this.ensureOrder(coilNo, userId);
     const orderRow = await db
       .selectFrom('txn.pkl_order')
@@ -488,7 +530,7 @@ export class PklOrderService {
           order_id: null,
           pkl_order_id: orderId as any,
           order_kind: 'PKL',
-          category_code: categoryCode,
+          category_code: normalizedCategory,
           breakdown_code: breakdownCode ?? null,
           remarks: remarks ?? null,
           operator_id: userId,
@@ -666,5 +708,214 @@ export class PklOrderService {
       .execute();
 
     return this.getOrder(coilNo, userId);
+  }
+
+  private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {
+    if (!meta) return {};
+    if (typeof meta === 'string') {
+      try {
+        const parsed = JSON.parse(meta);
+        return typeof parsed === 'object' && parsed ? parsed as Record<string, unknown> : {};
+      } catch {
+        return {};
+      }
+    }
+    return typeof meta === 'object' ? meta as Record<string, unknown> : {};
+  }
+
+  private static async resolveStoppageCategoryLabel(categoryCode?: string | null) {
+    if (!categoryCode) return undefined;
+    const candidates = [categoryCode];
+    if (/^\d{1,2}$/.test(categoryCode)) {
+      const padded = categoryCode.padStart(2, '0');
+      candidates.push(padded, `PKL-${padded}`);
+    }
+    const pklRow = await db.selectFrom('master.stoppage_code')
+      .select(['description'])
+      .where('stoppage_code', 'in', candidates)
+      .executeTakeFirst();
+    if (pklRow?.description) return pklRow.description;
+    const row = await db.selectFrom('master.stoppage_category')
+      .select(['label'])
+      .where('category_code', 'in', candidates)
+      .executeTakeFirst();
+    return row?.label ?? categoryCode;
+  }
+
+  static async listStoppageCodes(machine?: string) {
+    const rows = await db
+      .selectFrom('master.stoppage_code')
+      .select(['stoppage_code', 'description', 'applies_to'])
+      .where('is_active', '=', true)
+      .orderBy('stoppage_code', 'asc')
+      .execute();
+
+    const { matchesMachineClassification } = await import('@m1/shared-validation');
+    const filtered = machine
+      ? rows.filter((r) => matchesMachineClassification(r.applies_to, machine))
+      : rows;
+
+    return filtered.map((r) => ({
+      stoppageCode: r.stoppage_code,
+      description: r.description,
+      appliesTo: r.applies_to,
+    }));
+  }
+
+  /** Idle-machine manual stoppage (no active PKL coil) — mirrors CRM SixHiService. */
+  static async getManualStoppageStatus() {
+    const machineCode = 'PKL';
+    const activeOrder = await this.findActiveMachineOrder();
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    const isManualStoppage = Boolean(
+      currentEvent
+      && currentEvent.event_type === 'STOPPAGE_STARTED'
+      && !currentEvent.batch_number,
+    );
+
+    if (!isManualStoppage || !currentEvent) {
+      return { eligible: !activeOrder, active: null as null };
+    }
+
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    const categoryLabel = await this.resolveStoppageCategoryLabel(currentEvent.category_code);
+
+    return {
+      eligible: !activeOrder,
+      active: {
+        eventId: String(currentEvent.event_id),
+        categoryCode: currentEvent.category_code ?? undefined,
+        categoryLabel,
+        breakdownCode: typeof meta.breakdownCode === 'string' ? meta.breakdownCode : undefined,
+        reason: currentEvent.reason ?? undefined,
+        startedAt: new Date(currentEvent.occurred_at).toISOString(),
+        shiftCode: currentEvent.shift_code ?? undefined,
+      },
+    };
+  }
+
+  static async startManualStoppage(
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+    userId: number,
+  ) {
+    const machineCode = 'PKL';
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+
+    const activeOrder = await this.findActiveMachineOrder();
+    if (activeOrder) {
+      throw new Error('Cannot record manual stoppage while a production order is in progress');
+    }
+
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (currentEvent?.event_type === 'STOPPAGE_STARTED' && !currentEvent.batch_number) {
+      throw new Error('A manual stoppage is already active on this machine');
+    }
+
+    const shift = await ShiftDetectionService.resolveShift({ userId, machineCode });
+    const startAt = new Date();
+    await db.insertInto('txn.stoppage')
+      .values({
+        machine_code: machineCode,
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+        operator_id: userId,
+        start_at: startAt,
+        shift_log_id: shift.shiftLogId,
+        shift_code: shift.shiftCode,
+        prod_date: postgresDateOnly(shift.prodDate),
+      })
+      .execute();
+
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_STARTED', {
+      operatorId: userId,
+      shiftCode: shift.shiftCode,
+      categoryCode,
+      reason: remarks,
+      meta: { manual: true, breakdownCode: breakdownCode ?? null },
+    });
+
+    return this.getManualStoppageStatus();
+  }
+
+  static async updateManualStoppage(
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+  ) {
+    const machineCode = 'PKL';
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    await MachineStateEventService.updateOpenEvent(currentEvent.event_id, {
+      categoryCode,
+      reason: remarks,
+      meta: {
+        ...meta,
+        manual: true,
+        breakdownCode: breakdownCode ?? meta.breakdownCode ?? null,
+      },
+    });
+
+    await db.updateTable('txn.stoppage')
+      .set({
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+      })
+      .where('machine_code', '=', machineCode)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .$if(Boolean(currentEvent.shift_code), (qb) =>
+        qb.where('shift_code', '=', currentEvent.shift_code!),
+      )
+      .execute();
+
+    return this.getManualStoppageStatus();
+  }
+
+  static async endManualStoppage(userId: number) {
+    const machineCode = 'PKL';
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+
+    const shiftCode = currentEvent.shift_code ?? undefined;
+    const endAt = new Date();
+    let openManualQ = db.selectFrom('txn.stoppage')
+      .select(['stoppage_id', 'start_at'])
+      .where('machine_code', '=', machineCode)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .orderBy('start_at', 'desc');
+    if (shiftCode) {
+      openManualQ = openManualQ.where('shift_code', '=', shiftCode);
+    }
+    const openManual = await openManualQ.executeTakeFirst();
+    if (openManual) {
+      const durationMin = resolveStoppageMinutes(openManual.start_at as Date, endAt, null);
+      await db.updateTable('txn.stoppage')
+        .set({ end_at: endAt, duration_min: durationMin })
+        .where('stoppage_id', '=', openManual.stoppage_id)
+        .execute();
+    }
+
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_ENDED', {
+      operatorId: userId,
+      shiftCode,
+    });
+    await MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED', {
+      operatorId: userId,
+      shiftCode,
+    });
+
+    return this.getManualStoppageStatus();
   }
 }

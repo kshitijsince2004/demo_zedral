@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
+  allocateCombinedRemainderToBlanks,
+} from '@m1/shared-validation';
+import {
+  assertCanAddStoppage,
   assertCombineEligible,
+  assertRejectPayload,
   combineRunKey,
   finishGroup,
+  healOrphanStoppageStatus,
   netProdDurationMin,
 } from '../src/utils/orderLifecycleHelpers';
 import {
@@ -52,6 +58,57 @@ describe('orderLifecycleHelpers', () => {
   });
 });
 
+describe('RewindingOrderService lifecycle rules', () => {
+  it('healOrphanStoppageStatus prefers IN_PROGRESS when started', () => {
+    expect(healOrphanStoppageStatus({
+      status: 'STOPPAGE',
+      hasActiveStoppage: false,
+      prodStartAt: new Date(),
+      machineAllocated: true,
+    })).toBe('IN_PROGRESS');
+  });
+
+  it('healOrphanStoppageStatus prefers PREPARING when allocated but never started', () => {
+    expect(healOrphanStoppageStatus({
+      status: 'STOPPAGE',
+      hasActiveStoppage: false,
+      prodStartAt: null,
+      machineAllocated: true,
+    })).toBe('PREPARING');
+  });
+
+  it('healOrphanStoppageStatus falls to PENDING when unallocated', () => {
+    expect(healOrphanStoppageStatus({
+      status: 'STOPPAGE',
+      hasActiveStoppage: false,
+      prodStartAt: null,
+      machineAllocated: false,
+    })).toBe('PENDING');
+  });
+
+  it('healOrphanStoppageStatus no-ops when open stoppage exists', () => {
+    expect(healOrphanStoppageStatus({
+      status: 'STOPPAGE',
+      hasActiveStoppage: true,
+      prodStartAt: new Date(),
+      machineAllocated: true,
+    })).toBe('STOPPAGE');
+  });
+
+  it('assertCanAddStoppage only allows running/stoppage', () => {
+    expect(() => assertCanAddStoppage('IN_PROGRESS')).not.toThrow();
+    expect(() => assertCanAddStoppage('STOPPAGE')).not.toThrow();
+    expect(() => assertCanAddStoppage('PENDING')).toThrow(/Stoppage can only/);
+    expect(() => assertCanAddStoppage('COMPLETED')).toThrow(/Stoppage can only/);
+  });
+
+  it('assertRejectPayload requires reason + remarks (hold cascade gate)', () => {
+    expect(() => assertRejectPayload('', 'notes')).toThrow(/Hold reason/);
+    expect(() => assertRejectPayload('QUALITY', '')).toThrow(/Hold remarks/);
+    expect(() => assertRejectPayload('QUALITY', 'held for defect')).not.toThrow();
+  });
+});
+
 describe('rewindingMachines', () => {
   it('pool is RWD|2HI', () => {
     expect([...REWINDING_MACHINES]).toEqual(['RWD', '2HI']);
@@ -62,5 +119,23 @@ describe('rewindingMachines', () => {
     expect(parseRewindingMachineCode('6HI')).toBeNull();
     expect(assertRewindingMachine('2HI')).toBe('2HI');
     expect(() => assertRewindingMachine('6HI')).toThrow(/Invalid rewinding machine/);
+  });
+});
+
+describe('RWD combined capture weight split (G1)', () => {
+  it('splits combined total across blank siblings by plan targets', () => {
+    const allocation = allocateCombinedRemainderToBlanks(
+      [
+        { batchNumber: 'A', actualWeightMt: null },
+        { batchNumber: 'B', actualWeightMt: null },
+      ],
+      [
+        { batchNumber: 'A', targetMt: 2 },
+        { batchNumber: 'B', targetMt: 3 },
+      ],
+      5,
+    );
+    expect(allocation?.get('A')).toBe(2);
+    expect(allocation?.get('B')).toBe(3);
   });
 });

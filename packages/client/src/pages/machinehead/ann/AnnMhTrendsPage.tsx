@@ -111,7 +111,14 @@ export function AnnMhTrendsPage() {
     void load();
   }, [load]);
 
-  const colors = ['#0f766e', '#b45309', '#1d4ed8', '#be123c', '#7c3aed', '#15803d'];
+  const colors = [
+    'var(--color-chart-1)',
+    'var(--color-chart-2)',
+    'var(--color-chart-3)',
+    'var(--color-chart-4)',
+    'var(--color-chart-5)',
+    'var(--color-primary)',
+  ];
   const baseKeys = Object.keys(byBase);
 
   function chartData(metric: MetricKey) {
@@ -141,24 +148,24 @@ export function AnnMhTrendsPage() {
       }
     >
       <div className="flex flex-wrap gap-3 items-end">
-        <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Base
-          <select className="h-10 rounded-lg border border-input bg-background px-3 text-sm" value={baseNo} onChange={(e) => setBaseNo(e.target.value)}>
+          <select className="h-10 min-h-10 rounded-lg border border-input bg-background px-3 text-sm" value={baseNo} onChange={(e) => setBaseNo(e.target.value)}>
             <option value="">All open bases</option>
             {board.map((b) => <option key={b.base_no} value={b.base_no}>{b.base_no}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Search (batch / coil / charge)
-          <input className="h-10 rounded-lg border border-input bg-background px-3 text-sm min-w-[14rem]" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ANN batch or coil…" />
+          <input className="h-10 min-h-10 rounded-lg border border-input bg-background px-3 text-sm min-w-[14rem] font-mono" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ANN batch or coil…" />
         </label>
-        <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           From
-          <input type="datetime-local" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input type="datetime-local" className="h-10 min-h-10 rounded-lg border border-input bg-background px-3 text-sm font-mono" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
-        <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           To
-          <input type="datetime-local" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" value={to} onChange={(e) => setTo(e.target.value)} />
+          <input type="datetime-local" className="h-10 min-h-10 rounded-lg border border-input bg-background px-3 text-sm font-mono" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
       </div>
 
@@ -169,8 +176,8 @@ export function AnnMhTrendsPage() {
           {METRICS.map((m) => {
             const data = chartData(m.key);
             return (
-              <div key={m.key} className="z-card h-56 p-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2">{m.label}</p>
+              <div key={m.key} className="rounded-lg border border-border bg-card h-56 p-2 shadow-sm">
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground px-2">{m.label}</p>
                 {data.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-4">No data</p>
                 ) : (

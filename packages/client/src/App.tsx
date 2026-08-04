@@ -24,11 +24,13 @@ import { ProcessCapturePage } from './pages/process/ProcessCapturePage';
 import { ProcessHandoverPage } from './pages/process/ProcessHandoverPage';
 import { PklChartPage } from './pages/process/PklChartPage';
 import { AnnChargePage } from './pages/process/AnnChargePage';
-import { AnnOperatorHistoryPage } from './pages/process/AnnOperatorHistoryPage';
+import { ProcessOperatorHistoryPage } from './pages/process/ProcessOperatorHistoryPage';
 import { AnnMhChargeDetailPage } from './pages/machinehead/ann/AnnMhChargeDetailPage';
-import { PklMhLiveDashboard } from './pages/machinehead/pkl/PklMhLiveDashboard';
+import { PklMhLiveDashboard, ProcessLineLiveDashboard } from './pages/machinehead/pkl/PklMhLiveDashboard';
 import { PklMhCoilDetailPage } from './pages/machinehead/pkl/PklMhCoilDetailPage';
+import { HrsMhCoilDetailPage } from './pages/machinehead/hrs/HrsMhCoilDetailPage';
 import { RwdMhLiveDashboard } from './pages/machinehead/RwdMhLiveDashboard';
+import { RwdMhCoilDetailPage } from './pages/machinehead/rwd/RwdMhCoilDetailPage';
 import { SixHiCapturePage } from './pages/sixHi/SixHiCapturePage';
 import { TwoHiRewindingCapturePage } from './pages/sixHi/TwoHiRewindingCapturePage';
 import { ScopeCaptureRoute } from './components/ScopeCaptureRoute';
@@ -73,6 +75,7 @@ import { AnnMhLiveDashboard } from './pages/machinehead/ann/AnnMhLiveDashboard';
 import { AnnMhBatchingPage } from './pages/machinehead/ann/AnnMhBatchingPage';
 import { AnnMhTrendsPage } from './pages/machinehead/ann/AnnMhTrendsPage';
 import { AnnMhImportPage } from './pages/machinehead/ann/AnnMhImportPage';
+import { HrsMhImportPage, PklMhImportPage, RwdMhImportPage } from './pages/machinehead/LineMhImportPage';
 import { LiveDashboard } from './pages/live/LiveDashboard';
 import { UnifiedShell } from './components/layout/UnifiedShell';
 import { PlantShiftReviewPage } from './pages/plant/PlantShiftReviewPage';
@@ -235,10 +238,17 @@ function AppRoutes() {
         <Route path="/machine-head/ann/charge/:chargeNo" element={<MachineHeadRoute><AnnMhChargeDetailPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/trends" element={<MachineHeadRoute><AnnMhTrendsPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/batching" element={<MachineHeadRoute><AnnMhBatchingPage /></MachineHeadRoute>} />
-        <Route path="/machine-head/ann/import" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR]}><AnnMhImportPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/import" element={<MachineHeadRoute><AnnMhImportPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/hrs/import" element={<MachineHeadRoute><HrsMhImportPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/pkl/import" element={<MachineHeadRoute><PklMhImportPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/rwd/import" element={<MachineHeadRoute><RwdMhImportPage /></MachineHeadRoute>} />
         <Route path="/machine-head/pkl/live" element={<MachineHeadRoute><PklMhLiveDashboard /></MachineHeadRoute>} />
         <Route path="/machine-head/pkl/coil/:coilNo" element={<MachineHeadRoute><PklMhCoilDetailPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/pkl/specs" element={<MachineHeadRoute><PklSpecAdmin /></MachineHeadRoute>} />
+        <Route path="/machine-head/hrs/live" element={<MachineHeadRoute><ProcessLineLiveDashboard line="HRS" /></MachineHeadRoute>} />
+        <Route path="/machine-head/hrs/coil/:coilNo" element={<MachineHeadRoute><HrsMhCoilDetailPage /></MachineHeadRoute>} />
         <Route path="/machine-head/rwd/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR, UserRole.OPERATOR]}><RwdMhLiveDashboard /></MachineHeadRoute>} />
+        <Route path="/machine-head/rwd/coil/:batchNo" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR, UserRole.OPERATOR]}><RwdMhCoilDetailPage /></MachineHeadRoute>} />
         <Route path="/machine-head/shift-review" element={<MachineHeadRoute><PlantShiftReviewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/crew" element={<MachineHeadRoute><MachineHeadCrewPage /></MachineHeadRoute>} />
         <Route path="/machine-head/dpr-export" element={<MachineHeadRoute><MachineDprExport /></MachineHeadRoute>} />
@@ -251,7 +261,7 @@ function AppRoutes() {
         <Route path="/admin/master-data" element={<AdminRoute><MasterDataAdmin /></AdminRoute>} />
         <Route path="/admin/machines" element={<AdminRoute><MachineMasterAdmin /></AdminRoute>} />
         <Route path="/admin/machine-specs" element={<MachineHeadRoute><MachineSpecAdmin /></MachineHeadRoute>} />
-        <Route path="/admin/pkl-specs" element={<MachineHeadRoute><PklSpecAdmin /></MachineHeadRoute>} />
+        <Route path="/admin/pkl-specs" element={<Navigate to="/machine-head/pkl/specs" replace />} />
         <Route path="/admin/ann-specs" element={<MachineHeadRoute><AnnSpecAdmin /></MachineHeadRoute>} />
         <Route path="/admin/planning" element={<AdminRoute><PlanningAdmin /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersAdmin /></AdminRoute>} />
@@ -275,7 +285,7 @@ function AppRoutes() {
           <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
           <Route path="chart" element={<PklChartPage />} />
           <Route path="charge/:chargeNo" element={<AnnChargePage />} />
-          <Route path="history" element={<AnnOperatorHistoryPage />} />
+          <Route path="history" element={<ProcessOperatorHistoryPage />} />
           <Route path="handover" element={<ScopeHandoverRoute />} />
           <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
           <Route path="rolling" element={<SixHiQueuePage />} />

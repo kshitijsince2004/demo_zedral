@@ -16,6 +16,10 @@ interface OperatorShellProps {
   bare?: boolean;
   onManualStoppage?: () => void;
   onShiftReadings?: () => void;
+  processManualStoppage?: {
+    eligible: boolean;
+    active: { startedAt: string; categoryLabel?: string } | null;
+  } | null;
 }
 
 export function OperatorShell({
@@ -24,6 +28,7 @@ export function OperatorShell({
   bare = false,
   onManualStoppage,
   onShiftReadings,
+  processManualStoppage,
 }: OperatorShellProps) {
   const logout = useAuthStore((s) => s.logout);
   const [logoutOpen, setLogoutOpen] = React.useState(false);
@@ -48,6 +53,7 @@ export function OperatorShell({
             processCode={processCode}
             onManualStoppage={onManualStoppage}
             onShiftReadings={onShiftReadings}
+            processManualStoppage={processManualStoppage}
           />
         )}
         <OfflineBanner />

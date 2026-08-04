@@ -5,6 +5,8 @@ import { RwdTensionForm } from '../../components/process/bodies/RwdTensionForm';
 import { ProcessPPCCards } from '../../components/process/ProcessPPCCards';
 import { ProductionActionRail } from '../../components/process/ProductionActionRail';
 import { OrderStoppageModal } from '../../components/sixHi/OrderStoppageModal';
+import { OrderEndModal } from '../../components/sixHi/OrderEndModal';
+import { OrderRejectionModal } from '../../components/sixHi/OrderRejectionModal';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZBadge } from '../../components/primitives/ZBadge';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
@@ -79,10 +81,9 @@ export function TwoHiRewindingCapturePage() {
   const [activeStoppageId, setActiveStoppageId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [stoppageOpen, setStoppageOpen] = useState(false);
-  const [holdOpen, setHoldOpen] = useState(false);
-  const [holdReason, setHoldReason] = useState('');
-  const [holdRemarks, setHoldRemarks] = useState('');
-
+  const [endOpen, setEndOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const isCompleted = orderStatus === 'COMPLETED';
   const refreshOrder = async (bn: string) => {
     if (!bn) return;
     try {
@@ -256,17 +257,27 @@ export function TwoHiRewindingCapturePage() {
             <ZBadge tone="success" label={`Combined · ${combinedBatchNumbers.length}`} />
           )}
           <ZBadge
-            tone={orderStatus === 'PENDING' ? 'accent' : orderStatus === 'IN_PROGRESS' ? 'info' : orderStatus === 'STOPPAGE' ? 'warning' : 'muted'}
+            tone={
+              orderStatus === 'PENDING' || orderStatus === 'HOLD' ? 'accent'
+                : orderStatus === 'IN_PROGRESS' || orderStatus === 'RUNNING' ? 'success'
+                  : orderStatus === 'STOPPAGE' ? 'warning'
+                    : orderStatus === 'PREPARING' ? 'info'
+                      : orderStatus === 'REJECTED' ? 'destructive'
+                        : 'muted'
+            }
             label={orderStatus}
+            dot={orderStatus === 'IN_PROGRESS'}
           />
-          <button
+          <ZButton
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => navigate(backPath)}
-            className="min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-white/10"
+            className="!min-h-10 !h-10 !w-10 !px-0 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
             aria-label="Back to hub"
           >
             <X className="h-5 w-5" />
-          </button>
+          </ZButton>
         </div>
       </div>
 
@@ -274,7 +285,7 @@ export function TwoHiRewindingCapturePage() {
         {/* ponytail: drop max-w-4xl — fill operator main (nav + action rail already inset) */}
         <div className="p-3 flex flex-col gap-3 w-full">
           {loadError && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {loadError}
             </div>
           )}
@@ -287,6 +298,11 @@ export function TwoHiRewindingCapturePage() {
           <ProcessPPCCards compact data={ppc} />
 
           <div className="bg-card border border-border rounded-xl shadow w-full">
+            {isCombinedRun && (
+              <p className="px-3 pt-3 text-xs text-muted-foreground">
+                Combined run · weight is the group total and splits across siblings on Save.
+              </p>
+            )}
             <RwdTensionForm
               formId={FORM_ID}
               showSubmit={false}
@@ -296,9 +312,9 @@ export function TwoHiRewindingCapturePage() {
               machineCode={machineCode}
               batchNumber={batchNumber || undefined}
               onSubmitted={() => {
-                useProcessStore.getState().finishCapture();
+                // Save keeps order running — End rail completes.
                 notifyProductionChanged();
-                navigate(machineCode === '2HI' ? backPath : `${backPath}?status=COMPLETED`);
+                if (batchNumber) void refreshOrder(batchNumber);
               }}
             />
           </div>
@@ -312,7 +328,7 @@ export function TwoHiRewindingCapturePage() {
           variant="primary"
           size="lg"
           fullWidth
-          disabled={!shiftLogId || railStatus === 'idle'}
+          disabled={!shiftLogId || railStatus === 'idle' || isCompleted}
           className="min-h-14 text-base font-bold"
         >
           Save Production Data
@@ -324,9 +340,10 @@ export function TwoHiRewindingCapturePage() {
         status={railStatus}
         stoppageStartedAt={stoppageStartedAt}
         runStartedAt={prodStartAt}
-        busy={busy || !batchNumber}
+        busy={busy || !batchNumber || isCompleted}
         onStart={() =>
           void withBusy(async () => {
+            if (isCompleted) return;
             if (isCombinedRun && (orderStatus === 'PENDING' || orderStatus === 'PREPARING' || orderStatus === 'STOPPAGE')) {
               await startCombinedRwdOrders(combinedBatchNumbers);
             } else {
@@ -335,26 +352,38 @@ export function TwoHiRewindingCapturePage() {
             await refreshOrder(batchNumber);
           })
         }
-        onEnd={() =>
-          void withBusy(async () => {
-            try {
-              await endRwdOrder(batchNumber);
-              useProcessStore.getState().finishCapture();
-              notifyProductionChanged();
-              navigate(machineCode === '2HI' ? `${backPath}` : `${backPath}?status=COMPLETED`);
-            } catch (e: unknown) {
-              setLoadError(e instanceof Error ? e.message : 'End failed');
-              throw e;
-            }
-          })
-        }
-        onStoppage={() => setStoppageOpen(true)}
-        onRemark={() => setHoldOpen(true)}
-        onHold={() => setHoldOpen(true)}
+        onEnd={() => {
+          if (isCompleted) return;
+          setEndOpen(true);
+        }}
+        onStoppage={() => { if (!isCompleted) setStoppageOpen(true); }}
+        onRemark={() => { if (!isCompleted) setRejectOpen(true); }}
+        onHold={() => { if (!isCompleted) setRejectOpen(true); }}
+      />
+
+      <OrderEndModal
+        open={endOpen && !!batchNumber}
+        batchNumber={batchNumber}
+        orderLabel={`Rewinding · ${coilNo}`}
+        appliesTo={machineCode === '2HI' || machineCode === 'RWD' ? 'RWD' : machineCode}
+        onClose={() => setEndOpen(false)}
+        onConfirm={async () => {
+          try {
+            await endRwdOrder(batchNumber);
+            useProcessStore.getState().finishCapture();
+            notifyProductionChanged();
+            navigate(machineCode === '2HI'
+              ? `${basePath}?tab=rewinding&status=COMPLETED`
+              : `${backPath}?status=COMPLETED`);
+          } catch (e: unknown) {
+            setLoadError(e instanceof Error ? e.message : 'End failed');
+            throw e;
+          }
+        }}
       />
 
       <OrderStoppageModal
-        open={stoppageOpen}
+        open={stoppageOpen && !isCompleted}
         hasActiveStoppage={railStatus === 'stoppage'}
         activeStoppage={
           activeStoppageId
@@ -385,44 +414,18 @@ export function TwoHiRewindingCapturePage() {
         }}
       />
 
-      {holdOpen && (
-        <>
-          <div className="fixed inset-0 z-[110] bg-primary/40" onClick={() => setHoldOpen(false)} aria-hidden />
-          <div className="fixed left-1/2 top-1/2 z-[115] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-white p-5 shadow-2xl">
-            <h3 className="font-bold text-lg mb-3">Hold Order</h3>
-            <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1">Reason</label>
-            <input
-              className="w-full min-h-11 rounded-lg border border-input px-3 mb-3"
-              value={holdReason}
-              onChange={(e) => setHoldReason(e.target.value)}
-            />
-            <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1">Remarks</label>
-            <textarea
-              className="w-full min-h-24 rounded-lg border border-input px-3 py-2 mb-4"
-              value={holdRemarks}
-              onChange={(e) => setHoldRemarks(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <ZButton variant="secondary" className="flex-1" onClick={() => setHoldOpen(false)}>Cancel</ZButton>
-              <ZButton
-                className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
-                disabled={!holdReason.trim() || !holdRemarks.trim() || busy}
-                onClick={() =>
-                  void withBusy(async () => {
-                    await rejectRwdOrder(batchNumber, holdReason, holdRemarks);
-                    setHoldOpen(false);
-                    useProcessStore.getState().finishCapture();
-                    notifyProductionChanged();
-                    navigate(backPath);
-                  })
-                }
-              >
-                HOLD
-              </ZButton>
-            </div>
-          </div>
-        </>
-      )}
+      <OrderRejectionModal
+        open={rejectOpen && !!batchNumber}
+        batchNumber={batchNumber}
+        orderLabel={`Rewinding · ${coilNo}`}
+        onClose={() => setRejectOpen(false)}
+        onReject={async (_bn, rejectionReason, _defects, remarks) => {
+          await rejectRwdOrder(batchNumber, rejectionReason, remarks);
+          useProcessStore.getState().finishCapture();
+          notifyProductionChanged();
+          navigate(backPath);
+        }}
+      />
     </div>
   );
 }

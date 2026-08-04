@@ -69,7 +69,7 @@ function stageElapsed(iso: string | null) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 flex items-baseline justify-between gap-2">
-      <span className="text-[10px] text-muted-foreground shrink-0">{label}</span>
+      <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground shrink-0">{label}</span>
       <span className="text-[12px] font-bold font-mono tabular-nums text-foreground truncate">{value}</span>
     </div>
   );
@@ -100,7 +100,7 @@ export function AnnBaseCard({
   return (
     <article
       className={[
-        'flex overflow-hidden rounded-xl border border-border bg-background text-left shadow-sm',
+        'flex overflow-hidden rounded-lg border border-border bg-background text-left shadow-sm',
         'transition-[box-shadow,transform] duration-150 min-h-[5.5rem]',
         clickable
           ? 'cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -131,17 +131,17 @@ export function AnnBaseCard({
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1 grid grid-cols-3 gap-2">
             <div className="min-w-0">
-              <p className="text-[9px] text-muted-foreground">Base</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Base</p>
               <p className="text-[13px] font-bold font-mono tabular-nums text-foreground truncate">{row.base_no}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[9px] text-muted-foreground">Batch</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Batch</p>
               <p className="text-[13px] font-bold font-mono tabular-nums text-foreground truncate">
                 {row.charge?.annealing_batch_no ?? '—'}
               </p>
             </div>
             <div className="min-w-0">
-              <p className="text-[9px] text-muted-foreground">Stage</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Stage</p>
               <p className="text-[13px] font-bold text-foreground truncate">
                 {humanizeStage(row.charge?.current_stage_code)}
               </p>
@@ -171,7 +171,7 @@ export function AnnBaseCard({
 
           <button
             type="button"
-            className="min-h-8 min-w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-card shrink-0"
+            className="min-h-10 min-w-10 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-card shrink-0"
             aria-label="Base options"
             onClick={(e) => e.stopPropagation()}
           >
@@ -189,7 +189,7 @@ export function AnnBaseCard({
             <Metric label="Operator" value="—" />
             <Metric label="Orders" value={String(row.charge?.no_of_coils ?? 0)} />
           </div>
-          <span className="shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">Base Details</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">Base details</span>
         </div>
       </div>
     </article>

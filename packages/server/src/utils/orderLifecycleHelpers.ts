@@ -64,3 +64,26 @@ export function netProdDurationMin(
   const elapsed = Math.max(0, Math.round((endAt.getTime() - startAt.getTime()) / 60_000));
   return Math.max(0, elapsed - Math.max(0, stoppageMinutes));
 }
+
+/** Heal orphan STOPPAGE when no open stoppage row remains. */
+export function healOrphanStoppageStatus(args: {
+  status: string;
+  hasActiveStoppage: boolean;
+  prodStartAt: Date | string | null | undefined;
+  machineAllocated: boolean;
+}): string {
+  if (args.status !== 'STOPPAGE' || args.hasActiveStoppage) return args.status;
+  if (args.prodStartAt) return 'IN_PROGRESS';
+  return args.machineAllocated ? 'PREPARING' : 'PENDING';
+}
+
+export function assertCanAddStoppage(status: string): void {
+  if (status !== 'IN_PROGRESS' && status !== 'STOPPAGE') {
+    throw new Error('Stoppage can only be recorded while production is running');
+  }
+}
+
+export function assertRejectPayload(rejectionReason: string, remarks: string): void {
+  if (!rejectionReason?.trim()) throw new Error('Hold reason is required');
+  if (!remarks?.trim()) throw new Error('Hold remarks are required');
+}

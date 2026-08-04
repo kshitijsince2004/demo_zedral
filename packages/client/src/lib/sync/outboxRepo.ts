@@ -299,6 +299,9 @@ function shouldDropInaccessibleOutboxRow(
   if (/Forbidden:\s*No access to machine|No access to machine\s+\w+/i.test(err)) {
     return 'Dropped: Forbidden machine access';
   }
+  if (/Forbidden:\s*No write access to line/i.test(err)) {
+    return 'Dropped: Forbidden line write access';
+  }
   const code = machineCodeFromOutboxUrl(url);
   if (!code) return null;
   // null allow = Admin/PH plant-wide write — keep rows unless Forbidden above

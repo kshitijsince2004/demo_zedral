@@ -23,7 +23,6 @@ const pklChartSchema = z.object({
   line: z.object({
     steamInletKgcm2: z.number().optional(),
     steamOutletKgcm2: z.number().optional(),
-    steamOutletBurnerKgcm2: z.number().optional(),
     dosageAcid: z.number().optional(),
     dosageWater: z.number().optional(),
     dosageInhibitor: z.number().optional(),
@@ -31,8 +30,6 @@ const pklChartSchema = z.object({
     rinsePh: z.number().optional(),
     rinseFlow: z.number().optional(),
     rinseTempDegc: z.number().optional(),
-    rinseAcidPct: z.number().optional(),
-    rinseIronPct: z.number().optional(),
     burnerPressureKgcm2: z.number().optional(),
     hotAirTempDegc: z.number().optional(),
     lineIncharge: z.string().optional(),
@@ -105,6 +102,79 @@ router.get('/pkl/shift-metrics/:shiftLogId', requireAuth, async (req, res) => {
     res.json(await ProcessStationService.getPklShiftMetrics(req.params.shiftLogId));
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Metrics failed' });
+  }
+});
+
+router.get('/pkl/manual-stoppage', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'READ');
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.json(await PklOrderService.getManualStoppageStatus());
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Manual stoppage status failed' });
+  }
+});
+
+router.get('/pkl/stoppage-codes', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'READ');
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.json({ codes: await PklOrderService.listStoppageCodes('PKL') });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Stoppage codes failed' });
+  }
+});
+
+/** Machine-classified stoppage codes from master.stoppage_code.applies_to. */
+router.get('/stoppage-codes', requireAuth, async (req, res) => {
+  try {
+    const machine = String(req.query.machine ?? '').trim().toUpperCase();
+    if (!machine) {
+      return res.status(400).json({ error: 'machine query param required' });
+    }
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.json({ codes: await PklOrderService.listStoppageCodes(machine) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Stoppage codes failed' });
+  }
+});
+
+router.post('/pkl/manual-stoppage/start', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'WRITE');
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.status(201).json(await PklOrderService.startManualStoppage(
+      String(req.body?.categoryCode ?? ''),
+      req.body?.breakdownCode != null ? String(req.body.breakdownCode) : undefined,
+      req.body?.remarks != null ? String(req.body.remarks) : undefined,
+      req.user!.id,
+    ));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Start manual stoppage failed' });
+  }
+});
+
+router.patch('/pkl/manual-stoppage', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'WRITE');
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.json(await PklOrderService.updateManualStoppage(
+      String(req.body?.categoryCode ?? ''),
+      req.body?.breakdownCode != null ? String(req.body.breakdownCode) : undefined,
+      req.body?.remarks != null ? String(req.body.remarks) : undefined,
+    ));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Update manual stoppage failed' });
+  }
+});
+
+router.post('/pkl/manual-stoppage/end', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'PKL', 'WRITE');
+    const { PklOrderService } = await import('../services/PklOrderService');
+    res.json(await PklOrderService.endManualStoppage(req.user!.id));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'End manual stoppage failed' });
   }
 });
 
@@ -411,6 +481,42 @@ router.get('/hrs/shift-metrics/:shiftLogId', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/:process/history', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'READ');
+    const shiftLogId = String(req.query.shiftLogId ?? '');
+    if (!shiftLogId) {
+      res.status(400).json({ error: 'shiftLogId required' });
+      return;
+    }
+    const orders = await ProcessStationService.getProcessOrderHistory(code, shiftLogId);
+    res.json({ orders });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'History failed';
+    const status = msg.includes('not supported') ? 400 : msg.includes('Forbidden') ? 403 : 500;
+    res.status(status).json({ error: msg });
+  }
+});
+
+router.get('/:process/readings', requireAuth, async (req, res) => {
+  try {
+    const code = requireProcess(req.params.process);
+    assertLineOperation(req.user!, code, 'READ');
+    const shiftLogId = String(req.query.shiftLogId ?? '');
+    if (!shiftLogId) {
+      res.status(400).json({ error: 'shiftLogId required' });
+      return;
+    }
+    const readings = await ProcessStationService.getProcessReadings(code, shiftLogId);
+    res.json({ readings });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Readings failed';
+    const status = msg.includes('not supported') ? 400 : msg.includes('Forbidden') ? 403 : 500;
+    res.status(status).json({ error: msg });
+  }
+});
+
 router.get('/crs/shift-metrics/:shiftLogId', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'CRS', 'READ');
@@ -507,16 +613,61 @@ router.post('/:process/stoppages/start', requireAuth, async (req, res) => {
   try {
     const code = requireProcess(req.params.process);
     assertLineOperation(req.user!, code, 'WRITE');
+    const coilNo = String(req.body?.coilNo ?? '').trim();
+    const stoppageCode = String(req.body?.stoppageCode ?? '12');
+    const remarks = req.body?.remarks ? String(req.body.remarks) : undefined;
+
+    // HRS/PKL: order-linked stoppage so getOrder hydration restores STOPPAGE after refresh.
+    if ((code === 'HRS' || code === 'PKL') && coilNo) {
+      if (code === 'HRS') {
+        const { HrsOrderService } = await import('../services/HrsOrderService');
+        const order = await HrsOrderService.addStoppage(
+          coilNo,
+          stoppageCode,
+          undefined,
+          remarks,
+          req.user!.id,
+        );
+        return res.status(201).json({
+          stoppageId: order.activeStoppageId,
+          order,
+        });
+      }
+      const { PklOrderService } = await import('../services/PklOrderService');
+      const order = await PklOrderService.addStoppage(
+        coilNo,
+        stoppageCode,
+        undefined,
+        remarks,
+        req.user!.id,
+      );
+      return res.status(201).json({
+        stoppageId: order.activeStoppageId,
+        order,
+      });
+    }
+
+    const shiftLogId = String(req.body?.shiftLogId ?? '');
+    if (!shiftLogId) return res.status(400).json({ error: 'shiftLogId required' });
+    const { getProcessCodeForShiftLog } = await import('../services/shiftLogAccessService');
+    const shiftProcess = await getProcessCodeForShiftLog(shiftLogId);
+    if (shiftProcess.toUpperCase() !== code.toUpperCase()) {
+      return res.status(400).json({
+        error: `Shift log belongs to ${shiftProcess}, not ${code}`,
+      });
+    }
     const { StoppageService } = await import('../services/StoppageService');
     const stoppageId = await StoppageService.startOpen({
-      shiftLogId: String(req.body?.shiftLogId ?? ''),
-      stoppageCode: String(req.body?.stoppageCode ?? ''),
-      remarks: req.body?.remarks ? String(req.body.remarks) : undefined,
+      shiftLogId,
+      stoppageCode,
+      remarks,
       machineCode: code,
     }, String(req.user!.id));
     res.status(201).json({ stoppageId });
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage start failed' });
+    const msg = e instanceof Error ? e.message : 'Stoppage start failed';
+    const status = msg.includes('Forbidden') || msg.includes('not found') ? 403 : 400;
+    res.status(status).json({ error: msg });
   }
 });
 
@@ -524,9 +675,23 @@ router.post('/:process/stoppages/:stoppageId/end', requireAuth, async (req, res)
   try {
     const code = requireProcess(req.params.process);
     assertLineOperation(req.user!, code, 'WRITE');
+    const stoppageId = String(req.params.stoppageId);
+    const coilNo = String(req.body?.coilNo ?? '').trim();
+
+    if ((code === 'HRS' || code === 'PKL') && coilNo) {
+      if (code === 'HRS') {
+        const { HrsOrderService } = await import('../services/HrsOrderService');
+        const order = await HrsOrderService.endStoppage(coilNo, stoppageId, req.user!.id);
+        return res.json({ stoppageId, order });
+      }
+      const { PklOrderService } = await import('../services/PklOrderService');
+      const order = await PklOrderService.endStoppage(coilNo, stoppageId, req.user!.id);
+      return res.json({ stoppageId, order });
+    }
+
     const { StoppageService } = await import('../services/StoppageService');
-    const stoppageId = await StoppageService.endOpen(String(req.params.stoppageId));
-    res.json({ stoppageId });
+    const closedId = await StoppageService.endOpen(stoppageId);
+    res.json({ stoppageId: closedId });
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage end failed' });
   }

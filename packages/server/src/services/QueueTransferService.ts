@@ -1,6 +1,10 @@
 import { db } from '../db';
+import type { Database } from '../db';
+import type { Kysely } from 'kysely';
 import { defaultSuggestedMachine } from '../utils/machineAllocation';
 import type { SixHiSubProcess } from '@m1/shared-validation';
+
+type DbConn = Kysely<Database>;
 
 interface BatchRow {
   batch_id: number | string;
@@ -48,18 +52,19 @@ export class QueueTransferService {
     nextStep: JourneyStepRow,
     sourceBatch: BatchRow,
     payload: CompletionPayload,
+    conn: DbConn = db,
   ): Promise<number | null> {
     const genericCrm = nextStep.route_code === '4' || nextStep.route_code === 'X';
     
     if (!nextStep.machine_code && !genericCrm && nextStep.route_code !== 'PKG') {
       // For some reason, neither machine code nor generic CRM is specified, and it's not packaging
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null);
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null, conn);
       return null;
     }
 
     if (nextStep.route_code === 'PKG') {
       // Packaging doesn't have a queue yet
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null);
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null, conn);
       return null;
     }
 
@@ -71,11 +76,11 @@ export class QueueTransferService {
 
     if (nextStep.queue_batch_id) {
       const existingBatchId = Number(nextStep.queue_batch_id);
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, existingBatchId);
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, existingBatchId, conn);
       return existingBatchId;
     }
 
-    const existing = await db.selectFrom('planning.queue_handoff')
+    const existing = await conn.selectFrom('planning.queue_handoff')
       .select('target_batch_id')
       .where('journey_id', '=', String(journeyId))
       .where('source_step_id', '=', String(sourceStepId))
@@ -89,8 +94,8 @@ export class QueueTransferService {
     const planDate = new Date();
     const shiftCode = payload.shiftCode ?? sourceBatch.shift_code;
 
-    const maxSeq = await db.selectFrom('planning.ppc_batch')
-      .select(db.fn.max('queue_seq').as('max_seq'))
+    const maxSeq = await conn.selectFrom('planning.ppc_batch')
+      .select(conn.fn.max('queue_seq').as('max_seq'))
       .where('plan_date', '=', planDate)
       .where('shift_code', '=', shiftCode)
       .where('machine_code', '=', targetMachine)
@@ -99,7 +104,7 @@ export class QueueTransferService {
 
     const queueSeq = (Number(maxSeq?.max_seq) || 0) + 1;
 
-    const inserted = await db.insertInto('planning.ppc_batch')
+    const inserted = await conn.insertInto('planning.ppc_batch')
       .values({
         batch_number: batchNumber,
         plan_date: planDate,
@@ -119,14 +124,14 @@ export class QueueTransferService {
         roll_finish: sourceBatch.roll_finish,
         queue_seq: queueSeq,
         sap_order_no: sourceBatch.sap_order_no,
-        process_route_raw: await this.getRouteRaw(journeyId),
+        process_route_raw: await this.getRouteRaw(journeyId, conn),
       })
       .returning('batch_id')
       .executeTakeFirstOrThrow();
 
     const batchId = Number(inserted.batch_id);
 
-    await db.updateTable('coil.coil')
+    await conn.updateTable('coil.coil')
       .set({
         status: 'PLANNED',
         coil_thk_mm: inputThk,
@@ -136,12 +141,12 @@ export class QueueTransferService {
       .where('coil_no', '=', sourceBatch.coil_no)
       .execute();
 
-    await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, batchId);
+    await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, batchId, conn);
     return batchId;
   }
 
-  private static async getRouteRaw(journeyId: number): Promise<string | null> {
-    const j = await db.selectFrom('planning.order_journey')
+  private static async getRouteRaw(journeyId: number, conn: DbConn = db): Promise<string | null> {
+    const j = await conn.selectFrom('planning.order_journey')
       .select('route_raw')
       .where('journey_id', '=', String(journeyId))
       .executeTakeFirst();
@@ -153,8 +158,9 @@ export class QueueTransferService {
     sourceStepId: number,
     targetStepNo: number,
     targetBatchId: number | null,
+    conn: DbConn = db,
   ) {
-    await db.insertInto('planning.queue_handoff')
+    await conn.insertInto('planning.queue_handoff')
       .values({
         journey_id: String(journeyId),
         source_step_id: String(sourceStepId),

@@ -103,7 +103,7 @@ export class ProcessStationService {
     return code as ProcessStationCode;
   }
 
-  static async getQueue(processCode: string, userId?: number): Promise<ProcessQueueCard[]> {
+  static async getQueue(processCode: string, _userId?: number): Promise<ProcessQueueCard[]> {
     const code = this.assertProcessCode(processCode);
     // RWD is its own order line (txn.rwd_order) — do not use journey station queue.
     if (code === 'RWD') {
@@ -135,61 +135,9 @@ export class ProcessStationService {
       });
     }
 
-    // HRS order line (txn.hrs_order) — mother coil key + slit orderLines.
-    if (code === 'HRS') {
-      const { HrsOrderService } = await import('./HrsOrderService');
-      const { queue } = await HrsOrderService.getQueue(userId ?? 0);
-      return queue.map((c) => {
-        const raw = (c.status ?? 'PENDING').toUpperCase();
-        const status: ProcessQueueCard['status'] =
-          raw === 'COMPLETED' ? 'COMPLETED'
-            : raw === 'REJECTED' ? 'HOLD'
-              : raw === 'IN_PROGRESS' || raw === 'STOPPAGE' ? 'IN_PROGRESS'
-                : 'PENDING';
-        return {
-          coilNo: c.coilNo,
-          displayCoilNo: c.displayCoilNo,
-          gradeCode: c.gradeCode,
-          customerName: c.customerName,
-          widthMm: c.widthMm,
-          thicknessMm: c.thicknessMm,
-          weightMt: c.weightMt,
-          status,
-          journeyId: c.journeyId ?? c.coilNo,
-          stepNo: c.stepNo ?? 0,
-          orderLines: c.orderLines,
-          lineCount: c.lineCount,
-          combination: c.combination,
-        } satisfies ProcessQueueCard;
-      });
-    }
-
-    // PKL order line (txn.pkl_order) — mother coil key + slit id, no order-lines.
-    if (code === 'PKL') {
-      const { PklOrderService } = await import('./PklOrderService');
-      const { queue } = await PklOrderService.getQueue(userId ?? 0);
-      return queue.map((c) => {
-        const raw = (c.status ?? 'PENDING').toUpperCase();
-        const status: ProcessQueueCard['status'] =
-          raw === 'COMPLETED' ? 'COMPLETED'
-            : raw === 'REJECTED' ? 'HOLD'
-              : raw === 'IN_PROGRESS' || raw === 'STOPPAGE' ? 'IN_PROGRESS'
-                : 'PENDING';
-        return {
-          coilNo: c.coilNo,
-          displayCoilNo: c.displayCoilNo,
-          gradeCode: c.gradeCode,
-          customerName: c.customerName,
-          widthMm: c.widthMm,
-          thicknessMm: c.thicknessMm,
-          weightMt: c.weightMt,
-          status,
-          journeyId: c.journeyId ?? c.coilNo,
-          stepNo: c.stepNo ?? 0,
-          motherCoilNo: c.motherCoilNo,
-          slitId: c.slitId,
-        } satisfies ProcessQueueCard;
-      });
+    // HRS/PKL queues live on /hrs-order/queue & /pkl-order/queue — stations queue is ANN/CRS/CTL.
+    if (code === 'HRS' || code === 'PKL') {
+      throw new Error(`Use /${code.toLowerCase()}-order/queue (stations queue is for ANN/CRS/CTL)`);
     }
 
     const rows = await db.selectFrom('planning.order_journey as oj')
@@ -669,10 +617,11 @@ export class ProcessStationService {
         iron_strength_pct: tank.ironStrengthPct ?? null,
       };
       if (tank.tankNo === 1 && line) {
+        // Interval reading fields only — steam_outlet_burner / rinse_acid_pct / rinse_iron_pct
+        // are end-of-shift once-per-shift values and must not be cleared here.
         Object.assign(values, {
           steam_inlet_kgcm2: line.steamInletKgcm2 ?? null,
           steam_outlet_kgcm2: line.steamOutletKgcm2 ?? null,
-          steam_outlet_burner_kgcm2: line.steamOutletBurnerKgcm2 ?? null,
           dosage_acid: line.dosageAcid ?? null,
           dosage_water: line.dosageWater ?? null,
           dosage_inhibitor: line.dosageInhibitor ?? null,
@@ -680,8 +629,6 @@ export class ProcessStationService {
           rinse_ph: line.rinsePh ?? null,
           rinse_flow: line.rinseFlow ?? null,
           rinse_temp_degc: line.rinseTempDegc ?? null,
-          rinse_acid_pct: line.rinseAcidPct ?? null,
-          rinse_iron_pct: line.rinseIronPct ?? null,
           burner_pressure_kgcm2: line.burnerPressureKgcm2 ?? null,
           hot_air_temp_degc: line.hotAirTempDegc ?? null,
           line_incharge: line.lineIncharge ?? null,
@@ -1413,5 +1360,116 @@ export class ProcessStationService {
     const roster = await db.selectFrom('txn.ann_charge_coil as acc').innerJoin('coil.coil as c', 'c.coil_no', 'acc.coil_no').select(['c.weight_mt']).where('acc.charge_no', '=', chargeNo).execute();
     const chargeWt = roster.reduce((sum, r) => sum + Number(r.weight_mt ?? 0), 0);
     await db.updateTable('txn.ann_charge').set({ no_of_coils: roster.length, charge_wt_mt: chargeWt }).where('charge_no', '=', chargeNo).execute();
+  }
+
+  /** Order-level production history for operator History tab (HRS/PKL/RWD). */
+  static async getProcessOrderHistory(process: string, shiftLogId: string) {
+    const code = process.toUpperCase();
+    if (code === 'HRS') {
+      const rows = await db.selectFrom('txn.prod_hrs')
+        .select(['entry_id', 'coil_no', 'grade_code', 'weight_mt', 'scrap_mt', 'net_runtime_min', 'status', 'time_from', 'time_to', 'shift_code'])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .orderBy('entry_id', 'desc')
+        .limit(200)
+        .execute();
+      return rows.map((r) => ({
+        id: String(r.entry_id),
+        coilNo: r.coil_no,
+        gradeCode: r.grade_code,
+        weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
+        scrapMt: r.scrap_mt != null ? Number(r.scrap_mt) : null,
+        durationMin: r.net_runtime_min != null ? Number(r.net_runtime_min) : null,
+        status: r.status,
+        timeFrom: r.time_from,
+        timeTo: r.time_to,
+        shiftCode: r.shift_code,
+      }));
+    }
+    if (code === 'PKL') {
+      const rows = await db.selectFrom('txn.prod_pkl')
+        .select(['entry_id', 'coil_no', 'grade_code', 'weight_mt', 'line_speed_mpm', 'repeats', 'wp', 'shift_code'])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .orderBy('entry_id', 'desc')
+        .limit(200)
+        .execute();
+      return rows.map((r) => ({
+        id: String(r.entry_id),
+        coilNo: r.coil_no,
+        gradeCode: r.grade_code,
+        weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
+        lineSpeedMpm: r.line_speed_mpm != null ? Number(r.line_speed_mpm) : null,
+        repeats: r.repeats,
+        wp: r.wp,
+        shiftCode: r.shift_code,
+      }));
+    }
+    if (code === 'RWD') {
+      const rows = await db.selectFrom('txn.prod_rwd')
+        .select([
+          'entry_id', 'coil_no', 'weight_mt', 'surface_finish', 'shift_code',
+          'rw_tension_1_kg', 'rw_tension_2_kg', 'rw_tension_3_kg', 'time_from', 'time_to',
+        ])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .orderBy('entry_id', 'desc')
+        .limit(200)
+        .execute();
+      return rows.map((r) => ({
+        id: String(r.entry_id),
+        coilNo: r.coil_no,
+        weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
+        surfaceFinish: r.surface_finish,
+        tension1Kg: r.rw_tension_1_kg != null ? Number(r.rw_tension_1_kg) : null,
+        tension2Kg: r.rw_tension_2_kg != null ? Number(r.rw_tension_2_kg) : null,
+        tension3Kg: r.rw_tension_3_kg != null ? Number(r.rw_tension_3_kg) : null,
+        timeFrom: r.time_from,
+        timeTo: r.time_to,
+        shiftCode: r.shift_code,
+      }));
+    }
+    throw new Error(`History not supported for ${code}`);
+  }
+
+  /** Shift field readings for HRS (width) / RWD (tension rows from prod). */
+  static async getProcessReadings(process: string, shiftLogId: string) {
+    const code = process.toUpperCase();
+    if (code === 'HRS') {
+      const rows = await db.selectFrom('txn.prod_hrs_width_reading as wr')
+        .innerJoin('txn.prod_hrs as ph', 'ph.entry_id', 'wr.entry_id')
+        .select(['wr.reading_id', 'wr.reading_time', 'wr.actual_width_mm', 'ph.coil_no'])
+        .where('ph.shift_log_id', '=', shiftLogId as never)
+        .orderBy('wr.reading_time', 'desc')
+        .limit(300)
+        .execute();
+      return rows.map((r) => ({
+        id: String(r.reading_id),
+        takenAt: r.reading_time ? new Date(String(r.reading_time)).toISOString() : null,
+        coilNo: r.coil_no,
+        actualWidthMm: r.actual_width_mm != null ? Number(r.actual_width_mm) : null,
+      }));
+    }
+    if (code === 'RWD') {
+      // ponytail: prod_rwd is the reading log until a dedicated readings table exists
+      const rows = await db.selectFrom('txn.prod_rwd')
+        .select([
+          'entry_id', 'coil_no', 'weight_mt', 'surface_finish',
+          'rw_tension_1_kg', 'rw_tension_2_kg', 'rw_tension_3_kg', 'time_from',
+        ])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .orderBy('entry_id', 'desc')
+        .limit(200)
+        .execute();
+      return rows.map((r) => ({
+        id: String(r.entry_id),
+        takenAt: null as string | null,
+        coilNo: r.coil_no,
+        weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
+        surfaceFinish: r.surface_finish,
+        tension1Kg: r.rw_tension_1_kg != null ? Number(r.rw_tension_1_kg) : null,
+        tension2Kg: r.rw_tension_2_kg != null ? Number(r.rw_tension_2_kg) : null,
+        tension3Kg: r.rw_tension_3_kg != null ? Number(r.rw_tension_3_kg) : null,
+        timeFrom: r.time_from,
+      }));
+    }
+    throw new Error(`Readings not supported for ${code}`);
   }
 }

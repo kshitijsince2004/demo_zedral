@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { calculateScrapPct, crsMassBalanceWarn, formatPlantTime } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
 import { ZInput } from '../../primitives/ZInput';
-import { submitProcessCapture } from '../../../store/processStore';
+import { ZBadge } from '../../primitives/ZBadge';
+import { submitProcessCapture, useProcessStore } from '../../../store/processStore';
 import { apiClient } from '../../../lib/apiClient';
 import type { BodyProps } from '../../../lib/processConfig';
 import { deltaBand } from '../ProcessPairedField';
@@ -26,9 +27,9 @@ type OrderLine = {
   toWorkCenter?: string;
 };
 
-type ThkReading = { time: string; thkMm: number };
+type ThkReading = { time: string; thkMm?: number };
 type TaperReading = { time: string; taper: string };
-type WidthReading = { time: string; widthMm: number };
+type WidthReading = { time: string; widthMm?: number };
 
 interface HrsLine {
   slot: string;
@@ -62,6 +63,18 @@ function latestByTime<T extends { time: string }>(readings: T[]): T | undefined 
 
 function sortReadings<T extends { time: string }>(readings: T[]): T[] {
   return [...readings].sort((a, b) => a.time.localeCompare(b.time));
+}
+
+/** Empty/`0` from number inputs must not become schema-positive fields. */
+function parseOptionalPositive(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function positiveOrUndef(n: number | undefined): number | undefined {
+  return n != null && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSubmitted }: BodyProps) {
@@ -163,11 +176,46 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
     }));
   }
 
+  function buildSlitSlot(l: HrsLine) {
+    const thicknessReadings = l.thicknessReadings
+      .map((r) => ({ time: r.time.trim(), thkMm: positiveOrUndef(r.thkMm) }))
+      .filter((r): r is { time: string; thkMm: number } => !!r.time && r.thkMm != null);
+    if (l.thicknessReadings.length > 0 && thicknessReadings.length !== l.thicknessReadings.length) {
+      throw new Error(`Thickness readings on slit ${l.slot} must each be > 0`);
+    }
+    const taperReadings = l.taperReadings
+      .map((r) => ({ time: r.time.trim(), taper: r.taper.trim() }))
+      .filter((r) => !!r.time && !!r.taper);
+    if (l.taperReadings.length > 0 && taperReadings.length !== l.taperReadings.length) {
+      throw new Error(`Taper readings on slit ${l.slot} need time + value`);
+    }
+    return {
+      slot: l.slot,
+      widthMm: positiveOrUndef(l.targetWidthMm),
+      targetWidthMm: positiveOrUndef(l.targetWidthMm),
+      plannedThkMm: positiveOrUndef(l.plannedThkMm),
+      plannedWeightMt: positiveOrUndef(l.plannedWeightMt),
+      thicknessReadings: thicknessReadings.length ? thicknessReadings : undefined,
+      taperReadings: taperReadings.length ? taperReadings : undefined,
+      thkLatestMm: latestByTime(thicknessReadings)?.thkMm,
+      taperLatest: latestByTime(taperReadings)?.taper,
+      childCoilNo: l.childCoilNo,
+      customer: l.customer || undefined,
+      sapBatchNumber: l.sapBatchNumber || undefined,
+      surfaceFinish: l.surfaceFinish || undefined,
+      finishThicknessMm: positiveOrUndef(l.finishThicknessMm),
+      routeRaw: l.routeRaw,
+      downstreamCrsCombination: l.downstreamCrsCombination || undefined,
+      holdFlag: l.holdFlag,
+      forCtlFlag: l.forCtlFlag,
+    };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (lines.length === 0) {
-      setError('No plan slits for this mother — PPC batch required');
+      setError('No plan slots for this mother — PPC batch required');
       return;
     }
     const missingRoute = lines.find((l) => !l.holdFlag && !l.routeRaw.trim());
@@ -175,46 +223,42 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       setError(`Route required for slit ${missingRoute.slot} (hard gate — child journey spawn)`);
       return;
     }
+
+    const cleanWidthReadings = widthReadings
+      .map((r) => ({ time: r.time.trim(), widthMm: positiveOrUndef(r.widthMm) }))
+      .filter((r): r is { time: string; widthMm: number } => !!r.time && r.widthMm != null);
+    if (widthReadings.length > 0 && cleanWidthReadings.length !== widthReadings.length) {
+      setError('Mother width readings must each be a number greater than 0');
+      return;
+    }
+    const submitMotherWidth = latestByTime(cleanWidthReadings)?.widthMm;
+
+    let slitSlots: ReturnType<typeof buildSlitSlot>[];
+    try {
+      slitSlots = lines.map(buildSlitSlot);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid slit readings');
+      return;
+    }
+
     setSubmitting(true);
     try {
+      if (!shiftLogId) throw new Error('No active shift — open a shift before ending');
       await submitProcessCapture('/production/hrs', {
         machineCode,
-        shiftLogId,
+        shiftLogId: String(shiftLogId),
         coilNo,
-        nominalWidthMm: motherWidth || undefined,
-        actualWidthMm: latestMotherWidth,
-        motherWidthReadings: widthReadings,
-        nominalThkMm: rmThk || undefined,
-        motherCoilWeightMt: motherWt || undefined,
-        weightMt: producedMt || undefined,
+        nominalWidthMm: positiveOrUndef(motherWidth),
+        actualWidthMm: submitMotherWidth,
+        motherWidthReadings: cleanWidthReadings.length ? cleanWidthReadings : undefined,
+        nominalThkMm: positiveOrUndef(rmThk),
+        motherCoilWeightMt: positiveOrUndef(motherWt),
+        weightMt: positiveOrUndef(producedMt),
         scrapMt,
         scrapPct,
         gradeCode: prefill.gradeCode ? String(prefill.gradeCode) : undefined,
         specVersionId,
-        slitSlots: lines.map((l) => {
-          const thkLatest = latestByTime(l.thicknessReadings)?.thkMm;
-          const taperLatest = latestByTime(l.taperReadings)?.taper;
-          return {
-            slot: l.slot,
-            widthMm: l.targetWidthMm,
-            targetWidthMm: l.targetWidthMm,
-            plannedThkMm: l.plannedThkMm,
-            plannedWeightMt: l.plannedWeightMt,
-            thicknessReadings: l.thicknessReadings,
-            taperReadings: l.taperReadings,
-            thkLatestMm: thkLatest,
-            taperLatest,
-            childCoilNo: l.childCoilNo,
-            customer: l.customer || undefined,
-            sapBatchNumber: l.sapBatchNumber || undefined,
-            surfaceFinish: l.surfaceFinish || undefined,
-            finishThicknessMm: l.finishThicknessMm,
-            routeRaw: l.routeRaw,
-            downstreamCrsCombination: l.downstreamCrsCombination || undefined,
-            holdFlag: l.holdFlag,
-            forCtlFlag: l.forCtlFlag,
-          };
-        }),
+        slitSlots,
       }, coilNo);
       onSubmitted?.();
     } catch (err) {
@@ -246,7 +290,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
         planLabel={`Plan ${motherWidth || '—'} mm`}
         latestLabel={latestMotherWidth != null ? `${latestMotherWidth} mm` : '—'}
         latestCue={motherWidthCue}
-        onAdd={() => setWidthReadings([...widthReadings, { time: formatPlantTime(), widthMm: motherWidth || 0 }])}
+        onAdd={() => setWidthReadings([...widthReadings, { time: formatPlantTime(), widthMm: positiveOrUndef(motherWidth) }])}
         addLabel="Add width reading"
       >
         {sortReadings(widthReadings).map((r, idx) => {
@@ -268,7 +312,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
                 value={r.widthMm || ''}
                 onChange={(e) => {
                   const next = [...widthReadings];
-                  next[i] = { ...r, widthMm: Number(e.target.value) };
+                  next[i] = { ...r, widthMm: parseOptionalPositive(e.target.value) };
                   setWidthReadings(next);
                 }}
               />
@@ -281,21 +325,21 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       </ReadingSection>
 
       <p className="text-xs text-muted-foreground font-mono">
-        Packed {packedMm.toFixed(1)} / {motherWidth || '—'} mm · {lines.length} slits
+        Packed {packedMm.toFixed(1)} / {motherWidth || '—'} mm · {lines.length} slots
       </p>
 
       {lines.length === 0 && (
-        <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          No plan slits for this mother — pick a mother with PPC batch lines.
+        <p className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
+          No plan slots for this mother — pick a mother with PPC batch lines.
         </p>
       )}
       {widthWarn && (
-        <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <p className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
           Width combination warn: Σ target widths exceed mother RM width.
         </p>
       )}
       {massWarn && (
-        <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <p className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
           Mass-balance warn: Σ plan line weight + scrap ≠ mother coil weight.
         </p>
       )}
@@ -319,7 +363,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
               <ReadOnly label="Planned Thk mm" value={line.plannedThkMm ?? '—'} />
               <label className="flex items-center gap-2 text-sm min-h-11">
                 <input type="checkbox" checked={line.holdFlag} onChange={(e) => patch(line.slot, { holdFlag: e.target.checked })} />
-                <span className="uppercase tracking-wide text-accent-foreground bg-accent/80 px-2 py-0.5 rounded text-xs font-semibold">HOLD</span>
+                <ZBadge tone="accent" label="HOLD" />
               </label>
               <label className="flex items-center gap-2 text-sm min-h-11">
                 <input type="checkbox" checked={line.forCtlFlag} onChange={(e) => patch(line.slot, { forCtlFlag: e.target.checked })} />
@@ -333,7 +377,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
               latestLabel={thkLatest != null ? `${thkLatest} mm` : '—'}
               latestCue={thkCue}
               onAdd={() => patch(line.slot, {
-                thicknessReadings: [...line.thicknessReadings, { time: formatPlantTime(), thkMm: line.plannedThkMm ?? 0 }],
+                thicknessReadings: [...line.thicknessReadings, { time: formatPlantTime(), thkMm: positiveOrUndef(line.plannedThkMm) }],
               })}
               addLabel="Add thickness reading"
             >
@@ -356,7 +400,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
                       value={r.thkMm || ''}
                       onChange={(e) => {
                         const next = [...line.thicknessReadings];
-                        next[i] = { ...r, thkMm: Number(e.target.value) };
+                        next[i] = { ...r, thkMm: parseOptionalPositive(e.target.value) };
                         patch(line.slot, { thicknessReadings: next });
                       }}
                     />
@@ -421,7 +465,12 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       })}
 
       {error && <p className="text-destructive text-sm">{error}</p>}
-      <ZButton type="submit" variant="primary" disabled={submitting}>
+      <ZButton
+        type="button"
+        variant="primary"
+        disabled={submitting}
+        onClick={() => useProcessStore.getState().requestEndConfirm()}
+      >
         {submitting ? 'Submitting…' : 'Save Production Data'}
       </ZButton>
     </form>
@@ -459,7 +508,7 @@ function ReadingSection({
             {latestCue && latestCue.label !== '—' && (
               <span className={`ml-2 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
                 latestCue.band === 'ok' ? 'text-success bg-success/10 border-success/30'
-                  : latestCue.band === 'warn' ? 'text-amber-800 bg-amber-50 border-amber-200'
+                  : latestCue.band === 'warn' ? 'text-warning bg-warning/10 border-warning/30'
                     : 'text-muted-foreground bg-muted/40 border-border/50'
               }`}>Δ {latestCue.label}</span>
             )}

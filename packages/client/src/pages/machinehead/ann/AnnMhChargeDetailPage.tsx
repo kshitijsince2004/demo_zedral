@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronsRight } from 'lucide-react';
 import { MachineHeadShell } from '../../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../../components/primitives/ZButton';
+import { ZBadge } from '../../../components/primitives/ZBadge';
 import { apiClient } from '../../../lib/apiClient';
+import type { Tone } from '../../../lib/tones';
 
 type Stage = { stage_code: string; seq: number; start_at: string | null; end_at: string | null; skipped: boolean };
 type Reading = {
@@ -102,6 +104,11 @@ export function AnnMhChargeDetailPage() {
   }
 
   const stagesSorted = useMemo(() => [...(detail?.stages ?? [])].sort((a, b) => a.seq - b.seq), [detail]);
+  const openStoppage = (detail?.stoppages ?? []).find((s) => !s.end_at);
+  const statusLabel =
+    charge?.status === 'DONE' ? 'COMPLETE' : openStoppage ? 'STOPPAGE' : String(charge?.status ?? 'RUNNING');
+  const statusTone: Tone =
+    statusLabel === 'COMPLETE' ? 'info' : statusLabel === 'STOPPAGE' ? 'warning' : statusLabel === 'PENDING' ? 'accent' : 'success';
 
   return (
     <MachineHeadShell
@@ -114,33 +121,47 @@ export function AnnMhChargeDetailPage() {
       fillViewport
       onRefresh={() => void reload()}
       headerActions={
-        <ZButton variant="secondary" size="sm" onClick={() => navigate('/machine-head/ann/live')}>
-          <ChevronLeft className="h-4 w-4" /> Live
-        </ZButton>
+        <div className="flex items-center gap-2">
+          <ZBadge tone={statusTone} label={statusLabel} dot={statusLabel === 'RUNNING' || statusLabel === 'ACTIVE'} />
+          <ZButton variant="secondary" size="sm" onClick={() => navigate('/machine-head/ann/live')}>
+            <ChevronLeft className="h-4 w-4" /> Live
+          </ZButton>
+        </div>
       }
     >
       {!detail ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <div className="grid min-h-0 flex-1 gap-3 overflow-auto lg:grid-cols-2">
-          <section className="space-y-3 rounded-xl border border-border bg-background p-4">
-            <h2 className="text-sm font-bold">Charge details</h2>
-            <dl className="grid grid-cols-2 gap-2 text-xs">
-              <div><dt className="text-muted-foreground">Status</dt><dd className="font-semibold">{String(charge?.status ?? '—')}</dd></div>
-              <div><dt className="text-muted-foreground">Grade</dt><dd className="font-semibold">{String(charge?.grade_code ?? '—')}</dd></div>
-              <div><dt className="text-muted-foreground">Coils / Wt</dt><dd className="font-semibold">{String(charge?.no_of_coils ?? 0)} · {Number(charge?.charge_wt_mt ?? 0).toFixed(2)} MT</dd></div>
-              <div><dt className="text-muted-foreground">F/C No</dt><dd className="font-semibold">{charge?.furnace_id != null ? String(charge.furnace_id) : '—'}</dd></div>
-              <div><dt className="text-muted-foreground">Exp unload</dt><dd className="font-semibold">{fmt(charge?.exp_unloading_time as string | null)}</dd></div>
-              <div><dt className="text-muted-foreground">Unload wt</dt><dd className="font-semibold">{charge?.unloading_wt_mt != null ? `${Number(charge.unloading_wt_mt).toFixed(2)} MT` : '—'}</dd></div>
-              <div><dt className="text-muted-foreground">Dew N₂</dt><dd className="font-semibold">{charge?.dew_point_n2 != null ? String(charge.dew_point_n2) : '—'}</dd></div>
-              <div><dt className="text-muted-foreground">Dew H₂</dt><dd className="font-semibold">{charge?.dew_point_h2 != null ? String(charge.dew_point_h2) : '—'}</dd></div>
+          <section className="space-y-3 rounded-lg border border-border bg-background p-4 shadow-sm">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Charge details</h2>
+            <dl className="grid grid-cols-2 gap-3 text-xs">
+              {[
+                ['Status', String(charge?.status ?? '—')],
+                ['Grade', String(charge?.grade_code ?? '—')],
+                ['Coils / Wt', `${String(charge?.no_of_coils ?? 0)} · ${Number(charge?.charge_wt_mt ?? 0).toFixed(2)} MT`],
+                ['F/C No', charge?.furnace_id != null ? String(charge.furnace_id) : '—'],
+                ['Exp unload', fmt(charge?.exp_unloading_time as string | null)],
+                ['Unload wt', charge?.unloading_wt_mt != null ? `${Number(charge.unloading_wt_mt).toFixed(2)} MT` : '—'],
+                ['Dew N₂', charge?.dew_point_n2 != null ? String(charge.dew_point_n2) : '—'],
+                ['Dew H₂', charge?.dew_point_h2 != null ? String(charge.dew_point_h2) : '—'],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
+                  <dd className="mt-0.5 font-semibold font-mono tabular-nums text-foreground truncate">{value}</dd>
+                </div>
+              ))}
             </dl>
             <ul className="space-y-1">
               {stagesSorted.map((s) => (
                 <li key={s.stage_code}>
-                  <button type="button" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-xs hover:bg-muted" onClick={() => setSelectedStage(s)}>
-                    <span className="font-semibold">{s.stage_code}</span>
-                    <span className="mt-0.5 block text-muted-foreground">
+                  <button
+                    type="button"
+                    className="w-full min-h-11 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setSelectedStage(s)}
+                  >
+                    <span className="font-semibold text-foreground">{s.stage_code}</span>
+                    <span className="mt-0.5 block font-mono tabular-nums text-muted-foreground">
                       {fmt(s.start_at)} → {fmt(s.end_at)}{s.skipped ? ' · SKIP' : ''}
                     </span>
                   </button>
@@ -148,7 +169,7 @@ export function AnnMhChargeDetailPage() {
               ))}
             </ul>
             {selectedStage && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground font-mono">
                 Selected {selectedStage.stage_code}: {fmt(selectedStage.start_at)} → {fmt(selectedStage.end_at)}
               </p>
             )}
@@ -156,30 +177,44 @@ export function AnnMhChargeDetailPage() {
           </section>
 
           <div className="space-y-3">
-            <section className="rounded-xl border border-border bg-background p-4 space-y-2">
-              <h2 className="text-sm font-bold">Roster</h2>
+            <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Roster</h2>
               {detail.roster.map((r) => (
-                <div key={r.coil_no} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono">
-                  {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT · {r.disposition}
+                <div key={r.coil_no} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
+                  <span className="font-mono tabular-nums text-foreground">
+                    {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
+                  </span>
+                  {r.disposition === 'HOLD' ? (
+                    <ZBadge tone="accent" label="HOLD" />
+                  ) : r.disposition === 'REJECT' ? (
+                    <ZBadge tone="destructive" label="REJECT" />
+                  ) : (
+                    <ZBadge tone="success" label={r.disposition || 'ADVANCE'} />
+                  )}
                 </div>
               ))}
             </section>
-            <section className="rounded-xl border border-border bg-background p-4 space-y-2">
-              <h2 className="text-sm font-bold">Stoppages</h2>
+            <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stoppages</h2>
               {(detail.stoppages ?? []).length === 0 && <p className="text-xs text-muted-foreground">None</p>}
               {(detail.stoppages ?? []).map((s) => (
                 <div key={String(s.stoppage_id)} className="rounded-lg border border-border bg-card px-3 py-2 text-xs">
-                  <span className="font-semibold">{s.category_code}{!s.end_at ? ' · OPEN' : ''}</span>
-                  <span className="block text-muted-foreground">{fmt(s.start_at)} → {fmt(s.end_at)}{s.reason ? ` · ${s.reason}` : ''}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground">{s.category_code}</span>
+                    {!s.end_at && <ZBadge tone="warning" label="OPEN" />}
+                  </div>
+                  <span className="block font-mono tabular-nums text-muted-foreground mt-0.5">{fmt(s.start_at)} → {fmt(s.end_at)}{s.reason ? ` · ${s.reason}` : ''}</span>
                 </div>
               ))}
             </section>
-            <section className="rounded-xl border border-border bg-background p-4 space-y-2">
-              <h2 className="text-sm font-bold flex items-center gap-1"><Check className="h-3.5 w-3.5" /> Operator readings</h2>
+            <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+                <Check className="h-3.5 w-3.5" /> Operator readings
+              </h2>
               {(detail.readings ?? []).length === 0 && <p className="text-xs text-muted-foreground">No readings</p>}
               {(detail.readings ?? []).map((r) => (
-                <div key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono">
-                  <p className="font-sans font-medium">{fmt(r.taken_at)} · {r.stage_code ?? '—'}</p>
+                <div key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono tabular-nums">
+                  <p className="font-sans font-medium text-foreground">{fmt(r.taken_at)} · {r.stage_code ?? '—'}</p>
                   <p className="text-muted-foreground">
                     C {r.charge_temp ?? '—'} · G {r.gas_temp ?? '—'} · F/C {r.fc_temp ?? '—'} · P {r.base_press ?? '—'} · Fan {r.base_fan_rpm ?? '—'}
                     {' · '}N2H2 {r.n2h2_flow ?? '—'} · Fuel {r.fuel_flow ?? '—'} · RCF {r.rcf_rpm ?? '—'}

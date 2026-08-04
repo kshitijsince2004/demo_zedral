@@ -93,21 +93,28 @@ export function RewindingManualOrderModal({
     <>
       <button type="button" className="fixed inset-0 z-[120] bg-primary/50" onClick={handleClose} aria-label="Close" />
       <div
-        className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[125] max-w-2xl mx-auto bg-white border border-border rounded-2xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[125] max-w-2xl mx-auto bg-background border border-border rounded-lg shadow-2xl max-h-[90vh] flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label="Manual rewinding order"
       >
-        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border bg-primary text-white">
+        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border bg-primary text-primary-foreground">
           <h2 className="text-lg font-bold">New Rewinding Order</h2>
-          <button type="button" onClick={handleClose} className="min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-white/10">
+          <ZButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleClose}
+            className="!min-h-10 !h-10 !w-10 !px-0 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
+            aria-label="Close"
+          >
             <X className="h-5 w-5" />
-          </button>
+          </ZButton>
         </div>
 
         {step === 'warning' ? (
           <div className="p-6 space-y-4 overflow-auto">
-            <div className="flex items-start gap-3 p-4 rounded-xl bg-warning/15 border border-warning/40 text-foreground">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-warning/15 border border-warning/40 text-foreground">
               <AlertTriangle className="h-6 w-6 shrink-0 mt-0.5 text-warning" aria-hidden />
               <div className="space-y-2 text-sm">
                 <p className="font-bold text-base">Manual Order Entry</p>

@@ -21,7 +21,6 @@ type ChartDbRow = {
   iron_strength_pct: number | string | null;
   steam_inlet_kgcm2?: number | string | null;
   steam_outlet_kgcm2?: number | string | null;
-  steam_outlet_burner_kgcm2?: number | string | null;
   burner_pressure_kgcm2?: number | string | null;
   hot_air_temp_degc?: number | string | null;
   dosage_acid?: number | string | null;
@@ -31,25 +30,23 @@ type ChartDbRow = {
   rinse_ph?: number | string | null;
   rinse_flow?: number | string | null;
   rinse_temp_degc?: number | string | null;
-  rinse_acid_pct?: number | string | null;
-  rinse_iron_pct?: number | string | null;
   line_incharge?: string | null;
 };
 
 type TankVals = { level: string; temp: string; acid: string; iron: string };
 type LineVals = {
-  steamInlet: string; steamOutlet: string; steamBurner: string; masha: string; hotAir: string;
+  steamInlet: string; steamOutlet: string; masha: string; hotAir: string;
   dosageAcid: string; dosageWater: string; dosageInhib: string;
   rinseCl: string; rinsePh: string; rinseFlow: string; rinseTemp: string;
-  rinseAcid: string; rinseIron: string; lineIncharge: string;
+  lineIncharge: string;
 };
 
 const emptyTank = (): TankVals => ({ level: '', temp: '', acid: '', iron: '' });
 const emptyLine = (): LineVals => ({
-  steamInlet: '', steamOutlet: '', steamBurner: '', masha: '', hotAir: '',
+  steamInlet: '', steamOutlet: '', masha: '', hotAir: '',
   dosageAcid: '', dosageWater: '', dosageInhib: '',
   rinseCl: '', rinsePh: '', rinseFlow: '', rinseTemp: '',
-  rinseAcid: '', rinseIron: '', lineIncharge: '',
+  lineIncharge: '',
 });
 
 function outOfRange(val: string, min: number | null, max: number | null): boolean {
@@ -71,7 +68,7 @@ function lim(limits: SpecLimit[], key: string, scope: string) {
 
 function s(v: unknown) { return v == null || v === '' ? '' : String(v); }
 
-/** Log-sheet Process Chart — rows = reading times; columns grouped like the paper (revamp §8). */
+/** Process Chart — history by default; entry form opens only via Add Reading. */
 export function PklChartGrid() {
   const { shiftLogId } = useShiftStore();
   const [chartTime, setChartTime] = useState(formatPlantTime());
@@ -84,6 +81,7 @@ export function PklChartGrid() {
   const [line, setLine] = useState<LineVals>(emptyLine());
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -133,11 +131,27 @@ export function PklChartGrid() {
   }, [history]);
 
   function cellClass(val: string, key: string, scope: string) {
+    if (!key) return '';
     const { min, max } = lim(limits, key, scope);
     return outOfRange(val, min, max) ? 'border-amber-400 bg-amber-50' : '';
   }
 
   function num(v: string) { return v === '' ? undefined : Number(v); }
+
+  function openForm() {
+    setMsg(null);
+    setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
+    setLine(emptyLine());
+    setChartTime(formatPlantTime());
+    setFormOpen(true);
+  }
+
+  function closeForm() {
+    setFormOpen(false);
+    setMsg(null);
+    setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
+    setLine(emptyLine());
+  }
 
   async function saveChart() {
     if (!shiftLogId) return;
@@ -156,7 +170,6 @@ export function PklChartGrid() {
       line: {
         steamInletKgcm2: num(line.steamInlet),
         steamOutletKgcm2: num(line.steamOutlet),
-        steamOutletBurnerKgcm2: num(line.steamBurner),
         burnerPressureKgcm2: num(line.masha),
         hotAirTempDegc: num(line.hotAir),
         dosageAcid: num(line.dosageAcid),
@@ -166,18 +179,14 @@ export function PklChartGrid() {
         rinsePh: num(line.rinsePh),
         rinseFlow: num(line.rinseFlow),
         rinseTempDegc: num(line.rinseTemp),
-        rinseAcidPct: num(line.rinseAcid),
-        rinseIronPct: num(line.rinseIron),
         lineIncharge: line.lineIncharge || undefined,
       },
     };
     try {
       await apiClient.post('/stations/pkl/chart', payload);
       setMsg('Saved');
-      setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
-      setLine(emptyLine());
-      setChartTime(formatPlantTime());
       await loadHistory();
+      closeForm();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -185,16 +194,51 @@ export function PklChartGrid() {
     }
   }
 
-  const inputCls = 'w-16 min-h-10 rounded border border-input bg-background px-1.5 text-xs font-mono text-center';
+  const fieldCls = (val: string, key: string, scope: string) =>
+    `w-full min-h-11 rounded-lg border border-input bg-background px-3 text-base font-mono tabular-nums ${cellClass(val, key, scope)}`;
+
+  function Field({
+    label, value, onChange, paramKey, scope, text,
+  }: {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    paramKey?: string;
+    scope?: string;
+    text?: boolean;
+  }) {
+    return (
+      <label className="block space-y-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+        <input
+          className={fieldCls(value, paramKey ?? '', scope ?? 'LINE')}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode={text ? 'text' : 'decimal'}
+        />
+      </label>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-secondary">
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-primary text-white h-14">
+      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 bg-primary text-white h-14">
         <div className="flex items-center gap-3 min-w-0">
           <p className="text-base font-bold shrink-0">Process Chart</p>
           <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15">PKL</span>
           {duePrompt && <span className="text-xs opacity-90">Reading due · every {intervalHours}h</span>}
         </div>
+        {!formOpen && (
+          <ZButton
+            type="button"
+            variant="secondary"
+            className="shrink-0 bg-white text-primary hover:bg-white/90"
+            onClick={openForm}
+            disabled={!shiftLogId}
+          >
+            Add Reading
+          </ZButton>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4">
@@ -204,130 +248,212 @@ export function PklChartGrid() {
           </p>
         )}
 
-        <div className="overflow-x-auto border border-border rounded-xl bg-card shadow">
-          <table className="text-xs border-collapse min-w-[72rem]">
-            <thead>
-              <tr className="bg-secondary/60">
-                <th className="sticky left-0 z-10 bg-secondary/90 p-2 text-left border-r border-border" rowSpan={2}>TIME</th>
-                <th className="p-1 border-b border-border" colSpan={3}>LEVEL mm</th>
-                <th className="p-1 border-b border-border" colSpan={3}>TEMP °C</th>
-                <th className="p-1 border-b border-border" colSpan={3}>ACID %</th>
-                <th className="p-1 border-b border-border" colSpan={3}>IRON %</th>
-                <th className="p-1 border-b border-border" colSpan={5}>STEAM / BURNER</th>
-                <th className="p-1 border-b border-border" colSpan={3}>DOSAGE L/min</th>
-                <th className="p-1 border-b border-border" colSpan={4}>HOT RINSE</th>
-                <th className="p-1 border-b border-border" colSpan={3}>BOTTOM</th>
-              </tr>
-              <tr className="bg-secondary/40 text-[9px] uppercase text-muted-foreground">
-                {['T1', 'T2', 'T3', 'T1', 'T2', 'T3', 'T1', 'T2', 'T3', 'T1', 'T2', 'T3'].map((h, i) => (
-                  <th key={`t${i}`} className="p-1 font-medium">{h}</th>
-                ))}
-                <th className="p-1">Inlet PRV</th>
-                <th className="p-1">Out PRV</th>
-                <th className="p-1">Out Burner</th>
-                <th className="p-1">Masha</th>
-                <th className="p-1">Hot Air</th>
-                <th className="p-1">Acid</th>
-                <th className="p-1">Water</th>
-                <th className="p-1">Inhib</th>
-                <th className="p-1">Cl</th>
-                <th className="p-1">pH</th>
-                <th className="p-1">Flow</th>
-                <th className="p-1">Temp</th>
-                <th className="p-1">Rinse Acid%</th>
-                <th className="p-1">Iron%</th>
-                <th className="p-1">Incharge</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stacked.map(([time, bucket]) => {
+        {formOpen && (
+          <section className="rounded-xl border border-border bg-card p-4 shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">New reading</h2>
+              <ZButton type="button" variant="secondary" onClick={closeForm} disabled={saving}>Cancel</ZButton>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Chart time" value={chartTime} onChange={setChartTime} text />
+              <Field
+                label="Line incharge"
+                value={line.lineIncharge}
+                onChange={(v) => setLine({ ...line, lineIncharge: v })}
+                text
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              {([1, 2, 3] as const).map((n) => (
+                <div key={n} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <p className="text-sm font-bold text-foreground">Tank T{n}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Level mm" value={tanks[n].level} paramKey="tank_level" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], level: v } })} />
+                    <Field label="Temp °C" value={tanks[n].temp} paramKey="tank_temp" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], temp: v } })} />
+                    <Field label="Acid %" value={tanks[n].acid} paramKey="acid_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], acid: v } })} />
+                    <Field label="Iron %" value={tanks[n].iron} paramKey="iron_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], iron: v } })} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+              <p className="text-sm font-bold text-foreground">Steam / burner</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Field label="Inlet PRV" value={line.steamInlet} paramKey="steam_inlet" scope="LINE" onChange={(v) => setLine({ ...line, steamInlet: v })} />
+                <Field label="Out PRV" value={line.steamOutlet} paramKey="steam_outlet" scope="LINE" onChange={(v) => setLine({ ...line, steamOutlet: v })} />
+                <Field label="Masha" value={line.masha} paramKey="burner_pressure" scope="LINE" onChange={(v) => setLine({ ...line, masha: v })} />
+                <Field label="Hot air °C" value={line.hotAir} paramKey="hot_air_temp" scope="LINE" onChange={(v) => setLine({ ...line, hotAir: v })} />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+              <p className="text-sm font-bold text-foreground">Dosage L/min</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Field label="Acid" value={line.dosageAcid} onChange={(v) => setLine({ ...line, dosageAcid: v })} />
+                <Field label="Water" value={line.dosageWater} onChange={(v) => setLine({ ...line, dosageWater: v })} />
+                <Field label="Inhibitor" value={line.dosageInhib} onChange={(v) => setLine({ ...line, dosageInhib: v })} />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+              <p className="text-sm font-bold text-foreground">Hot rinse</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Field label="Cl" value={line.rinseCl} paramKey="rinse_cl" scope="RINSE" onChange={(v) => setLine({ ...line, rinseCl: v })} />
+                <Field label="pH" value={line.rinsePh} paramKey="rinse_ph" scope="RINSE" onChange={(v) => setLine({ ...line, rinsePh: v })} />
+                <Field label="Flow" value={line.rinseFlow} paramKey="rinse_flow" scope="RINSE" onChange={(v) => setLine({ ...line, rinseFlow: v })} />
+                <Field label="Temp °C" value={line.rinseTemp} paramKey="rinse_temp" scope="RINSE" onChange={(v) => setLine({ ...line, rinseTemp: v })} />
+              </div>
+              <p className="text-[10px] text-muted-foreground">Rinse acid % / iron % are entered once at end of shift.</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <ZButton type="button" onClick={() => void saveChart()} disabled={saving || !shiftLogId}>
+                {saving ? 'Saving…' : 'Save Reading'}
+              </ZButton>
+              <p className="text-xs text-muted-foreground">Out-of-spec cells amber — still saves. Specs advisory only.</p>
+              {msg && <p className="text-sm">{msg}</p>}
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="sticky top-0 z-10 px-4 py-3 border-b border-border bg-card flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-foreground">Shift readings</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {stacked.length === 0
+                  ? 'No readings yet'
+                  : `${stacked.length} reading${stacked.length === 1 ? '' : 's'} this shift`}
+              </p>
+            </div>
+            {!formOpen && (
+              <p className="text-xs text-muted-foreground hidden sm:block">Use Add Reading to log the next interval.</p>
+            )}
+          </div>
+          {stacked.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground text-center">No readings logged this shift yet.</p>
+          ) : (
+            <div className="p-4 space-y-4">
+              {[...stacked].reverse().map(([time, bucket]) => {
                 const L = bucket.line;
                 return (
-                  <tr key={time} className="border-t border-border">
-                    <td className="sticky left-0 z-10 bg-card font-mono font-bold p-2 border-r border-border">{time}</td>
-                    {([1, 2, 3] as const).map((n) => (
-                      <td key={`lv${n}`} className="p-1 text-center font-mono">{s(bucket.tanks[n]?.tank_level)}</td>
-                    ))}
-                    {([1, 2, 3] as const).map((n) => (
-                      <td key={`tp${n}`} className="p-1 text-center font-mono">{s(bucket.tanks[n]?.tank_temp_degc)}</td>
-                    ))}
-                    {([1, 2, 3] as const).map((n) => (
-                      <td key={`ac${n}`} className="p-1 text-center font-mono">{s(bucket.tanks[n]?.acid_strength_pct)}</td>
-                    ))}
-                    {([1, 2, 3] as const).map((n) => (
-                      <td key={`ir${n}`} className="p-1 text-center font-mono">{s(bucket.tanks[n]?.iron_strength_pct)}</td>
-                    ))}
-                    <td className="p-1 text-center font-mono">{s(L?.steam_inlet_kgcm2)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.steam_outlet_kgcm2)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.steam_outlet_burner_kgcm2)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.burner_pressure_kgcm2)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.hot_air_temp_degc)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.dosage_acid)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.dosage_water)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.dosage_inhibitor)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_cl)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_ph)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_flow)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_temp_degc)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_acid_pct)}</td>
-                    <td className="p-1 text-center font-mono">{s(L?.rinse_iron_pct)}</td>
-                    <td className="p-1 text-center text-[10px]">{s(L?.line_incharge)}</td>
-                  </tr>
+                  <article key={time} className="rounded-xl border border-border bg-secondary/30 overflow-hidden">
+                    <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-secondary/60 border-b border-border">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reading time</p>
+                        <p className="font-mono text-lg font-bold text-foreground tabular-nums">{time}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Line incharge</p>
+                        <p className="text-sm font-semibold text-foreground">{s(L?.line_incharge) || '—'}</p>
+                      </div>
+                    </header>
+
+                    <div className="p-4 space-y-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Tanks</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {([1, 2, 3] as const).map((n) => {
+                            const t = bucket.tanks[n];
+                            return (
+                              <div key={n} className="rounded-lg border border-border bg-card p-3">
+                                <p className="text-xs font-bold text-foreground mb-2">Tank T{n}</p>
+                                <dl className="grid grid-cols-2 gap-2 text-sm">
+                                  <div>
+                                    <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Level mm</dt>
+                                    <dd className="font-mono font-semibold tabular-nums">{s(t?.tank_level) || '—'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Temp °C</dt>
+                                    <dd className="font-mono font-semibold tabular-nums">{s(t?.tank_temp_degc) || '—'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Acid %</dt>
+                                    <dd className="font-mono font-semibold tabular-nums">{s(t?.acid_strength_pct) || '—'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Iron %</dt>
+                                    <dd className="font-mono font-semibold tabular-nums">{s(t?.iron_strength_pct) || '—'}</dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                        <div className="rounded-lg border border-border bg-card p-3">
+                          <p className="text-xs font-bold text-foreground mb-2">Steam / burner</p>
+                          <dl className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Inlet PRV</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.steam_inlet_kgcm2) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Out PRV</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.steam_outlet_kgcm2) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Masha</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.burner_pressure_kgcm2) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Hot air °C</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.hot_air_temp_degc) || '—'}</dd>
+                            </div>
+                          </dl>
+                        </div>
+
+                        <div className="rounded-lg border border-border bg-card p-3">
+                          <p className="text-xs font-bold text-foreground mb-2">Dosage L/min</p>
+                          <dl className="grid grid-cols-3 gap-2 text-sm">
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Acid</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.dosage_acid) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Water</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.dosage_water) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Inhib</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.dosage_inhibitor) || '—'}</dd>
+                            </div>
+                          </dl>
+                        </div>
+
+                        <div className="rounded-lg border border-border bg-card p-3">
+                          <p className="text-xs font-bold text-foreground mb-2">Hot rinse</p>
+                          <dl className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Cl</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.rinse_cl) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">pH</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.rinse_ph) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Flow</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.rinse_flow) || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Temp °C</dt>
+                              <dd className="font-mono font-semibold tabular-nums">{s(L?.rinse_temp_degc) || '—'}</dd>
+                            </div>
+                          </dl>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
                 );
               })}
-
-              {/* Add-reading row */}
-              <tr className="border-t-2 border-primary/30 bg-primary/5">
-                <td className="sticky left-0 z-10 bg-primary/10 p-1 border-r border-border">
-                  <input className={`${inputCls} w-20`} value={chartTime} onChange={(e) => setChartTime(e.target.value)} aria-label="Chart time" />
-                </td>
-                {([1, 2, 3] as const).map((n) => (
-                  <td key={`elv${n}`} className="p-0.5">
-                    <input className={`${inputCls} ${cellClass(tanks[n].level, 'tank_level', `T${n}`)}`} value={tanks[n].level} onChange={(e) => setTanks({ ...tanks, [n]: { ...tanks[n], level: e.target.value } })} />
-                  </td>
-                ))}
-                {([1, 2, 3] as const).map((n) => (
-                  <td key={`etp${n}`} className="p-0.5">
-                    <input className={`${inputCls} ${cellClass(tanks[n].temp, 'tank_temp', `T${n}`)}`} value={tanks[n].temp} onChange={(e) => setTanks({ ...tanks, [n]: { ...tanks[n], temp: e.target.value } })} />
-                  </td>
-                ))}
-                {([1, 2, 3] as const).map((n) => (
-                  <td key={`eac${n}`} className="p-0.5">
-                    <input className={`${inputCls} ${cellClass(tanks[n].acid, 'acid_strength', `T${n}`)}`} value={tanks[n].acid} onChange={(e) => setTanks({ ...tanks, [n]: { ...tanks[n], acid: e.target.value } })} />
-                  </td>
-                ))}
-                {([1, 2, 3] as const).map((n) => (
-                  <td key={`eir${n}`} className="p-0.5">
-                    <input className={`${inputCls} ${cellClass(tanks[n].iron, 'iron_strength', `T${n}`)}`} value={tanks[n].iron} onChange={(e) => setTanks({ ...tanks, [n]: { ...tanks[n], iron: e.target.value } })} />
-                  </td>
-                ))}
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.steamInlet, 'steam_inlet', 'LINE')}`} value={line.steamInlet} onChange={(e) => setLine({ ...line, steamInlet: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.steamOutlet, 'steam_outlet', 'LINE')}`} value={line.steamOutlet} onChange={(e) => setLine({ ...line, steamOutlet: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.steamBurner, 'steam_outlet_burner', 'LINE')}`} value={line.steamBurner} onChange={(e) => setLine({ ...line, steamBurner: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.masha, 'burner_pressure', 'LINE')}`} value={line.masha} onChange={(e) => setLine({ ...line, masha: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.hotAir, 'hot_air_temp', 'LINE')}`} value={line.hotAir} onChange={(e) => setLine({ ...line, hotAir: e.target.value })} /></td>
-                <td className="p-0.5"><input className={inputCls} value={line.dosageAcid} onChange={(e) => setLine({ ...line, dosageAcid: e.target.value })} /></td>
-                <td className="p-0.5"><input className={inputCls} value={line.dosageWater} onChange={(e) => setLine({ ...line, dosageWater: e.target.value })} /></td>
-                <td className="p-0.5"><input className={inputCls} value={line.dosageInhib} onChange={(e) => setLine({ ...line, dosageInhib: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.rinseCl, 'rinse_cl', 'RINSE')}`} value={line.rinseCl} onChange={(e) => setLine({ ...line, rinseCl: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.rinsePh, 'rinse_ph', 'RINSE')}`} value={line.rinsePh} onChange={(e) => setLine({ ...line, rinsePh: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.rinseFlow, 'rinse_flow', 'RINSE')}`} value={line.rinseFlow} onChange={(e) => setLine({ ...line, rinseFlow: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} ${cellClass(line.rinseTemp, 'rinse_temp', 'RINSE')}`} value={line.rinseTemp} onChange={(e) => setLine({ ...line, rinseTemp: e.target.value })} /></td>
-                <td className="p-0.5"><input className={inputCls} value={line.rinseAcid} onChange={(e) => setLine({ ...line, rinseAcid: e.target.value })} /></td>
-                <td className="p-0.5"><input className={inputCls} value={line.rinseIron} onChange={(e) => setLine({ ...line, rinseIron: e.target.value })} /></td>
-                <td className="p-0.5"><input className={`${inputCls} w-24`} value={line.lineIncharge} onChange={(e) => setLine({ ...line, lineIncharge: e.target.value })} /></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <ZButton type="button" onClick={() => void saveChart()} disabled={saving || !shiftLogId}>
-            {saving ? 'Saving…' : 'Add Reading'}
-          </ZButton>
-          <p className="text-xs text-muted-foreground">Out-of-spec cells amber — still saves. Specs advisory only.</p>
-          {msg && <p className="text-sm">{msg}</p>}
-        </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

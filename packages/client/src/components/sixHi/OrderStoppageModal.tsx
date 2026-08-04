@@ -3,7 +3,7 @@ import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { StoppageCodeSelect } from './StoppageCodeSelect';
-import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode } from './SixHiStoppageCodes';
+import { useSixHiStoppageCodes, findStoppageCodeDef, resolveStoppageDisplayCode, type SixHiStoppageCodeDef } from './SixHiStoppageCodes';
 import { StoppageTimerText } from './ProductionTimerDisplay';
 import { formatPlantClock } from '../../lib/dateFormat';
 import type { SixHiOrderStoppage } from '@m1/shared-validation';
@@ -35,6 +35,9 @@ interface OrderStoppageModalProps {
   startButtonLabel?: string;
   /** When 'before', roll changes are applied before start/update/end (manual stoppage). */
   rollChangeTiming?: 'before' | 'after';
+  /** Override SixHi master categories (e.g. PKL-01…PKL-15). */
+  stoppageCodes?: SixHiStoppageCodeDef[];
+  stoppageCodesLoading?: boolean;
   onClose: () => void;
   onStart?: (categoryCode: string, breakdownCode: string | undefined, remarks?: string) => Promise<void>;
   onUpdate: (stoppageId: string, categoryCode: string, breakdownCode?: string, remarks?: string) => Promise<void>;
@@ -92,13 +95,17 @@ export function OrderStoppageModal({
   title,
   startButtonLabel = 'Confirm Stoppage',
   rollChangeTiming = 'after',
+  stoppageCodes: stoppageCodesProp,
+  stoppageCodesLoading,
   onClose,
   onStart,
   onUpdate,
   onEnd,
   onRollChange,
 }: OrderStoppageModalProps) {
-  const { codes: stoppageCodes, loading: codesLoading } = useSixHiStoppageCodes();
+  const { codes: sixHiCodes, loading: sixHiLoading } = useSixHiStoppageCodes();
+  const stoppageCodes = stoppageCodesProp ?? sixHiCodes;
+  const codesLoading = stoppageCodesProp != null ? !!stoppageCodesLoading : sixHiLoading;
   const [displayCode, setDisplayCode] = useState('12');
   const [remarks, setRemarks] = useState('');
   const [rolls, setRolls] = useState<RollDetailsState>(() =>
@@ -107,18 +114,29 @@ export function OrderStoppageModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selected = findStoppageCodeDef(displayCode);
+  const selected = stoppageCodes.find((c) => c.displayCode === displayCode)
+    ?? findStoppageCodeDef(displayCode);
   const needsRollChange = !!selected?.requiresRollChange;
 
   useEffect(() => {
     if (!open) return;
     setError(null);
     if (activeStoppage) {
-      setDisplayCode(resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode));
+      const fromActive = stoppageCodes.find(
+        (c) => c.categoryCode === activeStoppage.categoryCode
+          || c.displayCode === activeStoppage.categoryCode
+          || c.displayCode === resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode),
+      );
+      setDisplayCode(
+        fromActive?.displayCode
+          ?? resolveStoppageDisplayCode(activeStoppage.categoryCode, activeStoppage.breakdownCode),
+      );
       setRemarks(activeStoppage.remarks || '');
       setRolls(buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode));
     } else {
-      const defaultCode = stoppageCodes.find((c) => c.displayCode === '12')?.displayCode ?? stoppageCodes[0]?.displayCode ?? '12';
+      const defaultCode = stoppageCodes.find((c) => c.displayCode === 'PKL-12' || c.displayCode === '12')?.displayCode
+        ?? stoppageCodes[0]?.displayCode
+        ?? '12';
       setDisplayCode(defaultCode);
       setRemarks('');
       setRolls(buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode));

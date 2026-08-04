@@ -1,20 +1,19 @@
 import { useEffect } from 'react';
 import { MachineHeadDashboard } from '../../live/MachineHeadDashboard';
 import { useOperationalMachineAccess } from '../../../lib/useOperationalMachineAccess';
-import { isAnnMhDesk, syncAnnDeskFocus, useMhDeskFocus } from '../../../lib/annMhDesk';
+import { useMhDeskFocus, resolveMhDesk, syncAnnDeskFocus } from '../../../lib/mhDesk';
 import {
-  isHrsMhDesk,
-  isHrsPklMhDesk,
-  isPklMhDesk,
   resolveHrsPklLiveLine,
   syncClearInvalidDeskFocus,
   syncHrsDeskFocus,
   syncPklDeskFocus,
 } from '../../../lib/pklMhDesk';
+import { syncRwdDeskFocus } from '../../../lib/rwdMhDesk';
 import { AnnMhLiveDashboard } from './AnnMhLiveDashboard';
 import { ProcessLineLiveDashboard } from '../pkl/PklMhLiveDashboard';
+import { RwdMhLiveDashboard } from '../RwdMhLiveDashboard';
 
-/** `/live` — ANN → ANN live; HRS/PKL desk → line live; else rolling MH. */
+/** `/live` — ANN → ANN live; RWD → RWD live; HRS/PKL desk → line live; else rolling MH. */
 export function MhLiveEntry() {
   const machines = useOperationalMachineAccess();
   const focus = useMhDeskFocus((s) => s.focus);
@@ -26,13 +25,13 @@ export function MhLiveEntry() {
     syncAnnDeskFocus(machines, f, setFocus);
     syncHrsDeskFocus(machines, useMhDeskFocus.getState().focus, setFocus);
     syncPklDeskFocus(machines, useMhDeskFocus.getState().focus, setFocus);
+    syncRwdDeskFocus(machines, useMhDeskFocus.getState().focus, setFocus);
   }, [machines, focus, setFocus]);
 
-  if (isAnnMhDesk(machines, focus)) return <AnnMhLiveDashboard />;
-
-  const hrsPklDesk =
-    isHrsPklMhDesk(machines, focus) || isPklMhDesk(machines, focus) || isHrsMhDesk(machines, focus);
-  if (hrsPklDesk) {
+  const desk = resolveMhDesk(machines, focus);
+  if (desk === 'ann') return <AnnMhLiveDashboard />;
+  if (desk === 'rwd') return <RwdMhLiveDashboard />;
+  if (desk === 'hrs' || desk === 'pkl' || desk === 'hrs_pkl') {
     const line = resolveHrsPklLiveLine(machines, focus);
     return <ProcessLineLiveDashboard line={line} />;
   }

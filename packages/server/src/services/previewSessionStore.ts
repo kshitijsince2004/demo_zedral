@@ -1,5 +1,7 @@
 import type { ParsedRollingPlanRow, PpcXlsxSheetType } from '../utils/rollingPlanXlsxParser';
 
+export type ImportLineScope = 'HRS' | 'PKL' | 'RWD' | 'ANN';
+
 export interface PreviewSession {
   sessionId: string;
   fileName: string;
@@ -9,6 +11,8 @@ export interface PreviewSession {
   shiftCode: string;
   sheetType: PpcXlsxSheetType;
   sheetName?: string;
+  /** When set, commit/preview are scoped to this process line (MH fail-safe import). */
+  lineScope?: ImportLineScope;
   expiresAt: number;
 }
 

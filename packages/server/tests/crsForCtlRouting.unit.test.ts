@@ -68,6 +68,10 @@ const dbMock = {
     };
     return ub;
   }),
+  // F6: advanceJourney runs COMPLETE→enqueue→PENDING inside a transaction.
+  transaction: () => ({
+    execute: async (fn: (trx: typeof dbMock) => Promise<unknown>) => fn(dbMock),
+  }),
 };
 
 vi.mock('../src/db', () => ({

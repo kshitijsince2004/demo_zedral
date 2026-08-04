@@ -1,17 +1,13 @@
-import { MachineHeadShell } from '../../../components/layout/machinehead/MachineHeadShell';
-import { ZOperatorCard } from '../../../components/ui/operator/ZOperatorCard';
-import { PpcRollingImportPanel } from '../../../components/admin/PpcRollingImportPanel';
+import { LineMhImportPage } from '../LineMhImportPage';
 
-/** ANN MH Import — Annealing PPC sheet only. */
+/** ANN MH Import — Annealing PPC sheet only, line-scoped. */
 export function AnnMhImportPage() {
   return (
-    <MachineHeadShell
+    <LineMhImportPage
+      line="ANN"
       title="Import"
       subtitle="Import Annealing sheet from the PPC workbook into the ANN queue"
-    >
-      <ZOperatorCard title="PPC Annealing Plan (XLSX)" noPadding>
-        <PpcRollingImportPanel lockedSheetType="ANNEALING" />
-      </ZOperatorCard>
-    </MachineHeadShell>
+      lockedSheetType="ANNEALING"
+    />
   );
 }

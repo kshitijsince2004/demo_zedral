@@ -17,14 +17,49 @@ import { useOperationalMachineAccess } from '../../../lib/useOperationalMachineA
 import { isAnnMhDesk, useMhDeskFocus } from '../../../lib/annMhDesk';
 import {
   hrsPklAssigned,
+  importPathForLine,
   isHrsMhDesk,
   isHrsPklMhDesk,
   isPklMhDesk,
+  resolveImportableAssignedLines,
   syncMhDeskFocus,
+  type ImportableLine,
 } from '../../../lib/pklMhDesk';
 import { isRwdMhDesk, resolveRwdLiveLine, rwdAssigned } from '../../../lib/rwdMhDesk';
 
 const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'crs-assignment', 'import', 'traceability']);
+
+/** Line-scoped Import item(s) for MH desks — one per assigned importable line. */
+function lineScopedImportItems(lines: ImportableLine[]): DeskNavItem[] {
+  return lines.map((line) => ({
+    id: lines.length === 1 ? 'import' : `import-${line.toLowerCase()}`,
+    label: lines.length === 1 ? 'Import' : `Import ${line}`,
+    icon: Upload,
+    path: importPathForLine(line),
+    match: (p: string) => p.startsWith(importPathForLine(line)),
+  }));
+}
+
+/** Replace plant-wide Import with line-scoped items when MH has importable lines. */
+function withLineScopedImports(items: DeskNavItem[], machines: string[]): DeskNavItem[] {
+  const lines = resolveImportableAssignedLines(machines);
+  if (lines.length === 0) return items;
+  const importItems = lineScopedImportItems(lines);
+  let inserted = false;
+  const out: DeskNavItem[] = [];
+  for (const item of items) {
+    if (item.id === 'import' || item.id.startsWith('import-')) {
+      if (!inserted) {
+        out.push(...importItems);
+        inserted = true;
+      }
+      continue;
+    }
+    out.push(item);
+  }
+  if (!inserted) out.push(...importItems);
+  return out;
+}
 
 const ALL_NAV_ITEMS: DeskNavItem[] = [
   {
@@ -73,8 +108,8 @@ const ALL_NAV_ITEMS: DeskNavItem[] = [
     id: 'pkl-specs',
     label: 'PKL Specs',
     icon: FlaskConical,
-    path: '/admin/pkl-specs',
-    match: (p) => p.startsWith('/admin/pkl-specs'),
+    path: '/machine-head/pkl/specs',
+    match: (p) => p.startsWith('/machine-head/pkl/specs'),
   },
   {
     id: 'ann-specs',
@@ -172,7 +207,7 @@ const ANN_NAV_ITEMS: DeskNavItem[] = [
 
 /** Shared HRS/PKL MH items — specs appended only for PKL. */
 function hrsPklNavItems(line: 'HRS' | 'PKL'): DeskNavItem[] {
-  const livePath = line === 'PKL' ? '/machine-head/pkl/live' : '/live';
+  const livePath = line === 'PKL' ? '/machine-head/pkl/live' : '/machine-head/hrs/live';
   const base: DeskNavItem[] = [
     {
       id: 'live',
@@ -183,7 +218,9 @@ function hrsPklNavItems(line: 'HRS' | 'PKL'): DeskNavItem[] {
         p === '/live'
         || p === '/machine-head-dashboard'
         || p.startsWith('/machine-head/pkl/live')
-        || p.startsWith('/machine-head/pkl/coil'),
+        || p.startsWith('/machine-head/pkl/coil')
+        || p.startsWith('/machine-head/hrs/live')
+        || p.startsWith('/machine-head/hrs/coil'),
     },
     {
       id: 'crew',
@@ -205,8 +242,8 @@ function hrsPklNavItems(line: 'HRS' | 'PKL'): DeskNavItem[] {
       id: 'pkl-specs',
       label: 'PKL Specs',
       icon: FlaskConical,
-      path: '/admin/pkl-specs',
-      match: (p) => p.startsWith('/admin/pkl-specs'),
+      path: '/machine-head/pkl/specs',
+      match: (p) => p.startsWith('/machine-head/pkl/specs'),
     });
   }
   base.push(
@@ -214,8 +251,11 @@ function hrsPklNavItems(line: 'HRS' | 'PKL'): DeskNavItem[] {
       id: 'import',
       label: 'Import',
       icon: Upload,
-      path: '/import/rolling',
-      match: (p) => p.startsWith('/import'),
+      path: line === 'PKL' ? '/machine-head/pkl/import' : '/machine-head/hrs/import',
+      match: (p) =>
+        p.startsWith('/machine-head/hrs/import')
+        || p.startsWith('/machine-head/pkl/import')
+        || p.startsWith('/import'),
     },
     {
       id: 'dpr-export',
@@ -271,8 +311,8 @@ const RWD_NAV_ITEMS: DeskNavItem[] = [
     id: 'import',
     label: 'Import',
     icon: Upload,
-    path: '/import/rolling',
-    match: (p) => p.startsWith('/import'),
+    path: '/machine-head/rwd/import',
+    match: (p) => p.startsWith('/machine-head/rwd/import') || p.startsWith('/import'),
   },
   {
     id: 'dpr-export',
@@ -357,7 +397,8 @@ export function MachineHeadNav() {
       : isSupervisor
         ? ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id))
         : role
-          ? ALL_NAV_ITEMS
+          // Mixed-assignment MH: keep ALL_NAV but point Import at line-scoped pages.
+          ? withLineScopedImports(ALL_NAV_ITEMS, machines)
           : ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id));
 
   const brandLabel = isSupervisor

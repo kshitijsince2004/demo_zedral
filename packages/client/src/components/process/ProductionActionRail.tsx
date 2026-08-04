@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import { AlertTriangle, Ban, Clock, MessageSquare, Play, Square } from 'lucide-react';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useProcessNetTimer, type ProcessTimerStoppage } from '../../hooks/useProcessNetTimer';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
 import { processRailFlags } from '../../lib/processRailFlags';
 
@@ -9,6 +10,10 @@ export interface ProcessActionRailProps {
   status: 'idle' | 'running' | 'stoppage';
   stoppageStartedAt?: string;
   runStartedAt?: string;
+  /** Default wall; PKL uses net (wall − stoppages). */
+  timerMode?: 'wall' | 'net';
+  runStoppages?: ProcessTimerStoppage[];
+  activeStoppageId?: string | null;
   busy?: boolean;
   onStart: () => void;
   onEnd: () => void;
@@ -32,11 +37,11 @@ function RailButton({
   variant?: 'start' | 'end' | 'stoppage' | 'hold' | 'default';
 }) {
   const styles = {
-    start: 'bg-primary text-white border-primary hover:bg-[#1f4a3a]',
-    end: 'bg-[#DC2626] text-white border-destructive hover:bg-[#B91C1C]',
+    start: 'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+    end: 'bg-destructive text-white border-destructive hover:bg-destructive/90',
     stoppage: 'bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20',
-    hold: 'bg-white text-warning border-[#FDBA74]',
-    default: 'bg-white text-foreground border-border hover:bg-secondary',
+    hold: 'bg-accent text-accent-foreground border-accent hover:bg-accent/90',
+    default: 'bg-background text-foreground border-border hover:bg-secondary',
   }[variant];
 
   return (
@@ -45,8 +50,8 @@ function RailButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        'w-full min-h-[5rem] rounded-xl border flex flex-col items-center justify-center gap-1.5 px-1 py-2',
-        'transition-colors disabled:opacity-40 disabled:pointer-events-none',
+        'w-full min-h-[5rem] rounded-lg border flex flex-col items-center justify-center gap-1.5 px-1 py-2',
+        'transition-colors disabled:opacity-40 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         styles,
       ].join(' ')}
     >
@@ -65,6 +70,9 @@ export function ProductionActionRail({
   status,
   stoppageStartedAt,
   runStartedAt,
+  timerMode = 'wall',
+  runStoppages = [],
+  activeStoppageId,
   busy,
   onStart,
   onEnd,
@@ -73,14 +81,25 @@ export function ProductionActionRail({
   onHold,
 }: ProcessActionRailProps) {
   const f = processRailFlags(status, coilNo);
-  const { formatted: timer } = useLiveTimer(
+  const { formatted: wallTimer } = useLiveTimer(
     f.isStoppage ? stoppageStartedAt : f.isRunning ? runStartedAt : undefined,
     f.isRunning || f.isStoppage,
   );
+  const netTimer = useProcessNetTimer(
+    runStartedAt,
+    runStoppages,
+    timerMode === 'net' && f.isRunning,
+    activeStoppageId,
+  );
+  const timer = f.isStoppage
+    ? wallTimer
+    : timerMode === 'net' && f.isRunning
+      ? netTimer
+      : wallTimer;
 
   return (
     <aside
-      className="fixed right-0 top-[52px] bottom-0 z-[100] w-[6.5rem] border-l border-border bg-white flex flex-col shadow-[-4px_0_24px_rgba(22,51,40,0.08)]"
+      className="fixed right-0 top-[52px] bottom-0 z-[100] w-[6.5rem] border-l border-border bg-background flex flex-col shadow-sm"
       aria-label="Production controls"
     >
       <div className="shrink-0 px-1.5 py-2 border-b border-border text-center">

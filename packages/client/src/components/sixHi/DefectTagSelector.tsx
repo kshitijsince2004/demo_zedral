@@ -1,4 +1,5 @@
 import useSWR from 'swr';
+import { matchesMachineClassification } from '@m1/shared-validation';
 import { apiClient } from '../../lib/apiClient';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
@@ -12,6 +13,8 @@ interface DefectTagSelectorProps {
   variant?: 'end' | 'reject';
   /** When false, defect codes are not fetched (e.g. closed modal). */
   enabled?: boolean;
+  /** Machine classification filter (e.g. PKL, HRS, 6HI / CRM6). */
+  appliesTo?: string;
 }
 
 export function DefectTagSelector({
@@ -21,14 +24,28 @@ export function DefectTagSelector({
   onOtherRemarksChange,
   variant = 'end',
   enabled = true,
+  appliesTo,
 }: DefectTagSelectorProps) {
+  const swrKey = enabled
+    ? (appliesTo
+      ? `/6hi/master/defect-codes?machine=${encodeURIComponent(appliesTo)}`
+      : '/6hi/master/defect-codes')
+    : null;
   const { data: defectsData, error, isLoading } = useSWR(
-    enabled ? '/6hi/master/defect-codes' : null,
+    swrKey,
     async (url) => apiClient.get(url),
   );
 
-  const masterDefects = resolveDefectCodes(defectsData).filter((d) => d.defectCode !== DEFECT_OTHER_CODE);
-  const defects = resolveDefectCodes(defectsData);
+  const resolved = resolveDefectCodes(defectsData);
+  // Client-side filter as belt-and-suspenders when API returns unscoped list
+  const filtered = appliesTo
+    ? resolved.filter((d) => {
+      if (d.defectCode === DEFECT_OTHER_CODE) return true;
+      return matchesMachineClassification(d.category, appliesTo);
+    })
+    : resolved;
+  const masterDefects = filtered.filter((d) => d.defectCode !== DEFECT_OTHER_CODE);
+  const defects = filtered;
 
   const selectedStyle =
     variant === 'reject'

@@ -38,18 +38,28 @@ export function initSuperTokens() {
         override: {
           functions: (original) => ({
             ...original,
-            // ponytail: ST strips a manually set Authorization on /api — only intercept /auth
-            // (refresh/signout). apiClient attaches Bearer + st-auth-mode for /api itself.
+            // Skip interception for app `/api/*` (apiClient sets Bearer; ST would strip it).
+            // Still intercept `/auth/*` and `/api/auth/*`. Always pass an absolute URL into
+            // original() — relative paths make its domain normaliser throw, and our old
+            // catch returned false so badge-pin never saved header tokens.
             shouldDoInterceptionBasedOnUrl: (url, apiDom, sessionTokenBackendDomain) => {
               try {
-                const path = new URL(url, typeof window !== 'undefined' ? window.location.origin : apiDom).pathname;
-                if (path.startsWith('/auth') || path.startsWith(apiBasePath)) {
-                  return original.shouldDoInterceptionBasedOnUrl(url, apiDom, sessionTokenBackendDomain);
+                const absolute = new URL(
+                  String(url),
+                  typeof window !== 'undefined' ? window.location.origin : apiDom,
+                );
+                const path = absolute.pathname;
+                if (path.startsWith('/api') && !path.startsWith('/api/auth')) {
+                  return false;
                 }
+                return original.shouldDoInterceptionBasedOnUrl(
+                  absolute.href,
+                  apiDom,
+                  sessionTokenBackendDomain,
+                );
               } catch {
-                /* fall through */
+                return false;
               }
-              return false;
             },
           }),
         },

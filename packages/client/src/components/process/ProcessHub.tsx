@@ -7,17 +7,19 @@ import { ZInput } from '../primitives/ZInput';
 import { ZButton } from '../primitives/ZButton';
 import { useProcessStore, type ProcessQueueCard, type QueueStatusFilter } from '../../store/processStore';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
-import { getProcessConfig } from '../../lib/processConfig';
+import { useProcessHubQueue } from '../../hooks/useProcessHubQueue';
+import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from '../../lib/processConfig';
 import { useShiftStore } from '../../store/shiftStore';
+import { currentPlantDate } from '../../lib/dateFormat';
 import { AnnBatchesPanel } from './bodies/AnnBatchesPanel';
-import { findPklSiblingCoils, pklGroupWeightMt } from '../../lib/pklSiblingSelect';
+import { findPklSiblingCoils, pklGroupWeightMt } from '../../lib/siblingSelect';
 import {
   findRwdCompatibleOrders,
   rwdCombineStatusGroup,
   rwdCombinedActionLabel,
   rwdGroupWeightMt,
   type RwdCombineable,
-} from '../../lib/rwdSiblingSelect';
+} from '../../lib/siblingSelect';
 import { ProcessQueueRow } from './ProcessQueueRow';
 import { ProcessQueueDetailPanel } from './ProcessQueueDetailPanel';
 import { RewindingManualOrderModal } from '../rewinding/RewindingManualOrderModal';
@@ -38,9 +40,26 @@ const STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
   { id: 'COMPLETED', label: 'Completed' },
 ];
 
-function matchesFilter(card: ProcessQueueCard, filter: QueueStatusFilter): boolean {
+/** RWD/2HI parity — Preparing separate from Pending. */
+const RWD_STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
+  { id: 'ALL', label: 'All' },
+  { id: 'PENDING', label: 'Pending' },
+  { id: 'PREPARING', label: 'Preparing' },
+  { id: 'IN_PROGRESS', label: 'In Progress' },
+  { id: 'COMPLETED', label: 'Completed' },
+  { id: 'HOLD', label: 'Order Hold' },
+];
+
+function matchesFilter(card: ProcessQueueCard, filter: QueueStatusFilter, isRwd: boolean): boolean {
   if (filter === 'ALL') return card.status !== 'COMPLETED';
-  // Filter buckets keep PREPARING under Pending, STOPPAGE under In Progress, REJECTED under Hold.
+  if (isRwd) {
+    if (filter === 'PENDING') return card.status === 'PENDING';
+    if (filter === 'PREPARING') return card.status === 'PREPARING';
+    if (filter === 'IN_PROGRESS') return card.status === 'IN_PROGRESS' || card.status === 'STOPPAGE';
+    if (filter === 'HOLD') return card.status === 'HOLD' || card.status === 'REJECTED';
+    return card.status === filter;
+  }
+  // HRS/PKL: PREPARING under Pending, STOPPAGE under In Progress, REJECTED under Hold.
   if (filter === 'PENDING') return card.status === 'PENDING' || card.status === 'PREPARING';
   if (filter === 'IN_PROGRESS') return card.status === 'IN_PROGRESS' || card.status === 'STOPPAGE';
   if (filter === 'HOLD') return card.status === 'HOLD' || card.status === 'REJECTED';
@@ -61,27 +80,37 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { basePath } = useProcessWorkspaceBase();
   const config = getProcessConfig(processCode);
+  const stationCode: ProcessStationCode = isProcessStationCode(processCode) ? processCode : 'HRS';
   const { shiftLogId, producedMt, targetMt } = useShiftStore();
   const {
     queue,
     statusFilter,
     queueRefreshToken,
     hubTab,
+    captureError,
+    clearCaptureError,
     setStatusFilter,
     setHubTab,
-    loadQueueFor,
     setActiveCoil,
     setPklGroup,
     clearPklGroup,
     createManualCoil,
     busy,
     manualModalToken,
+    consumeManualCoilRequest,
     pklGroupCoilNos,
     pklGroupWeightMt: groupWt,
   } = useProcessStore();
 
+  const {
+    error: swrError,
+    isLoading: swrLoading,
+    isValidating,
+    mutate: mutateQueue,
+  } = useProcessHubQueue(stationCode, queueRefreshToken);
+
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [viewDate, setViewDate] = useState(currentPlantDate());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCoil, setManualCoil] = useState({
@@ -93,7 +122,11 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   const isRwd = processCode === 'RWD';
   /** Skin Pass–style list + detail for all coil queues (not ANN charge board). */
   const isQueueDesk = config.archetype !== 'B';
-  const [queueError, setQueueError] = useState<string | null>(null);
+  const queueError = swrError
+    ? (swrError instanceof Error ? swrError.message : 'Failed to load queue')
+    : null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const loading = (swrLoading || isValidating) && queue.length === 0;
   /** RWD combine — matching pool + operator picks (6HI-style). */
   const [rwdAnchorBatch, setRwdAnchorBatch] = useState<string | null>(null);
   const [rwdSelectedBatches, setRwdSelectedBatches] = useState<Set<string>>(new Set());
@@ -103,36 +136,32 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   const tab = searchParams.get('tab') ?? hubTab;
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    setQueueError(null);
-    try {
-      // Pass prop code — do not rely on store default (HRS) racing ProcessLayout.
-      await loadQueueFor(processCode as import('../../lib/processConfig').ProcessStationCode);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to load queue';
-      setQueueError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [loadQueueFor, processCode]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh, processCode, queueRefreshToken]);
+    await mutateQueue();
+  }, [mutateQueue]);
 
   useEffect(() => {
     setHubTab(tab === 'chart' ? 'chart' : tab === 'charges' ? 'charges' : 'coils');
   }, [tab, setHubTab]);
 
   // Land on Completed (etc.) after End — All hides COMPLETED by design (6HI-style).
+  // PKL: URL is source of truth (default ALL when query absent).
   useEffect(() => {
     const raw = (searchParams.get('status') ?? '').toUpperCase();
+    const allowed: QueueStatusFilter[] = isRwd
+      ? ['ALL', 'PENDING', 'PREPARING', 'IN_PROGRESS', 'HOLD', 'COMPLETED']
+      : ['ALL', 'PENDING', 'IN_PROGRESS', 'HOLD', 'COMPLETED'];
+    if (isPkl) {
+      const next = (raw && allowed.includes(raw as QueueStatusFilter)
+        ? raw
+        : 'ALL') as QueueStatusFilter;
+      if (statusFilter !== next) setStatusFilter(next);
+      return;
+    }
     if (!raw) return;
-    const allowed: QueueStatusFilter[] = ['ALL', 'PENDING', 'IN_PROGRESS', 'HOLD', 'COMPLETED'];
     if (allowed.includes(raw as QueueStatusFilter) && statusFilter !== raw) {
       setStatusFilter(raw as QueueStatusFilter);
     }
-  }, [searchParams, setStatusFilter, statusFilter]);
+  }, [searchParams, setStatusFilter, statusFilter, isRwd, isPkl]);
 
   // ANN operators land on the base board first.
   useEffect(() => {
@@ -141,16 +170,26 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     setSearchParams({ tab: 'charges' }, { replace: true });
   }, [processCode, searchParams, setSearchParams]);
 
+  const prevManualToken = useRef(0);
   useEffect(() => {
     if (processCode !== 'PKL' && processCode !== 'RWD') return;
-    if (manualModalToken > 0) setManualOpen(true);
+    if (manualModalToken > prevManualToken.current) {
+      setManualOpen(true);
+    }
+    prevManualToken.current = manualModalToken;
   }, [manualModalToken, processCode]);
+
+  function closeManualModal() {
+    setManualOpen(false);
+    consumeManualCoilRequest();
+  }
 
   const [rwdAllocOpen, setRwdAllocOpen] = useState(false);
   const [rwdAllocCard, setRwdAllocCard] = useState<ProcessQueueCard | null>(null);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return queue.filter((c) => matchesFilter(c, statusFilter)).filter((c) => {
+    return queue.filter((c) => matchesFilter(c, statusFilter, isRwd)).filter((c) => {
+      if (isRwd && viewDate && c.planDate && c.planDate !== viewDate) return false;
       if (!q) return true;
       const hay = [
         c.coilNo,
@@ -164,13 +203,18 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [queue, statusFilter, search]);
+  }, [queue, statusFilter, search, isRwd, viewDate]);
 
+  const statusFilters = isRwd ? RWD_STATUS_FILTERS : STATUS_FILTERS;
   const filterOptions = useMemo(() => {
     const count = (id: QueueStatusFilter) =>
-      queue.filter((c) => matchesFilter(c, id)).length;
-    return STATUS_FILTERS.map((f) => ({ ...f, count: count(f.id) }));
-  }, [queue]);
+      queue.filter((c) => {
+        if (!matchesFilter(c, id, isRwd)) return false;
+        if (isRwd && viewDate && c.planDate && c.planDate !== viewDate) return false;
+        return true;
+      }).length;
+    return statusFilters.map((f) => ({ ...f, count: count(f.id) }));
+  }, [queue, statusFilters, isRwd, viewDate]);
 
   const selectedCard = useMemo(
     () => filtered.find((c) => queueCardKey(c) === selectedKey)
@@ -281,6 +325,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         gradeCode: card.gradeCode,
         motherCoilNo: card.motherCoilNo,
         slitId: card.slitId,
+        routeRaw: card.routeRaw,
       });
       navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
       return;
@@ -360,7 +405,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         },
       });
     } catch (e: unknown) {
-      setQueueError(e instanceof Error ? e.message : 'Failed to move to production');
+      setActionError(e instanceof Error ? e.message : 'Failed to move to production');
     }
   }
 
@@ -396,6 +441,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       });
     }
     setManualOpen(false);
+    consumeManualCoilRequest();
   }
 
   const tabs = [
@@ -418,6 +464,25 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         <div className="mx-4 mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <p className="font-bold">Cannot load {processCode} queue</p>
           <p className="mt-1">{queueError}</p>
+        </div>
+      )}
+
+      {(captureError || actionError) && (
+        <div className="mx-4 mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex gap-3 items-start justify-between">
+          <div>
+            <p className="font-bold">Cannot start / stoppage</p>
+            <p className="mt-1">{captureError ?? actionError}</p>
+          </div>
+          <button
+            type="button"
+            className="text-xs font-bold uppercase shrink-0"
+            onClick={() => {
+              clearCaptureError();
+              setActionError(null);
+            }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -451,6 +516,20 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       ) : (
         <>
           <div className="px-4 py-3 flex flex-wrap gap-3 items-center border-b border-border">
+            {isRwd && (
+              <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground shrink-0">
+                Date
+                <input
+                  type="date"
+                  value={viewDate}
+                  onChange={(e) => {
+                    setViewDate(e.target.value || currentPlantDate());
+                    setSelectedKey(null);
+                  }}
+                  className="min-h-9 rounded-md border border-border bg-background px-3 text-sm font-mono text-foreground normal-case tracking-normal"
+                />
+              </label>
+            )}
             <div className="flex-1 min-w-[14rem] relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <ZInput
@@ -462,18 +541,20 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 className={isQueueDesk ? 'min-h-14 pl-12 text-base' : 'pl-9'}
               />
             </div>
-            <ZFilterPills
-              options={filterOptions}
-              activeId={statusFilter}
-              onChange={(id) => {
-                const next = id as QueueStatusFilter;
-                setStatusFilter(next);
-                const nextParams = new URLSearchParams(searchParams);
-                if (next === 'ALL') nextParams.delete('status');
-                else nextParams.set('status', next);
-                setSearchParams(nextParams, { replace: true });
-              }}
-            />
+            <div className="shrink-0 max-w-full overflow-x-auto">
+              <ZFilterPills
+                options={filterOptions}
+                activeId={statusFilter}
+                onChange={(id) => {
+                  const next = id as QueueStatusFilter;
+                  setStatusFilter(next);
+                  const nextParams = new URLSearchParams(searchParams);
+                  if (next === 'ALL') nextParams.delete('status');
+                  else nextParams.set('status', next);
+                  setSearchParams(nextParams, { replace: true });
+                }}
+              />
+            </div>
             {processCode === 'PKL' && pklGroupCoilNos.length > 0 && (
               <p className="text-sm font-medium tabular-nums">
                 Selected {pklGroupCoilNos.length} · Σ {groupWt.toFixed(2)} MT
@@ -484,27 +565,29 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 <p className="text-sm font-medium tabular-nums">
                   Combined {rwdProductionOrders.length} · Σ {rwdGroupWeightMt(rwdProductionOrders).toFixed(2)} MT
                 </p>
-                <button
+                <ZButton
                   type="button"
+                  variant="danger"
+                  size="sm"
                   onClick={cancelRwdCombinedSelection}
-                  className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border bg-white text-destructive border-destructive/30 hover:bg-destructive/5 transition-colors"
+                  className="!bg-background !text-destructive border border-destructive/30 hover:!bg-destructive/5 !shadow-none"
                 >
                   Cancel Combined Order
-                </button>
+                </ZButton>
               </>
             )}
             <ZButton type="button" variant="secondary" onClick={() => void refresh()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </ZButton>
-            {/* ponytail: PKL uses side-nav Manual → PKL-shaped form (revamp §3/§4) */}
-            {!isPkl && (
+            {/* ponytail: PKL/RWD Manual is side-nav only */}
+            {!isPkl && !isRwd && (
               <ZButton type="button" onClick={() => setManualOpen(true)}>Manual Add</ZButton>
             )}
           </div>
 
           {isQueueDesk ? (
             <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden">
-              <div className="flex-1 min-w-0 min-h-0 bg-white border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden order-2 lg:order-1">
+              <div className="flex-1 min-w-0 min-h-0 bg-background border border-border rounded-lg shadow-sm flex flex-col overflow-hidden order-2 lg:order-1">
                 <div className="px-5 py-3 border-b border-border shrink-0">
                   <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                     {queueTitle} · {filtered.length} orders
@@ -599,7 +682,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
           <RewindingManualOrderModal
             open={manualOpen}
             defaultMachine="RWD"
-            onClose={() => setManualOpen(false)}
+            onClose={closeManualModal}
             onCreated={() => { void refresh(); }}
           />
           <RewindingMachineAllocationModal
@@ -659,7 +742,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
               </>
             )}
             <div className="flex gap-2 justify-end">
-              <ZButton type="button" variant="secondary" onClick={() => setManualOpen(false)}>Cancel</ZButton>
+              <ZButton type="button" variant="secondary" onClick={closeManualModal}>Cancel</ZButton>
               <ZButton type="button" onClick={() => void submitManual()} disabled={busy}>Add</ZButton>
             </div>
           </div>

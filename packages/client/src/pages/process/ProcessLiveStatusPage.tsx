@@ -2,15 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Play } from 'lucide-react';
 import { ZButton } from '../../components/primitives/ZButton';
+import { ZBadge } from '../../components/primitives/ZBadge';
 import { ShiftStoppageHistory } from '../../components/sixHi/ShiftStoppageHistory';
 import { resolveStoppageDisplayCode } from '../../components/sixHi/SixHiStoppageCodes';
+import { ProcessShiftSummaryPanel } from '../../components/process/ProcessShiftSummaryPanel';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { apiClient } from '../../lib/apiClient';
-import { getProcessConfig } from '../../lib/processConfig';
+import { getProcessConfig, isProcessStationCode } from '../../lib/processConfig';
 import { useProcessStore } from '../../store/processStore';
 import { useShiftStore } from '../../store/shiftStore';
 import { formatPlantClock } from '../../lib/dateFormat';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
+import { useProcessNetTimer } from '../../hooks/useProcessNetTimer';
+import type { Tone } from '../../lib/tones';
 
 interface ProcessLiveStatusPageProps {
   processCode: string;
@@ -26,7 +30,7 @@ type HistoryRow = {
   remarks?: string | null;
 };
 
-/** 6HI-style Capture tab for process lines — running order, upcoming queue, stoppage history (no shift summary). */
+/** Capture tab for process lines — running order, upcoming queue, stoppage history (+ PKL shift summary). */
 export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProps) {
   const navigate = useNavigate();
   const { basePath } = useProcessWorkspaceBase();
@@ -34,18 +38,26 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
   const { producedMt, targetMt, shiftLogId } = useShiftStore();
   const {
     queue,
-    loadQueue,
+    loadQueueFor,
     activeCoilNo,
     captureStatus,
     runStartedAt,
     stoppageStartedAt,
-    hydrateRwdRun,
+    runStoppages,
+    activeStoppageId,
+    hydrateProcessRun,
   } = useProcessStore();
   const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [pklMetrics, setPklMetrics] = useState<{
+    totalProdMt: number; coilsDone: number; avgLineSpeed: number; repeats: number;
+    wpW?: number; wpP?: number; chartReadings: number; chartDue: number;
+  } | null>(null);
+  const [pklMetricsLoading, setPklMetricsLoading] = useState(false);
 
   useEffect(() => {
-    void loadQueue();
-  }, [loadQueue, processCode]);
+    if (!isProcessStationCode(processCode)) return;
+    void loadQueueFor(processCode);
+  }, [loadQueueFor, processCode]);
 
   useEffect(() => {
     if (!shiftLogId) {
@@ -85,6 +97,44 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     };
   }, [processCode, shiftLogId, captureStatus]);
 
+  useEffect(() => {
+    if (processCode !== 'PKL' || !shiftLogId) {
+      setPklMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    setPklMetricsLoading(true);
+    void apiClient
+      .get<{
+        totalProdMt: number; coilsDone: number; avgLineSpeed: number; repeats: number;
+        wpW?: number; wpP?: number; chartReadings: number; chartDue: number;
+      }>(`/stations/pkl/shift-metrics/${encodeURIComponent(shiftLogId)}`)
+      .then((m) => {
+        if (!cancelled) setPklMetrics(m);
+      })
+      .catch(() => {
+        if (!cancelled) setPklMetrics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPklMetricsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [processCode, shiftLogId, producedMt]);
+
+  const pklShiftItems = useMemo(() => {
+    if (!pklMetrics) return [];
+    return [
+      { label: 'Pickled MT', value: pklMetrics.totalProdMt.toFixed(2) },
+      { label: 'Coils', value: String(pklMetrics.coilsDone) },
+      { label: 'Avg Speed', value: String(pklMetrics.avgLineSpeed) },
+      { label: 'W / P', value: `${pklMetrics.wpW ?? 0} / ${pklMetrics.wpP ?? 0}` },
+      { label: 'Repeats', value: String(pklMetrics.repeats) },
+      { label: 'Chart', value: `${pklMetrics.chartReadings} / ${pklMetrics.chartDue}` },
+    ];
+  }, [pklMetrics]);
+
   const running = useMemo(() => {
     const byStatus = queue.find((c) => c.status === 'IN_PROGRESS' || c.status === 'STOPPAGE');
     if (byStatus) return byStatus;
@@ -92,24 +142,26 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     return null;
   }, [queue, activeCoilNo]);
 
-  // After refresh, processStore is empty while queue already shows IN_PROGRESS — hydrate from rwd_order.
+  // After refresh, processStore is empty while queue shows IN_PROGRESS/STOPPAGE — hydrate from server order.
   useEffect(() => {
-    if (processCode !== 'RWD' || !running?.batchNumber) return;
+    if (!running) return;
     if (captureStatus === 'running' && runStartedAt) return;
     if (captureStatus === 'stoppage' && stoppageStartedAt) return;
     let cancelled = false;
-    void import('../../lib/rewindingWrites')
-      .then(({ fetchRwdOrder }) => fetchRwdOrder(running.batchNumber!))
-      .then((order: {
-        status: string;
-        coilNo?: string;
-        prodStartAt?: string;
-        activeStoppageId?: string;
-        stoppages?: Array<{ startAt: string; endAt?: string }>;
-      }) => {
+
+    const hydrate = async () => {
+      if (processCode === 'RWD' && running.batchNumber) {
+        const { fetchRwdOrder } = await import('../../lib/rewindingWrites');
+        const order = await fetchRwdOrder(running.batchNumber) as {
+          status: string;
+          coilNo?: string;
+          prodStartAt?: string;
+          activeStoppageId?: string;
+          stoppages?: Array<{ startAt: string; endAt?: string }>;
+        };
         if (cancelled) return;
         const open = order.stoppages?.find((s) => !s.endAt);
-        hydrateRwdRun({
+        hydrateProcessRun({
           coilNo: order.coilNo || running.coilNo,
           batchNumber: running.batchNumber,
           status: order.status,
@@ -117,8 +169,17 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
           stoppageStartedAt: open?.startAt,
           activeStoppageId: order.activeStoppageId ?? null,
         });
-      })
-      .catch(() => undefined);
+        return;
+      }
+      if (processCode === 'HRS' || processCode === 'PKL') {
+        const { fetchHrsPklOrder, orderToHydrateInput } = await import('../../lib/hrsPklWrites');
+        const order = await fetchHrsPklOrder(processCode, running.coilNo);
+        if (cancelled) return;
+        hydrateProcessRun(orderToHydrateInput(order));
+      }
+    };
+
+    void hydrate().catch(() => undefined);
     return () => { cancelled = true; };
   }, [
     processCode,
@@ -127,7 +188,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     captureStatus,
     runStartedAt,
     stoppageStartedAt,
-    hydrateRwdRun,
+    hydrateProcessRun,
   ]);
 
   const upcoming = useMemo(
@@ -141,7 +202,16 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     : captureStatus === 'running'
       ? runStartedAt
       : undefined;
-  const { formatted: runtime } = useLiveTimer(timerStart ?? undefined);
+  const { formatted: wallRuntime } = useLiveTimer(timerStart ?? undefined);
+  const netRuntime = useProcessNetTimer(
+    runStartedAt,
+    runStoppages,
+    processCode === 'PKL' && captureStatus === 'running',
+    activeStoppageId,
+  );
+  const runtime = processCode === 'PKL' && captureStatus === 'running'
+    ? (netRuntime ?? wallRuntime)
+    : wallRuntime;
 
   function openForm(coilNo: string, batchNumber?: string, orderStatus?: string) {
     if (processCode === 'RWD') {
@@ -156,30 +226,40 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     navigate(`${basePath}/capture/${encodeURIComponent(coilNo)}`);
   }
 
+  const runningStatusLabel =
+    captureStatus === 'stoppage' ? 'STOPPAGE' : captureStatus === 'running' ? 'IN PROGRESS' : (running?.status.replace(/_/g, ' ') ?? '');
+  const runningTone: Tone =
+    captureStatus === 'stoppage' ? 'warning' : captureStatus === 'running' ? 'success' : 'info';
+  const nextTone: Tone =
+    nextOrder?.status === 'PENDING' ? 'accent' : nextOrder?.status === 'PREPARING' ? 'info' : 'muted';
+
   return (
-    <div className="flex flex-col h-full overflow-hidden p-4 gap-4 bg-secondary/40">
+    <div className="flex flex-col h-full overflow-hidden p-4 gap-4 bg-secondary">
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           {config.label}
         </p>
         <h1 className="text-xl font-bold text-foreground">Live production status</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-sm text-muted-foreground mt-0.5 font-mono tabular-nums">
           Shift · {producedMt ?? 0} / {targetMt ?? '—'} MT
         </p>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-auto">
+        {processCode === 'PKL' && (
+          <ProcessShiftSummaryPanel
+            items={pklShiftItems}
+            loading={pklMetricsLoading}
+            footnote={!shiftLogId ? 'Shift log not ready yet.' : undefined}
+          />
+        )}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="bg-primary text-white px-5 py-3 flex items-center justify-between">
+          <div className="bg-background border border-border rounded-lg overflow-hidden shadow-sm">
+            <div className="bg-primary text-primary-foreground px-5 py-3 flex items-center justify-between gap-2">
               <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">
                 Current Running Order
               </p>
-              {running && (
-                <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-white/15">
-                  {captureStatus === 'stoppage' ? 'Stoppage' : captureStatus === 'running' ? 'In Progress' : running.status.replace(/_/g, ' ')}
-                </span>
-              )}
+              {running && <ZBadge tone={runningTone} label={runningStatusLabel} dot={captureStatus === 'running'} />}
             </div>
             {!running ? (
               <div className="p-6 text-center space-y-4">
@@ -187,7 +267,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
                 <p className="text-sm text-muted-foreground">
                   Start production from Orders to begin capture.
                 </p>
-                <ZButton variant="accent" onClick={() => navigate(basePath || '/')}>
+                <ZButton variant="primary" onClick={() => navigate(basePath || '/')}>
                   <ArrowRight className="h-4 w-4" />
                   Go to Orders
                 </ZButton>
@@ -207,20 +287,20 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
                     ['Weight', `${running.weightMt} MT`],
                     ['Start', runStartedAt ? formatPlantClock(runStartedAt) : '—'],
                   ].map(([label, value]) => (
-                    <div key={label} className="bg-secondary rounded-xl px-3 py-3 min-h-[64px]">
-                      <dt className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</dt>
+                    <div key={label} className="bg-card rounded-lg px-3 py-3 min-h-[64px]">
+                      <dt className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
                       <dd className="font-mono text-sm font-semibold text-foreground mt-1 break-all">{value}</dd>
                     </div>
                   ))}
                 </dl>
                 {timerStart && (
-                  <p className="text-sm text-amber-600 font-semibold">
-                    Runtime: <span className="font-mono">{runtime}</span>
+                  <p className="text-sm text-warning font-semibold">
+                    Runtime: <span className="font-mono tabular-nums">{runtime}</span>
                     {captureStatus === 'stoppage' && <span className="text-destructive ml-2">(paused)</span>}
                   </p>
                 )}
                 <ZButton
-                  variant="accent"
+                  variant="primary"
                   size="lg"
                   fullWidth
                   className="min-h-14"
@@ -233,10 +313,10 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
             )}
           </div>
 
-          <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="bg-muted text-muted-foreground px-5 py-3 border-b border-border flex items-center justify-between gap-2">
+          <div className="bg-background border border-border rounded-lg overflow-hidden shadow-sm">
+            <div className="bg-card text-muted-foreground px-5 py-3 border-b border-border flex items-center justify-between gap-2">
               <p className="text-[10px] font-bold uppercase tracking-widest">Upcoming Queue</p>
-              <span className="text-xs font-semibold bg-white/50 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
+              <span className="text-xs font-semibold font-mono bg-background px-2 py-0.5 rounded-lg border border-border whitespace-nowrap shrink-0">
                 {upcoming.length} orders
               </span>
             </div>
@@ -253,20 +333,23 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
                     ['Grade', nextOrder.gradeCode || '—'],
                     ['Process', config.label],
                     ['Planned Quantity', `${nextOrder.weightMt} MT`],
-                    ['Status', nextOrder.status.replace(/_/g, ' ')],
                   ].map(([label, value]) => (
-                    <div key={label} className="bg-secondary rounded-xl px-3 py-3 min-h-[64px]">
-                      <dt className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</dt>
+                    <div key={label} className="bg-card rounded-lg px-3 py-3 min-h-[64px]">
+                      <dt className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
                       <dd className="font-mono text-sm font-semibold text-foreground mt-1 break-all">{value}</dd>
                     </div>
                   ))}
+                  <div className="bg-card rounded-lg px-3 py-3 min-h-[64px]">
+                    <dt className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Status</dt>
+                    <dd className="mt-1"><ZBadge tone={nextTone} label={nextOrder.status.replace(/_/g, ' ')} /></dd>
+                  </div>
                 </dl>
                 {upcoming.length > 1 && (
                   <ul className="space-y-1 max-h-32 overflow-auto text-xs border-t border-border pt-3">
                     {upcoming.slice(1, 9).map((q) => (
                       <li key={q.coilNo} className="flex justify-between gap-2 text-muted-foreground">
                         <span className="font-mono truncate">{q.displayCoilNo ?? q.coilNo}</span>
-                        <span>{q.weightMt} MT</span>
+                        <span className="font-mono tabular-nums">{q.weightMt} MT</span>
                       </li>
                     ))}
                   </ul>

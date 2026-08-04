@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ZBadge } from '../../primitives/ZBadge';
 import { apiClient } from '../../../lib/apiClient';
 import { useProcessWorkspaceBase } from '../../../hooks/useProcessWorkspaceBase';
+import type { Tone } from '../../../lib/tones';
 
 type ChargeRow = {
   charge_no: string;
@@ -22,6 +24,15 @@ type QueueCard = {
   status: string;
   batchNumber?: string;
 };
+
+function chargeTone(status: string): Tone {
+  const s = status.toUpperCase();
+  if (s === 'PENDING' || s === 'HOLD') return 'accent';
+  if (s === 'DONE' || s === 'COMPLETE') return 'info';
+  if (s === 'REJECT' || s === 'REJECTED') return 'destructive';
+  if (s.includes('LOAD') || s.includes('PREP') || s === 'ACTIVE') return 'info';
+  return 'success';
+}
 
 /** ANN Batches tab — preparing/unassigned charges + pending queue. */
 export function AnnBatchesPanel() {
@@ -46,7 +57,9 @@ export function AnnBatchesPanel() {
   return (
     <div className="flex-1 overflow-auto p-4 space-y-6">
       <section className="space-y-2">
-        <h2 className="text-sm font-bold">Preparing / unassigned batches</h2>
+        <div className="rounded-lg bg-info/10 border border-info/20 px-3 py-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-info">Preparing / unassigned batches</h2>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[...preparing, ...otherActive].length === 0 && (
             <p className="text-sm text-muted-foreground col-span-full py-6">No active ANN batches.</p>
@@ -55,17 +68,17 @@ export function AnnBatchesPanel() {
             <button
               key={c.charge_no}
               type="button"
-              className="text-left border rounded-xl p-4 hover:border-primary/40 hover:bg-secondary/20"
+              className="text-left rounded-lg border border-border bg-background p-4 shadow-sm hover:border-primary/40 hover:bg-card min-h-[5.5rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => navigate(`${basePath}/charge/${encodeURIComponent(c.charge_no)}`)}
             >
-              <div className="flex justify-between gap-2">
-                <span className="font-bold font-mono">{c.annealing_batch_no ?? c.charge_no}</span>
-                <span className="text-[10px] uppercase px-2 py-0.5 rounded-full bg-secondary">{c.status}</span>
+              <div className="flex justify-between gap-2 items-start">
+                <span className="font-bold font-mono tabular-nums text-foreground">{c.annealing_batch_no ?? c.charge_no}</span>
+                <ZBadge tone={chargeTone(c.status)} label={c.status} />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mt-2">
                 Base {c.base_no ?? 'unassigned'} · {c.current_stage_code ?? '—'}
               </p>
-              <p className="text-xs mt-1">
+              <p className="text-xs font-mono tabular-nums mt-1 text-foreground">
                 {c.grade_code ?? '—'} · {c.no_of_coils ?? 0} coils · {Number(c.charge_wt_mt ?? 0).toFixed(2)} MT
               </p>
             </button>
@@ -74,16 +87,21 @@ export function AnnBatchesPanel() {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-bold">Pending queue (awaiting batch)</h2>
+        <div className="rounded-lg bg-accent/15 border border-accent/30 px-3 py-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-accent-foreground">Pending queue (awaiting batch)</h2>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {queue.length === 0 && (
             <p className="text-sm text-muted-foreground col-span-full py-6">No pending coils.</p>
           )}
           {queue.map((c) => (
-            <div key={c.coilNo} className="border rounded-xl p-4 bg-card">
-              <span className="font-bold font-mono">{c.coilNo}</span>
-              <p className="text-sm text-muted-foreground mt-1">{c.customerName}</p>
-              <p className="text-xs mt-1">
+            <div key={c.coilNo} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="flex justify-between gap-2 items-start">
+                <span className="font-bold font-mono tabular-nums text-foreground">{c.coilNo}</span>
+                <ZBadge tone="accent" label="PENDING" />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">{c.customerName}</p>
+              <p className="text-xs font-mono tabular-nums mt-1 text-foreground">
                 {c.gradeCode} · {Number(c.weightMt ?? 0).toFixed(2)} MT
                 {c.batchNumber ? ` · ${c.batchNumber}` : ''}
               </p>

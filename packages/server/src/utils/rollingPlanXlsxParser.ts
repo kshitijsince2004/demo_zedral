@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { translatePpcRoute } from './PpcRouteTranslator';
 import { currentPlantDate, formatDateOnly, formatPlantDate } from './dateOnly';
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL';
+export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL' | 'PICKLING';
 export type PpcMillCode = '6HI' | '4HI' | '2HI';
 
 export interface RollingPassPlanInput {
@@ -18,8 +18,8 @@ export interface ParsedRollingPlanRow {
   planDate: string;
   shiftCode: string;
   /** Mill codes for CRM plans; `RWD` / `CTL` for process-plan import. */
-  machineCode: PpcMillCode | 'RWD' | 'CTL';
-  subProcess: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL' | 'REWINDING';
+  machineCode: PpcMillCode | 'RWD' | 'CTL' | 'HRS' | 'PKL' | 'ANN';
+  subProcess: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL' | 'REWINDING' | 'HRS' | 'PKL' | 'ANN';
   coilNo: string;
   slitId?: string;
   customerName: string;
@@ -70,6 +70,7 @@ const SHEET_NAME_PATTERNS: Record<PpcXlsxSheetType, RegExp[]> = {
   REWINDING: [/rewind/i, /r\/w/i],
   ANNEALING: [/anneal/i, /\bann\b/i],
   CTL: [/cut\s*to\s*length/i, /\bctl\b/i, /^sheet\s*1$/i],
+  PICKLING: [/pickl/i, /\bpkl\b/i, /picking/i, /pkl\s*sheet/i],
 };
 
 const HEADER_MAP: Record<string, string> = {
@@ -167,6 +168,8 @@ export function resolveWorkbookSheetName(sheetNames: string[], sheetType: PpcXls
     const hit = sheetNames.find((n) => pattern.test(n.trim()));
     if (hit) return hit;
   }
+  // PICKLING must not fall back to the first sheet — reject non-pickling workbooks.
+  if (sheetType === 'PICKLING') return '';
   return sheetNames[0] ?? '';
 }
 
@@ -266,7 +269,13 @@ export function parseRollingPlanXlsx(
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false });
   const sheetName = resolveWorkbookSheetName(wb.SheetNames, sheetType);
   const sheet = sheetName ? wb.Sheets[sheetName] : undefined;
-  if (!sheet) return { rows: [], headerError: 'Workbook has no sheets', sheetType };
+  if (!sheet) {
+    return {
+      rows: [],
+      headerError: sheetType === 'PICKLING' ? 'No PKL / Pickling sheet found' : 'Workbook has no sheets',
+      sheetType,
+    };
+  }
 
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' }) as unknown[][];
   if (matrix.length < 2) {

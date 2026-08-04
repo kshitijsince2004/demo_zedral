@@ -11,6 +11,10 @@ describe('outboxPolicy', () => {
       ),
     ).toBe(true);
     expect(isBenignSyncClientError(403, 'Forbidden: No access to machine 4HI')).toBe(true);
+    expect(isBenignSyncClientError(403, '{"error":"Forbidden: No write access to line RWD"}')).toBe(true);
+    expect(
+      isBenignSyncClientError(400, '{"error":"Invalid production payload","details":[{"path":"actualWidthMm"}]}'),
+    ).toBe(true);
     expect(
       isBenignSyncClientError(400, 'Only active (DRAFT or REOPENED) shifts can be marked completed.'),
     ).toBe(true);

@@ -21,6 +21,11 @@ import { AdminPanel } from '../../components/admin/AdminPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import {
+  MACHINE_CLASSIFICATION_OPTIONS,
+  parseMachineClassification,
+  serializeMachineClassification,
+} from '@m1/shared-validation';
+import {
   adminService,
   type MasterEntity,
   type MasterRecord,
@@ -45,7 +50,17 @@ interface FormState {
 // ---------------------------------------------------------------------------
 
 function emptyRecord(): Partial<MasterRecord> {
-  return { code: '', name: '', description: '', isActive: true };
+  return { code: '', name: '', description: '', applies_to: '', isActive: true };
+}
+
+function hasMachineClassification(entity: MasterEntity): boolean {
+  return entity === 'defect_code' || entity === 'stoppage_code';
+}
+
+function classificationTokens(record: Partial<MasterRecord>): string[] {
+  return parseMachineClassification(
+    typeof record.applies_to === 'string' ? record.applies_to : '',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -71,11 +86,20 @@ function RecordForm({
   const { mode, entity, record } = form;
   const title = mode === 'create' ? 'New Record' : 'Edit Record';
   const isDefectCode = entity === 'defect_code';
+  const showClassification = hasMachineClassification(entity);
+  const selectedMachines = classificationTokens(record);
   const codeLabel = isDefectCode ? 'Defect code' : 'Code';
   const nameLabel = isDefectCode ? 'Defect name (operator label)' : 'Name';
   const descriptionLabel = isDefectCode ? 'Symbol (optional)' : 'Description';
   const namePlaceholder = isDefectCode ? 'e.g. Gauge Variation' : 'Display name';
   const descriptionPlaceholder = isDefectCode ? 'e.g. GV' : 'Optional description';
+
+  const toggleMachine = (value: string) => {
+    const next = selectedMachines.includes(value)
+      ? selectedMachines.filter((t) => t !== value)
+      : [...selectedMachines, value];
+    onChange('applies_to', serializeMachineClassification(next));
+  };
 
   return (
     <div
@@ -153,6 +177,41 @@ function RecordForm({
               className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
             />
           </div>
+
+          {/* Machine Classification — defect tags & stoppage codes */}
+          {showClassification && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Machine Classification
+              </legend>
+              <p className="text-xs text-muted-foreground">
+                Select the machine(s) that should see this code on production forms. Leave empty to show on all machines.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {MACHINE_CLASSIFICATION_OPTIONS.map((opt) => {
+                  const checked = selectedMachines.includes(opt.value);
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                        checked
+                          ? 'border-accent/40 bg-accent/10 text-foreground'
+                          : 'border-border text-muted-foreground hover:bg-secondary'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMachine(opt.value)}
+                        className="h-4 w-4 accent-accent"
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
 
           {/* Active toggle (edit mode only) */}
           {mode === 'edit' && (
@@ -367,6 +426,8 @@ export function MasterDataAdmin() {
   // ---- Render --------------------------------------------------------------
   const activeCount = records.filter((r) => r.isActive).length;
   const inactiveCount = records.length - activeCount;
+  const showClassificationCol = hasMachineClassification(activeEntity);
+  const colSpan = showClassificationCol ? 6 : 5;
 
   return (
     <AdminShell
@@ -453,6 +514,11 @@ export function MasterDataAdmin() {
                 <th scope="col" className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Description
                 </th>
+                {showClassificationCol && (
+                  <th scope="col" className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Machine Classification
+                  </th>
+                )}
                 <th scope="col" className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Status
                 </th>
@@ -464,14 +530,14 @@ export function MasterDataAdmin() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={colSpan} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && records.length === 0 && !loadError && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={colSpan} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     No records found. Add the first one.
                   </td>
                 </tr>
@@ -489,6 +555,11 @@ export function MasterDataAdmin() {
                     <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs truncate">
                       {record.description || '—'}
                     </td>
+                    {showClassificationCol && (
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[12rem]">
+                        {classificationTokens(record).join(', ') || 'All'}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <StatusBadge
                         tone={record.isActive ? 'success' : 'muted'}

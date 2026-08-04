@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound } from 'lucide-react';
 import EmailPassword from 'supertokens-auth-react/recipe/emailpassword';
-import { apiClient } from '../lib/apiClient';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
 import { isNative } from '../operator/native/init';
@@ -65,14 +64,36 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
     }
   }, [sessionExpired]);
 
+  const badgePinLogin = async (badge: string, pinValue: string) => {
+    // Absolute URL so SuperTokens fetch interceptor always matches apiDomain.
+    const res = await fetch(`${window.location.origin}/auth/badge-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'st-auth-mode': 'header' },
+      credentials: 'include',
+      body: JSON.stringify({ badgeId: badge, pin: pinValue }),
+    });
+    let body: { error?: string } | null = null;
+    try {
+      body = (await res.json()) as { error?: string };
+    } catch {
+      /* empty */
+    }
+    if (!res.ok) {
+      const err = new Error(body?.error || `Login failed (${res.status})`) as Error & {
+        status?: number;
+        body?: { error?: string };
+      };
+      err.status = res.status;
+      err.body = body ?? undefined;
+      throw err;
+    }
+  };
+
   useEffect(() => {
     if (!import.meta.env.DEV || import.meta.env.VITE_DEV_AUTO_LOGIN !== 'true') return;
     const doAutoLogin = async () => {
       try {
-        await apiClient.post('/auth/badge-pin', {
-          badgeId: DEV_OPERATOR_BADGE,
-          pin: DEV_OPERATOR_PIN,
-        });
+        await badgePinLogin(DEV_OPERATOR_BADGE, DEV_OPERATOR_PIN);
         window.location.href = '/';
       } catch (err) {
         console.error('Auto login failed', err);
@@ -116,8 +137,8 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
     e.preventDefault();
     setError('');
     try {
-      await apiClient.post('/auth/badge-pin', { badgeId, pin });
-      window.location.href = '/'; // ST cookie set → SuperTokensSync hydrates on reload
+      await badgePinLogin(badgeId, pin);
+      window.location.href = '/'; // ST header tokens saved → SuperTokensSync hydrates on reload
     } catch (err: unknown) {
       const apiErr = err as { status?: number; message?: string; body?: { error?: string } };
       setError(apiErr.body?.error || apiErr.message || 'Invalid badge or PIN');

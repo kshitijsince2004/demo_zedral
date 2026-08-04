@@ -16,7 +16,7 @@ import { apiClient, getAuthHeaders } from '../lib/apiClient';
 // Shared types
 // ---------------------------------------------------------------------------
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL';
+export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL' | 'PICKLING';
 
 export type PpcPreviewRowStatus =
   | 'new'
@@ -26,15 +26,17 @@ export type PpcPreviewRowStatus =
   | 'completed'
   | 'duplicate-in-file'
   | 'duplicate-skipped'
-  | 'will-merge';
+  | 'will-merge'
+  | 'advanced-skipped'
+  | 'already-in-line';
 
 export interface PpcRollingPreviewRow {
   rowNum: number;
   batchNumber: string;
   planDate: string;
   shiftCode: string;
-  machineCode: '6HI' | '4HI' | '2HI';
-  subProcess?: 'ROLLING' | 'SKIN_PASS';
+  machineCode: '6HI' | '4HI' | '2HI' | 'RWD' | 'CTL' | 'HRS' | 'PKL' | 'ANN';
+  subProcess?: 'ROLLING' | 'SKIN_PASS' | 'RWD' | 'CTL' | 'REWINDING' | 'HRS' | 'PKL' | 'ANN';
   coilNo: string;
   customerName: string;
   gradeCode: string;
@@ -54,6 +56,7 @@ export interface PpcRollingPreviewRow {
   previewStatus: PpcPreviewRowStatus;
   /** When previewStatus is will-merge, the existing batch number that will be updated. */
   mergeTargetBatchNumber?: string;
+  skipReason?: string;
 }
 
 export interface PpcRollingPreviewResult {
@@ -65,6 +68,15 @@ export interface PpcRollingPreviewResult {
   sheetName?: string;
   /** Number of batch_numbers that appear more than once in the uploaded file. */
   duplicatesInFile?: number;
+  lineScope?: string | null;
+  statusCounts?: {
+    new: number;
+    alreadyInLine: number;
+    advancedSkipped: number;
+    inProduction: number;
+    completed: number;
+    otherBlocked: number;
+  };
 }
 
 export type MasterEntity =
@@ -132,6 +144,8 @@ function masterRecordToApi(entity: MasterEntity, record: MasterRecord): Record<s
       return {
         stoppage_code: record.code.trim(),
         description: (record.description?.trim() || record.name.trim()),
+        category: (record.category as string | undefined)?.trim() || 'OPN',
+        applies_to: (record.applies_to as string | undefined)?.trim() || null,
         is_active: active,
       };
     case 'grade':
@@ -215,7 +229,7 @@ function normalizeMasterRecord(
         name: String(row.description ?? row.defect_code ?? ''),
         description: String(row.description ?? ''),
         symbol: row.symbol != null ? String(row.symbol) : undefined,
-        applies_to: row.applies_to != null ? String(row.applies_to) : 'CRM6',
+        applies_to: row.applies_to != null ? String(row.applies_to) : '',
         isActive: active,
         is_active: active,
       };
@@ -236,6 +250,8 @@ function normalizeMasterRecord(
         code: String(row.stoppage_code ?? ''),
         name: String(row.stoppage_code ?? ''),
         description: String(row.description ?? ''),
+        category: row.category != null ? String(row.category) : 'OPN',
+        applies_to: row.applies_to != null ? String(row.applies_to) : '',
         isActive: active,
         is_active: active,
       };
@@ -390,7 +406,7 @@ export const adminService = {
     // helper, omitting the Content-Type header so the browser sets the boundary.
     const res = await fetch('/api/import', {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
       body: formData,
     });
@@ -421,7 +437,7 @@ export const adminService = {
     formData.append('file', file);
     const res = await fetch('/api/6hi/import/ppc', {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
       body: formData,
     });
@@ -432,17 +448,20 @@ export const adminService = {
     return json;
   },
 
-  /** Preview rolling plan XLSX before commit. */
+  /** Preview rolling plan XLSX before commit. Optional `line` scopes to MH fail-safe import. */
   async previewPpcRolling(
     file: File,
     sheetType: PpcXlsxSheetType = 'ROLLING',
+    line?: 'HRS' | 'PKL' | 'RWD' | 'ANN',
   ): Promise<PpcRollingPreviewResult> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('sheetType', sheetType);
-    const res = await fetch('/api/6hi/import/ppc/preview', {
+    if (line) formData.append('line', line);
+    const qs = line ? `?line=${encodeURIComponent(line)}` : '';
+    const res = await fetch(`/api/6hi/import/ppc/preview${qs}`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
       body: formData,
     });
@@ -459,7 +478,7 @@ export const adminService = {
   ): Promise<PpcRollingPreviewRow[]> {
     const res = await fetch(`/api/6hi/import/ppc/preview/${sessionId}/machines`, {
       method: 'PUT',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify({ assignments }),
     });
@@ -479,6 +498,8 @@ export const adminService = {
     skippedAllocated: number;
     skippedProduction: number;
     skippedCompleted: number;
+    skippedAdvanced?: number;
+    skippedAlreadyInLine?: number;
     errors: { row: number; message: string }[];
     status: string;
     synced?: {
@@ -490,7 +511,7 @@ export const adminService = {
   }> {
     const res = await fetch(`/api/6hi/import/ppc/preview/${sessionId}/commit`, {
       method: 'POST',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify(batchNumbers?.length ? { batchNumbers } : {}),
     });
@@ -519,7 +540,7 @@ export const adminService = {
   ): Promise<{ results: { batchNumber: string; ok: boolean; error?: string }[] }> {
     const res = await fetch('/api/6hi/orders/transfer-machine', {
       method: 'POST',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify({ batchNumbers, targetMachine }),
     });
@@ -539,7 +560,7 @@ export const adminService = {
    */
   async downloadErrorRows(batchId: string): Promise<Blob> {
     const res = await fetch(`/api/import/${batchId}/error-rows`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       credentials: 'include',
     });
     if (!res.ok) {

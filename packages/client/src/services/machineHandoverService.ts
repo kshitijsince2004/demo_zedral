@@ -265,8 +265,9 @@ export const machineHandoverService = {
   ensureSession: async (machineCode: string) => {
     // Session start needs a live response. Never park through outbox.
     // Skip mills this JWT cannot WRITE (avoids Forbidden: No access to machine 4HI).
-    const { role, machineAccess } = useAuthStore.getState();
-    if (!canWriteMachine(role, machineAccess, machineCode)) {
+    // Process lines (HRS/PKL/…) use lineAccess, not machineAccess.
+    const { role, machineAccess, hasLineAccess } = useAuthStore.getState();
+    if (!canWriteMachine(role, machineAccess, machineCode) && !hasLineAccess(machineCode)) {
       return { session: null, pendingHandover: null, needsCrew: false, created: false };
     }
     return apiClient.post<{

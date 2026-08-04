@@ -422,6 +422,7 @@ export function SixHiLayout() {
               ? orderIdentitySubtitle(panelOrder)
               : undefined}
           order={panelOrder ?? undefined}
+          appliesTo={pathMill}
           onClose={() => setEndOpen(false)}
           onConfirm={async (defectCodes) => {
             try {
@@ -463,6 +464,7 @@ export function SixHiLayout() {
         batchNumber={rejectTarget ?? ''}
         orderLabel={modalOrderLabel}
         orderSubtitle={modalOrderSubtitle}
+        appliesTo={pathMill}
         onClose={() => {
           setRejectionOpen(false);
           setRejectionBatch(null);
@@ -689,6 +691,7 @@ export function SixHiLayout() {
           orderLabel={modalOrderLabel}
           orderSubtitle={modalOrderSubtitle}
           busy={busy}
+          appliesTo={pathMill}
           onClose={() => setRemarkOpen(false)}
           onSave={async (text, defects) => {
             // Server cascades remarks across combined_group_id — post once.

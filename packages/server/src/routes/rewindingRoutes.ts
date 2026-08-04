@@ -163,8 +163,10 @@ router.post('/orders/start-combined', async (req, res) => {
 
 router.get('/orders/:batchNo', async (req, res) => {
   try {
-    // Read-only: do not create rwd_order on GET.
-    const existing = await RewindingOrderService.getExistingOrder(req.params.batchNo);
+    // Read-only: do not create rwd_order on GET; fall back to plan row for pending cards.
+    const existing =
+      (await RewindingOrderService.getExistingOrder(req.params.batchNo))
+      ?? (await RewindingOrderService.getPlanOrderDetail(req.params.batchNo));
     if (!existing) return res.status(404).json({ error: `Order not found: ${req.params.batchNo}` });
     if (!(await authorizeMachine(req, res, existing.machineCode))) return;
     res.json(existing);

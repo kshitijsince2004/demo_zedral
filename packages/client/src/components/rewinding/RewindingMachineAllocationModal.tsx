@@ -38,24 +38,24 @@ export function RewindingMachineAllocationModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] bg-primary/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <button type="button" className="fixed inset-0 z-[100] bg-primary/50 backdrop-blur-[2px]" onClick={onClose} aria-label="Close" />
       <div
-        className="fixed left-1/2 top-1/2 z-[105] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-white p-6 shadow-2xl"
+        className="fixed left-1/2 top-1/2 z-[105] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-2xl"
         role="dialog"
         aria-labelledby="rwd-alloc-title"
       >
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Assign Machine
             </p>
-            <h2 id="rwd-alloc-title" className="font-mono text-lg font-bold mt-1">{coilLabel}</h2>
-            <p className="text-sm text-muted-foreground mt-1">Batch {batchNumber}</p>
+            <h2 id="rwd-alloc-title" className="font-mono text-lg font-bold mt-1 text-foreground">{coilLabel}</h2>
+            <p className="text-sm font-mono tabular-nums text-muted-foreground mt-1">Batch {batchNumber}</p>
             <p className="text-xs text-muted-foreground mt-0.5">Rewinding · route R</p>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-md hover:bg-secondary" aria-label="Close">
+          <ZButton type="button" variant="ghost" size="sm" onClick={onClose} className="!h-10 !w-10 !min-h-10 !px-0" aria-label="Close">
             <X className="h-5 w-5" />
-          </button>
+          </ZButton>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">
@@ -64,19 +64,15 @@ export function RewindingMachineAllocationModal({
 
         <div className="grid grid-cols-2 gap-2 mb-4">
           {options.map((code) => (
-            <button
+            <ZButton
               key={code}
               type="button"
+              variant={selected === code ? 'primary' : 'secondary'}
               onClick={() => setSelected(code)}
-              className={[
-                'min-h-12 rounded-xl border font-mono font-bold text-sm transition-colors',
-                selected === code
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-white text-foreground hover:bg-secondary',
-              ].join(' ')}
+              className="!min-h-12 !h-12 rounded-lg font-mono font-bold"
             >
               {code}
-            </button>
+            </ZButton>
           ))}
         </div>
 

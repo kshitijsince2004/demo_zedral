@@ -3,7 +3,7 @@
  * Mirrors SixHiService behaviour; does not touch txn.crm_order.
  */
 import { randomUUID } from 'node:crypto';
-import { formatPlantDate, postgresDateOnly } from '@m1/shared-validation';
+import { allocateCombinedRemainderToBlanks, formatPlantDate, postgresDateOnly } from '@m1/shared-validation';
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -11,7 +11,10 @@ import { MachineStateEventService } from './MachineStateEventService';
 import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
 import { formatDisplayCoilNo, mapPlanSurfaceToCode } from '../utils/rwdFieldMappers';
 import {
+  assertCanAddStoppage,
   assertCombineEligible,
+  assertRejectPayload,
+  healOrphanStoppageStatus,
   netProdDurationMin,
 } from '../utils/orderLifecycleHelpers';
 import {
@@ -53,6 +56,12 @@ export type RwdOrderDetail = {
   shiftLogId?: string;
   shiftCode?: string;
   surfaceFinish?: 'M' | 'B';
+  /** Latest txn.prod_rwd capture (if any). */
+  finishWeightMt?: number;
+  rwTension1Kg?: number;
+  rwTension2Kg?: number;
+  rwTension3Kg?: number;
+  outputThkMm?: number;
   holdReason?: string;
   holdRemarks?: string;
   stoppages: Array<{
@@ -65,6 +74,17 @@ export type RwdOrderDetail = {
     remarks?: string;
   }>;
   activeStoppageId?: string;
+};
+
+type RwdCapturePayload = {
+  weightMt?: number;
+  rwTension1Kg?: number;
+  rwTension2Kg?: number;
+  rwTension3Kg?: number;
+  outputThkMm?: number;
+  surfaceFinish?: string;
+  remarks?: string;
+  complete?: boolean;
 };
 
 export type RwdQueueCard = {
@@ -204,6 +224,54 @@ export class RewindingOrderService {
     return this.loadOrderDetail(batchNumber);
   }
 
+  /** Plan-only detail when rwd_order row does not exist yet (MH pending cards). */
+  static async getPlanOrderDetail(batchNumber: string): Promise<RwdOrderDetail | null> {
+    const pb = await db
+      .selectFrom('planning.ppc_batch')
+      .selectAll()
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!pb) return null;
+    if (pb.from_work_center !== 'R' && pb.machine_code !== 'RWD') return null;
+    const machine = String(pb.machine_code ?? 'RWD').toUpperCase();
+    const thk = Number(pb.input_thk_mm ?? pb.ppc_thk_mm ?? 0);
+    return {
+      orderId: '',
+      batchNumber: pb.batch_number,
+      batchId: String(pb.batch_id),
+      coilNo: pb.coil_no,
+      displayCoilNo: formatDisplayCoilNo(pb.coil_no, pb.slit_id),
+      slitId: pb.slit_id ?? undefined,
+      customerName: pb.customer_name ?? '-',
+      gradeCode: pb.grade_code ?? '-',
+      widthMm: Number(pb.width_mm ?? 0),
+      inputThkMm: pb.input_thk_mm != null ? Number(pb.input_thk_mm) : undefined,
+      ppcThkMm: Number(pb.ppc_thk_mm ?? thk),
+      ppcWeightMt: Number(pb.ppc_weight_mt ?? 0),
+      machineCode: machine,
+      machineAllocated: Boolean(pb.machine_allocated),
+      status: 'PENDING',
+      surfaceFinish: mapPlanSurfaceToCode(pb.roll_finish) ?? undefined,
+      stoppages: [],
+    };
+  }
+
+  private static async latestProdRwd(coilNo: string) {
+    return db
+      .selectFrom('txn.prod_rwd')
+      .select([
+        'weight_mt',
+        'rw_tension_1_kg',
+        'rw_tension_2_kg',
+        'rw_tension_3_kg',
+        'output_thk_mm',
+        'surface_finish',
+      ])
+      .where('coil_no', '=', coilNo)
+      .orderBy('entry_id', 'desc')
+      .executeTakeFirst();
+  }
+
   /** Read machine without creating an order — for allocate auth. */
   static async peekOrderMachine(batchNumber: string): Promise<{
     machineCode: string | null;
@@ -254,9 +322,12 @@ export class RewindingOrderService {
     let status = order.status as RwdOrderStatus;
     if (status === 'STOPPAGE' && !active) {
       // Heal orphan STOPPAGE — prefer PREPARING when allocated but never started.
-      status = order.prod_start_at
-        ? 'IN_PROGRESS'
-        : (ppc?.machine_allocated ? 'PREPARING' : 'PENDING');
+      status = healOrphanStoppageStatus({
+        status,
+        hasActiveStoppage: false,
+        prodStartAt: order.prod_start_at,
+        machineAllocated: !!ppc?.machine_allocated,
+      }) as RwdOrderStatus;
       await db
         .updateTable('txn.rwd_order')
         .set({ status, updated_at: new Date() })
@@ -264,6 +335,8 @@ export class RewindingOrderService {
         .where('status', '=', 'STOPPAGE')
         .execute();
     }
+
+    const prod = await this.latestProdRwd(order.coil_no);
 
     return {
       orderId: String(order.order_id),
@@ -287,7 +360,15 @@ export class RewindingOrderService {
       prodDurationMin: order.prod_duration_min ?? undefined,
       shiftLogId: order.shift_log_id != null ? String(order.shift_log_id) : undefined,
       shiftCode: order.shift_code ?? undefined,
-      surfaceFinish: mapPlanSurfaceToCode(ppc?.roll_finish) ?? undefined,
+      surfaceFinish:
+        mapPlanSurfaceToCode(prod?.surface_finish) ??
+        mapPlanSurfaceToCode(ppc?.roll_finish) ??
+        undefined,
+      finishWeightMt: prod?.weight_mt != null ? Number(prod.weight_mt) : undefined,
+      rwTension1Kg: prod?.rw_tension_1_kg != null ? Number(prod.rw_tension_1_kg) : undefined,
+      rwTension2Kg: prod?.rw_tension_2_kg != null ? Number(prod.rw_tension_2_kg) : undefined,
+      rwTension3Kg: prod?.rw_tension_3_kg != null ? Number(prod.rw_tension_3_kg) : undefined,
+      outputThkMm: prod?.output_thk_mm != null ? Number(prod.output_thk_mm) : undefined,
       holdReason: order.hold_reason ?? undefined,
       holdRemarks: order.hold_remarks ?? undefined,
       stoppages: stoppages.map((s) => ({
@@ -748,11 +829,11 @@ export class RewindingOrderService {
       throw new Error('Only running orders can be completed');
     }
 
-    let targets = [{ batch_number: batchNumber, order_id: order.order_id }];
+    let targets = [{ batch_number: batchNumber, order_id: order.order_id, coil_no: order.coil_no }];
     if (order.combined_group_id) {
       const groupRows = await db
         .selectFrom('txn.rwd_order')
-        .select(['batch_number', 'order_id'])
+        .select(['batch_number', 'order_id', 'coil_no'])
         .where('combined_group_id', '=', order.combined_group_id)
         .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
         .execute();
@@ -760,11 +841,20 @@ export class RewindingOrderService {
         targets = groupRows.map((r) => ({
           batch_number: String(r.batch_number),
           order_id: r.order_id,
+          coil_no: r.coil_no,
         }));
       }
     }
 
     for (const t of targets) await this.assertNoOpenStoppage(t.order_id);
+
+    // G2: End without Save leaves journey stuck at R and no prod_rwd.
+    for (const t of targets) {
+      const prod = await this.latestProdRwd(t.coil_no);
+      if (!prod) {
+        throw new Error(`Save production data before ending order ${t.batch_number}`);
+      }
+    }
 
     const endAt = new Date();
     await db.transaction().execute(async (trx) => {
@@ -810,16 +900,7 @@ export class RewindingOrderService {
   static async capture(
     batchNumber: string,
     userId: number,
-    data: {
-      weightMt?: number;
-      rwTension1Kg?: number;
-      rwTension2Kg?: number;
-      rwTension3Kg?: number;
-      outputThkMm?: number;
-      surfaceFinish?: string;
-      remarks?: string;
-      complete?: boolean;
-    },
+    data: RwdCapturePayload,
   ): Promise<RwdOrderDetail> {
     const order = await this.getOrder(batchNumber, userId);
     if (!order.shiftLogId) throw new Error('Order has no shift log');
@@ -827,25 +908,102 @@ export class RewindingOrderService {
       throw new Error('Capture only allowed on running orders');
     }
 
-    await ProductionService.saveRwd({
-      machineCode: order.machineCode,
-      shiftLogId: order.shiftLogId,
-      coilNo: order.coilNo,
-      widthMm: order.widthMm,
-      thkMm: order.inputThkMm ?? order.ppcThkMm,
-      outputThkMm: data.outputThkMm,
-      weightMt: data.weightMt,
-      rwTension1Kg: data.rwTension1Kg,
-      rwTension2Kg: data.rwTension2Kg,
-      rwTension3Kg: data.rwTension3Kg,
-      surfaceFinish: data.surfaceFinish ?? order.surfaceFinish,
-      remarks: data.remarks,
-    });
+    if (order.combinedGroupId) {
+      await this.writeCombinedProdRwd(order, data);
+    } else {
+      await ProductionService.saveRwd({
+        machineCode: order.machineCode,
+        shiftLogId: order.shiftLogId,
+        coilNo: order.coilNo,
+        widthMm: order.widthMm,
+        thkMm: order.inputThkMm ?? order.ppcThkMm,
+        outputThkMm: data.outputThkMm,
+        weightMt: data.weightMt,
+        rwTension1Kg: data.rwTension1Kg,
+        rwTension2Kg: data.rwTension2Kg,
+        rwTension3Kg: data.rwTension3Kg,
+        surfaceFinish: data.surfaceFinish ?? order.surfaceFinish,
+        remarks: data.remarks,
+      });
+    }
 
     if (data.complete !== false) {
       return this.endProduction(batchNumber, userId);
     }
     return this.getOrder(batchNumber, userId);
+  }
+
+  /**
+   * Split combined weight across members lacking prod_rwd; copy tensions/thk/surface from capture.
+   * `data.weightMt` is the combined actual total.
+   */
+  private static async writeCombinedProdRwd(
+    primary: RwdOrderDetail,
+    data: RwdCapturePayload,
+  ): Promise<void> {
+    if (!primary.combinedGroupId || !primary.shiftLogId) return;
+    if (data.weightMt == null || !(data.weightMt > 0)) {
+      throw new Error('weightMt is required for combined capture');
+    }
+
+    const members = await db
+      .selectFrom('txn.rwd_order')
+      .select([
+        'batch_number',
+        'coil_no',
+        'machine_code',
+        'shift_log_id',
+        'width_mm',
+        'input_thk_mm',
+        'ppc_thk_mm',
+        'ppc_weight_mt',
+      ])
+      .where('combined_group_id', '=', primary.combinedGroupId)
+      .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE'])
+      .execute();
+    if (!members.length) return;
+
+    const snaps: Array<{ batchNumber: string; actualWeightMt: number | null }> = [];
+    for (const m of members) {
+      const prod = await this.latestProdRwd(m.coil_no);
+      snaps.push({
+        batchNumber: String(m.batch_number),
+        actualWeightMt: prod?.weight_mt != null ? Number(prod.weight_mt) : null,
+      });
+    }
+
+    const targets = members.map((m) => ({
+      batchNumber: String(m.batch_number),
+      targetMt: Number(m.ppc_weight_mt ?? 0),
+    }));
+    const allocation = allocateCombinedRemainderToBlanks(snaps, targets, data.weightMt);
+
+    for (const m of members) {
+      const bn = String(m.batch_number);
+      const existing = snaps.find((s) => s.batchNumber === bn)?.actualWeightMt;
+      if (existing != null) continue;
+      const weightMt = allocation?.get(bn);
+      if (weightMt == null) {
+        // No blanks to fill (or primary-only re-save): write primary with form weight.
+        if (bn !== primary.batchNumber) continue;
+      }
+      const shiftLogId = m.shift_log_id != null ? String(m.shift_log_id) : primary.shiftLogId;
+      if (!shiftLogId) continue;
+      await ProductionService.saveRwd({
+        machineCode: m.machine_code,
+        shiftLogId,
+        coilNo: m.coil_no,
+        widthMm: Number(m.width_mm ?? 0),
+        thkMm: Number(m.input_thk_mm ?? m.ppc_thk_mm ?? 0),
+        outputThkMm: data.outputThkMm,
+        weightMt: weightMt ?? data.weightMt,
+        rwTension1Kg: data.rwTension1Kg,
+        rwTension2Kg: data.rwTension2Kg,
+        rwTension3Kg: data.rwTension3Kg,
+        surfaceFinish: data.surfaceFinish ?? primary.surfaceFinish,
+        remarks: data.remarks,
+      });
+    }
   }
 
   static async addStoppage(
@@ -862,9 +1020,7 @@ export class RewindingOrderService {
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
 
-    if (orderRow.status !== 'IN_PROGRESS' && orderRow.status !== 'STOPPAGE') {
-      throw new Error('Stoppage can only be recorded while production is running');
-    }
+    assertCanAddStoppage(orderRow.status);
 
     let targets = [{ order_id: orderId, batch_number: batchNumber }];
     if (orderRow.combined_group_id) {
@@ -1021,8 +1177,7 @@ export class RewindingOrderService {
     remarks: string,
     userId: number,
   ): Promise<RwdOrderDetail> {
-    if (!rejectionReason?.trim()) throw new Error('Hold reason is required');
-    if (!remarks?.trim()) throw new Error('Hold remarks are required');
+    assertRejectPayload(rejectionReason, remarks);
 
     const orderId = await this.ensureOrder(batchNumber, userId);
     const current = await db

@@ -29,6 +29,7 @@ export type SixHiOperatingMode = 'LOAD' | 'STRETCH';
 export interface MasterDefectCode {
   defectCode: string;
   defectName: string;
+  /** Machine classification (`applies_to`) — comma-separated machine tokens. */
   category: string | null;
   isActive: boolean;
 }
@@ -44,6 +45,8 @@ export interface MasterStoppageCode {
   stoppageCode: string;
   description: string;
   category: string;
+  /** Machine classification — comma-separated machine tokens. */
+  appliesTo?: string | null;
   isActive: boolean;
 }
 

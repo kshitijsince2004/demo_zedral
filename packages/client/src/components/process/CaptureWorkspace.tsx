@@ -2,24 +2,23 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
-import { ZInput } from '../primitives/ZInput';
-import { FieldWrapper } from '../forms/FieldWrapper';
 import { useProcessStore } from '../../store/processStore';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { getProcessConfig } from '../../lib/processConfig';
 import { useShiftStore } from '../../store/shiftStore';
-import { useAuthStore } from '../../lib/authStore';
 import { resolveStoppageDisplayCode } from '../sixHi/SixHiStoppageCodes';
 import { DefectTagSelector } from '../sixHi/DefectTagSelector';
 import { OrderStoppageModal } from '../sixHi/OrderStoppageModal';
-import { OrderRemarkModal } from '../sixHi/OrderRemarkModal';
+import { CrewCaptureModal } from '../sixHi/CrewCaptureModal';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
+import { toStoppageCategoryCode, useMachineStoppageCodes } from '../../lib/pklStoppageCodes';
 import type { CrewRole } from '@m1/shared-validation';
 import { CrewRole as SharedCrewRole } from '@m1/shared-validation';
 import { submitOrQueue } from '../../operator/sync/submitOrQueue';
 import { QcCapturePanel } from './QcCapturePanel';
 import { ProcessPPCCards } from './ProcessPPCCards';
 import { ProcessStatusBanner } from './ProcessStatusBanner';
+import type { MachineCrewMember } from '../../lib/machineCrewService';
 
 interface CaptureWorkspaceProps {
   processCode: string;
@@ -40,7 +39,6 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   const navigate = useNavigate();
   const { basePath } = useProcessWorkspaceBase();
   const config = getProcessConfig(processCode);
-  const authUsername = useAuthStore((s) => s.username);
   const { shiftLogId } = useShiftStore();
   const {
     activePrefill,
@@ -50,7 +48,6 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     captureStatus,
     defectPanelOpen,
     crewPanelOpen,
-    remarkPanelOpen,
     closeDefectPanel,
     closeCrewPanel,
     closeRemarkPanel,
@@ -60,19 +57,28 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     setStoppageCode,
     setStoppageRemarks,
     startCapture,
-    cancelStoppage,
     pklGroupCoilNos,
     pklGroupWeightMt,
     advancePklGroup,
     clearPklGroup,
     endCaptureToken,
     finishCapture,
+    queue,
+    stoppageManageToken,
   } = useProcessStore();
   const [prefill, setPrefill] = useState<Record<string, unknown>>(activePrefill ?? {});
+  const queueStatus = queue.find((c) => c.coilNo === coilNo)?.status;
+  const isCompleted = queueStatus === 'COMPLETED';
 
   const [selectedDefects, setSelectedDefects] = useState<string[]>([]);
   const [otherDefectRemarks, setOtherDefectRemarks] = useState('');
   const [defectsBusy, setDefectsBusy] = useState(false);
+  const [manageStoppageOpen, setManageStoppageOpen] = useState(false);
+  const { codes: machineStoppageCodes, loading: machineStoppageCodesLoading } = useMachineStoppageCodes(processCode);
+  const isPkl = processCode === 'PKL';
+  // Prefer machine-classified stoppage codes; PKL keeps legacy alias for clarity
+  const stoppageCodes = machineStoppageCodes;
+  const stoppageCodesLoading = machineStoppageCodesLoading;
 
   const allowedCrewRoles = useMemo(() => {
     const code = processCode.toUpperCase();
@@ -87,14 +93,22 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     return mapping[code] ?? [SharedCrewRole.OPERATOR, SharedCrewRole.ASST, SharedCrewRole.HELPER];
   }, [processCode]);
 
-  const [crewOperatorId, setCrewOperatorId] = useState('');
-  const [crewRoleCode, setCrewRoleCode] = useState<CrewRole>(allowedCrewRoles[0] ?? SharedCrewRole.OPERATOR);
-  const [crewEntries, setCrewEntries] = useState<Array<{ operatorId: string; roleCode: CrewRole }>>([]);
-  const [crewBusy, setCrewBusy] = useState(false);
+  function mapRole(label: string): CrewRole {
+    const u = label.toUpperCase();
+    if (u.includes('INCHARGE') || u.includes('IN-CHARGE')) return SharedCrewRole.SHIFT_INCHARGE;
+    if (u.includes('HELPER')) return SharedCrewRole.HELPER;
+    if (u.includes('ASST')) return SharedCrewRole.ASST;
+    if (allowedCrewRoles.includes(u as CrewRole)) return u as CrewRole;
+    return allowedCrewRoles[0] ?? SharedCrewRole.OPERATOR;
+  }
 
   useEffect(() => {
-    setCrewOperatorId(authUsername ?? '');
-  }, [authUsername]);
+    if (isCompleted) {
+      closeDefectPanel();
+      closeCrewPanel();
+      closeRemarkPanel();
+    }
+  }, [isCompleted, closeDefectPanel, closeCrewPanel, closeRemarkPanel]);
 
   useEffect(() => {
     if (defectPanelOpen) {
@@ -105,24 +119,15 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   }, [defectPanelOpen]);
 
   useEffect(() => {
-    if (crewPanelOpen) {
-      setCrewEntries([]);
-      setCrewBusy(false);
-      setCrewRoleCode(allowedCrewRoles[0] ?? SharedCrewRole.OPERATOR);
-      setCrewOperatorId(authUsername ?? '');
-    }
-  }, [crewPanelOpen, allowedCrewRoles, authUsername]);
-
-  useEffect(() => {
     setActiveCoil(coilNo);
     void loadPrefill(coilNo).then(setPrefill).catch(() => {
       /* soft: missing line access must not block Start/End rail */
     });
   }, [coilNo, loadPrefill, setActiveCoil]);
 
-  // Rail End → submit production form (same path as Save / Complete).
+  // Rail End → OrderEndModal → form.requestSubmit (finalize only; Save uses draft endpoint).
   useEffect(() => {
-    if (!endCaptureToken) return;
+    if (!endCaptureToken || isCompleted) return;
     const root = document.getElementById('process-capture-form');
     const form = root?.querySelector('form') ?? null;
     if (form) {
@@ -130,7 +135,7 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
       return;
     }
     root?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [endCaptureToken]);
+  }, [endCaptureToken, isCompleted]);
 
   const Body = config.bodyComponent;
 
@@ -147,7 +152,6 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   const planWidth = fieldVal(prefill.widthMm) ?? (prefill.widthMm as number | undefined);
   const planThk = fieldVal(prefill.thicknessMm) ?? (prefill.thicknessMm as number | undefined)
     ?? fieldVal(prefill.outputThkMmFallback);
-  const surfaceRaw = fieldVal(prefill.surfaceFinish);
   const ppc = {
     motherCoilNo: fieldVal(prefill.motherCoilNo) ?? fieldVal(prefill.parentCoilNo),
     coilNo: fieldVal(prefill.displayCoilNo) ?? coilNo,
@@ -157,27 +161,35 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     widthMm: planWidth,
     thicknessMm: planThk,
     weightMt: fieldVal(prefill.weightMt) ?? (prefill.weightMt as number | undefined),
-    route: processCode === 'RWD' ? undefined : fieldVal(prefill.routeRaw),
+    route: fieldVal(prefill.routeRaw),
     batch: fieldVal(prefill.batchNumber),
-    ...(processCode === 'RWD' ? {
-      surface: surfaceRaw ?? '',
-      planWidthMm: planWidth,
-      planThicknessMm: planThk,
-    } : {}),
   };
 
   const stoppageActive = captureStatus === 'stoppage';
+
+  useEffect(() => {
+    if (stoppageActive) setManageStoppageOpen(true);
+  }, [stoppageActive]);
+
+  useEffect(() => {
+    if (stoppageManageToken > 0 && stoppageActive) setManageStoppageOpen(true);
+  }, [stoppageManageToken, stoppageActive]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-secondary">
       {/* Workspace chrome — rolling-grade green header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-primary text-white h-16">
         <div className="flex items-center gap-3 min-w-0">
-          <p className="text-base font-bold shrink-0">Production Form</p>
+          <p className="text-base font-bold shrink-0">Production Console</p>
           <span className="font-mono text-lg font-bold truncate">{coilNo}</span>
           <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15">
             {processCode}
           </span>
+          {isCompleted && (
+            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-success/30 text-white">
+              COMPLETED · Read-only
+            </span>
+          )}
           {processCode === 'PKL' && pklGroupCoilNos.length > 1 && (
             <span className="text-xs opacity-90 tabular-nums hidden sm:inline">
               Selected {pklGroupCoilNos.length} · Σ {pklGroupWeightMt.toFixed(2)} MT
@@ -200,9 +212,12 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         <div className="p-2 flex flex-col gap-2">
           <ProcessStatusBanner
             compact
+            timerMode={isPkl ? 'net' : 'wall'}
             stoppageLabel={stoppageRemarks.trim() || `Code ${stoppageCode}`}
+            /** PKL: live stoppage clock lives on the action rail only — avoid duplicate timers. */
+            hideStoppageTimer={isPkl}
           />
-          {(processCode === 'PKL' || processCode === 'HRS') && stoppageActive && (
+          {!isPkl && stoppageActive && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5">Stoppage details</p>
               <p className="font-mono">Code {stoppageCode}{stoppageRemarks ? ` · ${stoppageRemarks}` : ''}</p>
@@ -215,14 +230,20 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
             groupWeightMt={processCode === 'PKL' && pklGroupCoilNos.length > 1 ? pklGroupWeightMt : undefined}
           />
 
-          <div className="bg-card border border-border rounded-xl shadow overflow-hidden">
+          <div
+            className={[
+              'bg-card border border-border rounded-xl shadow overflow-hidden',
+              isCompleted ? 'pointer-events-none opacity-70' : '',
+            ].join(' ')}
+            aria-readonly={isCompleted || undefined}
+          >
             <Body
               coilNo={coilNo}
               prefill={prefill}
               shiftLogId={shiftLogId ?? ''}
               machineCode={processCode}
-              {...(processCode === 'RWD' ? { showSubmit: false, formId: 'rwd-capture-form' } : {})}
               onSubmitted={() => {
+                if (isCompleted) return;
                 requestQueueRefresh();
                 closeDefectPanel();
                 closeCrewPanel();
@@ -236,13 +257,13 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
                   clearPklGroup();
                 }
                 finishCapture();
-                navigate(basePath);
+                navigate(isPkl ? `${basePath}?status=COMPLETED` : basePath);
               }}
             />
           </div>
 
-          {/* ponytail: PKL pre-CR + RWD has no QC params — skip empty Quality checks panel */}
-          {processCode !== 'PKL' && processCode !== 'RWD' && (
+          {/* ponytail: PKL pre-CR has no QC params — skip empty Quality checks panel */}
+          {processCode !== 'PKL' && (
             <QcCapturePanel
               processCode={processCode}
               coilNo={coilNo}
@@ -253,24 +274,8 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         </div>
       </div>
 
-      {processCode === 'RWD' && (
-        <div className="shrink-0 border-t border-border bg-card px-3 py-3 z-10">
-          <ZButton
-            type="submit"
-            form="rwd-capture-form"
-            variant="primary"
-            size="lg"
-            fullWidth
-            disabled={!shiftLogId}
-            className="min-h-14 text-base font-bold"
-          >
-            Save Production Data
-          </ZButton>
-        </div>
-      )}
-
       <OrderStoppageModal
-        open={stoppageActive}
+        open={stoppageActive && manageStoppageOpen}
         hasActiveStoppage
         activeStoppage={{
           id: 'process-local',
@@ -281,48 +286,30 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         }}
         subtitle={`${processCode} · ${coilNo}`}
         title="Manage Stoppage"
-        onClose={() => cancelStoppage()}
+        stoppageCodes={stoppageCodes.length > 0 ? stoppageCodes : undefined}
+        stoppageCodesLoading={stoppageCodesLoading}
+        onClose={() => setManageStoppageOpen(false)}
         onUpdate={async (_id, categoryCode, breakdownCode, remarks) => {
-          setStoppageCode(resolveStoppageDisplayCode(categoryCode, breakdownCode));
+          setStoppageCode(
+            isPkl
+              ? toStoppageCategoryCode(categoryCode)
+              : resolveStoppageDisplayCode(categoryCode, breakdownCode),
+          );
           setStoppageRemarks(remarks ?? '');
         }}
         onEnd={async (_id, categoryCode, breakdownCode, remarks) => {
-          setStoppageCode(resolveStoppageDisplayCode(categoryCode, breakdownCode));
+          setStoppageCode(
+            isPkl
+              ? toStoppageCategoryCode(categoryCode)
+              : resolveStoppageDisplayCode(categoryCode, breakdownCode),
+          );
           setStoppageRemarks(remarks ?? '');
+          setManageStoppageOpen(false);
           startCapture(coilNo);
         }}
       />
 
-      {remarkPanelOpen && (
-        <OrderRemarkModal
-          open={remarkPanelOpen}
-          batchNumber={coilNo}
-          orderLabel={`${processCode} · ${coilNo}`}
-          orderSubtitle={gradeCode}
-          onClose={closeRemarkPanel}
-          onSave={async (text, defects) => {
-            if (!shiftLogId) throw new Error('No active shift');
-            const codes = defects.length > 0
-              ? defects.map((d) => d.defectCode)
-              : [`${DEFECT_OTHER_CODE}:${text}`];
-            await Promise.all(codes.map((defectCode) => submitOrQueue({
-              url: '/defects',
-              method: 'POST',
-              payload: {
-                shiftLogId,
-                coilNo,
-                defectCode,
-                entryId: shiftLogId,
-                remarks: text,
-              },
-              aggregateKey: `remark:${shiftLogId}:${coilNo}:${defectCode}`,
-            })));
-            closeRemarkPanel();
-          }}
-        />
-      )}
-
-      {defectPanelOpen && (
+      {defectPanelOpen && !isCompleted && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
           <button type="button" aria-label="Close defect panel" className="fixed inset-0 bg-primary/50" onClick={closeDefectPanel} />
           <div className="relative w-full max-w-xl border border-border bg-white rounded-2xl p-5 shadow-2xl">
@@ -344,13 +331,14 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
                 onOtherRemarksChange={setOtherDefectRemarks}
                 variant="end"
                 enabled={!!shiftLogId}
+                appliesTo={processCode}
               />
             </div>
 
             <div className="mt-5 flex gap-3">
               <ZButton variant="secondary" onClick={closeDefectPanel} className="flex-1">Cancel</ZButton>
               <ZButton
-                variant="accent"
+                variant="primary"
                 disabled={!shiftLogId || defectsBusy || selectedDefects.length === 0}
                 className="flex-1"
                 onClick={async () => {
@@ -386,105 +374,27 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         </div>
       )}
 
-      {crewPanelOpen && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
-          <button type="button" aria-label="Close crew panel" className="fixed inset-0 bg-primary/50" onClick={closeCrewPanel} />
-          <div className="relative w-full max-w-xl border border-border bg-white rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Crew</p>
-                <h2 className="mt-1 text-lg font-semibold text-foreground">Roster crew for this shift</h2>
-              </div>
-              <ZButton variant="ghost" onClick={closeCrewPanel}>Close</ZButton>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FieldWrapper label="Operator ID (emp code)">
-                <ZInput
-                  value={crewOperatorId}
-                  onChange={(e) => setCrewOperatorId(e.target.value)}
-                  placeholder="e.g. 12345"
-                />
-              </FieldWrapper>
-              <FieldWrapper label="Role">
-                <select
-                  value={crewRoleCode}
-                  onChange={(e) => setCrewRoleCode(e.target.value as CrewRole)}
-                  className="w-full min-h-14 rounded-xl border border-input bg-background px-3 py-3 text-sm"
-                >
-                  {allowedCrewRoles.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </FieldWrapper>
-            </div>
-
-            <div className="flex gap-3">
-              <ZButton
-                variant="secondary"
-                className="flex-1"
-                disabled={!crewOperatorId.trim()}
-                onClick={() => {
-                  const opId = crewOperatorId.trim();
-                  setCrewEntries((prev) => [...prev, { operatorId: opId, roleCode: crewRoleCode }]);
-                  setCrewOperatorId(opId);
-                }}
-              >
-                Add to roster
-              </ZButton>
-              <ZButton
-                variant="accent"
-                className="flex-1"
-                disabled={!shiftLogId || crewEntries.length === 0 || crewBusy}
-                onClick={async () => {
-                  if (!shiftLogId) return;
-                  setCrewBusy(true);
-                  try {
-                    await Promise.all(crewEntries.map((e) => submitOrQueue({
-                      url: '/crew',
-                      method: 'POST',
-                      payload: {
-                        shiftLogId,
-                        operatorId: e.operatorId,
-                        roleCode: e.roleCode,
-                      },
-                      aggregateKey: `crew:${shiftLogId}:${e.operatorId}:${e.roleCode}`,
-                    })));
-                    closeCrewPanel();
-                  } finally {
-                    setCrewBusy(false);
-                  }
-                }}
-              >
-                {crewBusy ? 'Saving…' : 'Submit Crew'}
-              </ZButton>
-            </div>
-
-            {crewEntries.length > 0 && (
-              <div className="rounded-xl border border-border bg-secondary/30 p-3">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                  Pending crew entries ({crewEntries.length})
-                </p>
-                <div className="space-y-2">
-                  {crewEntries.map((e, i) => (
-                    <div key={`${e.operatorId}:${e.roleCode}:${i}`} className="flex items-center justify-between gap-3">
-                      <span className="font-mono text-sm">{e.operatorId}</span>
-                      <span className="text-sm text-muted-foreground">{e.roleCode}</span>
-                      <ZButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setCrewEntries((prev) => prev.filter((_x, idx) => idx !== i))}
-                      >
-                        Remove
-                      </ZButton>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <CrewCaptureModal
+        open={crewPanelOpen && !isCompleted}
+        machineCode={processCode}
+        onDone={closeCrewPanel}
+        onSnooze={closeCrewPanel}
+        title="Roster crew for this shift"
+        subtitle={`${processCode} · ${coilNo}`}
+        onConfirm={async (members: MachineCrewMember[]) => {
+          if (!shiftLogId) throw new Error('No active shift');
+          await Promise.all(members.map((m) => submitOrQueue({
+            url: '/crew',
+            method: 'POST',
+            payload: {
+              shiftLogId,
+              operatorId: m.memberName,
+              roleCode: mapRole(m.roleLabel),
+            },
+            aggregateKey: `crew:${shiftLogId}:${m.id}`,
+          })));
+        }}
+      />
     </div>
   );
 }

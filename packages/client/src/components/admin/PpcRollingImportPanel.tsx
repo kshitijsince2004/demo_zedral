@@ -7,6 +7,7 @@ import { formatPlantDate, formatShiftDate } from '../../lib/dateFormat';
 import {
   adminService,
   type PpcRollingPreviewRow,
+  type PpcRollingPreviewResult,
   type PpcXlsxSheetType,
   type PpcPreviewRowStatus,
 } from '../../services/adminService';
@@ -18,6 +19,7 @@ const SHEET_TYPE_OPTIONS: { value: PpcXlsxSheetType; label: string }[] = [
   { value: 'REWINDING', label: 'Rewinding' },
   { value: 'ANNEALING', label: 'Annealing' },
   { value: 'CTL', label: 'Cut-to-Length' },
+  { value: 'PICKLING', label: 'PKL Pickling Plan' },
 ];
 
 const OP_LABEL = 'block text-[10px] uppercase tracking-[0.14em] font-medium text-muted-foreground mb-1';
@@ -33,6 +35,8 @@ const PREVIEW_STATUS_LABELS: Record<PpcPreviewRowStatus, { label: string; classN
   'duplicate-in-file':    { label: 'Duplicate',          className: 'bg-destructive/15 text-destructive' },
   'duplicate-skipped':    { label: 'Dup skipped',        className: 'bg-muted text-muted-foreground' },
   'will-merge':           { label: 'Will Merge',         className: 'bg-warning/15 text-warning' },
+  'advanced-skipped':     { label: 'Advanced',           className: 'bg-muted text-muted-foreground' },
+  'already-in-line':      { label: 'Already in line',    className: 'bg-warning/15 text-warning' },
 };
 
 /** Rows that must never be imported — checkboxes disabled, excluded from auto-select */
@@ -42,13 +46,31 @@ const DANGEROUS_STATUSES: PpcPreviewRowStatus[] = [
   'duplicate-in-file',
   'duplicate-skipped',
   'allocation-protected',
+  'advanced-skipped',
+  'already-in-line',
 ];
 
 function isRowImportable(row: PpcRollingPreviewRow): boolean {
   return row.errors.length === 0 && !DANGEROUS_STATUSES.includes(row.previewStatus);
 }
 
-export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: PpcXlsxSheetType } = {}) {
+const SHEET_LOCK_LABEL: Record<PpcXlsxSheetType, string> = {
+  ROLLING: 'Rolling (locked)',
+  SKIN_PASS: 'Skin Pass (locked)',
+  REWINDING: 'Rewinding (locked)',
+  ANNEALING: 'Annealing (locked)',
+  CTL: 'CTL (locked)',
+  PICKLING: 'PKL Pickling Plan (locked)',
+};
+
+export function PpcRollingImportPanel({
+  lockedSheetType,
+  line,
+}: {
+  lockedSheetType?: PpcXlsxSheetType;
+  /** MH line-scoped fail-safe import (HRS|PKL|RWD|ANN). */
+  line?: 'HRS' | 'PKL' | 'RWD' | 'ANN';
+} = {}) {
   const [file, setFile] = useState<File | null>(null);
   const [sheetType, setSheetType] = useState<PpcXlsxSheetType>(lockedSheetType ?? 'ROLLING');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -65,6 +87,8 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
     skippedAllocated: number;
     skippedProduction: number;
     skippedCompleted: number;
+    skippedAdvanced?: number;
+    skippedAlreadyInLine?: number;
     errors: { row: number; message: string }[];
     status: string;
     synced?: {
@@ -76,6 +100,7 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
   } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [duplicatesInFile, setDuplicatesInFile] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<PpcRollingPreviewResult['statusCounts']>();
 
   const validRows = useMemo(() => rows.filter((r) => r.errors.length === 0), [rows]);
   const importableRows = useMemo(() => rows.filter(isRowImportable), [rows]);
@@ -95,12 +120,14 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
     setError(null);
     setCommitResult(null);
     setDuplicatesInFile(0);
+    setStatusCounts(undefined);
     try {
-      const result = await adminService.previewPpcRolling(file, sheetType);
+      const result = await adminService.previewPpcRolling(file, sheetType, line);
       setSessionId(result.sessionId);
       setParsedSheetName(result.sheetName ?? '');
       setRows(result.rows);
       setDuplicatesInFile(result.duplicatesInFile ?? 0);
+      setStatusCounts(result.statusCounts);
       // Auto-select only importable rows (new + safe-update)
       setSelected(new Set(result.rows.filter(isRowImportable).map((r) => r.batchNumber)));
     } catch (err: unknown) {
@@ -171,7 +198,10 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
         <div>
           <label className={OP_LABEL}>Sheet to import</label>
           {lockedSheetType ? (
-            <p className={`${OP_SELECT} flex items-center text-sm font-medium`}>Annealing (locked)</p>
+            <p className={`${OP_SELECT} flex items-center text-sm font-medium`}>
+              {SHEET_LOCK_LABEL[lockedSheetType]}
+              {line ? ` · line ${line}` : ''}
+            </p>
           ) : (
             <select
               value={sheetType}
@@ -238,6 +268,18 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
               {commitResult.skippedCompleted} batches skipped — already COMPLETED
             </p>
           )}
+          {(commitResult.skippedAdvanced ?? 0) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              <AlertTriangle className="inline h-3 w-3 mr-1" />
+              {commitResult.skippedAdvanced} batches skipped — journey already advanced past this line
+            </p>
+          )}
+          {(commitResult.skippedAlreadyInLine ?? 0) > 0 && (
+            <p className="text-xs text-warning">
+              <AlertTriangle className="inline h-3 w-3 mr-1" />
+              {commitResult.skippedAlreadyInLine} batches skipped — already in this line&apos;s queue
+            </p>
+          )}
           {commitResult.synced && commitResult.loaded > 0 && (
             <div className="text-xs text-muted-foreground space-y-1">
               <p>
@@ -287,6 +329,16 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
               {' · '}
               {importableRows.length} importable · {rows.length - importableRows.length} blocked · {selected.size} selected
             </p>
+            {statusCounts && (
+              <p>
+                {statusCounts.new} new
+                {(statusCounts.alreadyInLine > 0) && <> · {statusCounts.alreadyInLine} already in line</>}
+                {(statusCounts.advancedSkipped > 0) && <> · {statusCounts.advancedSkipped} advanced (skipped)</>}
+                {(statusCounts.inProduction > 0) && <> · {statusCounts.inProduction} in production (skipped)</>}
+                {(statusCounts.completed > 0) && <> · {statusCounts.completed} completed (skipped)</>}
+                {(statusCounts.otherBlocked > 0) && <> · {statusCounts.otherBlocked} other blocked</>}
+              </p>
+            )}
             {machineSummary && <p>Machines from sheet: {machineSummary}</p>}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -361,6 +413,11 @@ export function PpcRollingImportPanel({ lockedSheetType }: { lockedSheetType?: P
                           {row.previewStatus === 'will-merge' && row.mergeTargetBatchNumber && (
                             <p className="text-[10px] text-warning mt-1">
                               Will update existing batch {row.mergeTargetBatchNumber}
+                            </p>
+                          )}
+                          {row.skipReason && (
+                            <p className="text-[10px] text-muted-foreground mt-1 max-w-[14rem]">
+                              {row.skipReason}
                             </p>
                           )}
                         </td>

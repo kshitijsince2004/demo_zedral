@@ -19,10 +19,12 @@ import {
 } from 'lucide-react';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
+import { ZBadge } from '../../components/primitives/ZBadge';
 import { apiClient } from '../../lib/apiClient';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessStore, type ProcessQueueCard } from '../../store/processStore';
 import { useShiftStore } from '../../store/shiftStore';
+import type { Tone } from '../../lib/tones';
 
 type Stage = {
   stage_id: string;
@@ -309,18 +311,20 @@ function AnnPopup({
         role="dialog"
         aria-modal="true"
         aria-labelledby="ann-popup-title"
-        className="relative z-[1] flex max-h-[min(80dvh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+        className="relative z-[1] flex max-h-[min(80dvh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl"
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
           <h2 id="ann-popup-title" className="text-base font-bold text-foreground">{title}</h2>
-          <button
+          <ZButton
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground"
+            variant="ghost"
+            size="sm"
+            className="!h-10 !w-10 !min-h-10 !px-0 hover:bg-muted"
             aria-label="Close dialog"
             onClick={onClose}
           >
             <X className="h-5 w-5" aria-hidden />
-          </button>
+          </ZButton>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
       </div>
@@ -478,46 +482,90 @@ export function AnnChargePage() {
         ? humanizeStage(nextStage.stage_code)
         : '—';
 
+  const openStoppage = (detail?.stoppages ?? []).find((s) => !s.end_at);
+  const statusLabel =
+    charge?.status === 'DONE' ? 'COMPLETE' : openStoppage ? 'STOPPAGE' : 'RUNNING';
+  const statusTone: Tone =
+    statusLabel === 'COMPLETE' ? 'info' : statusLabel === 'STOPPAGE' ? 'warning' : 'success';
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-secondary/40 p-3 md:p-4">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <button
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-secondary">
+      {/* Process header — matches CaptureWorkspace chrome */}
+      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 bg-primary text-primary-foreground min-h-16">
+        <div className="flex items-center gap-3 min-w-0">
+          <ZButton
             type="button"
-            className="flex h-9 w-9 min-h-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-card"
+            variant="ghost"
+            size="sm"
+            className="!min-h-10 !h-10 !w-10 !px-0 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
             aria-label="Back to bases"
             onClick={() => navigate(`${basePath}?tab=charges`)}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
-          </button>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold tracking-tight text-foreground md:text-xl">
-              Reading Entry · {batchLabel}
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              Base {String(charge?.base_no ?? '—')}
-              {' | '}{chargeNo}
-              {' | '}{humanizeStage(String(charge?.current_stage_code ?? '—'))}
-              {' | '}Start {stageStart}
-              {' | '}Temp {currentTemp}{currentTemp !== '—' ? '°C' : ''}
-            </p>
-          </div>
+          </ZButton>
+          <p className="text-base font-bold shrink-0 hidden sm:block">Production Console</p>
+          <span className="font-mono text-lg font-bold truncate">{batchLabel}</span>
+          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15 shrink-0">ANN</span>
+          <span
+            className={[
+              'text-[10px] uppercase font-bold px-2 py-0.5 rounded shrink-0',
+              statusLabel === 'STOPPAGE' ? 'bg-warning/90 text-warning-foreground' : 'bg-white/15',
+            ].join(' ')}
+          >
+            {statusLabel}
+          </span>
         </div>
         <ZButton
           type="button"
-          variant="primary"
-          className="min-h-9 h-9 rounded-lg px-3 text-sm"
+          variant="secondary"
+          size="sm"
+          className="shrink-0 !bg-white/10 !text-primary-foreground border border-white/25 hover:!bg-white/20"
           onClick={() => setRosterOpen(true)}
         >
-          ANN batch details
+          Order details
         </ZButton>
-      </header>
+      </div>
 
       {detail && (
-        <div className="grid min-h-0 flex-1 gap-3 overflow-hidden md:grid-cols-[1fr_17rem] lg:grid-cols-[1fr_18rem] xl:grid-cols-[1fr_20rem]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 md:p-3">
+          {openStoppage && (
+            <div className="shrink-0 flex items-center justify-between rounded-lg border border-destructive bg-destructive text-white px-4 py-2 shadow-sm">
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wide opacity-80">Stoppage active</p>
+                <p className="text-sm font-semibold truncate">
+                  {openStoppage.category_code}
+                  {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
+                </p>
+              </div>
+              <ZBadge tone="warning" label="STOPPAGE" />
+            </div>
+          )}
+
+          <section className="shrink-0 rounded-lg border border-border bg-card p-3 shadow-sm">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Current charge</h2>
+              <ZBadge tone={statusTone} label={statusLabel} dot={statusLabel === 'RUNNING'} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {[
+                ['Base', String(charge?.base_no ?? '—')],
+                ['Charge', chargeNo],
+                ['Stage', humanizeStage(String(charge?.current_stage_code ?? '—'))],
+                ['Stage start', stageStart],
+                ['Temp', `${currentTemp}${currentTemp !== '—' ? ' °C' : ''}`],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+                  <p className="mt-0.5 truncate text-sm font-bold font-mono tabular-nums text-foreground">{value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <div className="grid min-h-0 flex-1 gap-3 overflow-hidden md:grid-cols-[1fr_17rem] lg:grid-cols-[1fr_18rem] xl:grid-cols-[1fr_20rem]">
           <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
-            <section className="shrink-0 rounded-xl border border-border bg-background p-3 shadow-sm">
-              <h2 className="mb-2 text-sm font-bold text-foreground">Charge details</h2>
+            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm">
+              <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Charge details</h2>
               <ChargeDetailsTimeline
                 stages={detail.stages}
                 activeCode={String(charge?.current_stage_code ?? '') || null}
@@ -538,9 +586,9 @@ export function AnnChargePage() {
               </div>
             </section>
 
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background p-3 shadow-sm">
+            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 shadow-sm">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-                <h2 className="text-sm font-bold text-foreground">Reading form</h2>
+                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reading form</h2>
                 {savedFlash && (
                   <span className="text-[10px] font-bold uppercase tracking-wide text-status-running">
                     Reading saved
@@ -570,16 +618,15 @@ export function AnnChargePage() {
                     />
                   ))}
                 </div>
-                <div className="mt-2 flex flex-col gap-1">
-                  <label className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="ann-remarks">
-                    Remarks
-                  </label>
-                  <input
+                <div className="mt-2">
+                  <ZInput
                     id="ann-remarks"
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    label="Remarks"
                     placeholder="Add a note for this reading"
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
+                    mono={false}
+                    className="!h-9 rounded-lg text-sm"
                   />
                 </div>
               </div>
@@ -587,7 +634,7 @@ export function AnnChargePage() {
           </div>
 
           <aside className="flex min-h-0 flex-col gap-3 overflow-hidden">
-            <section className="shrink-0 rounded-xl border border-border bg-background p-3 shadow-sm">
+            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm">
               <SwipeAdvance
                 disabled={busy || !active || charge?.status === 'DONE'}
                 nextLabel={nextLabel}
@@ -595,7 +642,7 @@ export function AnnChargePage() {
               />
             </section>
 
-            <section className="shrink-0 rounded-xl border border-border bg-background p-3 shadow-sm space-y-2">
+            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm space-y-2">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stoppage</h2>
               {(() => {
                 const open = (detail.stoppages ?? []).find((s) => !s.end_at);
@@ -606,24 +653,27 @@ export function AnnChargePage() {
                         Open: {open.category_code}
                         {open.reason ? ` · ${open.reason}` : ''}
                       </p>
-                      <button
+                      <ZButton
                         type="button"
+                        variant="secondary"
+                        fullWidth
                         disabled={busy || charge?.status === 'DONE'}
                         onClick={() => void endStoppage(open.stoppage_id)}
-                        className="flex h-9 w-full items-center justify-center rounded-lg border border-border text-sm font-semibold hover:bg-card disabled:opacity-50"
+                        className="!h-10 !min-h-10 rounded-lg"
                       >
                         End stoppage
-                      </button>
+                      </ZButton>
                     </div>
                   );
                 }
                 return (
                   <div className="space-y-2">
                     <select
-                      className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm"
+                      className="h-10 min-h-10 w-full rounded-lg border border-input bg-background px-2 text-sm"
                       value={stopCategory}
                       onChange={(e) => setStopCategory(e.target.value)}
                       disabled={charge?.status === 'DONE'}
+                      aria-label="Stoppage category"
                     >
                       {stopCategories.map((c) => (
                         <option key={c.category_code} value={c.category_code}>
@@ -631,63 +681,73 @@ export function AnnChargePage() {
                         </option>
                       ))}
                     </select>
-                    <input
-                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                    <ZInput
                       placeholder="Reason (optional)"
                       value={stopReason}
                       onChange={(e) => setStopReason(e.target.value)}
                       disabled={charge?.status === 'DONE'}
+                      mono={false}
+                      className="!h-10 rounded-lg"
                     />
-                    <button
+                    <ZButton
                       type="button"
+                      variant="danger"
+                      fullWidth
                       disabled={busy || !stopCategory || charge?.status === 'DONE'}
                       onClick={() => void startStoppage()}
-                      className="flex h-9 w-full items-center justify-center rounded-lg bg-status-stopped/15 text-sm font-semibold text-status-stopped hover:bg-status-stopped/25 disabled:opacity-50"
+                      className="!h-10 !min-h-10 rounded-lg !bg-status-stopped/15 !text-status-stopped hover:!bg-status-stopped/25 !shadow-none"
                     >
                       Start stoppage
-                    </button>
+                    </ZButton>
                   </div>
                 );
               })()}
             </section>
 
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background p-3 shadow-sm">
+            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 shadow-sm">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last reading</h2>
               {last ? (
-                <p className="mt-1 text-sm font-medium text-foreground">{formatReadingTime(last.taken_at)}</p>
+                <p className="mt-1 text-sm font-medium font-mono tabular-nums text-foreground">{formatReadingTime(last.taken_at)}</p>
               ) : (
                 <p className="mt-1 text-sm text-muted-foreground">No readings yet</p>
               )}
               <div className="mt-auto flex flex-col gap-2 pt-3">
-                <button
+                <ZButton
                   type="button"
+                  variant="primary"
+                  fullWidth
                   disabled={charge?.status === 'DONE'}
                   onClick={() => void saveReading()}
-                  className="flex h-10 min-h-10 items-center justify-center gap-2 rounded-lg bg-primary text-sm font-bold uppercase tracking-wide text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
+                  className="!h-11 !min-h-11 rounded-lg uppercase tracking-wide font-bold"
                 >
                   <Check className="h-4 w-4" aria-hidden /> Save reading
-                </button>
-                <button
+                </ZButton>
+                <ZButton
                   type="button"
+                  variant="secondary"
+                  fullWidth
                   onClick={clearReadingForm}
-                  className="flex h-10 min-h-10 items-center justify-center gap-2 rounded-lg bg-accent text-sm font-bold uppercase tracking-wide text-accent-foreground shadow-sm hover:bg-accent/90"
+                  className="!h-11 !min-h-11 rounded-lg uppercase tracking-wide font-bold"
                 >
                   <X className="h-4 w-4" aria-hidden /> Clear
-                </button>
-                <button
+                </ZButton>
+                <ZButton
                   type="button"
+                  variant="secondary"
+                  fullWidth
                   onClick={() => setShowPrev(true)}
-                  className="flex h-10 min-h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background text-sm font-semibold text-foreground hover:bg-card"
+                  className="!h-11 !min-h-11 rounded-lg border border-border"
                 >
                   View previous reading
-                </button>
+                </ZButton>
               </div>
             </section>
           </aside>
+          </div>
         </div>
       )}
 
-      <AnnPopup open={rosterOpen} title="ANN batch details" onClose={() => setRosterOpen(false)}>
+      <AnnPopup open={rosterOpen} title="Order details" onClose={() => setRosterOpen(false)}>
         {detail ? (
           <div className="space-y-3">
             <ul className="space-y-2">
@@ -702,15 +762,20 @@ export function AnnChargePage() {
                   <span className="font-mono tabular-nums">
                     {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
                   </span>
-                  <select
-                    className="h-9 min-h-9 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={r.disposition}
-                    onChange={(e) => void setDisposition(r.coil_no, e.target.value as 'ADVANCE' | 'HOLD' | 'REJECT')}
-                  >
-                    <option value="ADVANCE">ADVANCE</option>
-                    <option value="HOLD">HOLD</option>
-                    <option value="REJECT">REJECT</option>
-                  </select>
+                  <div className="flex items-center gap-2">
+                    {r.disposition === 'HOLD' && <ZBadge tone="accent" label="HOLD" />}
+                    {r.disposition === 'REJECT' && <ZBadge tone="destructive" label="REJECT" />}
+                    <select
+                      className="h-10 min-h-10 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={r.disposition}
+                      onChange={(e) => void setDisposition(r.coil_no, e.target.value as 'ADVANCE' | 'HOLD' | 'REJECT')}
+                      aria-label={`Disposition for ${r.coil_no}`}
+                    >
+                      <option value="ADVANCE">ADVANCE</option>
+                      <option value="HOLD">HOLD</option>
+                      <option value="REJECT">REJECT</option>
+                    </select>
+                  </div>
                 </li>
               ))}
             </ul>

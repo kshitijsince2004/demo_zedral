@@ -13,6 +13,8 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
+import { assertLineOperation } from '../auth/lineAccessPolicy';
+import { AuthError } from '../services/authService';
 import type { LineAccessLevel } from '../services/authService';
 import { db } from '../db';
 import {
@@ -23,7 +25,7 @@ import {
   SixHiStoppageService,
 } from '../services/sixHi';
 import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
-import { PPCImportService } from '../services/PPCImportService';
+import { PPCImportService, parseImportLineScope } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
 import { currentPlantDate, formatPlantDate, startOfPlantDay, endOfPlantDay } from '../utils/dateOnly';
 import { SixHiService } from '../services/SixHiService';
@@ -178,22 +180,29 @@ router.post('/import/ppc', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), u
 router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'XLSX file required' });
+    const lineScope = parseImportLineScope(req.query.line ?? req.body?.line);
+    if (lineScope) {
+      assertLineOperation(req.user!, lineScope, 'WRITE');
+    }
     const sheetTypeRaw = String(req.body?.sheetType ?? 'ROLLING').toUpperCase();
     const sheetType =
       sheetTypeRaw === 'SKIN_PASS' ? 'SKIN_PASS'
       : sheetTypeRaw === 'REWINDING' ? 'REWINDING'
       : sheetTypeRaw === 'ANNEALING' ? 'ANNEALING'
       : sheetTypeRaw === 'CTL' ? 'CTL'
+      : sheetTypeRaw === 'PICKLING' ? 'PICKLING'
       : 'ROLLING';
     const result = await PPCImportService.previewRollingXlsx(
       req.file.buffer,
       req.file.originalname,
       req.user!.id,
       sheetType,
+      lineScope,
     );
     if (result.headerError) return res.status(400).json({ error: result.headerError });
     res.status(201).json(result);
   } catch (e: unknown) {
+    if (e instanceof AuthError) return res.status(403).json({ error: e.message });
     respondSixHiServerError(res, 'PPC preview', e);
   }
 });
@@ -222,6 +231,11 @@ router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREV
 
 router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVIEW_COMMIT'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
   try {
+    const { getLiveSession } = await import('../services/previewSessionStore');
+    const session = getLiveSession(req.params.sessionId);
+    if (session.lineScope) {
+      assertLineOperation(req.user!, session.lineScope, 'WRITE');
+    }
     const batchNumbers = Array.isArray(req.body?.batchNumbers)
       ? (req.body.batchNumbers as unknown[]).map((b) => String(b).trim()).filter(Boolean)
       : undefined;
@@ -233,6 +247,7 @@ router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVI
     const status = result.status === 'FAILED' ? 400 : result.status === 'PARTIAL' ? 207 : 201;
     res.status(status).json(result);
   } catch (e: unknown) {
+    if (e instanceof AuthError) return res.status(403).json({ error: e.message });
     res.status(400).json({ error: e instanceof Error ? e.message : 'Commit failed' });
   }
 });
@@ -271,9 +286,10 @@ router.get('/master/stoppage-categories', async (_req, res) => {
   }
 });
 
-router.get('/master/defect-codes', async (_req, res) => {
+router.get('/master/defect-codes', async (req, res) => {
   try {
-    const data = await SixHiConfigService.getDefectCodes();
+    const machine = typeof req.query.machine === 'string' ? req.query.machine.trim() : undefined;
+    const data = await SixHiConfigService.getDefectCodes(machine || undefined);
     res.json(data);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load defect codes' });

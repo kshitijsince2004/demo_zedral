@@ -6,10 +6,18 @@ import { isProcessStationCode } from './processConfig';
 export function classifyOperatorNav(processCode: string, pathname: string) {
   const isProcess = isProcessStationCode(processCode);
   const isCrm = !isProcess && (isCrmMillCode(processCode) || isMillPath(pathname));
+  const isPkl = processCode === 'PKL';
+  const isAnn = processCode === 'ANN';
+  const isHrs = processCode === 'HRS';
+  const isRwd = processCode === 'RWD';
   return {
     isProcess,
     isCrm,
-    isPkl: processCode === 'PKL',
-    isAnn: processCode === 'ANN',
+    isPkl,
+    isAnn,
+    isHrs,
+    isRwd,
+    /** Order history tab for HRS/RWD/PKL/ANN. */
+    wantsHistory: isAnn || isHrs || isRwd || isPkl,
   };
 }

@@ -28,6 +28,22 @@ describe('HRS fan-out contract', () => {
     expect(parsed.success).toBe(true);
   });
 
+  it('rejects zero mother width readings (operator empty-input bug)', () => {
+    const parsed = hrsSchema.safeParse({
+      machineCode: 'HRS',
+      shiftLogId: '1',
+      coilNo: 'HRS-COIL-001',
+      actualWidthMm: 0,
+      motherWidthReadings: [{ time: '20:26', widthMm: 0 }],
+      slitSlots: [{ slot: 'A', targetWidthMm: 100, routeRaw: 'HOLD' }],
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const paths = parsed.error.issues.map((i) => i.path.join('.'));
+      expect(paths.some((p) => p.includes('actualWidthMm') || p.includes('widthMm'))).toBe(true);
+    }
+  });
+
   it('mass-balances Σ line + scrap ≈ mother', () => {
     expect(crsMassBalanceWarn(23.22, [8.86, 6.67, 7.69], 0)).toBe(false);
     expect(crsMassBalanceWarn(23.22, [5, 5, 5], 0)).toBe(true);

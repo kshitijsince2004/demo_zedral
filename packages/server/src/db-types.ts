@@ -438,6 +438,8 @@ export interface MasterStoppageCategory {
 
 export interface MasterStoppageCode {
   agency_code: string | null;
+  /** Machine classification (comma-separated), mirrors defect_code.applies_to. */
+  applies_to: string | null;
   category: string;
   description: string;
   dpr_category: string | null;

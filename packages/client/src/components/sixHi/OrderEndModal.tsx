@@ -13,9 +13,11 @@ interface OrderEndModalProps {
   onClose: () => void;
   onConfirm: (defectCodes: string[]) => Promise<void>;
   order?: SixHiOrderDetail;
+  /** Machine classification for defect tags (e.g. 6HI / CRM6). */
+  appliesTo?: string;
 }
 
-export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, order, onClose, onConfirm }: OrderEndModalProps) {
+export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, order, onClose, onConfirm, appliesTo }: OrderEndModalProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [otherRemarks, setOtherRemarks] = useState('');
   const [busy, setBusy] = useState(false);
@@ -87,6 +89,7 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
               otherRemarks={otherRemarks}
               onOtherRemarksChange={setOtherRemarks}
               variant="end"
+              appliesTo={appliesTo}
             />
           </div>
 

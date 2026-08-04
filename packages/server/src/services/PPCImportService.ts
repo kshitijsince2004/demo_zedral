@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { SixHiManualOrderSchema, PPCImportRowSchema, UserRole } from '@m1/shared-validation';
+import { SixHiManualOrderSchema, PPCImportRowSchema } from '@m1/shared-validation';
 import type { z } from 'zod';
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
@@ -13,12 +13,13 @@ import {
 } from '../utils/rollingPlanXlsxParser';
 import { parseRewindingPlanXlsx } from '../utils/rewindingPlanXlsxParser';
 import { parseCtlPlanXlsx } from '../utils/ctlPlanXlsxParser';
-import { ProcessRouteService } from './ProcessRouteService';
+import { ProcessRouteService, parseRouteString, routeCodeFromBatch } from './ProcessRouteService';
 import { QualitySpecService } from './QualitySpecService';
 import {
   getLiveSession,
   previewSessionStore,
   PREVIEW_SESSION_TTL_MS,
+  type ImportLineScope,
 } from './previewSessionStore';
 import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
 import { currentPlantDate, postgresDateOnly } from '../utils/dateOnly';
@@ -41,6 +42,8 @@ interface SafetyCheck {
   hasProduction: boolean;
   isDangerous: boolean;
   skipReason: string | null;
+  /** Journey progressed past the target line — do not re-inject. */
+  journeyAdvancedPast: boolean;
 }
 
 /** Preview status label returned to the client for each row. */
@@ -52,7 +55,30 @@ export type PreviewRowStatus =
   | 'completed'
   | 'duplicate-in-file'
   | 'duplicate-skipped'
-  | 'will-merge';
+  | 'will-merge'
+  | 'advanced-skipped'
+  | 'already-in-line';
+
+export type { ImportLineScope };
+
+/** Line-scoped MH import — route token + default sheet + machine rewrite. */
+export const LINE_IMPORT_SCOPE: Record<ImportLineScope, {
+  routeCode: string;
+  processCode: string;
+  defaultSheet: PpcXlsxSheetType;
+  machineCode: string;
+}> = {
+  HRS: { routeCode: 'S', processCode: 'HRS', defaultSheet: 'ROLLING', machineCode: 'HRS' },
+  PKL: { routeCode: 'P', processCode: 'PKL', defaultSheet: 'PICKLING', machineCode: 'PKL' },
+  RWD: { routeCode: 'R', processCode: 'RWD', defaultSheet: 'REWINDING', machineCode: 'RWD' },
+  ANN: { routeCode: 'F', processCode: 'ANN', defaultSheet: 'ANNEALING', machineCode: 'ANN' },
+};
+
+export function parseImportLineScope(raw: unknown): ImportLineScope | undefined {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === 'HRS' || v === 'PKL' || v === 'RWD' || v === 'ANN') return v;
+  return undefined;
+}
 
 interface PpcRow {
   batch_number: string;
@@ -77,10 +103,86 @@ interface PpcRow {
 }
 type DbConn = Kysely<Database>;
 
+function processCodeFromBatchMachine(machineCode: string, subProcess: string): string | null {
+  const code = routeCodeFromBatch(machineCode, subProcess);
+  if (!code) {
+    const direct: Record<string, string> = {
+      HRS: 'HRS', PKL: 'PKL', ANN: 'ANN', RWD: 'RWD', CRS: 'CRS', CTL: 'CTL',
+    };
+    return direct[machineCode] ?? null;
+  }
+  try {
+    return parseRouteString(code)[0]?.processCode ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function routeHasToken(routeRaw: string | null | undefined, routeCode: string): boolean {
+  if (!routeRaw) return false;
+  try {
+    return parseRouteString(routeRaw).some((s) => s.routeCode === routeCode);
+  } catch {
+    return false;
+  }
+}
+
+/** Journey-aware row class for import fail-safe / dedup (A4). */
+export type JourneyImportClass =
+  | { kind: 'new' }
+  | { kind: 'already-in-line'; reason: string }
+  | { kind: 'already-advanced'; reason: string };
+
+export async function classifyJourneyForLine(
+  conn: DbConn,
+  coilNo: string,
+  processCode: string,
+): Promise<JourneyImportClass> {
+  const journey = await conn.selectFrom('planning.order_journey')
+    .select(['journey_id', 'current_step_no'])
+    .where('coil_no', '=', coilNo)
+    .where('status', '=', 'ACTIVE')
+    .executeTakeFirst();
+  if (!journey) return { kind: 'new' };
+
+  const steps = await conn.selectFrom('planning.order_journey_step')
+    .select(['step_no', 'status', 'queue_batch_id', 'process_code', 'display_label'])
+    .where('journey_id', '=', String(journey.journey_id))
+    .orderBy('step_no', 'asc')
+    .execute();
+
+  const target = steps.find((s) => s.process_code === processCode);
+  if (!target) return { kind: 'new' };
+
+  const current = steps.find((s) => s.step_no === journey.current_step_no);
+  const currentLabel = current?.display_label ?? current?.process_code ?? `step ${journey.current_step_no}`;
+
+  if (target.status === 'COMPLETED' || Number(journey.current_step_no) > Number(target.step_no)) {
+    return {
+      kind: 'already-advanced',
+      reason: `Coil has advanced past ${processCode} in its route (now at ${currentLabel}) — handled downstream`,
+    };
+  }
+
+  if (
+    (target.status === 'PENDING' || target.status === 'ACTIVE')
+    && target.queue_batch_id != null
+  ) {
+    return {
+      kind: 'already-in-line',
+      reason: `Coil already queued on ${processCode} — cannot re-import`,
+    };
+  }
+
+  // PENDING/ACTIVE with no queue batch = fail-safe inject.
+  return { kind: 'new' };
+}
+
 function mapPreviewRow(
   row: ParsedRollingPlanRow,
   previewStatus: PreviewRowStatus = 'new',
   mergeTargetBatchNumber?: string,
+  skipReason?: string,
 ) {
   return {
     rowNum: row.rowNum,
@@ -105,6 +207,7 @@ function mapPreviewRow(
     errors: row.errors,
     previewStatus,
     mergeTargetBatchNumber,
+    skipReason,
   };
 }
 
@@ -375,8 +478,86 @@ export class PPCImportService {
   }
 
   /**
+   * Coil-scoped safety independent of ppc_batch existence (closes G1 inject-path gap).
+   * Consults line order + production tables and journey for the target process.
+   */
+  static async checkCoilSafetyForLine(
+    trx: DbConn,
+    coilNo: string,
+    processCode: string,
+  ): Promise<{ isDangerous: boolean; skipReason: string | null; orderStatus: string | null }> {
+    const row = await trx.selectFrom('coil.coil as c')
+      .leftJoin('txn.hrs_order as hrs', 'hrs.coil_no', 'c.coil_no')
+      .leftJoin('txn.pkl_order as pkl', 'pkl.coil_no', 'c.coil_no')
+      .leftJoin('txn.ann_charge_coil as acc', 'acc.coil_no', 'c.coil_no')
+      .leftJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
+      .leftJoin('txn.prod_hrs as ph', 'ph.coil_no', 'c.coil_no')
+      .leftJoin('txn.prod_pkl as pp', 'pp.coil_no', 'c.coil_no')
+      .leftJoin('txn.prod_rwd as pr', 'pr.coil_no', 'c.coil_no')
+      .select([
+        'hrs.status as hrs_status',
+        'pkl.status as pkl_status',
+        'ac.status as ann_status',
+        'ph.entry_id as prod_hrs_id',
+        'pp.entry_id as prod_pkl_id',
+        'pr.entry_id as prod_rwd_id',
+        'pr.weight_mt as prod_rwd_weight',
+      ])
+      .where('c.coil_no', '=', coilNo)
+      .executeTakeFirst();
+
+    // RWD orders are keyed by batch — find any order for this coil.
+    const rwd = processCode === 'RWD'
+      ? await trx.selectFrom('txn.rwd_order as rwd')
+          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'rwd.batch_id')
+          .select('rwd.status')
+          .where('pb.coil_no', '=', coilNo)
+          .executeTakeFirst()
+      : undefined;
+
+    const statusByLine: Record<string, string | null | undefined> = {
+      HRS: row?.hrs_status,
+      PKL: row?.pkl_status,
+      ANN: row?.ann_status,
+      RWD: rwd?.status,
+    };
+    const orderStatus = statusByLine[processCode] ?? null;
+
+    const hasProduction =
+      (processCode === 'HRS' && row?.prod_hrs_id != null)
+      || (processCode === 'PKL' && row?.prod_pkl_id != null)
+      || (processCode === 'RWD' && (
+        row?.prod_rwd_id != null
+        || (row?.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0)
+      ));
+
+    const journeyClass = await classifyJourneyForLine(trx, coilNo, processCode);
+    if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
+      return { isDangerous: true, skipReason: journeyClass.reason, orderStatus };
+    }
+
+    const live = orderStatus === 'IN_PROGRESS' || orderStatus === 'STOPPAGE' || orderStatus === 'COMPLETED';
+    if (live) {
+      return {
+        isDangerous: true,
+        skipReason: `Coil already ${orderStatus} on ${processCode} — cannot re-import`,
+        orderStatus,
+      };
+    }
+    if (hasProduction) {
+      return {
+        isDangerous: true,
+        skipReason: 'Production weight already captured — cannot overwrite planning data',
+        orderStatus,
+      };
+    }
+
+    return { isDangerous: false, skipReason: null, orderStatus };
+  }
+
+  /**
    * Inspect an existing ppc_batch row to determine whether it is safe to update.
-   * Returns a SafetyCheck describing the threat level and reason for any block.
+   * Covers CRM/RWD plus HRS/PKL/ANN line orders and journey progress past the target line.
    */
   private static async checkProductionSafety(
     trx: DbConn,
@@ -388,7 +569,16 @@ export class PPCImportService {
       .leftJoin('txn.crm_skinpass as sp', 'sp.order_id', 'o.order_id')
       .leftJoin('txn.rwd_order as rwd', 'rwd.batch_id', 'pb.batch_id')
       .leftJoin('txn.prod_rwd as pr', 'pr.coil_no', 'pb.coil_no')
+      .leftJoin('txn.hrs_order as hrs', 'hrs.coil_no', 'pb.coil_no')
+      .leftJoin('txn.pkl_order as pkl', 'pkl.coil_no', 'pb.coil_no')
+      .leftJoin('txn.prod_hrs as ph', 'ph.coil_no', 'pb.coil_no')
+      .leftJoin('txn.prod_pkl as pp', 'pp.coil_no', 'pb.coil_no')
+      .leftJoin('txn.ann_charge_coil as acc', 'acc.coil_no', 'pb.coil_no')
+      .leftJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
       .select([
+        'pb.coil_no',
+        'pb.machine_code',
+        'pb.sub_process',
         'pb.machine_allocated',
         'o.status as order_status',
         'r.actual_weight_mt as rolling_weight',
@@ -396,38 +586,75 @@ export class PPCImportService {
         'rwd.status as rwd_status',
         'pr.entry_id as prod_rwd_id',
         'pr.weight_mt as prod_rwd_weight',
+        'hrs.status as hrs_status',
+        'pkl.status as pkl_status',
+        'ac.status as ann_status',
+        'ph.entry_id as prod_hrs_id',
+        'pp.entry_id as prod_pkl_id',
       ])
       .where('pb.batch_id', '=', String(batchId))
       .executeTakeFirst();
 
     if (!row) {
-      // Should not happen — caller verified existing
-      return { isNew: true, isAllocated: false, hasOrder: false, orderStatus: null, hasProduction: false, isDangerous: false, skipReason: null };
+      return {
+        isNew: true, isAllocated: false, hasOrder: false, orderStatus: null,
+        hasProduction: false, isDangerous: false, skipReason: null, journeyAdvancedPast: false,
+      };
     }
 
     const isAllocated = Boolean(row.machine_allocated);
-    const orderStatus = row.order_status ?? row.rwd_status ?? null;
+    const orderStatus =
+      row.order_status ?? row.rwd_status ?? row.hrs_status ?? row.pkl_status ?? row.ann_status ?? null;
     const hasOrder = orderStatus != null;
     const hasProduction =
       (row.rolling_weight != null && Number(row.rolling_weight) > 0) ||
       (row.skinpass_weight != null && Number(row.skinpass_weight) > 0) ||
       row.prod_rwd_id != null ||
-      (row.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0);
+      (row.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0) ||
+      row.prod_hrs_id != null ||
+      row.prod_pkl_id != null;
+
+    const processCode = processCodeFromBatchMachine(row.machine_code, row.sub_process ?? '');
+    let journeyAdvancedPast = false;
+    let journeyReason: string | null = null;
+    if (processCode) {
+      const journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode);
+      if (journeyClass.kind === 'already-advanced') {
+        journeyAdvancedPast = true;
+        journeyReason = journeyClass.reason;
+      }
+    }
+
+    const lineLabel = processCode ?? row.machine_code;
+    const liveLineStatuses = new Set(['IN_PROGRESS', 'STOPPAGE', 'COMPLETED']);
+    const lineDangerous = orderStatus != null && liveLineStatuses.has(orderStatus);
 
     const isDangerous =
       orderStatus === 'IN_PROGRESS' ||
       orderStatus === 'COMPLETED' ||
       orderStatus === 'STOPPAGE' ||
-      hasProduction;
+      hasProduction ||
+      journeyAdvancedPast;
 
     let skipReason: string | null = null;
-    if (orderStatus === 'IN_PROGRESS' || orderStatus === 'STOPPAGE') {
+    if (journeyAdvancedPast && journeyReason) {
+      skipReason = journeyReason;
+    } else if (lineDangerous && (row.hrs_status || row.pkl_status || row.ann_status) && !row.order_status && !row.rwd_status) {
+      skipReason = `Coil already ${orderStatus} on ${lineLabel} — cannot re-import`;
+    } else if (orderStatus === 'IN_PROGRESS' || orderStatus === 'STOPPAGE') {
       skipReason = 'Order is currently IN_PROGRESS — cannot overwrite planning data';
-    } else if (orderStatus === 'COMPLETED') skipReason = 'Order is COMPLETED — production data is immutable';
-    else if (hasProduction) skipReason = 'Production weight already captured — cannot overwrite planning data';
-    else if (isAllocated) skipReason = 'Batch is already machine-allocated — operationally locked for import';
+    } else if (orderStatus === 'COMPLETED') {
+      skipReason = 'Order is COMPLETED — production data is immutable';
+    } else if (hasProduction) {
+      skipReason = 'Production weight already captured — cannot overwrite planning data';
+    } else if (isAllocated) {
+      skipReason = 'Batch is already machine-allocated — operationally locked for import';
+    }
 
-    return { isNew: false, isAllocated, hasOrder, orderStatus, hasProduction, isDangerous, skipReason };
+    return {
+      isNew: false, isAllocated, hasOrder, orderStatus, hasProduction,
+      isDangerous, skipReason, journeyAdvancedPast,
+    };
   }
 
   static async createManualBatch(row: z.infer<typeof SixHiManualOrderSchema>, userId: number) {
@@ -495,6 +722,18 @@ export class PPCImportService {
     row: PpcRow,
     importBatchId: number,
   ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; batchNumber: string; reason?: string }> {
+    const processCode = processCodeFromBatchMachine(row.machine_code, row.sub_process);
+    if (processCode) {
+      const journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode);
+      if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
+        throw new ProductionSafetyError(journeyClass.reason);
+      }
+      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coil_no, processCode);
+      if (coilSafety.isDangerous) {
+        throw new ProductionSafetyError(coilSafety.skipReason!);
+      }
+    }
+
     let existing = await trx.selectFrom('planning.ppc_batch')
       .select('batch_id')
       .where('batch_number', '=', row.batch_number)
@@ -739,13 +978,17 @@ export class PPCImportService {
     fileName: string,
     userId: number,
     sheetType: PpcXlsxSheetType,
+    lineScope?: ImportLineScope,
   ) {
     const detectedShift = await ShiftDetectionService.getCurrentShift();
-    const parsed = sheetType === 'REWINDING'
+    const effectiveSheet = lineScope
+      ? (LINE_IMPORT_SCOPE[lineScope].defaultSheet)
+      : sheetType;
+    const parsed = effectiveSheet === 'REWINDING'
       ? parseRewindingPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
-      : sheetType === 'CTL'
+      : effectiveSheet === 'CTL'
         ? parseCtlPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
-      : parseRollingPlanXlsx(buffer, { sheetType, shiftCode: detectedShift.shiftCode });
+      : parseRollingPlanXlsx(buffer, { sheetType: effectiveSheet, shiftCode: detectedShift.shiftCode });
     if (parsed.headerError) {
       return {
         headerError: parsed.headerError,
@@ -753,22 +996,34 @@ export class PPCImportService {
         rows: [],
         planDate: '',
         shiftCode: '',
-        sheetType,
+        sheetType: effectiveSheet,
         sheetName: parsed.sheetName ?? '',
       };
     }
 
+    const scopeMeta = lineScope ? LINE_IMPORT_SCOPE[lineScope] : null;
+    let workingRows = parsed.rows;
+    if (scopeMeta) {
+      workingRows = parsed.rows
+        .filter((r) => routeHasToken(r.processRouteCanonical ?? r.processRouteRaw, scopeMeta.routeCode))
+        .map((r) => ({
+          ...r,
+          machineCode: scopeMeta.machineCode as ParsedRollingPlanRow['machineCode'],
+          ...(lineScope === 'RWD' ? { subProcess: 'RWD' as const } : {}),
+        }));
+    }
+
     const sessionId = randomUUID();
-    const planDate = parsed.rows.find((r) => r.planDate)?.planDate ?? currentPlantDate();
-    const effectiveShift = parsed.rows[0]?.shiftCode ?? detectedShift.shiftCode.toUpperCase();
+    const planDate = workingRows.find((r) => r.planDate)?.planDate ?? currentPlantDate();
+    const effectiveShift = workingRows[0]?.shiftCode ?? detectedShift.shiftCode.toUpperCase();
 
     // ── Enrich rows with production status for preview display ───────────────
-    const allBatchNumbers = parsed.rows.map((r) => r.batchNumber).filter(Boolean);
+    const allBatchNumbers = workingRows.map((r) => r.batchNumber).filter(Boolean);
 
     // Keep-first: first occurrence of each batch_number stays importable; later copies are skipped.
     const firstOccurrenceBatch = new Set<string>();
     const duplicateSkippedRows = new Set<number>();
-    for (const row of parsed.rows) {
+    for (const row of workingRows) {
       if (!row.batchNumber) continue;
       if (firstOccurrenceBatch.has(row.batchNumber)) {
         duplicateSkippedRows.add(row.rowNum);
@@ -778,10 +1033,7 @@ export class PPCImportService {
     }
     const duplicatesInFileCount = duplicateSkippedRows.size;
 
-    // Same coil/spec with different batch_numbers is allowed — commit inserts
-    // each as its own batch (findMatchingPendingBatch excludes current import).
-
-    // Bulk fetch existing batches with their order status
+    // Bulk fetch existing batches (allocation + CRM production — coil safety is unified below)
     const existingBatches = allBatchNumbers.length > 0
       ? await db.selectFrom('planning.ppc_batch as pb')
           .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
@@ -789,6 +1041,10 @@ export class PPCImportService {
           .leftJoin('txn.crm_skinpass as sp', 'sp.order_id', 'o.order_id')
           .select([
             'pb.batch_number',
+            'pb.batch_id',
+            'pb.coil_no',
+            'pb.machine_code',
+            'pb.sub_process',
             'pb.machine_allocated',
             'o.status as order_status',
             'r.actual_weight_mt as rolling_weight',
@@ -800,67 +1056,121 @@ export class PPCImportService {
 
     const existingMap = new Map(existingBatches.map((b) => [b.batch_number, b]));
 
-    const enrichedRows = await Promise.all(parsed.rows.map(async (row) => {
+    const enrichedRows = await Promise.all(workingRows.map(async (row) => {
       let previewStatus: PreviewRowStatus = 'new';
       let mergeTargetBatchNumber: string | undefined;
+      let skipReason: string | undefined;
 
       if (duplicateSkippedRows.has(row.rowNum)) {
         previewStatus = 'duplicate-skipped';
       } else {
-        const ex = existingMap.get(row.batchNumber);
-        if (ex) {
-          const hasProduction =
-            (ex.rolling_weight != null && Number(ex.rolling_weight) > 0) ||
-            (ex.skinpass_weight != null && Number(ex.skinpass_weight) > 0);
+        const processCode = scopeMeta?.processCode
+          ?? processCodeFromBatchMachine(row.machineCode, row.subProcess ?? '');
 
-          if (ex.order_status === 'COMPLETED' || hasProduction) {
-            previewStatus = 'completed';
-          } else if (ex.order_status === 'IN_PROGRESS') {
-            previewStatus = 'in-production';
-          } else if (ex.machine_allocated) {
-            previewStatus = 'allocation-protected';
+        // Same path as commit: journey + coil-level safety (works with or without ppc_batch).
+        if (processCode && row.coilNo) {
+          const journeyClass = await classifyJourneyForLine(db, row.coilNo, processCode);
+          if (journeyClass.kind === 'already-advanced') {
+            previewStatus = 'advanced-skipped';
+            skipReason = journeyClass.reason;
+          } else if (journeyClass.kind === 'already-in-line') {
+            previewStatus = 'already-in-line';
+            skipReason = journeyClass.reason;
           } else {
-            previewStatus = 'safe-update';
+            const coilSafety = await this.checkCoilSafetyForLine(db, row.coilNo, processCode);
+            if (coilSafety.isDangerous) {
+              const st = coilSafety.orderStatus;
+              if (st === 'COMPLETED' || coilSafety.skipReason?.toLowerCase().includes('production')) {
+                previewStatus = 'completed';
+              } else if (st === 'IN_PROGRESS' || st === 'STOPPAGE') {
+                previewStatus = 'in-production';
+              } else {
+                previewStatus = 'in-production';
+              }
+              skipReason = coilSafety.skipReason ?? undefined;
+            }
           }
-        } else if (row.errors.length === 0 && row.batchNumber) {
-          // Preview has no import_batch yet; 0 never matches a real id, so all DB candidates remain.
-          const pendingMatch = await this.findMatchingPendingBatch(db, rollingRowToSchemaInput(row), 0);
-          if (pendingMatch) {
-            const targetBatch = await db.selectFrom('planning.ppc_batch')
-              .select('batch_number')
-              .where('batch_id', '=', String(pendingMatch.batch_id))
-              .executeTakeFirst();
-            if (targetBatch && targetBatch.batch_number !== row.batchNumber) {
-              previewStatus = 'will-merge';
-              mergeTargetBatchNumber = targetBatch.batch_number;
+        }
+
+        if (previewStatus === 'new') {
+          const ex = existingMap.get(row.batchNumber);
+          if (ex) {
+            const safety = await this.checkProductionSafety(db, ex.batch_id);
+            if (safety.isDangerous) {
+              if (safety.journeyAdvancedPast) {
+                previewStatus = 'advanced-skipped';
+              } else if (safety.orderStatus === 'COMPLETED' || safety.hasProduction) {
+                previewStatus = 'completed';
+              } else {
+                previewStatus = 'in-production';
+              }
+              skipReason = safety.skipReason ?? undefined;
+            } else if (safety.isAllocated) {
+              previewStatus = 'allocation-protected';
+              skipReason = safety.skipReason ?? undefined;
+            } else {
+              previewStatus = 'safe-update';
+            }
+          } else if (row.errors.length === 0 && row.batchNumber) {
+            const pendingMatch = await this.findMatchingPendingBatch(db, rollingRowToSchemaInput(row), 0);
+            if (pendingMatch) {
+              const targetBatch = await db.selectFrom('planning.ppc_batch')
+                .select('batch_number')
+                .where('batch_id', '=', String(pendingMatch.batch_id))
+                .executeTakeFirst();
+              if (targetBatch && targetBatch.batch_number !== row.batchNumber) {
+                previewStatus = 'will-merge';
+                mergeTargetBatchNumber = targetBatch.batch_number;
+              }
             }
           }
         }
       }
 
-      return mapPreviewRow(row, previewStatus, mergeTargetBatchNumber);
+      return mapPreviewRow(row, previewStatus, mergeTargetBatchNumber, skipReason);
     }));
 
     previewSessionStore.set(sessionId, {
       sessionId,
       fileName,
       userId,
-      rows: parsed.rows,
+      rows: workingRows,
       planDate,
       shiftCode: effectiveShift,
-      sheetType: parsed.sheetType ?? sheetType,
+      sheetType: parsed.sheetType ?? effectiveSheet,
       sheetName: parsed.sheetName,
+      lineScope,
       expiresAt: Date.now() + PREVIEW_SESSION_TTL_MS,
     });
+
+    const statusCounts = {
+      new: 0,
+      alreadyInLine: 0,
+      advancedSkipped: 0,
+      inProduction: 0,
+      completed: 0,
+      otherBlocked: 0,
+    };
+    for (const r of enrichedRows) {
+      if (r.previewStatus === 'new' || r.previewStatus === 'safe-update' || r.previewStatus === 'will-merge') {
+        statusCounts.new++;
+      } else if (r.previewStatus === 'already-in-line') statusCounts.alreadyInLine++;
+      else if (r.previewStatus === 'advanced-skipped') statusCounts.advancedSkipped++;
+      else if (r.previewStatus === 'in-production') statusCounts.inProduction++;
+      else if (r.previewStatus === 'completed') statusCounts.completed++;
+      else statusCounts.otherBlocked++;
+    }
 
     return {
       sessionId,
       rows: enrichedRows,
       planDate,
       shiftCode: effectiveShift,
-      sheetType: parsed.sheetType ?? sheetType,
+      sheetType: parsed.sheetType ?? effectiveSheet,
       sheetName: parsed.sheetName ?? '',
       duplicatesInFile: duplicatesInFileCount,
+      lineScope: lineScope ?? null,
+      statusCounts,
     };
   }
 
@@ -927,6 +1237,9 @@ export class PPCImportService {
     let skippedAllocated = 0;
     let skippedProduction = 0;
     let skippedCompleted = 0;
+    let skippedAdvanced = 0;
+    let skippedAlreadyInLine = 0;
+    const lineScope = session.lineScope;
 
     for (const row of dedupedRows) {
       if (row.errors.length > 0) {
@@ -956,12 +1269,14 @@ export class PPCImportService {
           return this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
         });
         if (result.action === 'inserted') {
-          // CRM mill orders only — RWD/CTL plan rows join their queues via journey link.
+          // CRM mill orders only — RWD/CTL/HRS/PKL plan rows join their queues via journey link.
           const willCallCrmEnsure = session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
-            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL';
+            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL'
+            && row.machineCode !== 'HRS' && row.machineCode !== 'PKL' && row.machineCode !== 'ANN';
           const willCallRwdEnsure = session.sheetType === 'REWINDING'
             || row.machineCode === 'RWD'
-            || (row.machineCode === '2HI' && row.fromWorkCenter === 'R');
+            || (row.machineCode === '2HI' && row.fromWorkCenter === 'R')
+            || lineScope === 'RWD';
           if (willCallCrmEnsure) {
             const { SixHiConfigService } = await import('./sixHi');
             await SixHiConfigService.ensureOrder(row.batchNumber, userId);
@@ -969,6 +1284,14 @@ export class PPCImportService {
           if (willCallRwdEnsure) {
             const { RewindingOrderService } = await import('./RewindingOrderService');
             await RewindingOrderService.ensureOrder(row.batchNumber, userId);
+          }
+          if (lineScope === 'HRS' || row.machineCode === 'HRS') {
+            const { HrsOrderService } = await import('./HrsOrderService');
+            await HrsOrderService.ensureOrder(row.coilNo, userId);
+          }
+          if (lineScope === 'PKL' || row.machineCode === 'PKL') {
+            const { PklOrderService } = await import('./PklOrderService');
+            await PklOrderService.ensureOrder(row.coilNo, userId);
           }
           loaded++;
         } else {
@@ -979,15 +1302,18 @@ export class PPCImportService {
         errors.push({ row: row.rowNum, message: e instanceof Error ? e.message : 'Insert failed' });
         if (e instanceof ProductionSafetyError) {
           const reason = e.message.toLowerCase();
-          if (reason.includes('in_progress')) skippedProduction++;
+          if (reason.includes('advanced past')) skippedAdvanced++;
+          else if (reason.includes('already queued')) skippedAlreadyInLine++;
+          else if (reason.includes('in_progress') || reason.includes('stoppage')) skippedProduction++;
           else if (reason.includes('completed')) skippedCompleted++;
           else if (reason.includes('allocated')) skippedAllocated++;
+          else if (reason.includes('cannot re-import')) skippedProduction++;
         }
       }
     }
 
     const totalLoaded = loaded + updated + merged;
-    const skipped = skippedAllocated + skippedProduction + skippedCompleted;
+    const skipped = skippedAllocated + skippedProduction + skippedCompleted + skippedAdvanced + skippedAlreadyInLine;
     const status = totalLoaded === 0 && loaded === 0 ? 'FAILED' : errors.length > 0 ? 'PARTIAL' : 'LOADED';
     await db.updateTable('planning.import_batch')
       .set({ status, error_count: errors.length, row_count: dedupedRows.length })
@@ -1030,6 +1356,8 @@ export class PPCImportService {
       skippedAllocated,
       skippedProduction,
       skippedCompleted,
+      skippedAdvanced,
+      skippedAlreadyInLine,
       errors,
       status,
       synced: loaded > 0
@@ -1048,6 +1376,18 @@ export class PPCImportService {
     row: ParsedRollingPlanRow,
     importBatchId: number,
   ): Promise<{ action: 'inserted' | 'updated' }> {
+    const processCode = processCodeFromBatchMachine(row.machineCode, row.subProcess ?? '');
+    if (processCode) {
+      const journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode);
+      if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
+        throw new ProductionSafetyError(journeyClass.reason);
+      }
+      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coilNo, processCode);
+      if (coilSafety.isDangerous) {
+        throw new ProductionSafetyError(coilSafety.skipReason!);
+      }
+    }
+
     const targetThk = row.passTargetThkMm ?? row.finishThkMm;
 
     let existing = await trx.selectFrom('planning.ppc_batch')

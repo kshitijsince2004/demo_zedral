@@ -15,7 +15,19 @@ export interface SyncEngineOptions {
   afterPush?: () => Promise<void>;
 }
 
+async function hasSession(): Promise<boolean> {
+  try {
+    const Session = (await import('supertokens-auth-react/recipe/session')).default;
+    return Session.doesSessionExist();
+  } catch {
+    return false;
+  }
+}
+
 async function pushOutbox() {
+  // Boot/interval can run before login — don't spam /api with bare 401s.
+  if (!(await hasSession())) return;
+
   // Drop Forbidden / wrong-mill rows before replay (e.g. handover:4HI for 6HI-only JWT).
   const { role, machineAccess } = useAuthStore.getState();
   await outbox.discardInaccessibleMachineActions(getWriteMachineAccess(role, machineAccess));

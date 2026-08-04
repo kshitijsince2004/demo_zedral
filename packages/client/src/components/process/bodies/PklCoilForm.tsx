@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { formatPlantTime } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
 import { ZInput } from '../../primitives/ZInput';
 import { submitProcessCapture, useProcessStore } from '../../../store/processStore';
@@ -33,10 +32,9 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   const [wp, setWp] = useState<'W' | 'P' | ''>('');
   // ponytail: label "Leader End"; keep endFilling key (no migration)
   const [endFilling, setEndFilling] = useState<boolean | null>(null);
-  const [timeFrom, setTimeFrom] = useState(formatPlantTime());
-  const [timeTo, setTimeTo] = useState('');
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const motherCoilNo = fieldVal((prefill as { motherCoilNo?: unknown }).motherCoilNo)
@@ -53,43 +51,68 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   );
   const weightWarn = weightCue.band === 'warn';
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function buildPayload() {
+    return {
+      machineCode,
+      shiftLogId: String(shiftLogId),
+      coilNo,
+      widthMm,
+      thkMm,
+      weightMt,
+      ppcWeightMt: ppcWeight || undefined,
+      lineSpeedMpm: Number(lineSpeed),
+      wp: wp as 'W' | 'P',
+      endFilling: endFilling as boolean,
+      motherCoilNo,
+      slitId,
+      customer: customerName,
+      gradeCode,
+      routeRaw: fieldVal((prefill as { routeRaw?: unknown }).routeRaw),
+      remarks: remarks || undefined,
+    };
+  }
+
+  function validateFields(): string | null {
+    if (!shiftLogId) return 'No active shift — open a shift before saving';
+    if (lineSpeed === '' || Number(lineSpeed) <= 0) return 'Line speed required';
+    if (wp !== 'W' && wp !== 'P') return 'W/P required';
+    if (endFilling == null) return 'Leader End required (Yes/No)';
+    return null;
+  }
+
+  /** Mid-run save — persist only; timer/order stay active. */
+  async function handleSaveOnly() {
     setError(null);
-    if (lineSpeed === '' || Number(lineSpeed) <= 0) {
-      setError('Line speed required');
-      return;
-    }
-    if (wp !== 'W' && wp !== 'P') {
-      setError('W/P required');
-      return;
-    }
-    if (endFilling == null) {
-      setError('Leader End required (Yes/No)');
+    setMsg(null);
+    const invalid = validateFields();
+    if (invalid) {
+      setError(invalid);
       return;
     }
     setSubmitting(true);
     try {
-      await submitProcessCapture('/production/pkl', {
-        machineCode,
-        shiftLogId,
-        coilNo,
-        widthMm,
-        thkMm,
-        weightMt,
-        ppcWeightMt: ppcWeight || undefined,
-        lineSpeedMpm: Number(lineSpeed),
-        wp,
-        endFilling,
-        motherCoilNo,
-        slitId,
-        customer: customerName,
-        gradeCode,
-        routeRaw: fieldVal((prefill as { routeRaw?: unknown }).routeRaw),
-        timeFrom: timeFrom || undefined,
-        timeTo: timeTo || undefined,
-        remarks: remarks || undefined,
-      }, coilNo);
+      await submitProcessCapture('/production/pkl/draft', buildPayload(), coilNo);
+      setMsg('Production data saved. Order still in progress — use End on the rail to complete.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** Rail End → OrderEndModal → form.requestSubmit — finalize order. */
+  async function handleComplete(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMsg(null);
+    const invalid = validateFields();
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await submitProcessCapture('/production/pkl', buildPayload(), coilNo);
       onSubmitted?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submit failed');
@@ -99,7 +122,7 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 p-4">
+    <form onSubmit={handleComplete} className="space-y-4 p-4">
       <div className="grid grid-cols-2 gap-3">
         <ProcessPairedField
           planLabel="PPC Weight MT (plan)"
@@ -141,18 +164,24 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
             <option value="N">No</option>
           </select>
         </div>
-        <ZInput label="Time From" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} placeholder="HH:mm" />
-        <ZInput label="Time To" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} placeholder="HH:mm" />
         <ZInput label="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
       </div>
 
       {weightWarn && (
-        <p className="text-amber-700 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <p className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
           Weight differs from PPC order weight {ppcWeight} MT (advisory).
         </p>
       )}
       {error && <p className="text-destructive text-sm">{error}</p>}
-      <ZButton type="submit" disabled={submitting}>{submitting ? 'Submitting…' : 'Save Production Data'}</ZButton>
+      {msg && <p className="text-sm text-success">{msg}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <ZButton type="button" disabled={submitting} onClick={() => void handleSaveOnly()}>
+          {submitting ? 'Saving…' : 'Save Production'}
+        </ZButton>
+        <p className="text-xs text-muted-foreground">
+          Saves data only. To complete the order, use <span className="font-semibold text-foreground">End</span> on the right rail.
+        </p>
+      </div>
     </form>
   );
 }

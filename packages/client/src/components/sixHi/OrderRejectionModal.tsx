@@ -20,6 +20,8 @@ interface OrderRejectionModalProps {
   batchNumber: string;
   orderLabel?: string;
   orderSubtitle?: string;
+  /** Machine classification for defect tags (e.g. 6HI / CRM6). */
+  appliesTo?: string;
   onClose: () => void;
   onReject: (
     batchNo: string,
@@ -29,7 +31,7 @@ interface OrderRejectionModalProps {
   ) => Promise<void>;
 }
 
-export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtitle, onClose, onReject }: OrderRejectionModalProps) {
+export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtitle, appliesTo, onClose, onReject }: OrderRejectionModalProps) {
   const [rejectionReason, setRejectionReason] = useState<string>(REJECTION_REASONS[0].value);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [otherDefectRemarks, setOtherDefectRemarks] = useState('');
@@ -146,6 +148,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
               otherRemarks={otherDefectRemarks}
               onOtherRemarksChange={setOtherDefectRemarks}
               variant="reject"
+              appliesTo={appliesTo}
             />
           </div>
 

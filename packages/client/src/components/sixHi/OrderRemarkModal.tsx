@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { X, Plus, Trash2 } from 'lucide-react';
+import { matchesMachineClassification } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
@@ -20,20 +21,30 @@ interface OrderRemarkModalProps {
   orderLabel?: string;
   orderSubtitle?: string;
   busy?: boolean;
+  /** Machine classification filter (e.g. PKL, 6HI). */
+  appliesTo?: string;
   onClose: () => void;
   onSave: (text: string, defects: { defectCode: string; quantityAffected?: number; remarks?: string }[]) => Promise<void>;
 }
 
-export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle, busy, onClose, onSave }: OrderRemarkModalProps) {
+export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle, busy, appliesTo, onClose, onSave }: OrderRemarkModalProps) {
   const [text, setText] = useState('');
   const [defectRows, setDefectRows] = useState<RemarkDefectRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const { data: defectsData } = useSWR(open ? '/6hi/master/defect-codes' : null, async (url) => {
+  const swrKey = open
+    ? (appliesTo
+      ? `/6hi/master/defect-codes?machine=${encodeURIComponent(appliesTo)}`
+      : '/6hi/master/defect-codes')
+    : null;
+  const { data: defectsData } = useSWR(swrKey, async (url) => {
     return apiClient.get(url) as Promise<MasterDefectCode[]>;
   });
-  const defects = resolveDefectCodes(defectsData);
+  const defects = resolveDefectCodes(defectsData).filter((d) => {
+    if (!appliesTo || d.defectCode === DEFECT_OTHER_CODE) return true;
+    return matchesMachineClassification(d.category, appliesTo);
+  });
 
   if (!open) return null;
 

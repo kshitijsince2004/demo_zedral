@@ -9,18 +9,26 @@ const SNOOZE_MS = 5 * 60 * 1000;
 interface CrewCaptureModalProps {
   open: boolean;
   machineCode: string;
-  sessionId: string;
+  /** Required for default /crew/attach path; optional when onConfirm is provided. */
+  sessionId?: string;
   onDone: () => void;
   onSnooze: () => void;
+  /** Process-line override — persist selected roster members (skips /crew/attach). */
+  onConfirm?: (members: MachineCrewMember[]) => Promise<void>;
+  title?: string;
+  subtitle?: string;
 }
 
-/** Soft-mandatory crew capture at session start. Does not block production. */
+/** Soft-mandatory crew capture at session start (CRM) or on-demand (process). Does not block production. */
 export function CrewCaptureModal({
   open,
   machineCode,
-  sessionId,
+  sessionId = '',
   onDone,
   onSnooze,
+  onConfirm,
+  title = 'Who is on this shift?',
+  subtitle,
 }: CrewCaptureModalProps) {
   const [roster, setRoster] = useState<MachineCrewMember[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -51,10 +59,16 @@ export function CrewCaptureModal({
     setBusy(true);
     setError(null);
     try {
-      await apiClient.post('/crew/attach', {
-        sessionId,
-        crewIds: [...selected],
-      });
+      const members = roster.filter((m) => selected.has(m.id));
+      if (onConfirm) {
+        await onConfirm(members);
+      } else {
+        if (!sessionId) throw new Error('No active session');
+        await apiClient.post('/crew/attach', {
+          sessionId,
+          crewIds: [...selected],
+        });
+      }
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save crew');
@@ -79,8 +93,8 @@ export function CrewCaptureModal({
         <div className="shrink-0 flex items-center gap-3 px-5 py-4 bg-primary text-white rounded-t-[14px]">
           <Users className="h-6 w-6" />
           <div>
-            <h3 className="text-lg font-bold">Who is on this shift?</h3>
-            <p className="text-sm opacity-90">{machineCode}</p>
+            <h3 className="text-lg font-bold">{title}</h3>
+            <p className="text-sm opacity-90">{subtitle ?? machineCode}</p>
           </div>
         </div>
 
