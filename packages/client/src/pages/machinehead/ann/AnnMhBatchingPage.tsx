@@ -166,8 +166,8 @@ export function AnnMhBatchingPage() {
       fillViewport
       onRefresh={() => void reload()}
     >
-      <div className="grid min-h-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[1fr_1fr_14rem]">
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+      <div className="grid min-h-0 flex-1 items-start gap-3 overflow-hidden lg:grid-cols-[1fr_1fr_14rem]">
+        <section className="flex min-h-0 flex-col overflow-hidden max-h-full rounded-lg border border-border bg-background shadow-sm">
           <h2 className="shrink-0 border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Incoming orders</h2>
           <div className="shrink-0 border-b border-border px-3 py-2">
             <ZInput
@@ -179,7 +179,7 @@ export function AnnMhBatchingPage() {
               aria-label="Search incoming orders"
             />
           </div>
-          <ul className="min-h-0 flex-1 overflow-auto p-2 space-y-1">
+          <ul className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
             {available.length === 0 && <li className="text-sm text-muted-foreground px-2 py-4">No pending coils.</li>}
             {available.map((c) => (
               <li key={c.coilNo}>
@@ -200,11 +200,11 @@ export function AnnMhBatchingPage() {
           </ul>
         </section>
 
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+        <section className="flex min-h-0 flex-col overflow-hidden max-h-full rounded-lg border border-border bg-background shadow-sm">
           <h2 className="shrink-0 border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Stack <span className="font-medium normal-case tracking-normal text-muted-foreground">(1 = bottom)</span>
           </h2>
-          <div className="flex min-h-0 flex-1 flex-col-reverse overflow-auto p-2 gap-1">
+          <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto overflow-x-hidden p-2 gap-1">
             {stack.length === 0 && (
               <p className="text-sm text-muted-foreground px-2 py-4 text-center">Tap coils to stack from the bottom up.</p>
             )}
@@ -260,9 +260,9 @@ export function AnnMhBatchingPage() {
           </div>
         </section>
 
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+        <aside className="flex min-h-0 flex-col overflow-hidden max-h-full rounded-lg border border-border bg-background shadow-sm">
           <h2 className="shrink-0 border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">On bases</h2>
-          <ul className="min-h-0 flex-1 overflow-auto p-2 space-y-1 text-xs">
+          <ul className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 text-xs">
             {prepared.length === 0 && <li className="text-muted-foreground px-1 py-3">No active charges.</li>}
             {prepared.map((r) => (
               <li key={r.base_no} className="rounded-lg border border-border bg-card px-2 py-2">

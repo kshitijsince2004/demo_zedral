@@ -83,6 +83,7 @@ export function assertExportPermission(
     case 'LINE_LOG':
     case 'COIL_TRACE':
     case 'RAW':
+    case 'ANN_CHARGE_REPORT':
       if (scoped !== null && scoped.length === 0) {
         throw new Error('Forbidden: no line read access for export');
       }

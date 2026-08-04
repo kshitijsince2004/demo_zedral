@@ -486,50 +486,51 @@ export class PPCImportService {
     coilNo: string,
     processCode: string,
   ): Promise<{ isDangerous: boolean; skipReason: string | null; orderStatus: string | null }> {
-    const row = await trx.selectFrom('coil.coil as c')
-      .leftJoin('txn.hrs_order as hrs', 'hrs.coil_no', 'c.coil_no')
-      .leftJoin('txn.pkl_order as pkl', 'pkl.coil_no', 'c.coil_no')
-      .leftJoin('txn.ann_charge_coil as acc', 'acc.coil_no', 'c.coil_no')
-      .leftJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
-      .leftJoin('txn.prod_hrs as ph', 'ph.coil_no', 'c.coil_no')
-      .leftJoin('txn.prod_pkl as pp', 'pp.coil_no', 'c.coil_no')
-      .leftJoin('txn.prod_rwd as pr', 'pr.coil_no', 'c.coil_no')
-      .select([
-        'hrs.status as hrs_status',
-        'pkl.status as pkl_status',
-        'ac.status as ann_status',
-        'ph.entry_id as prod_hrs_id',
-        'pp.entry_id as prod_pkl_id',
-        'pr.entry_id as prod_rwd_id',
-        'pr.weight_mt as prod_rwd_weight',
-      ])
-      .where('c.coil_no', '=', coilNo)
-      .executeTakeFirst();
+    // ponytail: join only the target line — ANN import must not depend on hrs/pkl/rwd tables
+    let orderStatus: string | null = null;
+    let hasProduction = false;
 
-    // RWD orders are keyed by batch — find any order for this coil.
-    const rwd = processCode === 'RWD'
-      ? await trx.selectFrom('txn.rwd_order as rwd')
-          .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'rwd.batch_id')
-          .select('rwd.status')
-          .where('pb.coil_no', '=', coilNo)
-          .executeTakeFirst()
-      : undefined;
-
-    const statusByLine: Record<string, string | null | undefined> = {
-      HRS: row?.hrs_status,
-      PKL: row?.pkl_status,
-      ANN: row?.ann_status,
-      RWD: rwd?.status,
-    };
-    const orderStatus = statusByLine[processCode] ?? null;
-
-    const hasProduction =
-      (processCode === 'HRS' && row?.prod_hrs_id != null)
-      || (processCode === 'PKL' && row?.prod_pkl_id != null)
-      || (processCode === 'RWD' && (
-        row?.prod_rwd_id != null
-        || (row?.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0)
-      ));
+    if (processCode === 'ANN') {
+      const row = await trx.selectFrom('coil.coil as c')
+        .leftJoin('txn.ann_charge_coil as acc', 'acc.coil_no', 'c.coil_no')
+        .leftJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
+        .select(['ac.status as ann_status'])
+        .where('c.coil_no', '=', coilNo)
+        .executeTakeFirst();
+      orderStatus = row?.ann_status ?? null;
+    } else if (processCode === 'HRS') {
+      const row = await trx.selectFrom('coil.coil as c')
+        .leftJoin('txn.hrs_order as hrs', 'hrs.coil_no', 'c.coil_no')
+        .leftJoin('txn.prod_hrs as ph', 'ph.coil_no', 'c.coil_no')
+        .select(['hrs.status as hrs_status', 'ph.entry_id as prod_hrs_id'])
+        .where('c.coil_no', '=', coilNo)
+        .executeTakeFirst();
+      orderStatus = row?.hrs_status ?? null;
+      hasProduction = row?.prod_hrs_id != null;
+    } else if (processCode === 'PKL') {
+      const row = await trx.selectFrom('coil.coil as c')
+        .leftJoin('txn.pkl_order as pkl', 'pkl.coil_no', 'c.coil_no')
+        .leftJoin('txn.prod_pkl as pp', 'pp.coil_no', 'c.coil_no')
+        .select(['pkl.status as pkl_status', 'pp.entry_id as prod_pkl_id'])
+        .where('c.coil_no', '=', coilNo)
+        .executeTakeFirst();
+      orderStatus = row?.pkl_status ?? null;
+      hasProduction = row?.prod_pkl_id != null;
+    } else if (processCode === 'RWD') {
+      const row = await trx.selectFrom('coil.coil as c')
+        .leftJoin('txn.prod_rwd as pr', 'pr.coil_no', 'c.coil_no')
+        .select(['pr.entry_id as prod_rwd_id', 'pr.weight_mt as prod_rwd_weight'])
+        .where('c.coil_no', '=', coilNo)
+        .executeTakeFirst();
+      const rwd = await trx.selectFrom('txn.rwd_order as rwd')
+        .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'rwd.batch_id')
+        .select('rwd.status')
+        .where('pb.coil_no', '=', coilNo)
+        .executeTakeFirst();
+      orderStatus = rwd?.status ?? null;
+      hasProduction = row?.prod_rwd_id != null
+        || (row?.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0);
+    }
 
     const journeyClass = await classifyJourneyForLine(trx, coilNo, processCode);
     if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
@@ -1009,7 +1010,7 @@ export class PPCImportService {
         .map((r) => ({
           ...r,
           machineCode: scopeMeta.machineCode as ParsedRollingPlanRow['machineCode'],
-          ...(lineScope === 'RWD' ? { subProcess: 'RWD' as const } : {}),
+          subProcess: scopeMeta.processCode as ParsedRollingPlanRow['subProcess'],
         }));
     }
 

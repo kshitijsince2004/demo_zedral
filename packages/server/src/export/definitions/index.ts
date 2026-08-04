@@ -5,12 +5,14 @@ import { CoilTraceReport } from './CoilTraceReport';
 import { LineLogReport } from './LineLogReport';
 import { RawRegisterReport } from './RawRegisterReport';
 
+import { AnnChargeReport } from './AnnChargeReport';
 import { RejectedOrdersReport } from './RejectedOrdersReport';
 import { ShiftSummaryReport } from './ShiftSummaryReport';
 import { QcFailsReport } from './QcFailsReport';
 
 const REGISTRY: Record<ExportType, ReportDefinition> = {
   RAW: RawRegisterReport,
+  ANN_CHARGE_REPORT: AnnChargeReport,
   DPR: DprReport,
   LINE_LOG: LineLogReport,
   COIL_TRACE: CoilTraceReport,

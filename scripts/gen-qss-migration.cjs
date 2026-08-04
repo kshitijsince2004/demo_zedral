@@ -260,5 +260,5 @@ exports.down = (pgm) => {
 };
 `;
 
-fs.writeFileSync('packages/server/migrations/1933000000000_quality_spec_sheet.js', migration);
+fs.writeFileSync('packages/server/migrations/1933010000000_quality_spec_sheet.js', migration);
 console.log('wrote', migration.length, 'chars');

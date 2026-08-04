@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowDownToLine,
@@ -20,11 +20,11 @@ import {
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZBadge } from '../../components/primitives/ZBadge';
+import { ZDrawer } from '../../components/primitives/ZDrawer';
 import { apiClient } from '../../lib/apiClient';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessStore, type ProcessQueueCard } from '../../store/processStore';
 import { useShiftStore } from '../../store/shiftStore';
-import type { Tone } from '../../lib/tones';
 
 type Stage = {
   stage_id: string;
@@ -68,7 +68,17 @@ type Stoppage = {
   remark: string | null;
 };
 
-const EMPTY_READING = {
+type ReadingKey =
+  | 'chargeTemp'
+  | 'gasTemp'
+  | 'fcTemp'
+  | 'basePress'
+  | 'baseFanRpm'
+  | 'fuelFlow'
+  | 'rcfRpm'
+  | 'n2h2Flow';
+
+const EMPTY_READING: Record<ReadingKey, string> = {
   chargeTemp: '',
   gasTemp: '',
   fcTemp: '',
@@ -78,6 +88,18 @@ const EMPTY_READING = {
   fuelFlow: '',
   rcfRpm: '',
 };
+
+/** Field order for rapid Enter-to-next entry (UI only) — 3×3 grid with Remarks. */
+const READING_FIELDS: { key: ReadingKey; label: string; unit: string }[] = [
+  { key: 'chargeTemp', label: 'Charge Temp', unit: '°C' },
+  { key: 'gasTemp', label: 'Gas Temp', unit: '°C' },
+  { key: 'fcTemp', label: 'F/C Temp', unit: '°C' },
+  { key: 'n2h2Flow', label: 'N₂/H₂ Flow', unit: '' },
+  { key: 'basePress', label: 'Base Pressure', unit: '' },
+  { key: 'baseFanRpm', label: 'Base Fan', unit: 'RPM' },
+  { key: 'fuelFlow', label: 'Fuel Flow', unit: '' },
+  { key: 'rcfRpm', label: 'RCF', unit: 'RPM' },
+];
 
 /** One distinct icon per WI stage (always shown on the timeline). */
 const STAGE_ICON: Record<string, ReactNode> = {
@@ -120,90 +142,122 @@ function formatReadingTime(iso: string) {
   });
 }
 
-/** Icon stage timeline — two rows with connector dots (Reading Entry mock). */
-function ChargeDetailsTimeline({ stages, activeCode }: { stages: Stage[]; activeCode: string | null }) {
-  const row1 = stages.filter((s) => s.seq <= 5);
-  const row2 = stages.filter((s) => s.seq > 5);
+function formatElapsed(iso: string | null | undefined, nowMs: number): string {
+  if (!iso) return '—';
+  const min = Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 60_000));
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+function MetaInline({ label, value, onPrimary }: { label: string; value: string; onPrimary?: boolean }) {
+  return (
+    <span className="inline-flex min-w-0 flex-col gap-1">
+      <span
+        className={[
+          'shrink-0 text-[9px] font-bold uppercase leading-none tracking-[0.12em]',
+          onPrimary ? 'text-primary-foreground/70' : 'text-muted-foreground',
+        ].join(' ')}
+      >
+        {label}
+      </span>
+      <span
+        className={[
+          'truncate font-mono text-sm font-bold tabular-nums leading-tight',
+          onPrimary ? 'text-primary-foreground' : 'text-foreground',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+/** Icon stage timeline — fills card width on tablet/desktop; scrolls on narrow. */
+function ChargeDetailsTimeline({ stages, activeCode, nowMs }: { stages: Stage[]; activeCode: string | null; nowMs: number }) {
+  const sorted = useMemo(() => [...stages].sort((a, b) => a.seq - b.seq), [stages]);
   const [selected, setSelected] = useState<Stage | null>(null);
-
-  function StageNode({ s }: { s: Stage }) {
-    const done = Boolean(s.end_at) || s.skipped;
-    const current = s.stage_code === activeCode && !done;
-    const icon = STAGE_ICON[s.stage_code] ?? <ThermometerSnowflake className="h-4 w-4" strokeWidth={1.75} aria-hidden />;
-    return (
-      <li className="relative z-[1] flex flex-1 flex-col items-center gap-1 min-w-0">
-        <button
-          type="button"
-          className={[
-            'relative flex h-9 w-9 items-center justify-center rounded-full border-2 bg-background',
-            done || current ? 'border-status-running text-status-running' : 'border-border text-muted-foreground',
-            current ? 'ring-2 ring-status-running/30' : '',
-            selected?.stage_code === s.stage_code ? 'ring-2 ring-ring' : '',
-          ].join(' ')}
-          title={humanizeStage(s.stage_code)}
-          onClick={() => setSelected(s)}
-        >
-          <span className="scale-90">{icon}</span>
-          {done && (
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-status-running text-primary-foreground">
-              <Check className="h-2 w-2" strokeWidth={3} aria-hidden />
-            </span>
-          )}
-        </button>
-        <span
-          className={[
-            'text-[9px] text-center leading-tight font-medium px-0.5',
-            current ? 'font-bold text-status-running' : 'text-muted-foreground',
-          ].join(' ')}
-        >
-          {humanizeStage(s.stage_code)}
-          {current ? ' · NOW' : ''}
-        </span>
-      </li>
-    );
-  }
-
-  function StageRow({ items }: { items: Stage[] }) {
-    if (items.length === 0) return null;
-    const progressed = items.filter((s) => Boolean(s.end_at) || s.skipped || (s.stage_code === activeCode && s.start_at)).length;
-    const fillPct = items.length <= 1 ? 0 : Math.min(100, ((Math.max(0, progressed - 1)) / (items.length - 1)) * 100);
-
-    return (
-      <div className="relative">
-        <div className="absolute left-[10%] right-[10%] top-[18px] h-0.5 bg-border" aria-hidden />
-        <div
-          className="absolute left-[10%] top-[18px] h-0.5 bg-status-running transition-[width] duration-500"
-          style={{ width: `calc(${fillPct}% * 0.8)` }}
-          aria-hidden
-        />
-        <ol className="relative flex gap-1">
-          {items.map((s) => (
-            <StageNode key={s.stage_code} s={s} />
-          ))}
-        </ol>
-      </div>
-    );
-  }
 
   const durationMin =
     selected?.start_at && selected?.end_at
       ? Math.max(0, Math.round((new Date(selected.end_at).getTime() - new Date(selected.start_at).getTime()) / 60_000))
-      : null;
+      : selected?.start_at && !selected.end_at && !selected.skipped
+        ? Math.max(0, Math.round((nowMs - new Date(selected.start_at).getTime()) / 60_000))
+        : null;
 
   return (
-    <div className="space-y-3">
-      <StageRow items={row1} />
-      <StageRow items={row2} />
+    <div className="w-full space-y-2">
+      <div className="w-full overflow-x-auto overscroll-x-contain px-0.5 py-2">
+        <ol className="relative flex w-full min-w-[42rem] items-stretch">
+          {sorted.map((s, idx) => {
+            const done = Boolean(s.end_at) || s.skipped;
+            const current = s.stage_code === activeCode && !done;
+            const icon = STAGE_ICON[s.stage_code] ?? <ThermometerSnowflake className="h-5 w-5" strokeWidth={1.75} aria-hidden />;
+            const elapsed = current && s.start_at ? formatElapsed(s.start_at, nowMs) : null;
+            return (
+              <li key={s.stage_code} className="relative flex min-w-0 flex-1 flex-col items-center gap-1.5 px-0.5">
+                {idx < sorted.length - 1 && (
+                  <span
+                    className={[
+                      'absolute left-[calc(50%+1.4rem)] right-[calc(-50%+1.4rem)] top-[1.4rem] h-[3px] rounded-full sm:top-[1.55rem]',
+                      done || current ? 'bg-status-running' : 'bg-border',
+                    ].join(' ')}
+                    aria-hidden
+                  />
+                )}
+                <button
+                  type="button"
+                  className={[
+                    'relative z-[1] mx-auto flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded-full border-2 bg-background touch-manipulation',
+                    'sm:h-[3.25rem] sm:w-[3.25rem] sm:min-h-[3.25rem] sm:min-w-[3.25rem] md:h-14 md:w-14 md:min-h-14 md:min-w-14',
+                    'transition-[box-shadow,transform,background-color] duration-150 active:scale-95',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    done ? 'border-status-running text-status-running bg-status-running/5' : '',
+                    current
+                      ? 'border-status-running bg-status-running/15 text-status-running ring-4 ring-status-running/30'
+                      : '',
+                    !done && !current ? 'border-border text-muted-foreground opacity-70' : '',
+                    selected?.stage_code === s.stage_code ? 'ring-2 ring-ring' : '',
+                  ].join(' ')}
+                  title={humanizeStage(s.stage_code)}
+                  onClick={() => setSelected(s)}
+                >
+                  {icon}
+                  {done && (
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-status-running text-primary-foreground shadow-sm">
+                      <Check className="h-3 w-3" strokeWidth={3} aria-hidden />
+                    </span>
+                  )}
+                </button>
+                <span
+                  className={[
+                    'w-full max-w-[5.5rem] px-0.5 text-center text-[9px] leading-tight font-medium sm:text-[10px]',
+                    current ? 'font-bold text-status-running' : done ? 'text-foreground' : 'text-muted-foreground',
+                  ].join(' ')}
+                >
+                  {humanizeStage(s.stage_code)}
+                  {current ? ' · NOW' : ''}
+                </span>
+                <div className="flex h-5 items-center justify-center">
+                  {elapsed ? (
+                    <span className="rounded-full bg-status-running/15 px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums text-status-running">
+                      {elapsed}
+                    </span>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
       {selected && (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs">
-          <p className="font-semibold text-foreground">{humanizeStage(selected.stage_code)}</p>
-          <p className="text-muted-foreground mt-0.5">
-            Start: {selected.start_at ? formatReadingTime(selected.start_at) : '—'}
-            {' · '}End: {selected.end_at ? formatReadingTime(selected.end_at) : '—'}
-            {durationMin != null ? ` · ${durationMin} min` : ''}
-            {selected.skipped ? ' · SKIPPED' : ''}
-          </p>
-        </div>
+        <p className="truncate rounded-md bg-muted/50 px-2 py-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {humanizeStage(selected.stage_code)}
+          {' · '}{selected.start_at ? formatReadingTime(selected.start_at) : '—'}
+          {' → '}{selected.end_at ? formatReadingTime(selected.end_at) : '—'}
+          {durationMin != null ? ` · ${durationMin}m` : ''}
+          {selected.skipped ? ' · SKIP' : ''}
+        </p>
       )}
     </div>
   );
@@ -228,7 +282,7 @@ function SwipeAdvance({
     if (disabled) return;
     const track = trackRef.current;
     if (!track) return;
-    maxX.current = Math.max(120, track.clientWidth - 48);
+    maxX.current = Math.max(160, track.clientWidth - 56);
     startX.current = e.clientX;
     setDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -256,83 +310,117 @@ function SwipeAdvance({
   }
 
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Advance stage</p>
+    <div className="space-y-1">
+      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Advance stage</p>
       <div
         ref={trackRef}
-        className={['relative h-10 min-h-10 rounded-full bg-muted', disabled ? 'opacity-50' : ''].join(' ')}
+        className={['relative h-14 min-h-14 rounded-full bg-muted', disabled ? 'opacity-50' : ''].join(' ')}
       >
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-status-running/20 transition-[width] duration-150"
-          style={{ width: `${dragX + 36}px` }}
+          className="absolute inset-y-0 left-0 rounded-full bg-status-running/25"
+          style={{
+            width: `${dragX + 48}px`,
+            transition: dragging ? 'none' : 'width 180ms ease-out',
+          }}
         />
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-          Swipe to next stage
+        <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-14 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          Swipe · Next: {nextLabel}
         </p>
         <button
           type="button"
           disabled={disabled}
-          className="absolute top-1 left-1 flex h-8 w-8 min-h-8 items-center justify-center rounded-full bg-background text-primary shadow-sm border border-border touch-none disabled:opacity-50"
-          style={{ transform: `translateX(${dragX}px)` }}
+          className="absolute top-1 left-1 flex h-12 w-12 min-h-12 min-w-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-sm touch-none disabled:opacity-50 active:scale-95"
+          style={{
+            transform: `translateX(${dragX}px)`,
+            transition: dragging ? 'none' : 'transform 180ms ease-out',
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={() => void onPointerUp()}
           onPointerCancel={() => { setDragging(false); setDragX(0); }}
           aria-label="Swipe to advance stage"
         >
-          <ChevronsRight className="h-4 w-4" aria-hidden />
+          <ChevronsRight className="h-5 w-5" aria-hidden />
         </button>
       </div>
-      <div className="rounded-lg bg-status-running/10 border border-status-running/30 px-3 py-1.5 text-center">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-status-running">
-          Next stage: {nextLabel}
-        </p>
-      </div>
     </div>
   );
 }
 
-function AnnPopup({
-  open,
-  title,
-  onClose,
-  children,
+function ReadingField({
+  id,
+  label,
+  unit,
+  value,
+  onChange,
+  onEnterNext,
+  disabled,
 }: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
+  id: string;
+  label: string;
+  unit: string;
+  value: string;
+  onChange: (v: string) => void;
+  onEnterNext: () => void;
+  disabled?: boolean;
 }) {
-  if (!open) return null;
+  function onKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onEnterNext();
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-primary/40 backdrop-blur-sm" aria-label="Close" onClick={onClose} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ann-popup-title"
-        className="relative z-[1] flex max-h-[min(80dvh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl"
-      >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
-          <h2 id="ann-popup-title" className="text-base font-bold text-foreground">{title}</h2>
-          <ZButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="!h-10 !w-10 !min-h-10 !px-0 hover:bg-muted"
-            aria-label="Close dialog"
-            onClick={onClose}
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </ZButton>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={id} className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={disabled}
+          value={value}
+          placeholder="—"
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPointerDown={(e) => {
+            const el = e.currentTarget;
+            if (el.disabled) return;
+            requestAnimationFrame(() => {
+              el.focus({ preventScroll: true });
+              try {
+                const len = el.value.length;
+                el.setSelectionRange(len, len);
+              } catch {
+                /* ignore */
+              }
+            });
+          }}
+          className={[
+            'h-14 min-h-14 w-full rounded-lg border border-input bg-background px-3 text-center text-base font-mono tabular-nums',
+            'touch-manipulation transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/40',
+            unit ? 'pr-11' : '',
+            disabled ? 'opacity-50' : '',
+          ].join(' ')}
+          aria-label={unit ? `${label} ${unit}` : label}
+        />
+        {unit ? (
+          <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            {unit}
+          </span>
+        ) : null}
       </div>
     </div>
   );
 }
 
-/** Reading Entry — matches operator console mock. */
+/** Reading Entry — ANN operator production console. */
 export function AnnChargePage() {
   const { chargeNo = '' } = useParams();
   const navigate = useNavigate();
@@ -349,13 +437,17 @@ export function AnnChargePage() {
   const [coilToAdd, setCoilToAdd] = useState('');
   const [reading, setReading] = useState(EMPTY_READING);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [showPrev, setShowPrev] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [stoppageOpen, setStoppageOpen] = useState(false);
   const [remarks, setRemarks] = useState('');
   const [stopCategories, setStopCategories] = useState<{ category_code: string; description: string | null }[]>([]);
   const [stopCategory, setStopCategory] = useState('');
   const [stopReason, setStopReason] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const remarksRef = useRef<HTMLTextAreaElement | null>(null);
 
   async function reload() {
     const d = await apiClient.get<{
@@ -378,7 +470,14 @@ export function AnnChargePage() {
         if (r.categories?.[0]) setStopCategory(r.categories[0].category_code);
       })
       .catch(() => undefined);
+    // ponytail: same deps as before — reload is chargeNo-scoped, not a stable callback
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chargeNo, loadQueue]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   async function rosterCoil(coilNo: string) {
     await apiClient.post('/stations/ann/charges', { action: 'roster', chargeNo, coilNo });
@@ -422,6 +521,7 @@ export function AnnChargePage() {
       });
       setStopReason('');
       await reload();
+      setStoppageOpen(false);
     } finally {
       setBusy(false);
     }
@@ -432,35 +532,51 @@ export function AnnChargePage() {
     try {
       await apiClient.post('/stations/ann/charges', { action: 'stoppage-end', stoppageId: String(stoppageId) });
       await reload();
+      setStoppageOpen(false);
     } finally {
       setBusy(false);
     }
   }
 
   async function saveReading() {
-    await apiClient.post('/stations/ann/charges', {
-      action: 'reading',
-      chargeNo,
-      shiftCode: shiftCode ?? undefined,
-      chargeTemp: reading.chargeTemp === '' ? undefined : Number(reading.chargeTemp),
-      gasTemp: reading.gasTemp === '' ? undefined : Number(reading.gasTemp),
-      fcTemp: reading.fcTemp === '' ? undefined : Number(reading.fcTemp),
-      n2h2Flow: reading.n2h2Flow === '' ? undefined : Number(reading.n2h2Flow),
-      basePress: reading.basePress === '' ? undefined : Number(reading.basePress),
-      baseFanRpm: reading.baseFanRpm === '' ? undefined : Number(reading.baseFanRpm),
-      fuelFlow: reading.fuelFlow === '' ? undefined : Number(reading.fuelFlow),
-      rcfRpm: reading.rcfRpm === '' ? undefined : Number(reading.rcfRpm),
-    });
-    setReading(EMPTY_READING);
-    setRemarks('');
-    setSavedFlash(true);
-    window.setTimeout(() => setSavedFlash(false), 2500);
-    await reload();
+    if (saving || detail?.charge?.status === 'DONE') return;
+    setSaving(true);
+    try {
+      await apiClient.post('/stations/ann/charges', {
+        action: 'reading',
+        chargeNo,
+        shiftCode: shiftCode ?? undefined,
+        chargeTemp: reading.chargeTemp === '' ? undefined : Number(reading.chargeTemp),
+        gasTemp: reading.gasTemp === '' ? undefined : Number(reading.gasTemp),
+        fcTemp: reading.fcTemp === '' ? undefined : Number(reading.fcTemp),
+        n2h2Flow: reading.n2h2Flow === '' ? undefined : Number(reading.n2h2Flow),
+        basePress: reading.basePress === '' ? undefined : Number(reading.basePress),
+        baseFanRpm: reading.baseFanRpm === '' ? undefined : Number(reading.baseFanRpm),
+        fuelFlow: reading.fuelFlow === '' ? undefined : Number(reading.fuelFlow),
+        rcfRpm: reading.rcfRpm === '' ? undefined : Number(reading.rcfRpm),
+      });
+      setReading(EMPTY_READING);
+      setRemarks('');
+      setSavedFlash(true);
+      window.setTimeout(() => setSavedFlash(false), 2500);
+      await reload();
+    } finally {
+      setSaving(false);
+    }
   }
 
   function clearReadingForm() {
     setReading(EMPTY_READING);
     setRemarks('');
+  }
+
+  function focusNextField(index: number) {
+    const next = READING_FIELDS[index + 1];
+    if (next) {
+      document.getElementById(`ann-rf-${next.key}`)?.focus();
+      return;
+    }
+    remarksRef.current?.focus();
   }
 
   const pendingCoils = queue.filter((c: ProcessQueueCard) => c.status === 'PENDING');
@@ -474,6 +590,10 @@ export function AnnChargePage() {
   const batchLabel = String(charge?.annealing_batch_no ?? chargeNo);
   const currentTemp = last?.charge_temp ?? (reading.chargeTemp || '—');
   const stageStart = active?.start_at ? formatReadingTime(active.start_at) : '—';
+  const stageElapsed = formatElapsed(active?.start_at, nowMs);
+  const stagesDone = (detail?.stages ?? []).filter((s) => Boolean(s.end_at) || s.skipped).length;
+  const stagesTotal = Math.max(1, detail?.stages?.length ?? 1);
+  const progressPct = Math.round((stagesDone / stagesTotal) * 100);
 
   const nextLabel =
     active?.stage_code === 'UNLOADING'
@@ -485,351 +605,412 @@ export function AnnChargePage() {
   const openStoppage = (detail?.stoppages ?? []).find((s) => !s.end_at);
   const statusLabel =
     charge?.status === 'DONE' ? 'COMPLETE' : openStoppage ? 'STOPPAGE' : 'RUNNING';
-  const statusTone: Tone =
-    statusLabel === 'COMPLETE' ? 'info' : statusLabel === 'STOPPAGE' ? 'warning' : 'success';
+
+  const skippable = (detail?.stages ?? []).filter(
+    (s) => !s.skipped && !s.end_at && (s.stage_code === 'RAPID_COOL' || s.stage_code === 'WATER_COOL'),
+  );
+
+  const headerSegBtn =
+    'min-h-10 h-10 rounded-full px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-secondary">
-      {/* Process header — matches CaptureWorkspace chrome */}
-      <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 bg-primary text-primary-foreground min-h-16">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="relative z-10 shrink-0 bg-primary text-primary-foreground shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 px-3 pt-3 pb-2 md:px-4">
           <ZButton
             type="button"
             variant="ghost"
             size="sm"
-            className="!min-h-10 !h-10 !w-10 !px-0 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
+            className="!min-h-11 !h-11 !w-11 !px-0 shrink-0 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
             aria-label="Back to bases"
             onClick={() => navigate(`${basePath}?tab=charges`)}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </ZButton>
-          <p className="text-base font-bold shrink-0 hidden sm:block">Production Console</p>
-          <span className="font-mono text-lg font-bold truncate">{batchLabel}</span>
-          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15 shrink-0">ANN</span>
-          <span
-            className={[
-              'text-[10px] uppercase font-bold px-2 py-0.5 rounded shrink-0',
-              statusLabel === 'STOPPAGE' ? 'bg-warning/90 text-warning-foreground' : 'bg-white/15',
-            ].join(' ')}
+          <div className="min-w-0 flex flex-1 items-center gap-2">
+            <span className="font-mono text-base font-bold truncate">{batchLabel}</span>
+            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-white/15 shrink-0">ANN</span>
+            <span
+              className={[
+                'text-[9px] uppercase font-bold px-2.5 py-1 rounded-full shrink-0',
+                statusLabel === 'STOPPAGE'
+                  ? 'bg-warning text-warning-foreground'
+                  : statusLabel === 'COMPLETE'
+                    ? 'bg-white/20'
+                    : 'bg-status-running/90 text-primary-foreground',
+              ].join(' ')}
+            >
+              {statusLabel}
+            </span>
+          </div>
+
+          <div
+            className="inline-flex shrink-0 items-center rounded-full border border-white/25 bg-black/10 p-0.5 max-sm:w-full max-sm:justify-stretch sm:ml-auto"
+            role="group"
+            aria-label="Console actions"
           >
-            {statusLabel}
-          </span>
+            <button type="button" className={[headerSegBtn, 'flex-1 text-primary-foreground hover:bg-white/15'].join(' ')} onClick={() => setShowPrev(true)}>
+              History
+            </button>
+            <button type="button" className={[headerSegBtn, 'flex-1 text-primary-foreground hover:bg-white/15'].join(' ')} onClick={() => setRosterOpen(true)}>
+              Orders
+            </button>
+            <button
+              type="button"
+              className={[
+                headerSegBtn,
+                'flex-1',
+                openStoppage ? 'bg-warning text-warning-foreground' : 'text-primary-foreground hover:bg-white/15',
+              ].join(' ')}
+              onClick={() => setStoppageOpen(true)}
+            >
+              Stoppage
+            </button>
+          </div>
         </div>
-        <ZButton
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="shrink-0 !bg-white/10 !text-primary-foreground border border-white/25 hover:!bg-white/20"
-          onClick={() => setRosterOpen(true)}
-        >
-          Order details
-        </ZButton>
+
+        {detail && (
+          <div className="border-t border-white/15 bg-primary/95 px-3 pt-3.5 pb-3 md:px-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
+              <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
+                <MetaInline onPrimary label="Base" value={String(charge?.base_no ?? '—')} />
+                <MetaInline onPrimary label="Charge" value={chargeNo} />
+                <MetaInline onPrimary label="Stage" value={humanizeStage(String(charge?.current_stage_code ?? '—'))} />
+                <MetaInline onPrimary label="Start" value={stageStart} />
+                <MetaInline onPrimary label="Elapsed" value={stageElapsed} />
+                <MetaInline onPrimary label="Temp" value={`${currentTemp}${currentTemp !== '—' ? ' °C' : ''}`} />
+                <MetaInline onPrimary label="Shift" value={shiftCode ? String(shiftCode) : '—'} />
+              </div>
+              <div className="flex w-full shrink-0 flex-col gap-1.5 lg:w-44">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] font-bold uppercase leading-none tracking-[0.12em] text-primary-foreground/70">Progress</span>
+                  <span className="font-mono text-xs font-bold tabular-nums text-primary-foreground">
+                    {progressPct}% · {stagesDone}/{stagesTotal}
+                  </span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-white/20" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="h-full rounded-full bg-status-running transition-[width] duration-500" style={{ width: `${progressPct}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {detail && (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 md:p-3">
-          {openStoppage && (
-            <div className="shrink-0 flex items-center justify-between rounded-lg border border-destructive bg-destructive text-white px-4 py-2 shadow-sm">
-              <div className="min-w-0">
-                <p className="text-[10px] font-medium uppercase tracking-wide opacity-80">Stoppage active</p>
-                <p className="text-sm font-semibold truncate">
-                  {openStoppage.category_code}
-                  {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
-                </p>
-              </div>
-              <ZBadge tone="warning" label="STOPPAGE" />
-            </div>
-          )}
-
-          <section className="shrink-0 rounded-lg border border-border bg-card p-3 shadow-sm">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Current charge</h2>
-              <ZBadge tone={statusTone} label={statusLabel} dot={statusLabel === 'RUNNING'} />
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {[
-                ['Base', String(charge?.base_no ?? '—')],
-                ['Charge', chargeNo],
-                ['Stage', humanizeStage(String(charge?.current_stage_code ?? '—'))],
-                ['Stage start', stageStart],
-                ['Temp', `${currentTemp}${currentTemp !== '—' ? ' °C' : ''}`],
-              ].map(([label, value]) => (
-                <div key={label} className="min-w-0">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-                  <p className="mt-0.5 truncate text-sm font-bold font-mono tabular-nums text-foreground">{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <div className="grid min-h-0 flex-1 gap-3 overflow-hidden md:grid-cols-[1fr_17rem] lg:grid-cols-[1fr_18rem] xl:grid-cols-[1fr_20rem]">
-          <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
-            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm">
-              <h2 className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Charge details</h2>
+        <div className="grid min-h-0 flex-1 gap-2.5 overflow-hidden p-2.5 pt-3 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          <div className="flex min-h-0 min-w-0 flex-col gap-2.5 overflow-hidden">
+            <section className="z-card shrink-0 px-3 py-2.5">
               <ChargeDetailsTimeline
                 stages={detail.stages}
                 activeCode={String(charge?.current_stage_code ?? '') || null}
+                nowMs={nowMs}
               />
-              <div className="mt-1 flex flex-wrap gap-2">
-                {detail.stages
-                  .filter((s) => !s.skipped && !s.end_at && (s.stage_code === 'RAPID_COOL' || s.stage_code === 'WATER_COOL'))
-                  .map((s) => (
-                    <button
-                      key={s.stage_code}
-                      type="button"
-                      className="min-h-8 text-xs font-medium text-muted-foreground underline hover:text-foreground"
-                      onClick={() => void skipStage(s.stage_code)}
-                    >
-                      Skip {humanizeStage(s.stage_code)}
-                    </button>
-                  ))}
-              </div>
             </section>
 
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 shadow-sm">
-              <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reading form</h2>
-                {savedFlash && (
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-status-running">
-                    Reading saved
-                  </span>
-                )}
+            <section className="z-card flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+              <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
+                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reading entry</h2>
+                <div className="flex items-center gap-2">
+                  {saving && <span className="text-[10px] font-bold uppercase text-muted-foreground animate-pulse">Saving…</span>}
+                  {!saving && savedFlash && (
+                    <span className="rounded-full bg-status-running/15 px-2 py-0.5 text-[10px] font-bold uppercase text-status-running animate-fade-in">
+                      Reading saved
+                    </span>
+                  )}
+                  {last && (
+                    <span className="truncate font-mono text-[10px] tabular-nums text-muted-foreground">
+                      Last {formatReadingTime(last.taken_at)}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {([
-                    ['chargeTemp', 'Charge Temp (°C)'],
-                    ['gasTemp', 'Gas Temp (°C)'],
-                    ['fcTemp', 'F/C Temp (°C)'],
-                    ['n2h2Flow', 'N₂ / H₂ Flow'],
-                    ['basePress', 'Base Pressure'],
-                    ['baseFanRpm', 'Base Fan (RPM)'],
-                    ['fuelFlow', 'Fuel Flow'],
-                    ['rcfRpm', 'RCF RPM'],
-                  ] as const).map(([k, label]) => (
-                    <ZInput
-                      key={k}
-                      label={label}
-                      type="number"
-                      value={reading[k]}
-                      placeholder="--"
-                      onChange={(e) => setReading({ ...reading, [k]: e.target.value })}
-                      className="!h-9 rounded-lg text-center text-sm"
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-3">
+                  {READING_FIELDS.map((f, idx) => (
+                    <ReadingField
+                      key={f.key}
+                      id={`ann-rf-${f.key}`}
+                      label={f.label}
+                      unit={f.unit}
+                      value={reading[f.key]}
+                      disabled={charge?.status === 'DONE'}
+                      onChange={(v) => setReading({ ...reading, [f.key]: v })}
+                      onEnterNext={() => focusNextField(idx)}
                     />
                   ))}
                 </div>
-                <div className="mt-2">
-                  <ZInput
+
+                <div className="mt-3 flex flex-col gap-1 pb-1">
+                  <label htmlFor="ann-remarks" className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    Remarks
+                  </label>
+                  <textarea
+                    ref={remarksRef}
                     id="ann-remarks"
-                    label="Remarks"
-                    placeholder="Add a note for this reading"
+                    placeholder="Optional note"
                     value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    mono={false}
-                    className="!h-9 rounded-lg text-sm"
+                    disabled={charge?.status === 'DONE'}
+                    rows={3}
+                    onChange={(e) => {
+                      setRemarks(e.target.value);
+                      const el = e.target;
+                      el.style.height = 'auto';
+                      el.style.height = `${Math.min(Math.max(el.scrollHeight, 72), 160)}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        void saveReading();
+                      }
+                    }}
+                    className="min-h-[4.5rem] max-h-40 w-full resize-none overflow-y-auto rounded-lg border border-input bg-background px-3 py-2.5 text-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </div>
               </div>
             </section>
           </div>
 
-          <aside className="flex min-h-0 flex-col gap-3 overflow-hidden">
-            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm">
+          <aside className="z-card flex min-h-0 flex-col overflow-hidden p-3">
+            <h2 className="mb-2.5 shrink-0 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Operator action center</h2>
+
+            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain">
               <SwipeAdvance
                 disabled={busy || !active || charge?.status === 'DONE'}
                 nextLabel={nextLabel}
                 onAdvance={advanceStage}
               />
-            </section>
 
-            <section className="shrink-0 rounded-lg border border-border bg-background p-3 shadow-sm space-y-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stoppage</h2>
-              {(() => {
-                const open = (detail.stoppages ?? []).find((s) => !s.end_at);
-                if (open) {
-                  return (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-status-stopped">
-                        Open: {open.category_code}
-                        {open.reason ? ` · ${open.reason}` : ''}
-                      </p>
-                      <ZButton
-                        type="button"
-                        variant="secondary"
-                        fullWidth
-                        disabled={busy || charge?.status === 'DONE'}
-                        onClick={() => void endStoppage(open.stoppage_id)}
-                        className="!h-10 !min-h-10 rounded-lg"
-                      >
-                        End stoppage
-                      </ZButton>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="space-y-2">
-                    <select
-                      className="h-10 min-h-10 w-full rounded-lg border border-input bg-background px-2 text-sm"
-                      value={stopCategory}
-                      onChange={(e) => setStopCategory(e.target.value)}
-                      disabled={charge?.status === 'DONE'}
-                      aria-label="Stoppage category"
-                    >
-                      {stopCategories.map((c) => (
-                        <option key={c.category_code} value={c.category_code}>
-                          {c.description ?? c.category_code}
-                        </option>
-                      ))}
-                    </select>
-                    <ZInput
-                      placeholder="Reason (optional)"
-                      value={stopReason}
-                      onChange={(e) => setStopReason(e.target.value)}
-                      disabled={charge?.status === 'DONE'}
-                      mono={false}
-                      className="!h-10 rounded-lg"
-                    />
+              {skippable.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {skippable.map((s) => (
                     <ZButton
+                      key={s.stage_code}
                       type="button"
-                      variant="danger"
+                      variant="secondary"
                       fullWidth
-                      disabled={busy || !stopCategory || charge?.status === 'DONE'}
-                      onClick={() => void startStoppage()}
-                      className="!h-10 !min-h-10 rounded-lg !bg-status-stopped/15 !text-status-stopped hover:!bg-status-stopped/25 !shadow-none"
+                      className="!h-12 !min-h-12 rounded-lg text-xs"
+                      onClick={() => void skipStage(s.stage_code)}
                     >
-                      Start stoppage
+                      Skip {humanizeStage(s.stage_code)}
                     </ZButton>
-                  </div>
-                );
-              })()}
-            </section>
-
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 shadow-sm">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last reading</h2>
-              {last ? (
-                <p className="mt-1 text-sm font-medium font-mono tabular-nums text-foreground">{formatReadingTime(last.taken_at)}</p>
-              ) : (
-                <p className="mt-1 text-sm text-muted-foreground">No readings yet</p>
+                  ))}
+                </div>
               )}
-              <div className="mt-auto flex flex-col gap-2 pt-3">
-                <ZButton
+
+              {openStoppage ? (
+                <div className="space-y-2 rounded-lg border border-status-stopped/40 bg-status-stopped/10 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-status-stopped">Active stoppage</p>
+                    <ZBadge tone="warning" label="OPEN" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {openStoppage.category_code}
+                    {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
+                  </p>
+                  <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                    Started {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
+                  </p>
+                  <ZButton
+                    type="button"
+                    variant="danger"
+                    fullWidth
+                    disabled={busy || charge?.status === 'DONE'}
+                    onClick={() => void endStoppage(openStoppage.stoppage_id)}
+                    className="!h-12 !min-h-12 rounded-lg uppercase tracking-wide text-xs font-bold"
+                  >
+                    End stoppage
+                  </ZButton>
+                </div>
+              ) : (
+                <button
                   type="button"
-                  variant="primary"
-                  fullWidth
                   disabled={charge?.status === 'DONE'}
-                  onClick={() => void saveReading()}
-                  className="!h-11 !min-h-11 rounded-lg uppercase tracking-wide font-bold"
+                  onClick={() => setStoppageOpen(true)}
+                  className="flex h-12 min-h-12 w-full items-center justify-center rounded-lg border border-dashed border-border text-xs font-bold uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                 >
-                  <Check className="h-4 w-4" aria-hidden /> Save reading
-                </ZButton>
-                <ZButton
-                  type="button"
-                  variant="secondary"
-                  fullWidth
-                  onClick={clearReadingForm}
-                  className="!h-11 !min-h-11 rounded-lg uppercase tracking-wide font-bold"
-                >
-                  <X className="h-4 w-4" aria-hidden /> Clear
-                </ZButton>
-                <ZButton
-                  type="button"
-                  variant="secondary"
-                  fullWidth
-                  onClick={() => setShowPrev(true)}
-                  className="!h-11 !min-h-11 rounded-lg border border-border"
-                >
-                  View previous reading
-                </ZButton>
-              </div>
-            </section>
+                  Open stoppage…
+                </button>
+              )}
+            </div>
+
+            <div className="mt-auto flex shrink-0 flex-col gap-2 border-t border-border pt-3">
+              <ZButton
+                type="button"
+                variant="primary"
+                fullWidth
+                disabled={charge?.status === 'DONE' || saving}
+                onClick={() => void saveReading()}
+                className="!h-14 !min-h-14 rounded-lg uppercase tracking-wide text-sm font-bold active:scale-[0.99]"
+              >
+                <Check className="h-5 w-5" aria-hidden />
+                {saving ? 'Saving…' : 'Save reading'}
+              </ZButton>
+              <ZButton
+                type="button"
+                variant="secondary"
+                fullWidth
+                onClick={clearReadingForm}
+                className="!h-12 !min-h-12 rounded-lg uppercase tracking-wide text-xs font-bold"
+              >
+                <X className="h-4 w-4" aria-hidden /> Clear
+              </ZButton>
+            </div>
           </aside>
-          </div>
         </div>
       )}
 
-      <AnnPopup open={rosterOpen} title="Order details" onClose={() => setRosterOpen(false)}>
-        {detail ? (
-          <div className="space-y-3">
-            <ul className="space-y-2">
-              {detail.roster.length === 0 && (
-                <li className="text-sm text-muted-foreground">No coils on this batch yet.</li>
-              )}
-              {detail.roster.map((r) => (
-                <li
-                  key={r.coil_no}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm"
+      <ZDrawer open={stoppageOpen} onClose={() => setStoppageOpen(false)} title="Stoppage" size="medium">
+        <div className="space-y-4 p-4">
+          {openStoppage ? (
+            <>
+              <div className="rounded-lg border border-status-stopped/40 bg-status-stopped/10 px-3 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-status-stopped">Active stoppage</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {openStoppage.category_code}
+                  {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
+                </p>
+                <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+                  Since {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
+                </p>
+              </div>
+              <ZButton
+                type="button"
+                variant="danger"
+                fullWidth
+                disabled={busy || charge?.status === 'DONE'}
+                onClick={() => void endStoppage(openStoppage.stoppage_id)}
+                className="!h-14 !min-h-14 rounded-lg uppercase tracking-wide font-bold"
+              >
+                End stoppage
+              </ZButton>
+            </>
+          ) : (
+            <>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Category</span>
+                <select
+                  className="h-14 min-h-14 w-full rounded-lg border border-input bg-background px-3 text-base"
+                  value={stopCategory}
+                  onChange={(e) => setStopCategory(e.target.value)}
+                  disabled={charge?.status === 'DONE'}
+                  aria-label="Stoppage category"
                 >
-                  <span className="font-mono tabular-nums">
-                    {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {r.disposition === 'HOLD' && <ZBadge tone="accent" label="HOLD" />}
-                    {r.disposition === 'REJECT' && <ZBadge tone="destructive" label="REJECT" />}
+                  {stopCategories.map((c) => (
+                    <option key={c.category_code} value={c.category_code}>
+                      {c.description ?? c.category_code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <ZInput
+                label="Reason (optional)"
+                placeholder="Optional note"
+                value={stopReason}
+                onChange={(e) => setStopReason(e.target.value)}
+                disabled={charge?.status === 'DONE'}
+                mono={false}
+                className="!h-14 !min-h-14 rounded-lg"
+              />
+              <ZButton
+                type="button"
+                variant="danger"
+                fullWidth
+                disabled={busy || !stopCategory || charge?.status === 'DONE'}
+                onClick={() => void startStoppage()}
+                className="!h-14 !min-h-14 rounded-lg uppercase tracking-wide font-bold"
+              >
+                Start stoppage
+              </ZButton>
+            </>
+          )}
+        </div>
+      </ZDrawer>
+
+      <ZDrawer open={rosterOpen} onClose={() => setRosterOpen(false)} title="Orders" size="medium">
+        <div className="space-y-3 p-4">
+          {detail ? (
+            <>
+              <ul className="space-y-2">
+                {detail.roster.length === 0 && (
+                  <li className="text-sm text-muted-foreground">No coils on this batch yet.</li>
+                )}
+                {detail.roster.map((r) => (
+                  <li
+                    key={r.coil_no}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm"
+                  >
+                    <span className="font-mono tabular-nums">
+                      {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {r.disposition === 'HOLD' && <ZBadge tone="accent" label="HOLD" />}
+                      {r.disposition === 'REJECT' && <ZBadge tone="destructive" label="REJECT" />}
+                      <select
+                        className="h-12 min-h-12 rounded-lg border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={r.disposition}
+                        onChange={(e) => void setDisposition(r.coil_no, e.target.value as 'ADVANCE' | 'HOLD' | 'REJECT')}
+                        aria-label={`Disposition for ${r.coil_no}`}
+                      >
+                        <option value="ADVANCE">ADVANCE</option>
+                        <option value="HOLD">HOLD</option>
+                        <option value="REJECT">REJECT</option>
+                      </select>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {detail.charge.status !== 'DONE' && (
+                <div className="flex items-end gap-2 border-t border-border pt-3">
+                  <div className="flex flex-1 flex-col gap-1">
+                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Add coil</label>
                     <select
-                      className="h-10 min-h-10 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={r.disposition}
-                      onChange={(e) => void setDisposition(r.coil_no, e.target.value as 'ADVANCE' | 'HOLD' | 'REJECT')}
-                      aria-label={`Disposition for ${r.coil_no}`}
+                      className="h-12 min-h-12 w-full rounded-lg border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={coilToAdd}
+                      onChange={(e) => setCoilToAdd(e.target.value)}
                     >
-                      <option value="ADVANCE">ADVANCE</option>
-                      <option value="HOLD">HOLD</option>
-                      <option value="REJECT">REJECT</option>
+                      <option value="">Add coil from queue…</option>
+                      {pendingCoils.map((c) => (
+                        <option key={c.coilNo} value={c.coilNo}>{c.coilNo}</option>
+                      ))}
                     </select>
                   </div>
-                </li>
-              ))}
-            </ul>
-            {detail.charge.status !== 'DONE' && (
-              <div className="flex items-end gap-2 border-t border-border pt-3">
-                <div className="flex flex-1 flex-col gap-1">
-                  <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Add coil</label>
-                  <select
-                    className="h-9 min-h-9 w-full rounded-lg border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={coilToAdd}
-                    onChange={(e) => setCoilToAdd(e.target.value)}
+                  <ZButton
+                    type="button"
+                    variant="primary"
+                    className="min-h-12 h-12 rounded-lg px-4"
+                    onClick={() => coilToAdd && void rosterCoil(coilToAdd)}
                   >
-                    <option value="">Add coil from queue…</option>
-                    {pendingCoils.map((c) => (
-                      <option key={c.coilNo} value={c.coilNo}>{c.coilNo}</option>
-                    ))}
-                  </select>
+                    Add
+                  </ZButton>
                 </div>
-                <ZButton
-                  type="button"
-                  variant="primary"
-                  className="min-h-9 h-9 rounded-lg"
-                  onClick={() => coilToAdd && void rosterCoil(coilToAdd)}
-                >
-                  Add
-                </ZButton>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </AnnPopup>
+              )}
+            </>
+          ) : null}
+        </div>
+      </ZDrawer>
 
-      <AnnPopup open={showPrev} title="Reading history" onClose={() => setShowPrev(false)}>
-        {detail ? (
-          <ul className="space-y-2">
-            {detail.readings.length === 0 && (
-              <li className="text-sm text-muted-foreground">No readings yet.</li>
-            )}
-            {detail.readings.map((r) => (
-              <li key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono tabular-nums">
-                <p className="font-sans text-sm font-medium text-foreground">{formatReadingTime(r.taken_at)}</p>
-                <p className="mt-0.5 text-muted-foreground">
-                  Stage {r.stage_code ?? '—'}
-                  {' · '}C {r.charge_temp ?? '—'}
-                  {' · '}G {r.gas_temp ?? '—'}
-                  {' · '}FC {r.fc_temp ?? '—'}
-                  {' · '}P {r.base_press ?? '—'}
-                  {' · '}Fan {r.base_fan_rpm ?? '—'}
-                </p>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </AnnPopup>
+      <ZDrawer open={showPrev} onClose={() => setShowPrev(false)} title="Reading history" size="medium">
+        <ul className="space-y-2 p-4">
+          {detail?.readings.length === 0 && (
+            <li className="text-sm text-muted-foreground">No readings yet.</li>
+          )}
+          {(detail?.readings ?? []).map((r) => (
+            <li key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2.5 text-xs font-mono tabular-nums">
+              <p className="font-sans text-sm font-medium text-foreground">{formatReadingTime(r.taken_at)}</p>
+              <p className="mt-1 text-muted-foreground">
+                Stage {r.stage_code ?? '—'}
+                {' · '}C {r.charge_temp ?? '—'}
+                {' · '}G {r.gas_temp ?? '—'}
+                {' · '}FC {r.fc_temp ?? '—'}
+                {' · '}P {r.base_press ?? '—'}
+                {' · '}Fan {r.base_fan_rpm ?? '—'}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </ZDrawer>
     </div>
   );
 }

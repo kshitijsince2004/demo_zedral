@@ -1340,3 +1340,186 @@ ewindingOrderLifecycle.test.ts
 - **Touched:** ran `195700?` + `19580000000000_stoppage_code_applies_to` on local `m1_db`
 - **Decisions / skipped:** App code was correct; migration had not been applied yet.
 - **Follow-ups:** Retry Admin ? Master Data ? Stoppage Codes edit/save.
+
+### 2026-08-04 — Fix ANN 500s + annealing PPC finishThk
+
+- **Goal:** Unblock ANN board/bases/spec-limits (missing `master.ann_base` / `ann_spec_limit`) and ANN PPC preview (`finishThkMm` not required).
+- **Touched:** `packages/server/src/utils/rollingPlanXlsxParser.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/tests/rollingPlanXlsxParser.test.ts`; applied `1947000000000_ann_stages_readings_masters` + `19480000000000_ann_stoppage_delay_bucket` DDL on local DB (stamped in `pgmigrations`).
+- **Decisions / skipped:** Did not run full `npm run migrate` — blocked by `1933000000000_quality_spec_sheet` preceding already-run `1933000000000_reintroduce_supervisor_role`. Shift-log 404 left as-is (no active ANN shift log).
+- **Follow-ups:** Repair migrate order (rename/stamp quality_spec_sheet) so backlog 1940–1958 can apply cleanly; restart server if hot-reload missed parser change.
+### 2026-08-04 — ANN PPC preview + shift-log + ANNE xlsx
+
+- **Goal:** Fix ANN `/shift-logs/active` 404, PPC preview 500 (`txn.hrs_order`), align parser to `ANNE 21.07.2026.XLSX`.
+- **Touched:** `PPCImportService.ts` (process-scoped coil safety), `shiftLogRoutes.ts` (auto-ensure for all lines), `rollingPlanXlsxParser.ts` (ANN finish/width combo/aliases), `rollingPlanXlsxParser.test.ts`; DB: created `txn.hrs_order`/`pkl_order`/`rwd_order`, stamped 1953/1954/1956.
+- **Decisions / skipped:** Stoppage `order_kind` / `*_order_id` alters not applied (local `txn.stoppage` schema behind). Width combo `Σ(w×n)` for ANN plans.
+- **Follow-ups:** Full migrate-order repair still needed for 1940–1958 backlog; add stoppage discriminator cols when HRS/PKL stoppages are used.
+### 2026-08-04 — Migrate backlog + stoppage discriminator repair
+
+- **Goal:** Apply stoppage `order_kind` / `hrs|pkl|rwd_order_id` and clear 1940–1958 migrate backlog.
+- **Touched:** renamed `193301_quality_spec_sheet`, `193401_process_sheet`; normalized 14-digit migs → 13-digit (`1948`–`1958`); `repair-migration-history.mjs` (run_on realign); `scripts/gen-qss-migration.cjs`; local DB catch-up via `node-pg-migrate --check-order false` then run_on rewrite.
+- **Decisions / skipped:** Kept `checkOrder` on by default; history `run_on` rewritten so name order matches.
+- **Follow-ups:** none for migrate; `npm run migrate` now reports No migrations to run.
+### 2026-08-04 — ANN seed data (board + batching queue)
+
+- **Goal:** Populate annealing demo data from imported PPC queue.
+- **Touched:** `packages/server/scripts/seed-process-queues.mjs` (`--ann-only` / `seedAnnOnly`), `package.json` (`seed:ann`), `seed-login-profiles.mjs`.
+- **Decisions / skipped:** Reused existing seed script (UTF-8 safe on Windows); picks first 5 PPC coils for 2 charges on AB16/AB01; resets remaining queue to PENDING for batching page.
+- **Run:** `npm run seed:ann -- --date=2026-08-04 --shift=A`
+
+### 2026-08-04 — Polish ANN MH charge profile UI
+
+- **Goal:** Improve readability and visual hierarchy for ANN machine-head charge profile.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhChargeDetailPage.tsx`
+- **Decisions / skipped:** Kept all API calls and state logic unchanged; only presentation (skeleton loading, selected-stage highlight, operator readings layout, swipe motion smoothing).
+- **Follow-ups:** If desired, apply the same visual patterns to other `AnnMh*` ANN machine-head screens.
+
+### 2026-08-04 — Fix ANN Batching Stack column height
+
+- **Goal:** Prevent the “Stack” (middle) panel from stretching to match “Incoming orders”; make each column size/scroll independently.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhBatchingPage.tsx`
+- **Decisions / skipped:** Presentation-only layout refactor (grid alignment + max-height caps + independent vertical overflow); no changes to state, drag/order actions, or API calls.
+- **Follow-ups:** Verify on mobile/tablet that each panel scrolls independently and the Stack grows/shrinks with its own content.
+### 2026-08-04 — Seed extra ANN Trends readings
+
+- **Goal:** Make ANN Trends charts show more than 5 points per base.
+- **Touched:** DB only (	xn.ann_charge_reading) — inserted extra 5 readings per seeded ANN charge.
+- **Decisions / skipped:** Only added for charges with nn_charge_reading count = 5 to avoid duplicates.
+- **Follow-ups:** If user wants this for all imported charges automatically, we can adjust seed-process-queues.mjs threshold logic.
+### 2026-08-04 — Fix ANN Trends datetime-local filtering
+
+- **Goal:** Make ANN Trends charts show seeded readings (fix UTC/datetime-local mismatch).
+- **Touched:** packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx
+- **Decisions / skipped:** Keep server/data as-is; fix client time-window initialization only.
+- **Follow-ups:** If charts still empty, verify /stations/ann/charges/:chargeNo response contains expected numeric fields.
+
+### 2026-08-04 — Locate ANN MH analytics dashboard charts
+
+- **Goal:** Identify Annealing MH analytics dashboard entry point(s) and chart composition.
+- **Touched:** `packages/client/src/App.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhLiveDashboard.tsx`, `packages/client/src/components/layout/machinehead/MachineHeadShell.tsx`, `packages/client/src/components/process/bodies/AnnBaseCard.tsx`
+- **Decisions / skipped:** Only `AnnMhTrendsPage` uses `recharts`; live dashboard uses `AnnBaseCard` grid (no charts).
+- **Follow-ups:** N/A.
+
+### 2026-08-04 — Add ANN MH REPORT + XLSX export
+
+- **Goal:** Ship ANN-only `REPORT` page (filters + charts + table) and wire it to server-side `ANN_CHARGE_REPORT` XLSX export.
+- **Touched:** `packages/client/src/components/layout/machinehead/MachineHeadNav.tsx`, `packages/client/src/App.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`, `packages/client/src/lib/annReportUtils.ts`, `packages/client/src/lib/reportingService.ts`, `packages/server/src/export/types/index.ts`, `packages/server/src/export/definitions/index.ts`, `packages/server/src/export/auth/exportAuthz.ts`, `packages/server/src/export/jobs/ExportJobService.ts`, `packages/server/src/export/definitions/AnnChargeReport.ts`, `packages/server/src/export/render/AnnChargeReportWorkbookBuilder.ts`.
+- **Decisions / skipped:** Kept export rendering server-side via ExcelJS workbook builder (no embedded chart objects in XLSX); export filters are applied server-side using optional `dateFrom/dateTo` scope fields.
+- **Follow-ups:** Run a quick end-to-end browser check for ANN REPORT -> Generate -> Export (.xlsx) across typical time windows and large reading sets.
+
+### 2026-08-04 — Fix ANN report route import
+
+- **Goal:** Resolve frontend crash on `/machine-head/ann/report` caused by an undefined route component.
+- **Touched:** `packages/client/src/App.tsx`
+- **Decisions / skipped:** Added the missing `AnnMhReportPage` import only; left route structure and page implementation unchanged.
+- **Follow-ups:** Reopen the ANN report route in the browser and confirm the page renders past `AppRoutes`.
+
+### 2026-08-04 — Normalize ANN report page encoding
+
+- **Goal:** Fix Vite parse failure on `AnnMhReportPage.tsx` caused by the file being saved as UTF-16 LE and treated as binary.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
+- **Decisions / skipped:** Re-encoded the existing file content to UTF-8 without changing the page logic.
+- **Follow-ups:** Reload `/machine-head/ann/report` and verify Vite recompiles the page cleanly.
+
+### 2026-08-04 — Audit and normalize UTF-16 source files
+
+- **Goal:** Eliminate repeated Vite "file appears to be binary" parse failures by auditing text-source encoding and converting affected files to UTF-8.
+- **Touched:** `packages/client/src/lib/annReportUtils.ts`, `packages/client/docs/OFFLINE_WRITES.md`, `packages/server/scripts/write-process-station-service.js`
+- **Decisions / skipped:** Converted every UTF-16/NUL-corrupted text file found by the repo scan; no logic changes were made during re-encoding.
+- **Follow-ups:** If another parse overlay appears, rescan the newly added files first because the current repo-wide audit returned zero remaining UTF-16/NUL source files.
+
+### 2026-08-04 — Fix ANN report export callback order
+
+- **Goal:** Resolve `Cannot access 'reportComputed' before initialization` in `AnnMhReportPage`.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
+- **Decisions / skipped:** Moved `handleExport` below the `reportComputed` `useMemo` so its dependency array no longer reads a not-yet-initialized binding; kept export behavior unchanged.
+- **Follow-ups:** Reload the ANN report page and verify both initial render and XLSX export action work.
+### 2026-08-04 — Deduplicate ANN REPORT screen content
+
+- **Goal:** Remove repeated data on ANN MH REPORT, especially stage/cycle timeline shown twice.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
+- **Decisions / skipped:** Kept a single Cycle Timeline panel; dropped Live Dashboard stage/stoppage/readings lists, duplicate Charge/Gas temp charts, overlapping summary/KPI fields, and Process Duration peak/avg/min KPIs already shown above.
+- **Follow-ups:** Spot-check generated report layout in browser for remaining visual redundancy.
+
+### 2026-08-04 — Allow ANN_CHARGE_REPORT in export_job check
+
+- **Goal:** Fix report export insert failing on `export_job_export_type_check`.
+- **Touched:** `packages/server/migrations/1959000000000_export_ann_charge_report_type.js`
+- **Decisions / skipped:** Extended the existing CHECK constraint to include `ANN_CHARGE_REPORT`; no app-code changes required beyond the already-wired export type.
+- **Follow-ups:** Retry ANN REPORT Export in the browser.
+
+### 2026-08-04 — Drop stale export_job_type_check
+
+- **Goal:** Fix remaining 400 on ANN report export caused by duplicate constraint `export_job_type_check`.
+- **Touched:** `packages/server/migrations/1960000000000_drop_stale_export_job_type_check.js`
+- **Decisions / skipped:** Dropped the stale constraint; kept canonical `export_job_export_type_check` which already includes `ANN_CHARGE_REPORT`.
+- **Follow-ups:** Retry ANN REPORT Export once more.
+
+### 2026-08-04 — Redesign ANN MH Trends dashboard UI
+
+- **Goal:** Premium industrial analytics UI for ANN Machine Head Trends without changing data/API/filter logic.
+- **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx`
+- **Decisions / skipped:** Kept Recharts + `load`/`chartData`/search/base/date filters intact; UI-only sticky toolbar, metric cards (live value + relative time), custom tooltip/legend, skeletons, empty state, placeholder card actions.
+- **Follow-ups:** Visual smoke on `/machine-head/ann/trends` (filters, legend toggle, loading/empty).
+
+### 2026-08-04 — ANN Trends: drop card icons + pill UI
+
+- **Goal:** Remove unused chart action icons; modernize Trends with pill filters/controls.
+- **Touched:** `AnnMhTrendsPage.tsx`, `AnnMhLiveDashboard.tsx`
+- **Decisions / skipped:** UI-only; metric pill strip filters visible cards; data/API unchanged.
+- **Follow-ups:** None.
+
+### 2026-08-04 — Redesign ANN Operator Production Console UI
+
+- **Goal:** Tablet-optimized industrial HMI layout for ANN charge console without changing workflows/APIs.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** UI-only five-zone layout (status/timeline/readings/actions/summary); ≥56px targets; Enter-to-next fields; elapsed clocks; no offline sync / range validation / architecture changes.
+- **Follow-ups:** Smoke on 10–12" landscape tablet: save reading, swipe advance, stoppage start/end, skip cool stages.
+
+### 2026-08-04 — ANN console single-screen compact layout
+
+- **Goal:** Fit primary ANN operator workflow in one landscape tablet viewport with minimal scroll.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Merged status into compact header; 3-col reading grid; one Quick Actions panel; history/orders in modals; no API/workflow changes.
+- **Follow-ups:** Verify on 10–12" landscape that readings + actions fit without vertical scroll.
+
+### 2026-08-04 — ANN console fill empty vertical space
+
+- **Goal:** Remove blank voids in Reading Entry and Quick Actions panels.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Flex-fill remarks + previous readings (existing data); last-reading block fills action panel mid-gap; fixed status strip contrast on primary; no API changes.
+- **Follow-ups:** Confirm landscape tablet shows filled panels with Save still at bottom.
+
+### 2026-08-04 — ANN console stoppage modal + clear reading area
+
+- **Goal:** Move stoppage off main console into header modal; remove previous-readings under form; slim action rail.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Kept STOPPED banner + Resume; same start/end APIs; History/Orders unchanged; remarks flex-fills freed space.
+- **Follow-ups:** Smoke Start/Resume stoppage via header modal + banner Resume on tablet.
+
+### 2026-08-04 — Premium ANN Operator Console MES polish
+
+- **Goal:** Tablet MES/HMI polish: segmented header drawers, denser status/timeline/readings, action center with active stoppage card.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Replaced AnnPopup with `ZDrawer` for History/Orders/Stoppage; remarks auto-grows (3–4 lines default); APIs/workflows unchanged.
+- **Follow-ups:** Smoke drawers + start/end stoppage + save reading on landscape tablet.
+
+### 2026-08-04 — Fix ANN console header spacing / responsive meta
+
+- **Goal:** Status meta no longer flush under divider; timeline glow not clipped; responsive meta grid.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Padding/grid only; no logic changes.
+- **Follow-ups:** Visual check on tablet landscape.
+
+### 2026-08-04 — Timeline fills width + reading scroll for remarks
+
+- **Goal:** Stage timeline spans card (no blank right); reading/remarks scroll so remarks stay reachable.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** flex-1 stage nodes; overflow-y on reading + action rail; no API changes.
+- **Follow-ups:** Confirm tablet landscape fill + remarks scroll.
+
+### 2026-08-04 — Timeline fills width + reading scroll for remarks
+
+- **Goal:** Stage timeline spans card (no blank right); reading/remarks scroll so remarks stay reachable.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** flex-1 stage nodes; overflow-y on reading + action rail; no API changes.
+- **Follow-ups:** Confirm tablet landscape fill + remarks scroll.

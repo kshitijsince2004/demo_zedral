@@ -25,6 +25,80 @@ function fmt(iso: string | null | undefined) {
   return new Date(iso).toLocaleString('en-IN', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
+function SkeletonLine({ className = '' }: { className?: string }) {
+  return <div className={['h-3 rounded bg-muted animate-pulse', className].filter(Boolean).join(' ')} />;
+}
+
+function AnnMhChargeDetailSkeleton() {
+  return (
+    <div className="grid min-h-0 flex-1 gap-3 overflow-auto lg:grid-cols-2">
+      <section className="space-y-3 rounded-lg border border-border bg-background p-4 shadow-sm">
+        <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Charge details</h2>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="min-w-0">
+              <SkeletonLine className="w-10 mb-2" />
+              <SkeletonLine className="w-full" />
+            </div>
+          ))}
+        </div>
+        <ul className="space-y-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <li key={i}>
+              <div className="w-full min-h-11 rounded-lg border border-border bg-card px-3 py-2">
+                <SkeletonLine className="w-28 mb-2" />
+                <SkeletonLine className="w-36" />
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="space-y-2">
+          <div className="relative h-10 rounded-full bg-muted">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-status-running/20" style={{ width: '40%' }} />
+          </div>
+          <SkeletonLine className="w-44 mx-auto h-2.5" />
+        </div>
+      </section>
+
+      <div className="space-y-3">
+        <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Roster</h2>
+          <SkeletonLine className="w-28" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border bg-card px-3 py-2">
+              <SkeletonLine className="w-full" />
+            </div>
+          ))}
+        </section>
+
+        <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stoppages</h2>
+          <SkeletonLine className="w-20" />
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border bg-card px-3 py-2">
+              <SkeletonLine className="w-24 mb-2" />
+              <SkeletonLine className="w-full" />
+            </div>
+          ))}
+        </section>
+
+        <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+            <Check className="h-3.5 w-3.5" /> Operator readings
+          </h2>
+          <SkeletonLine className="w-28" />
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono tabular-nums">
+              <SkeletonLine className="w-56 mb-2" />
+              <SkeletonLine className="w-full" />
+            </div>
+          ))}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function SwipeAdvance({ disabled, nextLabel, onAdvance }: { disabled: boolean; nextLabel: string; onAdvance: () => Promise<void> }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragX, setDragX] = useState(0);
@@ -49,10 +123,26 @@ function SwipeAdvance({ disabled, nextLabel, onAdvance }: { disabled: boolean; n
   }
   return (
     <div className="space-y-2">
-      <div ref={trackRef} className={['relative h-10 rounded-full bg-muted', disabled ? 'opacity-50' : ''].join(' ')}>
-        <div className="absolute inset-y-0 left-0 rounded-full bg-status-running/20" style={{ width: `${dragX + 36}px` }} />
+      <div
+        ref={trackRef}
+        className={['relative h-10 rounded-full bg-muted', disabled ? 'opacity-60' : ''].join(' ')}
+      >
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-status-running/20"
+          style={{
+            width: `${dragX + 36}px`,
+            transition: dragging ? 'none' : 'width 180ms ease-out',
+          }}
+        />
         <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-bold uppercase text-muted-foreground">Swipe to next stage</p>
-        <button type="button" disabled={disabled} className="absolute top-1 left-1 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background touch-none" style={{ transform: `translateX(${dragX}px)` }}
+        <button
+          type="button"
+          disabled={disabled}
+          className="absolute top-1 left-1 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background touch-none transition-transform"
+          style={{
+            transform: `translateX(${dragX}px)`,
+            transition: dragging ? 'none' : 'transform 180ms ease-out',
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={(e) => { if (dragging) setDragX(Math.max(0, Math.min(maxX.current, e.clientX - startX.current))); }}
           onPointerUp={() => void onPointerUp()}
@@ -130,7 +220,7 @@ export function AnnMhChargeDetailPage() {
       }
     >
       {!detail ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <AnnMhChargeDetailSkeleton />
       ) : (
         <div className="grid min-h-0 flex-1 gap-3 overflow-auto lg:grid-cols-2">
           <section className="space-y-3 rounded-lg border border-border bg-background p-4 shadow-sm">
@@ -153,25 +243,36 @@ export function AnnMhChargeDetailPage() {
               ))}
             </dl>
             <ul className="space-y-1">
-              {stagesSorted.map((s) => (
-                <li key={s.stage_code}>
-                  <button
-                    type="button"
-                    className="w-full min-h-11 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => setSelectedStage(s)}
-                  >
-                    <span className="font-semibold text-foreground">{s.stage_code}</span>
-                    <span className="mt-0.5 block font-mono tabular-nums text-muted-foreground">
-                      {fmt(s.start_at)} → {fmt(s.end_at)}{s.skipped ? ' · SKIP' : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {stagesSorted.map((s) => {
+                const isSelected = selectedStage?.stage_code === s.stage_code;
+                return (
+                  <li key={s.stage_code}>
+                    <button
+                      type="button"
+                      aria-current={isSelected ? 'true' : undefined}
+                      className={[
+                        'w-full min-h-11 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs',
+                        'cursor-pointer transition-colors hover:bg-muted active:scale-[0.99]',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        isSelected ? 'border-status-running/60 bg-status-running/10' : '',
+                      ].join(' ')}
+                      onClick={() => setSelectedStage(s)}
+                    >
+                      <span className="font-semibold text-foreground">{s.stage_code}</span>
+                      <span className="mt-0.5 block font-mono tabular-nums text-muted-foreground">
+                        {fmt(s.start_at)} → {fmt(s.end_at)}{s.skipped ? ' · SKIP' : ''}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
             {selectedStage && (
-              <p className="text-xs text-muted-foreground font-mono">
-                Selected {selectedStage.stage_code}: {fmt(selectedStage.start_at)} → {fmt(selectedStage.end_at)}
-              </p>
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <p className="text-xs text-muted-foreground font-mono">
+                  Selected {selectedStage.stage_code}: {fmt(selectedStage.start_at)} → {fmt(selectedStage.end_at)}
+                </p>
+              </div>
             )}
             <SwipeAdvance disabled={busy || charge?.status === 'DONE' || !active} nextLabel={nextLabel} onAdvance={advanceStage} />
           </section>
@@ -180,9 +281,15 @@ export function AnnMhChargeDetailPage() {
             <section className="rounded-lg border border-border bg-background p-4 space-y-2 shadow-sm">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Roster</h2>
               {detail.roster.map((r) => (
-                <div key={r.coil_no} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
+                <div
+                  key={r.coil_no}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"
+                >
                   <span className="font-mono tabular-nums text-foreground">
-                    {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
+                    {r.coil_no}
+                    {r.grade_code ? ` · ${r.grade_code}` : ''}
+                    {' · '}
+                    {Number(r.weight_mt ?? 0).toFixed(2)} MT
                   </span>
                   {r.disposition === 'HOLD' ? (
                     <ZBadge tone="accent" label="HOLD" />
@@ -215,10 +322,25 @@ export function AnnMhChargeDetailPage() {
               {(detail.readings ?? []).map((r) => (
                 <div key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-mono tabular-nums">
                   <p className="font-sans font-medium text-foreground">{fmt(r.taken_at)} · {r.stage_code ?? '—'}</p>
-                  <p className="text-muted-foreground">
-                    C {r.charge_temp ?? '—'} · G {r.gas_temp ?? '—'} · F/C {r.fc_temp ?? '—'} · P {r.base_press ?? '—'} · Fan {r.base_fan_rpm ?? '—'}
-                    {' · '}N2H2 {r.n2h2_flow ?? '—'} · Fuel {r.fuel_flow ?? '—'} · RCF {r.rcf_rpm ?? '—'}
-                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                    {(
+                      [
+                        ['C', r.charge_temp],
+                        ['G', r.gas_temp],
+                        ['F/C', r.fc_temp],
+                        ['P', r.base_press],
+                        ['Fan', r.base_fan_rpm],
+                        ['N2H2', r.n2h2_flow],
+                        ['Fuel', r.fuel_flow],
+                        ['RCF', r.rcf_rpm],
+                      ] as Array<[string, number | string | null]>
+                    ).map(([label, value]) => (
+                      <div key={label} className="flex items-baseline justify-between gap-3">
+                        <span className="font-sans text-muted-foreground uppercase tracking-[0.08em]">{label}</span>
+                        <span className="text-foreground">{value ?? '—'}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </section>

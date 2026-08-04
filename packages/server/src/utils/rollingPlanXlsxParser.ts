@@ -87,10 +87,13 @@ const HEADER_MAP: Record<string, string> = {
   'coil weight': 'ppcWeightMt',
   count: 'coilCount',
   width: 'widthMm',
+  'coil size(w)': 'coilSizeW',
+  'coil size(t)': 'coilSizeT',
   'finish thickness': 'finishThkMm',
   'finish thick': 'finishThkMm',
   'pre stage thickness': 'inputThkMm',
   'pre-stage thickness': 'inputThkMm',
+  'rm grade': 'rmGradeCode',
   '1st rolling thicknes': 'pass1Thk',
   '1st rolling thickness': 'pass1Thk',
   '1st rolling surf': 'pass1Surf',
@@ -159,8 +162,15 @@ export function resolveMachineCode(pvDesc?: string, fromWorkCenter?: string): Pp
     ?? DEFAULT_MACHINE_CODE;
 }
 
-export function subProcessForSheetType(sheetType: PpcXlsxSheetType): 'ROLLING' | 'SKIN_PASS' {
-  return sheetType === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING';
+export function subProcessForSheetType(
+  sheetType: PpcXlsxSheetType,
+): ParsedRollingPlanRow['subProcess'] {
+  if (sheetType === 'SKIN_PASS') return 'SKIN_PASS';
+  if (sheetType === 'ANNEALING') return 'ANN';
+  if (sheetType === 'PICKLING') return 'PKL';
+  if (sheetType === 'REWINDING') return 'RWD';
+  if (sheetType === 'CTL') return 'CTL';
+  return 'ROLLING';
 }
 
 export function resolveWorkbookSheetName(sheetNames: string[], sheetType: PpcXlsxSheetType): string {
@@ -201,6 +211,24 @@ function num(val: unknown): number | undefined {
   if (val == null || val === '') return undefined;
   const n = parseFloat(String(val).replace(/,/g, ''));
   return isNaN(n) ? undefined : n;
+}
+
+/** Plain width, or slit combo `143.000*02+175.000*01` → Σ(w×n). */
+export function parseWidthMm(val: unknown): number | undefined {
+  if (val == null || val === '') return undefined;
+  const s = String(val).replace(/\s/g, '');
+  if (!s) return undefined;
+  if (/[*+]/.test(s)) {
+    let sum = 0;
+    for (const part of s.split('+')) {
+      const [wRaw, nRaw] = part.split('*');
+      const w = parseFloat(wRaw);
+      const n = nRaw != null && nRaw !== '' ? parseFloat(nRaw) : 1;
+      if (!isNaN(w)) sum += w * (isNaN(n) ? 1 : n);
+    }
+    return sum > 0 ? sum : undefined;
+  }
+  return num(val);
 }
 
 function normalizeFinish(raw?: string): string | undefined {
@@ -286,7 +314,10 @@ export function parseRollingPlanXlsx(
   const headers = (matrix[headerRowIndex] as unknown[]).map(normalizeHeader);
   const colKeys: (string | null)[] = headers.map((h) => HEADER_MAP[h] ?? null);
 
-  const required = ['batchNumber', 'coilNo', 'customerName', 'gradeCode', 'finishThkMm', 'processRouteRaw'];
+  // ponytail: ANN plan has no Finish Thickness column (charge/base workflow, not CRM rolling)
+  const required = sheetType === 'ANNEALING'
+    ? ['batchNumber', 'coilNo', 'customerName', 'gradeCode', 'processRouteRaw']
+    : ['batchNumber', 'coilNo', 'customerName', 'gradeCode', 'finishThkMm', 'processRouteRaw'];
   const mapped = new Set(colKeys.filter(Boolean));
   const missing = required.filter((k) => !mapped.has(k));
   if (missing.length) {
@@ -315,7 +346,8 @@ export function parseRollingPlanXlsx(
 
     const coilCount = Math.max(1, Math.round(num(raw.coilCount) ?? 1));
     const ppcRerollFlag = coilCount > 1;
-    const finishThkMm = num(raw.finishThkMm);
+    const inputThkMm = num(raw.inputThkMm);
+    let finishThkMm = num(raw.finishThkMm) ?? num(raw.coilSizeT);
     const spThkMm = num(raw.spThkMm);
     const spSurfaceFinish = normalizeFinish(String(raw.spSurfaceFinish ?? ''));
 
@@ -328,20 +360,21 @@ export function parseRollingPlanXlsx(
       rollingPassNo = 1;
     }
     const activePlan = rollingPassPlans.find((p) => p.passNo === rollingPassNo);
-    const inputThkMm = num(raw.inputThkMm);
     if (subProcess === 'SKIN_PASS' && inputThkMm == null) errors.push('pre-stage thickness required');
     const resolvedInputThkMm = inputThkMm
       ?? (subProcess === 'SKIN_PASS' ? undefined : (finishThkMm != null ? finishThkMm + 0.9 : undefined));
+    // ANN plans carry pre-stage only — reuse as finish identity for ppc_batch
+    if (sheetType === 'ANNEALING' && finishThkMm == null) finishThkMm = resolvedInputThkMm;
 
     const coilNo = String(raw.coilNo ?? '').trim();
     const customerName = String(raw.customerName ?? '').trim();
-    const gradeCode = String(raw.gradeCode ?? '').trim();
+    const gradeCode = String(raw.gradeCode ?? raw.rmGradeCode ?? '').trim();
     const planDateIso = excelDateToIso(raw.planDate);
 
     if (!coilNo) errors.push('mother coil required');
     if (!customerName) errors.push('customer name required');
     if (!gradeCode) errors.push('grade required');
-    if (finishThkMm == null) errors.push('finish thickness required');
+    if (sheetType !== 'ANNEALING' && finishThkMm == null) errors.push('finish thickness required');
     if (subProcess === 'SKIN_PASS' && spThkMm == null) errors.push('SP thickness required');
     if (!raw.processRouteRaw) errors.push('process route required');
     if (!planDateIso) errors.push('plan date required or invalid');
@@ -350,9 +383,10 @@ export function parseRollingPlanXlsx(
     const translated = routeRaw ? translatePpcRoute(routeRaw) : { raw: '', canonical: '', codes: [], rollingPassCount: 1 };
     if (routeRaw && !translated.canonical) errors.push(`invalid process route: ${routeRaw}`);
 
-    const widthMm = num(raw.widthMm);
-    if (widthMm == null || widthMm <= 0) errors.push('Width required / must be > 0');
-
+    const widthMm = parseWidthMm(raw.widthMm) ?? num(raw.coilSizeW);
+    if (sheetType !== 'ANNEALING' && (widthMm == null || widthMm <= 0)) {
+      errors.push('Width required / must be > 0');
+    }
     rows.push({
       rowNum: i + 1,
       batchNumber: batchNumber || `(row ${i + 1})`,

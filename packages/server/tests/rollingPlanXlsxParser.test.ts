@@ -129,6 +129,39 @@ describe('parseRollingPlanXlsx', () => {
     expect(result.rows).toHaveLength(0);
   });
 
+  it('parses annealing plan without Finish Thickness column', () => {
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Batch Number', 'Mother Coil', 'Customer Name', 'Grade', 'Coil Weight', 'Width', 'Process Route', 'Plan Date', 'Count', 'Pre Stage Thickness'],
+      ['B-ANN', 'COIL-ANN-1', 'Hero Steels', 'CRCA', 12.5, '143.000*02+175.000*01', 'SP4F4F4RFXCZ', '2026-06-08', 1, 2.5],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'Annealing');
+    const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'ANNEALING', shiftCode: 'A' });
+    expect(result.headerError).toBeUndefined();
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].errors).toEqual([]);
+    expect(result.rows[0].subProcess).toBe('ANN');
+    expect(result.rows[0].inputThkMm).toBe(2.5);
+    expect(result.rows[0].finishThkMm).toBe(2.5);
+    expect(result.rows[0].widthMm).toBe(461);
+  });
+
+  it('parses pilot ANNE workbook when present on disk', () => {
+    const annePath = path.resolve('C:/Users/ayush/Downloads/ANNE 21.07.2026.XLSX');
+    if (!fs.existsSync(annePath)) return;
+    const buf = fs.readFileSync(annePath);
+    const result = parseRollingPlanXlsx(buf, { sheetType: 'ANNEALING', shiftCode: 'A' });
+    expect(result.headerError).toBeUndefined();
+    expect(result.rows.length).toBeGreaterThan(100);
+    const valid = result.rows.filter((r) => r.errors.length === 0);
+    expect(valid.length).toBeGreaterThan(100);
+    expect(valid[0].subProcess).toBe('ANN');
+    expect(valid[0].inputThkMm).toBeGreaterThan(0);
+    expect(valid[0].batchNumber).toBeTruthy();
+  });
+
   it('parses pickling-named sheet when sheetType is PICKLING', () => {
     const XLSX = require('xlsx') as typeof import('xlsx');
     const wb = XLSX.utils.book_new();

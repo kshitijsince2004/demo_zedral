@@ -117,7 +117,23 @@ async function seedQueueEntry(client, entry) {
   return { coilNo: entry.coilNo, processCode: entry.processCode, journeyId, batchId, skipped: false };
 }
 
-async function seedAnnCharge(client, planDate, shiftCode) {
+async function listAnnQueueCoils(client) {
+  const res = await client.query(`
+    SELECT oj.coil_no, c.grade_code
+    FROM planning.order_journey oj
+    JOIN planning.order_journey_step ojs
+      ON ojs.journey_id = oj.journey_id AND ojs.step_no = oj.current_step_no
+    JOIN coil.coil c ON c.coil_no = oj.coil_no
+    WHERE oj.status IN ('ACTIVE', 'HOLD')
+      AND ojs.process_code = 'ANN'
+      AND ojs.status IN ('PENDING', 'ACTIVE', 'HOLD')
+      AND NOT EXISTS (SELECT 1 FROM txn.ann_charge_coil acc WHERE acc.coil_no = oj.coil_no)
+    ORDER BY oj.journey_id ASC
+  `);
+  return res.rows;
+}
+
+async function seedAnnCharge(client, planDate, shiftCode, rosterOverride) {
   const annProc = await client.query("SELECT process_id FROM master.process WHERE code = 'ANN' LIMIT 1");
   const processId = annProc.rows[0]?.process_id;
   if (!processId) return { chargeNo: null, skipped: true };
@@ -162,6 +178,16 @@ async function seedAnnCharge(client, planDate, shiftCode) {
         `INSERT INTO txn.ann_charge_coil (charge_no, coil_no, seq_no, disposition)
          VALUES ($1, $2, $3, 'ADVANCE') ON CONFLICT DO NOTHING`,
         [chargeNo, coilNo, seq],
+      );
+      await client.query(
+        `UPDATE planning.order_journey_step ojs
+         SET status = 'ACTIVE', started_at = COALESCE(started_at, now())
+         FROM planning.order_journey oj
+         WHERE oj.journey_id = ojs.journey_id
+           AND oj.coil_no = $1
+           AND ojs.step_no = oj.current_step_no
+           AND ojs.process_code = 'ANN'`,
+        [coilNo],
       );
     }
 
@@ -236,31 +262,104 @@ async function seedAnnCharge(client, planDate, shiftCode) {
     return { chargeNo, annealingBatchNo, baseNo, rosterCount: rosterWt.rows.length, stage: activeStage?.stage_code };
   }
 
-  const c1 = await upsertCharge({
-    chargeNo: 'SEED-ANN-CHG-001',
-    annealingBatchNo: 'SEED-ANN-BATCH-001',
-    baseNo: 'AB01',
-    roster: [['ANN-SEED-001', 1], ['ANN-SEED-002', 2]],
-    activeSeq: 3, // HEATING
-    soakTemp: 680,
-  });
+  const defaultCharges = [
+    {
+      chargeNo: 'SEED-ANN-CHG-001',
+      annealingBatchNo: 'SEED-ANN-BATCH-001',
+      baseNo: 'AB16',
+      roster: [['ANN-SEED-001', 1], ['ANN-SEED-002', 2]],
+      activeSeq: 3,
+      soakTemp: 680,
+    },
+    {
+      chargeNo: 'SEED-ANN-CHG-002',
+      annealingBatchNo: 'SEED-ANN-BATCH-002',
+      baseNo: 'AB01',
+      roster: [['ANN-SEED-003', 1]],
+      activeSeq: 4,
+      soakTemp: 660,
+    },
+  ];
 
-  const c2 = await upsertCharge({
-    chargeNo: 'SEED-ANN-CHG-002',
-    annealingBatchNo: 'SEED-ANN-BATCH-002',
-    baseNo: 'AB06',
-    roster: [['ANN-SEED-003', 1]],
-    activeSeq: 4, // SOAKING
-    soakTemp: 660,
-  });
+  let chargePlans = defaultCharges;
+  if (rosterOverride?.length >= 5) {
+    chargePlans = [
+      {
+        chargeNo: 'SEED-ANN-CHG-001',
+        annealingBatchNo: '10154',
+        baseNo: 'AB16',
+        roster: rosterOverride.slice(0, 3).map((r, i) => [r.coil_no, i + 1]),
+        activeSeq: 3,
+        soakTemp: 680,
+      },
+      {
+        chargeNo: 'SEED-ANN-CHG-002',
+        annealingBatchNo: '10155',
+        baseNo: 'AB01',
+        roster: rosterOverride.slice(3, 5).map((r, i) => [r.coil_no, i + 1]),
+        activeSeq: 4,
+        soakTemp: 660,
+      },
+    ];
+  }
+
+  const charges = [];
+  for (const plan of chargePlans) {
+    charges.push(await upsertCharge(plan));
+  }
+
+  const c1 = charges[0];
+  const c2 = charges[1] ?? charges[0];
 
   return {
     chargeNo: c1.chargeNo,
     annealingBatchNo: c1.annealingBatchNo,
     baseNo: c1.baseNo,
     shiftLogId,
-    rosterCount: c1.rosterCount + c2.rosterCount,
-    charges: [c1, c2],
+    rosterCount: charges.reduce((n, c) => n + c.rosterCount, 0),
+    charges,
+  };
+}
+
+/** ANN-only seed: board charges + PENDING batching queue from existing PPC/import coils. */
+export async function seedAnnOnly(client, opts = {}) {
+  const planDate = opts.planDate ?? new Date().toISOString().slice(0, 10);
+  const shiftCode = opts.shiftCode ?? 'A';
+  await ensureProcessShiftLogs(client, planDate, shiftCode);
+
+  const queue = await listAnnQueueCoils(client);
+  if (queue.length < 5) {
+    throw new Error(`Need at least 5 ANN queue coils (have ${queue.length}). Import ANNE PPC plan first.`);
+  }
+
+  const onCharge = new Set(queue.slice(0, 5).map((r) => r.coil_no));
+  const pendingReset = await client.query(
+    `UPDATE planning.order_journey_step ojs
+     SET status = 'PENDING', started_at = NULL, completed_at = NULL
+     FROM planning.order_journey oj
+     WHERE oj.journey_id = ojs.journey_id
+       AND ojs.step_no = oj.current_step_no
+       AND ojs.process_code = 'ANN'
+       AND oj.status = 'ACTIVE'
+       AND ojs.status IN ('ACTIVE', 'PENDING')
+       AND NOT (oj.coil_no = ANY($1::text[]))`,
+    [[...onCharge]],
+  );
+
+  const annCharge = await seedAnnCharge(client, planDate, shiftCode, queue);
+  const pendingCount = await client.query(`
+    SELECT COUNT(*)::int AS n
+    FROM planning.order_journey oj
+    JOIN planning.order_journey_step ojs ON ojs.journey_id = oj.journey_id AND ojs.step_no = oj.current_step_no
+    WHERE ojs.process_code = 'ANN' AND ojs.status = 'PENDING' AND oj.status = 'ACTIVE'
+  `);
+
+  return {
+    planDate,
+    shiftCode,
+    annCharge,
+    queuePending: pendingCount.rows[0]?.n ?? 0,
+    queueReset: pendingReset.rowCount ?? 0,
   };
 }
 
@@ -354,12 +453,37 @@ export async function seedProcessQueues(client, opts = {}) {
 }
 
 async function main() {
+  const annOnly = process.argv.includes('--ann-only');
+  const planDateArg = process.argv.find((a) => a.startsWith('--date='));
+  const shiftArg = process.argv.find((a) => a.startsWith('--shift='));
+  const planDate = planDateArg?.slice(7) ?? new Date().toISOString().slice(0, 10);
+  const shiftCode = shiftArg?.slice(8)?.toUpperCase() ?? 'A';
+
   const client = new pg.Client({ connectionString: DEFAULT_URL });
   await client.connect();
   await client.query("SELECT set_config('app.tenant_id', $1, false)", [TENANT_ID]);
   try {
     await client.query('BEGIN');
-    const summary = await seedProcessQueues(client);
+    if (annOnly) {
+      const summary = await seedAnnOnly(client, { planDate, shiftCode });
+      await client.query('COMMIT');
+      console.log(`ANN seed (${summary.planDate} shift ${summary.shiftCode}):`);
+      console.log(`  batching queue PENDING=${summary.queuePending} (reset ${summary.queueReset} coils)`);
+      if (summary.annCharge?.chargeNo) {
+        console.log(
+          '  ANN charge ' + summary.annCharge.chargeNo +
+          ' batch=' + summary.annCharge.annealingBatchNo +
+          ' base=' + summary.annCharge.baseNo +
+          ' (' + summary.annCharge.rosterCount + ' coils across charges)',
+        );
+        for (const c of summary.annCharge.charges ?? []) {
+          console.log('    · ' + c.chargeNo + ' base=' + c.baseNo + ' stage=' + c.stage + ' coils=' + c.rosterCount);
+        }
+      }
+      return;
+    }
+
+    const summary = await seedProcessQueues(client, { planDate, shiftCode });
     await client.query('COMMIT');
     console.log('Process queue seed (' + summary.planDate + ' shift ' + summary.shiftCode + '):');
     console.log('  journeys created=' + summary.created + ' skipped=' + summary.skipped);

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import {
+  BarChart3,
   Activity,
   ArrowRightLeft,
   ClipboardCheck,
@@ -160,6 +161,13 @@ const ANN_NAV_ITEMS: DeskNavItem[] = [
     icon: Layers,
     path: '/machine-head/ann/batching',
     match: (p) => p.startsWith('/machine-head/ann/batching'),
+  },
+  {
+    id: 'ann-report',
+    label: 'Report',
+    icon: BarChart3,
+    path: '/machine-head/ann/report',
+    match: (p) => p === '/machine-head/ann/report',
   },
   {
     id: 'crew',

@@ -89,6 +89,19 @@ try {
       WHERE is_active = TRUE;
   `);
   console.log('Crew roster table verified.');
+
+  // node-pg-migrate checkOrder compares name-sorted files to run_on-ordered history.
+  await client.query(`
+    WITH ordered AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY name) AS rn
+      FROM pgmigrations
+    )
+    UPDATE pgmigrations p
+    SET run_on = TIMESTAMP '2020-01-01 00:00:00' + (o.rn * INTERVAL '1 second')
+    FROM ordered o
+    WHERE p.id = o.id
+  `);
+  console.log('pgmigrations run_on realigned to name order.');
 } catch (e) {
   console.error('Repair failed:', e.message);
   process.exitCode = 1;

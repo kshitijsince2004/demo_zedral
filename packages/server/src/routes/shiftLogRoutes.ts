@@ -384,15 +384,20 @@ router.get('/active/:processCode', requireLineAccess('READ'), async (req, res) =
           .executeTakeFirst();
       }
 
-      if (!activeLog && processCode === 'ROLLING' && req.user) {
-        const shiftLogId = await SixHiShiftService.ensureActiveShiftLog(
-          req.user.id,
-          planDate,
-          requestedShift,
-        );
+      // Auto-open DRAFT shift for the requested date/shift (CRM + process lines).
+      if (!activeLog && req.user) {
+        const { ShiftDetectionService } = await import('../services/ShiftDetectionService');
+        const resolved = processCode === 'ROLLING'
+          ? { shiftLogId: await SixHiShiftService.ensureActiveShiftLog(req.user.id, planDate, requestedShift) }
+          : await ShiftDetectionService.resolveShift({
+              planDate,
+              shiftCode: requestedShift,
+              processId: process.process_id,
+              userId: req.user.id,
+            });
         activeLog = await db.selectFrom('txn.shift_log')
           .selectAll()
-          .where('shift_log_id', '=', shiftLogId)
+          .where('shift_log_id', '=', resolved.shiftLogId)
           .executeTakeFirst();
       }
     }

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { LineChart, Search } from 'lucide-react';
 import { MachineHeadShell } from '../../../components/layout/machinehead/MachineHeadShell';
 import { AnnBaseCard, boardCardStatus, type AnnBoardCardStatus, type AnnBoardRow } from '../../../components/process/bodies/AnnBaseCard';
-import { ZButton } from '../../../components/primitives/ZButton';
 import { ZInput } from '../../../components/primitives/ZInput';
 import { ZFilterPills } from '../../../components/ui/operator/ZFilterPills';
 import { apiClient } from '../../../lib/apiClient';
@@ -53,10 +52,14 @@ export function AnnMhLiveDashboard() {
       fillViewport
       onRefresh={() => void reload()}
       headerActions={
-        <ZButton variant="secondary" size="sm" onClick={() => navigate('/machine-head/ann/trends')}>
+        <button
+          type="button"
+          onClick={() => navigate('/machine-head/ann/trends')}
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <LineChart className="h-4 w-4" aria-hidden />
           Trends
-        </ZButton>
+        </button>
       }
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">

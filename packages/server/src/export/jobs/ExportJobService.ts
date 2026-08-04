@@ -44,6 +44,7 @@ function normalizeType(raw?: string): ExportType {
   if (v === 'REJECTED_ORDERS') return 'REJECTED_ORDERS';
   if (v === 'SHIFT_SUMMARY') return 'SHIFT_SUMMARY';
   if (v === 'QC_FAILS') return 'QC_FAILS';
+  if (v === 'ANN_CHARGE_REPORT') return 'ANN_CHARGE_REPORT';
   return 'RAW';
 }
 
@@ -64,6 +65,12 @@ function scopeLabel(type: ExportType, scope: Record<string, unknown>): string {
   if (type === 'REJECTED_ORDERS') return `REJECTED:${scope.dateFrom ?? 'all'}`;
   if (type === 'SHIFT_SUMMARY') return `SHIFT:${scope.date ?? scope.dateFrom ?? 'date'}:${scope.shiftCode ?? 'shift'}`;
   if (type === 'QC_FAILS') return `QCFAIL:${scope.dateFrom ?? 'all'}`;
+  if (type === 'ANN_CHARGE_REPORT') {
+    const base = scope.baseNo ?? scope.base_no ?? 'base';
+    const batch = scope.annealingBatchNo ?? scope.annealing_batch_no ?? 'batch';
+    const charge = scope.chargeNo ?? scope.charge_no ?? 'charge';
+    return `ANN_REPORT:${base}:${batch}:${charge}`;
+  }
   return `RAW:${Object.keys(scope).join(',')}`;
 }
 

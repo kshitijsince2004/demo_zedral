@@ -26,6 +26,7 @@ import { PklChartPage } from './pages/process/PklChartPage';
 import { AnnChargePage } from './pages/process/AnnChargePage';
 import { ProcessOperatorHistoryPage } from './pages/process/ProcessOperatorHistoryPage';
 import { AnnMhChargeDetailPage } from './pages/machinehead/ann/AnnMhChargeDetailPage';
+import { AnnMhReportPage } from './pages/machinehead/ann/AnnMhReportPage';
 import { PklMhLiveDashboard, ProcessLineLiveDashboard } from './pages/machinehead/pkl/PklMhLiveDashboard';
 import { PklMhCoilDetailPage } from './pages/machinehead/pkl/PklMhCoilDetailPage';
 import { HrsMhCoilDetailPage } from './pages/machinehead/hrs/HrsMhCoilDetailPage';
@@ -238,6 +239,7 @@ function AppRoutes() {
         <Route path="/machine-head/ann/charge/:chargeNo" element={<MachineHeadRoute><AnnMhChargeDetailPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/trends" element={<MachineHeadRoute><AnnMhTrendsPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/batching" element={<MachineHeadRoute><AnnMhBatchingPage /></MachineHeadRoute>} />
+        <Route path="/machine-head/ann/report" element={<MachineHeadRoute><AnnMhReportPage /></MachineHeadRoute>} />
         <Route path="/machine-head/ann/import" element={<MachineHeadRoute><AnnMhImportPage /></MachineHeadRoute>} />
         <Route path="/machine-head/hrs/import" element={<MachineHeadRoute><HrsMhImportPage /></MachineHeadRoute>} />
         <Route path="/machine-head/pkl/import" element={<MachineHeadRoute><PklMhImportPage /></MachineHeadRoute>} />

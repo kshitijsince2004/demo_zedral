@@ -29,6 +29,7 @@
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
     "seed:data": "node scripts/seed-pilot-data.mjs",
     "seed:process-queues": "node scripts/seed-process-queues.mjs",
+    "seed:ann": "node scripts/seed-process-queues.mjs --ann-only",
     "seed:crm6-ppc": "node scripts/seed-crm6-ppc.mjs",
     "seed:sixhi-ppc": "node scripts/seed-crm6-ppc.mjs",
     "seed:admin": "node scripts/seed-admin.mjs",

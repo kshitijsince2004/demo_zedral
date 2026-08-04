@@ -43,6 +43,7 @@ async function main() {
   console.log(`  Badge 3000 / PIN ${pin} → Operator (/operator.operator → 6HI)`);
   console.log(`  Badge 3010 / PIN ${pin} → ANN Operator`);
   console.log('\nFor demo coils + ANN board/batching: npm run seed:process-queues');
+  console.log('For ANN only (uses imported PPC queue): npm run seed:ann');
 }
 
 main().catch((err) => {
