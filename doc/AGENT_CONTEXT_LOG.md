@@ -1523,3 +1523,10 @@ ewindingOrderLifecycle.test.ts
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** flex-1 stage nodes; overflow-y on reading + action rail; no API changes.
 - **Follow-ups:** Confirm tablet landscape fill + remarks scroll.
+
+### 2026-08-04 — Commit and push ANN branch
+
+- **Goal:** Commit pending ANN work and push to `zedral_test/ann`.
+- **Touched:** `ann` branch (44 files); remote `zedral_test/ann` @ `7bb1fbc`
+- **Decisions / skipped:** Switched from `share-the-code` to `ann` (same tip as remote); excluded `packages/server/tmp/exports`.
+- **Follow-ups:** none
