@@ -3,6 +3,7 @@ import { db } from '../../db';
 import { getUserWithRolesAndAccess } from '../../services/authService';
 import type { ExportFormat, ExportRequest, ExportType } from '../types';
 import { ExportJobRunner } from './ExportJobRunner';
+import { logger } from '../../utils/logger';
 
 const DEFAULT_POLL_MS = Number(process.env.EXPORT_WORKER_POLL_MS ?? 5000);
 
@@ -16,7 +17,7 @@ export class ExportWorker {
 
     void this.processQueue();
     pollTimer = setInterval(() => void this.processQueue(), pollMs);
-    console.log(`[ExportWorker] started (poll ${pollMs}ms)`);
+    logger.info(`[ExportWorker] started (poll ${pollMs}ms)`);
   }
 
   static stop(): void {

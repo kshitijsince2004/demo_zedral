@@ -2,6 +2,7 @@ import { getElasticClient, isElasticAvailable, checkElasticHealth } from './elas
 import { TRACEABILITY_INDEX } from './traceabilityIndex';
 import { db } from '../db';
 import { formatPlantDate } from '@m1/shared-validation';
+import { logger } from '../utils/logger';
 
 /** Shape of a document stored in the traceability index. */
 export interface TraceabilityDoc {
@@ -141,7 +142,7 @@ export async function reindexAll(): Promise<{ total: number; indexed: number; er
   let totalErrors = 0;
   let totalRows = 0;
 
-  console.log('[elastic] Starting full re-index of traceability data...');
+  logger.info('[elastic] Starting full re-index of traceability data...');
 
   while (true) {
     const rows = await db.selectFrom('planning.ppc_batch')
@@ -158,7 +159,7 @@ export async function reindexAll(): Promise<{ total: number; indexed: number; er
     totalIndexed += indexed;
     totalErrors += errors;
 
-    console.log(`[elastic] Indexed page at offset ${offset}: ${indexed} ok, ${errors} errors`);
+    logger.info(`[elastic] Indexed page at offset ${offset}: ${indexed} ok, ${errors} errors`);
     offset += PAGE_SIZE;
   }
 
@@ -166,6 +167,6 @@ export async function reindexAll(): Promise<{ total: number; indexed: number; er
   const client = getElasticClient();
   await client.indices.refresh({ index: TRACEABILITY_INDEX });
 
-  console.log(`[elastic] Re-index complete: ${totalIndexed}/${totalRows} indexed, ${totalErrors} errors`);
+  logger.info(`[elastic] Re-index complete: ${totalIndexed}/${totalRows} indexed, ${totalErrors} errors`);
   return { total: totalRows, indexed: totalIndexed, errors: totalErrors };
 }

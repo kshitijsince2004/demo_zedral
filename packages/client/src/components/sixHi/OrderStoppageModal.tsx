@@ -134,7 +134,12 @@ export function OrderStoppageModal({
       setRemarks(activeStoppage.remarks || '');
       setRolls(buildRollDetails(initialRollInNo, initialRollInCode, initialRollOutNo, initialRollOutCode));
     } else {
-      const defaultCode = stoppageCodes.find((c) => c.displayCode === 'PKL-12' || c.displayCode === '12')?.displayCode
+      const defaultCode = stoppageCodes.find((c) =>
+        c.displayCode === 'PKL-12'
+        || c.displayCode === 'HRS-12'
+        || c.displayCode === '12'
+        || c.displayCode.endsWith('-12')
+      )?.displayCode
         ?? stoppageCodes[0]?.displayCode
         ?? '12';
       setDisplayCode(defaultCode);

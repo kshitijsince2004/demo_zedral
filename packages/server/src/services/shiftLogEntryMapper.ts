@@ -92,7 +92,7 @@ export function mapAnnEntry(row: Record<string, unknown>, shiftLogId: string) {
     furnaceId: Number(row.furnace_id),
     gradeCode: str(row.grade_code) ?? '',
     noOfCoils: Number(row.no_of_coils),
-    status: str(row.status) as 'IN_PROCESS' | 'FOR_ANN' | 'RW' | 'DONE' | undefined,
+    status: str(row.status) as 'PREPARING' | 'IN_PROCESS' | 'FOR_ANN' | 'RW' | 'DONE' | undefined,
     dewPointN2: num(row.dew_point_n2),
     dewPointH2: num(row.dew_point_h2),
     temperatureDegC: num(row.temperature_degc),

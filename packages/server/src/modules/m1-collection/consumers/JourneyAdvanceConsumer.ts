@@ -1,13 +1,21 @@
 import type { EventEnvelope } from '@zedral/platform';
 import { getEventBus } from '@zedral/platform';
-import { calculateScrapPct } from '@m1/shared-validation';
-import { db } from '../../../db';
+import type { Kysely } from 'kysely';
+import {
+  calculateScrapPct,
+  resolveSlitThkMm,
+  resolveSlitWeightMt,
+} from '@m1/shared-validation';
+import { db, type Database } from '../../../db';
 import {
   ProcessRouteService,
   parseRouteString,
   type CompletionPayload,
 } from '../../../services/ProcessRouteService';
+import { derivedChildCoilNo } from '../../../utils/childCoil';
 import { resolveCrsSlitPreferredRoute } from '../../../utils/crsSlitRoute';
+
+type DbConn = Kysely<Database>;
 
 const ADVANCE_PROCESSES = new Set(['HRS', 'PKL', 'RWD', 'CRS', 'CTL']);
 const SLIT_PROCESSES = new Set(['HRS', 'CRS']);
@@ -30,6 +38,8 @@ interface SlitSlotRow {
   route_raw?: string | null;
   output_wt_mt?: number | string | null;
   actual_weight_mt?: number | string | null;
+  planned_weight_mt?: number | string | null;
+  planned_thk_mm?: number | string | null;
   actual_thk_front_mm?: number | string | null;
   thk_id_mm?: number | string | null;
   thk_latest_mm?: number | string | null;
@@ -37,10 +47,6 @@ interface SlitSlotRow {
 
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
 const pendingRetries = new Map<string, number>();
-
-function childCoilNo(motherCoilNo: string, slot: string): string {
-  return `${motherCoilNo}-${slot}`;
-}
 
 function routeAfterStep(routeRaw: string, processCode: string): string {
   const steps = parseRouteString(routeRaw);
@@ -60,15 +66,15 @@ function routeAfterStepPreferred(routeRaw: string, processCode: string, preferre
   return chosen.join('-') || preferredFirstRouteCode;
 }
 
-async function isStepCompleted(coilNo: string, processCode: string): Promise<boolean> {
-  const journey = await db.selectFrom('planning.order_journey')
+async function isStepCompleted(coilNo: string, processCode: string, conn: DbConn = db): Promise<boolean> {
+  const journey = await conn.selectFrom('planning.order_journey')
     .select(['journey_id', 'current_step_no'])
     .where('coil_no', '=', coilNo)
     .where('status', '=', 'ACTIVE')
     .executeTakeFirst();
   if (!journey) return false;
 
-  const step = await db.selectFrom('planning.order_journey_step')
+  const step = await conn.selectFrom('planning.order_journey_step')
     .select('status')
     .where('journey_id', '=', String(journey.journey_id))
     .where('process_code', '=', processCode)
@@ -78,8 +84,8 @@ async function isStepCompleted(coilNo: string, processCode: string): Promise<boo
   return step?.status === 'COMPLETED';
 }
 
-async function loadHrsSlits(entryId: string): Promise<SlitSlotRow[]> {
-  return db.selectFrom('txn.prod_hrs_slit')
+async function loadHrsSlits(entryId: string, conn: DbConn = db): Promise<SlitSlotRow[]> {
+  return conn.selectFrom('txn.prod_hrs_slit')
     .select([
       'slot',
       'width_mm',
@@ -89,6 +95,8 @@ async function loadHrsSlits(entryId: string): Promise<SlitSlotRow[]> {
       'for_ctl_flag',
       'route_raw',
       'actual_weight_mt',
+      'planned_weight_mt',
+      'planned_thk_mm',
       'thk_latest_mm',
       'thk_id_mm',
     ])
@@ -96,8 +104,8 @@ async function loadHrsSlits(entryId: string): Promise<SlitSlotRow[]> {
     .execute();
 }
 
-async function loadCrsSlits(entryId: string): Promise<SlitSlotRow[]> {
-  return db.selectFrom('txn.prod_crs_slit')
+async function loadCrsSlits(entryId: string, conn: DbConn = db): Promise<SlitSlotRow[]> {
+  return conn.selectFrom('txn.prod_crs_slit')
     .select([
       'slot',
       'width_mm',
@@ -112,8 +120,8 @@ async function loadCrsSlits(entryId: string): Promise<SlitSlotRow[]> {
     .execute();
 }
 
-async function loadHrsEntry(entryId: string) {
-  return db.selectFrom('txn.prod_hrs')
+async function loadHrsEntry(entryId: string, conn: DbConn = db) {
+  return conn.selectFrom('txn.prod_hrs')
     .selectAll()
     .where('entry_id', '=', entryId)
     .executeTakeFirst();
@@ -200,8 +208,8 @@ async function setCoilHold(coilNo: string): Promise<void> {
   }
 }
 
-async function completeMotherStep(coilNo: string, processCode: string): Promise<void> {
-  const journey = await db.selectFrom('planning.order_journey')
+async function completeMotherStep(coilNo: string, processCode: string, conn: DbConn = db): Promise<void> {
+  const journey = await conn.selectFrom('planning.order_journey')
     .select(['journey_id', 'current_step_no'])
     .where('coil_no', '=', coilNo)
     .where('status', '=', 'ACTIVE')
@@ -209,14 +217,14 @@ async function completeMotherStep(coilNo: string, processCode: string): Promise<
   if (!journey) return;
 
   const now = new Date();
-  await db.updateTable('planning.order_journey_step')
+  await conn.updateTable('planning.order_journey_step')
     .set({ status: 'COMPLETED', completed_at: now })
     .where('journey_id', '=', String(journey.journey_id))
     .where('process_code', '=', processCode)
     .where('status', 'in', ['ACTIVE', 'PENDING'])
     .execute();
 
-  const nextStep = await db.selectFrom('planning.order_journey_step')
+  const nextStep = await conn.selectFrom('planning.order_journey_step')
     .select('step_no')
     .where('journey_id', '=', String(journey.journey_id))
     .where('step_no', '>', journey.current_step_no)
@@ -225,12 +233,12 @@ async function completeMotherStep(coilNo: string, processCode: string): Promise<
     .executeTakeFirst();
 
   if (nextStep) {
-    await db.updateTable('planning.order_journey')
+    await conn.updateTable('planning.order_journey')
       .set({ current_step_no: nextStep.step_no, updated_at: now })
       .where('journey_id', '=', String(journey.journey_id))
       .execute();
   } else {
-    await db.updateTable('planning.order_journey')
+    await conn.updateTable('planning.order_journey')
       .set({ status: 'COMPLETED', updated_at: now })
       .where('journey_id', '=', String(journey.journey_id))
       .execute();
@@ -242,14 +250,15 @@ async function spawnChildCoils(
   processCode: string,
   slits: SlitSlotRow[],
   preferredNextRouteCode?: string,
+  conn: DbConn = db,
 ): Promise<void> {
-  const mother = await db.selectFrom('coil.coil')
+  const mother = await conn.selectFrom('coil.coil')
     .selectAll()
     .where('coil_no', '=', motherCoilNo)
     .executeTakeFirst();
   if (!mother) return;
 
-  const journey = await db.selectFrom('planning.order_journey')
+  const journey = await conn.selectFrom('planning.order_journey')
     .select(['route_raw', 'journey_id'])
     .where('coil_no', '=', motherCoilNo)
     .where('status', 'in', ['ACTIVE', 'COMPLETED'])
@@ -261,7 +270,7 @@ async function spawnChildCoils(
   for (const slit of slits) {
     const label = (slit.slot ?? '').toUpperCase();
     if (!label) continue;
-    const derived = childCoilNo(motherCoilNo, label);
+    const derived = derivedChildCoilNo(motherCoilNo, label);
     const stored = slit.child_coil_no?.trim() || '';
     const coilNo = derived; // Child coil number must be derived — never free-typed.
     if (stored && stored !== derived) {
@@ -273,20 +282,16 @@ async function spawnChildCoils(
     }
     seen.add(key);
 
-    const existing = await db.selectFrom('coil.coil')
+    const existing = await conn.selectFrom('coil.coil')
       .select('coil_no')
       .where('coil_no', '=', coilNo)
       .executeTakeFirst();
 
-    const thk = slit.thk_latest_mm ?? slit.thk_id_mm ?? slit.actual_thk_front_mm ?? slit.thk_mm;
-    const wt = slit.actual_weight_mt != null
-      ? Number(slit.actual_weight_mt)
-      : slit.output_wt_mt != null
-        ? Number(slit.output_wt_mt)
-        : mother.weight_mt;
+    const thk = resolveSlitThkMm(slit, mother.coil_thk_mm);
+    const wt = resolveSlitWeightMt(slit, mother.weight_mt, slits);
 
     if (!existing) {
-      await db.insertInto('coil.coil')
+      await conn.insertInto('coil.coil')
         .values({
           coil_no: coilNo,
           grade_code: mother.grade_code,
@@ -298,6 +303,7 @@ async function spawnChildCoils(
           weight_mt: wt,
           status: slit.hold_flag ? 'HOLD' : 'PLANNED',
         })
+        .onConflict((oc) => oc.column('coil_no').doNothing())
         .execute();
     }
 
@@ -321,7 +327,7 @@ async function spawnChildCoils(
         : routeAfterStep(lineRoute, processCode);
     }
 
-    await ProcessRouteService.createJourney(coilNo, childRoute);
+    await ProcessRouteService.createJourney(coilNo, childRoute, undefined, undefined, undefined, conn);
   }
 }
 
@@ -329,10 +335,11 @@ async function handleSlittingAdvance(
   coilNo: string,
   processCode: string,
   entryId: string,
+  conn: DbConn = db,
 ): Promise<void> {
   const slits = processCode === 'HRS'
-    ? await loadHrsSlits(entryId)
-    : await loadCrsSlits(entryId);
+    ? await loadHrsSlits(entryId, conn)
+    : await loadCrsSlits(entryId, conn);
 
   const activeSlits = slits.filter((s) => s.width_mm != null || s.child_coil_no);
   if (activeSlits.length === 0) {
@@ -340,8 +347,8 @@ async function handleSlittingAdvance(
     return;
   }
 
-  await spawnChildCoils(coilNo, processCode, activeSlits);
-  await completeMotherStep(coilNo, processCode);
+  await spawnChildCoils(coilNo, processCode, activeSlits, undefined, conn);
+  await completeMotherStep(coilNo, processCode, conn);
 }
 
 async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> {
@@ -397,8 +404,10 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
       }
     }
 
-    await spawnChildCoils(coilNo, 'CRS', slits, preferredNext);
-    await completeMotherStep(coilNo, 'CRS');
+    await db.transaction().execute(async (trx) => {
+      await spawnChildCoils(coilNo, 'CRS', slits, preferredNext, trx);
+      await completeMotherStep(coilNo, 'CRS', trx);
+    });
     return;
   }
 
@@ -454,15 +463,20 @@ async function handleCaptured(payload: CapturedPayload): Promise<void> {
   }
 
   if (code === 'HRS') {
-    const entry = await loadHrsEntry(entryId);
-    if (entry?.scrap_mt != null && entry.weight_mt != null) {
-      const derived = calculateScrapPct(Number(entry.scrap_mt), Number(entry.weight_mt));
-      await db.updateTable('txn.prod_hrs')
-        .set({ scrap_pct: derived })
-        .where('entry_id', '=', entryId)
-        .execute();
-    }
-    await handleSlittingAdvance(coilNo, 'HRS', entryId);
+    await db.transaction().execute(async (trx) => {
+      const entry = await loadHrsEntry(entryId, trx);
+      if (entry?.scrap_mt != null) {
+        const denom = Number(entry.mother_coil_weight_mt ?? entry.weight_mt);
+        if (Number.isFinite(denom) && denom > 0) {
+          const derived = calculateScrapPct(Number(entry.scrap_mt), denom);
+          await trx.updateTable('txn.prod_hrs')
+            .set({ scrap_pct: derived })
+            .where('entry_id', '=', entryId)
+            .execute();
+        }
+      }
+      await handleSlittingAdvance(coilNo, 'HRS', entryId, trx);
+    });
     return;
   }
 

@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import type { JourneyStepStatus } from '@m1/shared-validation';
+import { formatPlantTime, type JourneyStepStatus } from '@m1/shared-validation';
 import { db } from '../db';
 import { AutoSourceService } from './AutoSourceService';
 import { ProcessRouteService } from './ProcessRouteService';
+import { parseCoilIdentity } from '../utils/rwdFieldMappers';
+import { ANN_BASE_REQUIRED_MSG, annCreateStatus, assertAnnBaseAssigned } from '../lib/annBaseAssignment';
 
 export type ProcessStationCode = 'HRS' | 'PKL' | 'ANN' | 'RWD' | 'CRS' | 'CTL';
 
@@ -201,6 +203,55 @@ export class ProcessStationService {
 
       cards.push(card);
     }
+
+    if (code === 'ANN') {
+      const chargedRows = await db.selectFrom('txn.ann_charge_coil as acc')
+        .innerJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
+        .select('acc.coil_no')
+        .where('ac.status', '!=', 'DONE')
+        .execute();
+      const charged = new Set(chargedRows.map((r) => r.coil_no));
+      const waiting = cards
+        .filter((c) => !charged.has(c.coilNo))
+        .map((c) => (
+          c.status === 'IN_PROGRESS' || c.status === 'PREPARING'
+            ? { ...c, status: 'PENDING' as const }
+            : c
+        ));
+      const have = new Set(waiting.map((c) => c.coilNo));
+      const planned = await db.selectFrom('planning.ppc_batch as pb')
+        .select([
+          'pb.batch_id', 'pb.batch_number', 'pb.coil_no', 'pb.customer_name',
+          'pb.grade_code', 'pb.width_mm', 'pb.input_thk_mm', 'pb.ppc_thk_mm', 'pb.ppc_weight_mt',
+        ])
+        .where((eb) => eb.or([
+          eb('pb.machine_code', '=', 'ANN'),
+          eb('pb.sub_process', '=', 'ANN'),
+          eb('pb.from_work_center', 'in', ['F', 'ANN']),
+        ]))
+        .orderBy('pb.plan_date', 'desc')
+        .limit(500)
+        .execute();
+      for (const row of planned) {
+        if (charged.has(row.coil_no) || have.has(row.coil_no)) continue;
+        have.add(row.coil_no);
+        waiting.push({
+          coilNo: row.coil_no,
+          displayCoilNo: row.coil_no,
+          gradeCode: row.grade_code || '-',
+          customerName: row.customer_name || '-',
+          widthMm: Number(row.width_mm ?? 0),
+          thicknessMm: Number(row.input_thk_mm ?? row.ppc_thk_mm ?? 0),
+          weightMt: Number(row.ppc_weight_mt ?? 0),
+          status: 'PENDING',
+          journeyId: `plan:${row.batch_id}`,
+          stepNo: 0,
+          batchNumber: row.batch_number ?? undefined,
+        });
+      }
+      return waiting;
+    }
+
     return cards;
   }
 
@@ -357,8 +408,152 @@ export class ProcessStationService {
   }
 
   static async getEntryPrefill(processCode: string, coilNo: string) {
-    this.assertProcessCode(processCode);
-    return AutoSourceService.resolvePrefill(processCode, coilNo);
+    const code = this.assertProcessCode(processCode);
+    const prefill = await AutoSourceService.resolvePrefill(processCode, coilNo);
+    // HRS capture needs every plan slit under the mother — attach orderLines.
+    if (code === 'HRS') {
+      const { HrsOrderService } = await import('./HrsOrderService');
+      const [orderLines, hrsCapture] = await Promise.all([
+        HrsOrderService.loadOrderLines(coilNo),
+        this.loadHrsCaptureSnapshot(coilNo),
+      ]);
+      return { ...prefill, orderLines, hrsCapture };
+    }
+    if (code === 'PKL') {
+      const pklCapture = await this.loadPklCaptureSnapshot(coilNo);
+      return { ...prefill, pklCapture };
+    }
+    return prefill;
+  }
+
+  /** Latest saved prod_pkl for completed (or in-progress) view. */
+  private static async loadPklCaptureSnapshot(coilNo: string) {
+    const select = [
+      'weight_mt', 'ppc_weight_mt', 'line_speed_mpm', 'wp', 'end_filling', 'remarks',
+    ] as const;
+
+    let header = await db.selectFrom('txn.prod_pkl')
+      .select(select)
+      .where('coil_no', '=', coilNo)
+      .orderBy('entry_id', 'desc')
+      .executeTakeFirst();
+
+    if (!header) {
+      const identity = parseCoilIdentity(coilNo);
+      if (identity.slitId && identity.coilNo !== coilNo) {
+        header = await db.selectFrom('txn.prod_pkl')
+          .select(select)
+          .where((eb) => eb.or([
+            eb.and([
+              eb('mother_coil_no', '=', identity.coilNo),
+              eb('slit_id', '=', identity.slitId),
+            ]),
+            eb.and([
+              eb('coil_no', '=', identity.coilNo),
+              eb('slit_id', '=', identity.slitId),
+            ]),
+          ]))
+          .orderBy('entry_id', 'desc')
+          .executeTakeFirst();
+      }
+    }
+    if (!header) return null;
+
+    const wp = header.wp === 'W' || header.wp === 'P' ? header.wp : undefined;
+    return {
+      weightMt: header.weight_mt != null ? Number(header.weight_mt) : undefined,
+      ppcWeightMt: header.ppc_weight_mt != null ? Number(header.ppc_weight_mt) : undefined,
+      lineSpeedMpm: header.line_speed_mpm != null ? Number(header.line_speed_mpm) : undefined,
+      wp,
+      endFilling: header.end_filling ?? undefined,
+      remarks: header.remarks ?? undefined,
+    };
+  }
+
+  /** Latest saved prod_hrs + width / slit readings for completed (or in-progress) view. */
+  private static async loadHrsCaptureSnapshot(coilNo: string) {
+    const header = await db.selectFrom('txn.prod_hrs')
+      .select(['entry_id', 'actual_width_mm', 'scrap_mt', 'weight_mt'])
+      .where('coil_no', '=', coilNo)
+      .orderBy('entry_id', 'desc')
+      .executeTakeFirst();
+    if (!header) return null;
+
+    const entryId = header.entry_id;
+    const [widths, slits, readings] = await Promise.all([
+      db.selectFrom('txn.prod_hrs_width_reading')
+        .select(['reading_time', 'actual_width_mm'])
+        .where('entry_id', '=', entryId)
+        .orderBy('reading_time', 'asc')
+        .execute(),
+      db.selectFrom('txn.prod_hrs_slit')
+        .select([
+          'slot', 'target_width_mm', 'planned_thk_mm', 'planned_weight_mt',
+          'child_coil_no', 'customer', 'sap_batch_number', 'surface_finish',
+          'finish_thickness_mm', 'route_raw', 'downstream_crs_combination',
+          'hold_flag', 'for_ctl_flag', 'thk_latest_mm', 'taper_latest',
+        ])
+        .where('entry_id', '=', entryId)
+        .orderBy('slot', 'asc')
+        .execute(),
+      db.selectFrom('txn.prod_hrs_slit_reading')
+        .select(['slot', 'reading_time', 'thk_mm', 'taper'])
+        .where('entry_id', '=', entryId)
+        .orderBy('reading_time', 'asc')
+        .execute(),
+    ]);
+
+    const bySlot = new Map<string, {
+      thicknessReadings: { time: string; thkMm: number }[];
+      taperReadings: { time: string; taper: string }[];
+    }>();
+    for (const r of readings) {
+      const slot = String(r.slot);
+      const bucket = bySlot.get(slot) ?? { thicknessReadings: [], taperReadings: [] };
+      const time = formatPlantTime(new Date(String(r.reading_time)));
+      if (r.thk_mm != null) bucket.thicknessReadings.push({ time, thkMm: Number(r.thk_mm) });
+      if (r.taper) bucket.taperReadings.push({ time, taper: String(r.taper) });
+      bySlot.set(slot, bucket);
+    }
+
+    return {
+      entryId: String(entryId),
+      actualWidthMm: header.actual_width_mm != null ? Number(header.actual_width_mm) : undefined,
+      scrapMt: header.scrap_mt != null ? Number(header.scrap_mt) : undefined,
+      weightMt: header.weight_mt != null ? Number(header.weight_mt) : undefined,
+      motherWidthReadings: widths.map((w) => ({
+        time: formatPlantTime(new Date(String(w.reading_time))),
+        widthMm: Number(w.actual_width_mm),
+      })),
+      slitSlots: slits.map((s) => {
+        const bucket = bySlot.get(s.slot) ?? { thicknessReadings: [], taperReadings: [] };
+        if (!bucket.thicknessReadings.length && s.thk_latest_mm != null) {
+          bucket.thicknessReadings.push({ time: '00:00', thkMm: Number(s.thk_latest_mm) });
+        }
+        if (!bucket.taperReadings.length && s.taper_latest) {
+          bucket.taperReadings.push({ time: '00:00', taper: String(s.taper_latest) });
+        }
+        return {
+          slot: s.slot,
+          targetWidthMm: s.target_width_mm != null ? Number(s.target_width_mm) : undefined,
+          plannedThkMm: s.planned_thk_mm != null ? Number(s.planned_thk_mm) : undefined,
+          plannedWeightMt: s.planned_weight_mt != null ? Number(s.planned_weight_mt) : undefined,
+          childCoilNo: s.child_coil_no ?? undefined,
+          customer: s.customer ?? undefined,
+          sapBatchNumber: s.sap_batch_number ?? undefined,
+          surfaceFinish: s.surface_finish ?? undefined,
+          finishThicknessMm: s.finish_thickness_mm != null ? Number(s.finish_thickness_mm) : undefined,
+          routeRaw: s.route_raw ?? undefined,
+          downstreamCrsCombination: s.downstream_crs_combination ?? undefined,
+          holdFlag: !!s.hold_flag,
+          forCtlFlag: !!s.for_ctl_flag,
+          thkLatestMm: s.thk_latest_mm != null ? Number(s.thk_latest_mm) : undefined,
+          taperLatest: s.taper_latest ?? undefined,
+          thicknessReadings: bucket.thicknessReadings,
+          taperReadings: bucket.taperReadings,
+        };
+      }),
+    };
   }
 
   static async createManualCoil(processCode: string, input: z.infer<typeof ProcessManualCoilSchema>, userId?: number) {
@@ -782,8 +977,8 @@ export class ProcessStationService {
       .orderBy('acc.seq_no', 'asc')
       .execute();
     let stages = await db.selectFrom('txn.ann_charge_stage').selectAll().where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
-    // ponytail: backfill stages for pre-migration charges still open
-    if (stages.length === 0 && charge.status !== 'DONE') {
+    // ponytail: backfill stages for open in-process charges only (not PREPARING)
+    if (stages.length === 0 && charge.status !== 'DONE' && charge.status !== 'PREPARING') {
       await this.seedAnnStages(chargeNo);
       stages = await db.selectFrom('txn.ann_charge_stage').selectAll().where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
     }
@@ -797,9 +992,12 @@ export class ProcessStationService {
     annealingBatchNo?: string; coolingHoodId?: number; soakTempDegc?: number; soakTimeHr?: number;
     coils?: Array<{ coilNo: string; seqNo?: number }>;
   }) {
+    const baseNo = input.baseNo?.trim() ? input.baseNo.trim().toUpperCase() : null;
+    if (baseNo) await this.assertAnnBaseAvailable(baseNo);
+    const status = annCreateStatus(baseNo);
     await db.insertInto('txn.ann_charge').values({
       charge_no: input.chargeNo,
-      base_no: input.baseNo ?? null,
+      base_no: baseNo,
       shift_log_id: input.shiftLogId,
       furnace_id: input.furnaceId ?? null,
       grade_code: input.gradeCode ?? null,
@@ -807,20 +1005,107 @@ export class ProcessStationService {
       cooling_hood_id: input.coolingHoodId ?? null,
       soak_temp_degc: input.soakTempDegc ?? null,
       soak_time_hr: input.soakTimeHr ?? null,
-      status: 'IN_PROCESS',
+      status,
       no_of_coils: 0,
       charge_wt_mt: 0,
     } as never).execute();
-    await this.seedAnnStages(input.chargeNo);
+    if (status === 'IN_PROCESS') await this.seedAnnStages(input.chargeNo);
     if (input.coils?.length) {
       for (const c of input.coils) await this.rosterAnnCoil(input.chargeNo, c.coilNo, c.seqNo);
     }
     return input.chargeNo;
   }
 
-  /** Seed 10 WI stages; start LOADING immediately. */
+  static async listVacantAnnBases(exceptChargeNo?: string) {
+    const bases = await this.listAnnBases();
+    const occupied = await db.selectFrom('txn.ann_charge')
+      .select(['base_no', 'charge_no'])
+      .where('base_no', 'is not', null)
+      .where('status', '!=', 'DONE')
+      .execute();
+    const taken = new Set(
+      occupied
+        .filter((r) => r.charge_no !== exceptChargeNo)
+        .map((r) => String(r.base_no)),
+    );
+    return bases.filter((b) => !taken.has(b.base_no));
+  }
+
+  private static async assertAnnBaseAvailable(baseNo: string, exceptChargeNo?: string) {
+    const base = await db.selectFrom('master.ann_base')
+      .select('base_no')
+      .where('base_no', '=', baseNo)
+      .where('is_active', '=', true)
+      .executeTakeFirst();
+    if (!base) throw new Error(`Base ${baseNo} is not a valid ANN base`);
+    const occ = await db.selectFrom('txn.ann_charge')
+      .select('charge_no')
+      .where('base_no', '=', baseNo)
+      .where('status', '!=', 'DONE')
+      .executeTakeFirst();
+    if (occ && occ.charge_no !== exceptChargeNo) {
+      throw new Error(`Base ${baseNo} is occupied by charge ${occ.charge_no}`);
+    }
+  }
+
+  static async assignAnnBase(chargeNo: string, baseNoRaw: string, userId?: number) {
+    const baseNo = assertAnnBaseAssigned(baseNoRaw);
+    const charge = await db.selectFrom('txn.ann_charge')
+      .select(['charge_no', 'base_no', 'status'])
+      .where('charge_no', '=', chargeNo)
+      .executeTakeFirst();
+    if (!charge) throw new Error(`ANN charge not found: ${chargeNo}`);
+    if (charge.status === 'DONE') throw new Error('Cannot change base on a completed charge');
+    await this.assertAnnBaseAvailable(baseNo, chargeNo);
+    const oldBase = charge.base_no;
+    if (oldBase === baseNo) return { chargeNo, baseNo, status: charge.status };
+
+    await db.updateTable('txn.ann_charge')
+      .set({ base_no: baseNo } as never)
+      .where('charge_no', '=', chargeNo)
+      .execute();
+
+    await db.insertInto('txn.shift_event_audit').values({
+      event_type: 'ANN_BASE_CHANGED',
+      entity_type: 'ann_charge',
+      entity_id: chargeNo,
+      machine_code: 'ANN',
+      user_id: userId ?? null,
+      payload: { oldBase, newBase: baseNo, userId: userId ?? null, timestamp: new Date().toISOString() },
+    } as never).execute();
+
+    return { chargeNo, baseNo, status: charge.status };
+  }
+
+  static async startAnnCharge(chargeNo: string) {
+    const charge = await db.selectFrom('txn.ann_charge')
+      .select(['charge_no', 'base_no', 'status'])
+      .where('charge_no', '=', chargeNo)
+      .executeTakeFirst();
+    if (!charge) throw new Error(`ANN charge not found: ${chargeNo}`);
+    if (charge.status === 'DONE') throw new Error('Charge already completed');
+    assertAnnBaseAssigned(charge.base_no);
+    if (charge.status === 'IN_PROCESS') return { chargeNo, status: charge.status };
+
+    await db.updateTable('txn.ann_charge')
+      .set({ status: 'IN_PROCESS' } as never)
+      .where('charge_no', '=', chargeNo)
+      .execute();
+    const stages = await db.selectFrom('txn.ann_charge_stage').select('stage_id').where('charge_no', '=', chargeNo).execute();
+    if (stages.length === 0) await this.seedAnnStages(chargeNo);
+    return { chargeNo, status: 'IN_PROCESS' as const };
+  }
+
+  /** Seed WI stages from master (seq order); start LOADING immediately. Idempotent. */
   private static async seedAnnStages(chargeNo: string) {
-    const defs = await db.selectFrom('master.ann_stage').selectAll().where('is_active', '=', true).orderBy('seq', 'asc').execute();
+    const defs = await db.selectFrom('master.ann_stage')
+      .selectAll()
+      .where('is_active', '=', true)
+      .where('default_active', '=', true)
+      .orderBy('seq', 'asc')
+      .execute();
+    if (defs.length === 0) throw new Error('master.ann_stage is empty — run ANN stage seed migration');
+
     const now = new Date();
     for (const d of defs) {
       await db.insertInto('txn.ann_charge_stage').values({
@@ -829,10 +1114,39 @@ export class ProcessStationService {
         seq: d.seq,
         start_at: d.seq === 1 ? now : null,
         skipped: false,
-      } as never).execute();
+      } as never)
+        .onConflict((oc) => oc.columns(['charge_no', 'stage_code']).doNothing())
+        .execute();
     }
+
+    const active = await db.selectFrom('txn.ann_charge_stage')
+      .select('stage_code')
+      .where('charge_no', '=', chargeNo)
+      .where('skipped', '=', false)
+      .where('start_at', 'is not', null)
+      .where('end_at', 'is', null)
+      .executeTakeFirst();
+
+    let current = active?.stage_code ?? null;
+    if (!current) {
+      const first = await db.selectFrom('txn.ann_charge_stage')
+        .selectAll()
+        .where('charge_no', '=', chargeNo)
+        .where('skipped', '=', false)
+        .where('end_at', 'is', null)
+        .orderBy('seq', 'asc')
+        .executeTakeFirst();
+      if (first) {
+        await db.updateTable('txn.ann_charge_stage')
+          .set({ start_at: first.start_at ?? now } as never)
+          .where('stage_id', '=', first.stage_id)
+          .execute();
+        current = first.stage_code;
+      }
+    }
+
     await db.updateTable('txn.ann_charge')
-      .set({ current_stage_code: defs[0]?.stage_code ?? null } as never)
+      .set({ current_stage_code: current ?? defs[0]?.stage_code ?? null } as never)
       .where('charge_no', '=', chargeNo)
       .execute();
   }
@@ -853,6 +1167,15 @@ export class ProcessStationService {
 
   /** Close active stage, open next. Unloading end → DONE + fan-out. */
   static async advanceAnnStage(chargeNo: string, opts?: { transitionTempDegc?: number; userId?: number }) {
+    const header = await db.selectFrom('txn.ann_charge')
+      .select(['base_no', 'status'])
+      .where('charge_no', '=', chargeNo)
+      .executeTakeFirst();
+    if (!header) throw new Error(`ANN charge not found: ${chargeNo}`);
+    if (header.status === 'PREPARING' || !header.base_no) {
+      throw new Error(ANN_BASE_REQUIRED_MSG);
+    }
+
     const active = await db.selectFrom('txn.ann_charge_stage')
       .selectAll()
       .where('charge_no', '=', chargeNo)
@@ -914,6 +1237,9 @@ export class ProcessStationService {
   }
 
   static async skipAnnStage(chargeNo: string, stageCode: string, opts: { authorizedBy: number; reason?: string }) {
+    if (!Number.isFinite(opts.authorizedBy) || opts.authorizedBy <= 0) {
+      throw new Error('Machine-Head authorization required to skip stage');
+    }
     const def = await db.selectFrom('master.ann_stage').selectAll().where('stage_code', '=', stageCode).executeTakeFirst();
     if (!def?.is_skippable) throw new Error(`Stage ${stageCode} is not skippable`);
 
@@ -1036,23 +1362,37 @@ export class ProcessStationService {
     return db.selectFrom('master.ann_base').selectAll().where('is_active', '=', true).execute();
   }
 
-  static async createAnnBase(input: {
+  static async upsertAnnBase(input: {
     baseNo: string;
     capacityMaxCoils?: number | null;
     capacityMaxWtMt?: number | null;
     capacityMaxHeightMm?: number | null;
     soakTimeAdjHr?: number | null;
+    isActive?: boolean;
   }) {
     const baseNo = input.baseNo.trim().toUpperCase();
     if (!baseNo) throw new Error('baseNo required');
-    await db.insertInto('master.ann_base').values({
-      base_no: baseNo,
+    if (input.isActive === false) {
+      await db.updateTable('master.ann_base')
+        .set({ is_active: false } as never)
+        .where('base_no', '=', baseNo)
+        .execute();
+      return baseNo;
+    }
+    const patch = {
       capacity_max_coils: input.capacityMaxCoils ?? null,
       capacity_max_wt_mt: input.capacityMaxWtMt ?? null,
       capacity_max_height_mm: input.capacityMaxHeightMm ?? null,
-      soak_time_adj_hr: input.soakTimeAdjHr ?? 0,
       is_active: true,
-    } as never).execute();
+      ...(input.soakTimeAdjHr != null ? { soak_time_adj_hr: input.soakTimeAdjHr } : {}),
+    };
+    await db.insertInto('master.ann_base').values({
+      base_no: baseNo,
+      soak_time_adj_hr: input.soakTimeAdjHr ?? 0,
+      ...patch,
+    } as never)
+      .onConflict((oc) => oc.column('base_no').doUpdateSet(patch as never))
+      .execute();
     return baseNo;
   }
 
@@ -1264,15 +1604,19 @@ export class ProcessStationService {
     });
   }
 
-  static async transitionAnnCharge(chargeNo: string, status: 'IN_PROCESS' | 'FOR_ANN' | 'RW' | 'DONE', extras?: { furnaceId?: number; dewPointN2?: number; dewPointH2?: number; temperatureDegc?: number }) {
+  static async transitionAnnCharge(chargeNo: string, status: 'PREPARING' | 'IN_PROCESS' | 'FOR_ANN' | 'RW' | 'DONE', extras?: { furnaceId?: number; dewPointN2?: number; dewPointH2?: number; temperatureDegc?: number }) {
     const charge = await db.selectFrom('txn.ann_charge')
-      .select('status')
+      .select(['status', 'base_no'])
       .where('charge_no', '=', chargeNo)
       .executeTakeFirst();
     if (!charge) throw new Error(`ANN charge not found: ${chargeNo}`);
 
     // Idempotent transitions: re-saving the same status is a no-op.
     if (charge.status === status) return;
+
+    if (status === 'IN_PROCESS') {
+      assertAnnBaseAssigned(charge.base_no);
+    }
 
     // Guard: IN_PROCESS → FOR_ANN → RW; DONE allowed from any non-DONE (unload completion).
     if (status === 'FOR_ANN' && charge.status !== 'IN_PROCESS') {

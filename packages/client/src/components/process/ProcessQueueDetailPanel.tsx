@@ -1,4 +1,4 @@
-import { Play } from 'lucide-react';
+import { Eye, Play } from 'lucide-react';
 import { processQueueStatusLabel, type ProcessQueueCard } from '../../store/processStore';
 import { ZButton } from '../primitives/ZButton';
 
@@ -51,13 +51,7 @@ export function ProcessQueueDetailPanel({
       : []),
   ];
 
-  const canMove =
-    card.status === 'PENDING'
-    || card.status === 'PREPARING'
-    || card.status === 'IN_PROGRESS'
-    || card.status === 'STOPPAGE'
-    || card.status === 'HOLD'
-    || card.status === 'REJECTED';
+  const isCompleted = card.status === 'COMPLETED';
 
   return (
     <div className="bg-white border border-border rounded-2xl h-full flex flex-col shadow-sm overflow-hidden">
@@ -112,14 +106,19 @@ export function ProcessQueueDetailPanel({
             Combined {combinedCount} · Σ {(combinedWeightMt ?? 0).toFixed(2)} MT
           </p>
         )}
-        {canMove || (combinedCount > 1 && card.status === 'COMPLETED') ? (
-          <ZButton type="button" className="w-full min-h-12" onClick={onMoveToProduction}>
-            <Play className="h-4 w-4 mr-2" aria-hidden />
-            {moveLabel ?? 'Move to Production…'}
-          </ZButton>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center">Completed — open from history if needed</p>
-        )}
+        <ZButton type="button" className="w-full min-h-12" onClick={onMoveToProduction}>
+          {isCompleted ? (
+            <>
+              <Eye className="h-4 w-4 mr-2" aria-hidden />
+              View production
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4 mr-2" aria-hidden />
+              {moveLabel ?? 'Move to Production…'}
+            </>
+          )}
+        </ZButton>
       </div>
     </div>
   );

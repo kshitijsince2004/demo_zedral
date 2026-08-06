@@ -1,4 +1,5 @@
 import { formatPlantClock } from '../../lib/dateFormat';
+import { formatActiveProcessType } from '../../lib/orderLabels';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { AlertTriangle, Clock, Cpu, ShieldAlert, Wrench } from 'lucide-react';
@@ -75,6 +76,11 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
         <div className="text-[9px] font-bold uppercase tracking-widest text-success mb-1">
           {(m.activeOrderCount ?? 0) > 1 ? `${m.activeOrderCount} Orders Running` : 'Current Order'}
         </div>
+        {formatActiveProcessType(m.activeProcessType) && (
+          <div className="text-[11px] font-semibold text-success mb-1">
+            Process · {formatActiveProcessType(m.activeProcessType)}
+          </div>
+        )}
         {(m.activeOrderCount ?? 0) > 1 && m.activeOrders ? (
           <ul className="space-y-1 mt-1">
             {m.activeOrders.map((o) => (
@@ -137,6 +143,11 @@ function IdleStateInfo({ m }: { m: MachineStatusCard }) {
       <div className="grid grid-cols-1 gap-2">
         <div className="bg-muted rounded-lg px-3 py-2 border border-border/50">
           <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Last Order</div>
+          {formatActiveProcessType(m.activeProcessType) && (
+            <div className="text-[11px] font-semibold text-foreground mb-0.5">
+              Process · {formatActiveProcessType(m.activeProcessType)}
+            </div>
+          )}
           <div className="text-xs font-medium text-foreground">{m.lastOrderBatchNumber || '—'}</div>
         </div>
       </div>
@@ -195,6 +206,11 @@ function StoppageStateInfo({ m, isDefect = false }: { m: MachineStatusCard; isDe
         {m.currentOrder && (
           <div className="bg-muted rounded-lg px-2.5 py-2 border border-border/50 col-span-2">
             <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Order</div>
+            {formatActiveProcessType(m.activeProcessType) && (
+              <div className="text-[11px] font-semibold text-foreground mb-0.5">
+                Process · {formatActiveProcessType(m.activeProcessType)}
+              </div>
+            )}
             <div className="text-xs font-mono font-bold text-foreground">{m.currentOrder}</div>
           </div>
         )}

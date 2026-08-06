@@ -124,7 +124,24 @@ function postProduction<T>(
   };
 }
 
-router.post('/hrs', postProduction('HRS', hrsSchema, ProductionService.saveHrs));
+router.post('/hrs', postProduction('HRS', hrsSchema, (entry) => ProductionService.saveHrs(entry)));
+/** Mid-run HRS save — persist without ending timer/order. */
+router.post('/hrs/draft', async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+    assertLineOperation(req.user, 'HRS', 'WRITE');
+    const parsed = hrsSchema.safeParse(withTenant(req.body));
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid production payload', details: zodErrors(parsed.error) });
+    }
+    const id = await ProductionService.saveHrs(parsed.data, { draft: true });
+    return res.status(201).json({ id, draft: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Production draft save failed';
+    const status = message.includes('Forbidden') ? 403 : 400;
+    return res.status(status).json({ error: message });
+  }
+});
 /** Finalize PKL order — save prod row + endProduction (rail End → OrderEndModal only). */
 router.post('/pkl', postProduction('PKL', pklSchema, (entry) => ProductionService.savePkl(entry)));
 /** Mid-run save — persist prod fields without ending timer/order. */

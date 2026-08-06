@@ -14,7 +14,7 @@ export function LineMhImportPage({
   line: 'HRS' | 'PKL' | 'RWD' | 'ANN';
   title: string;
   subtitle: string;
-  lockedSheetType: 'ROLLING' | 'REWINDING' | 'ANNEALING' | 'PICKLING';
+  lockedSheetType: 'ROLLING' | 'REWINDING' | 'ANNEALING' | 'PICKLING' | 'HRS' | 'PKL';
 }) {
   const lineAccess = useAuthStore((s) => s.lineAccess);
   const role = useAuthStore((s) => s.role);
@@ -41,8 +41,8 @@ export function HrsMhImportPage() {
     <LineMhImportPage
       line="HRS"
       title="Import"
-      subtitle="Fail-safe import into the HRS queue — skips coils already advanced past HRS"
-      lockedSheetType="ROLLING"
+      subtitle="HRS plan file only — fail-safe import; skips coils already advanced past HRS"
+      lockedSheetType="HRS"
     />
   );
 }
@@ -52,8 +52,8 @@ export function PklMhImportPage() {
     <LineMhImportPage
       line="PKL"
       title="Import"
-      subtitle="PKL Pickling Plan / PKL Sheet — fail-safe import; skips coils already advanced past PKL"
-      lockedSheetType="PICKLING"
+      subtitle="PKL plan file only — fail-safe import; skips coils already advanced past PKL"
+      lockedSheetType="PKL"
     />
   );
 }

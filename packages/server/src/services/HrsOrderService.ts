@@ -3,7 +3,8 @@
  * Mirrors RewindingOrderService, keyed by mother coil_no (N slits/orderLines per coil).
  * No combine, no machine allocation — HRS has a single line.
  */
-import { formatPlantDate, postgresDateOnly } from '@m1/shared-validation';
+import { formatPlantDate, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
+import { sql } from 'kysely';
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -47,6 +48,7 @@ export type HrsQueueCard = {
   combination?: string;
   journeyId?: string;
   stepNo?: number;
+  routeRaw?: string;
 };
 
 export type HrsOrderDetail = {
@@ -82,6 +84,28 @@ export type HrsOrderDetail = {
 const HRS_PROCESS_CODE = 'HRS';
 
 export class HrsOrderService {
+  private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {
+    if (meta && typeof meta === 'object') return meta as Record<string, unknown>;
+    if (typeof meta === 'string') {
+      try {
+        const parsed = JSON.parse(meta);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+      } catch {
+        /* ignore malformed meta */
+      }
+    }
+    return {};
+  }
+
+  private static async resolveStoppageCategoryLabel(categoryCode?: string | null): Promise<string | undefined> {
+    if (!categoryCode) return undefined;
+    const row = await db.selectFrom('master.stoppage_category')
+      .select(['label'])
+      .where('category_code', '=', categoryCode)
+      .executeTakeFirst();
+    return row?.label ?? categoryCode;
+  }
+
   static async getProcessId(): Promise<number> {
     const row = await db
       .selectFrom('master.process')
@@ -106,8 +130,63 @@ export class HrsOrderService {
     return resolved.shiftLogId;
   }
 
-  /** HRS order-lines: individual slit batches cut from the mother coil. */
+  /** HRS order-lines: plan slits for the mother coil (ppc_hrs_slit, else legacy ppc_batch rows). */
   static async loadOrderLines(coilNo: string): Promise<HrsOrderLine[]> {
+    // New import path: one mother ppc_batch + N rows in planning.ppc_hrs_slit.
+    const slitRows = await sql<{
+      slit_label: string;
+      width_mm: string | number | null;
+      weight_mt: string | number | null;
+      finish_thk_mm: string | number | null;
+      process_route_raw: string | null;
+      customer_name: string | null;
+      child_coil_no: string | null;
+      sap_order_no: string | null;
+      batch_number: string | null;
+      input_thk_mm: string | number | null;
+      roll_finish: string | null;
+      to_work_center: string | null;
+    }>`
+      SELECT
+        s.slit_label,
+        s.width_mm,
+        s.weight_mt,
+        s.finish_thk_mm,
+        s.process_route_raw,
+        s.customer_name,
+        s.child_coil_no,
+        s.sap_order_no,
+        b.batch_number,
+        b.input_thk_mm,
+        b.roll_finish,
+        b.to_work_center
+      FROM planning.ppc_hrs_slit s
+      INNER JOIN planning.ppc_batch b ON b.batch_id = s.batch_id
+      WHERE b.coil_no = ${coilNo}
+        AND (
+          b.machine_code = 'HRS'
+          OR b.sub_process = 'HRS'
+          OR b.from_work_center IN ('S', 'HRS')
+        )
+      ORDER BY s.slit_no ASC
+    `.execute(db);
+
+    if (slitRows.rows.length > 0) {
+      return slitRows.rows.map((l) => ({
+        batchNumber: l.sap_order_no ?? l.batch_number ?? undefined,
+        widthMm: l.width_mm != null ? Number(l.width_mm) : undefined,
+        weightMt: l.weight_mt != null ? Number(l.weight_mt) : undefined,
+        thicknessMm: l.input_thk_mm != null ? Number(l.input_thk_mm) : undefined,
+        finishThicknessMm: l.finish_thk_mm != null ? Number(l.finish_thk_mm) : undefined,
+        customerName: l.customer_name ?? undefined,
+        routeRaw: l.process_route_raw ?? undefined,
+        slitId: l.slit_label ?? undefined,
+        surfaceFinish: l.roll_finish ?? undefined,
+        toWorkCenter: l.to_work_center ?? undefined,
+      }));
+    }
+
+    // Legacy: multiple HRS ppc_batch rows per mother coil (pre slit-table import).
     const lines = await db
       .selectFrom('planning.ppc_batch')
       .select([
@@ -304,19 +383,26 @@ export class HrsOrderService {
     const queue: HrsQueueCard[] = [];
     const seenCoils = new Set<string>();
 
-    for (const row of rows) {
-      seenCoils.add(row.coil_no);
-      await this.ensureOrder(row.coil_no, userId);
-      const order = await db
-        .selectFrom('txn.hrs_order')
-        .selectAll()
-        .where('coil_no', '=', row.coil_no)
-        .executeTakeFirstOrThrow();
-      const orderLines = await this.loadOrderLines(row.coil_no);
+    const pushOrder = async (
+      order: {
+        coil_no: string;
+        grade_code: string | null;
+        customer_name: string | null;
+        nominal_width_mm: number | string | null;
+        nominal_thk_mm: number | string | null;
+        mother_coil_weight_mt: number | string | null;
+        status: string;
+      },
+      extra?: { journeyId?: string; stepNo?: number },
+    ) => {
+      if (seenCoils.has(order.coil_no)) return;
+      seenCoils.add(order.coil_no);
+      const orderLines = await this.loadOrderLines(order.coil_no);
+      const routeRaw = orderLines.find((ol) => ol.routeRaw)?.routeRaw;
       queue.push({
         coilNo: order.coil_no,
-        gradeCode: order.grade_code,
-        customerName: order.customer_name,
+        gradeCode: order.grade_code ?? '',
+        customerName: order.customer_name ?? '',
         widthMm: Number(order.nominal_width_mm),
         thicknessMm: Number(order.nominal_thk_mm),
         weightMt: Number(order.mother_coil_weight_mt),
@@ -327,9 +413,20 @@ export class HrsOrderService {
         combination: orderLines.length
           ? orderLines.map((ol) => (ol.widthMm != null ? String(ol.widthMm) : '?')).join('+')
           : undefined,
-        journeyId: String(row.journey_id),
-        stepNo: row.step_no,
+        journeyId: extra?.journeyId,
+        stepNo: extra?.stepNo,
+        routeRaw,
       });
+    };
+
+    for (const row of rows) {
+      await this.ensureOrder(row.coil_no, userId);
+      const order = await db
+        .selectFrom('txn.hrs_order')
+        .selectAll()
+        .where('coil_no', '=', row.coil_no)
+        .executeTakeFirstOrThrow();
+      await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
     }
 
     const extraOrders = await db
@@ -338,23 +435,25 @@ export class HrsOrderService {
       .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
       .execute();
     for (const order of extraOrders) {
-      if (seenCoils.has(order.coil_no)) continue;
-      const orderLines = await this.loadOrderLines(order.coil_no);
-      queue.push({
-        coilNo: order.coil_no,
-        gradeCode: order.grade_code,
-        customerName: order.customer_name,
-        widthMm: Number(order.nominal_width_mm),
-        thicknessMm: Number(order.nominal_thk_mm),
-        weightMt: Number(order.mother_coil_weight_mt),
-        status: order.status as HrsOrderStatus,
-        machineCode: 'HRS',
-        orderLines,
-        lineCount: Math.max(1, orderLines.length),
-        combination: orderLines.length
-          ? orderLines.map((ol) => (ol.widthMm != null ? String(ol.widthMm) : '?')).join('+')
-          : undefined,
-      });
+      await pushOrder(order);
+    }
+
+    // Completed for current plant day — status pill parity with PKL/Rolling.
+    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode: 'HRS' });
+    const prodDate = postgresDateOnly(shift.prodDate);
+    const completed = await db
+      .selectFrom('txn.hrs_order')
+      .selectAll()
+      .where('status', '=', 'COMPLETED')
+      .where(sql<boolean>`(
+        prod_date = ${prodDate}::date
+        OR production_day = ${prodDate}::date
+        OR (prod_end_at AT TIME ZONE ${PLANT_TIME_ZONE})::date = ${prodDate}::date
+      )`)
+      .orderBy('prod_end_at', 'desc')
+      .execute();
+    for (const order of completed) {
+      await pushOrder(order);
     }
 
     return { queue };
@@ -475,6 +574,8 @@ export class HrsOrderService {
     const duration = order.prod_start_at
       ? netProdDurationMin(new Date(order.prod_start_at), endAt, stopMin)
       : 0;
+    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode: 'HRS' });
+    const prodDate = postgresDateOnly(shift.prodDate);
 
     await db
       .updateTable('txn.hrs_order')
@@ -482,6 +583,8 @@ export class HrsOrderService {
         status: 'COMPLETED',
         prod_end_at: endAt,
         prod_duration_min: duration,
+        prod_date: prodDate as never,
+        production_day: prodDate as never,
         updated_at: endAt,
       })
       .where('order_id', '=', order.order_id)
@@ -715,5 +818,144 @@ export class HrsOrderService {
       .execute();
 
     return this.getOrder(coilNo, userId);
+  }
+
+  /** Idle-machine manual stoppage for HRS when no order is running. */
+  static async getManualStoppageStatus() {
+    const machineCode = 'HRS';
+    const activeOrder = await this.findActiveMachineOrder();
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    const isManualStoppage = Boolean(
+      currentEvent
+      && currentEvent.event_type === 'STOPPAGE_STARTED'
+      && !currentEvent.batch_number,
+    );
+    if (!isManualStoppage || !currentEvent) {
+      return { eligible: !activeOrder, active: null as null };
+    }
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    const categoryLabel = await this.resolveStoppageCategoryLabel(currentEvent.category_code);
+    return {
+      eligible: !activeOrder,
+      active: {
+        eventId: String(currentEvent.event_id),
+        categoryCode: currentEvent.category_code ?? undefined,
+        categoryLabel,
+        breakdownCode: typeof meta.breakdownCode === 'string' ? meta.breakdownCode : undefined,
+        reason: currentEvent.reason ?? undefined,
+        startedAt: new Date(currentEvent.occurred_at).toISOString(),
+        shiftCode: currentEvent.shift_code ?? undefined,
+      },
+    };
+  }
+
+  static async startManualStoppage(
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+    userId: number,
+  ) {
+    const machineCode = 'HRS';
+    const { MachineHandoverService } = await import('./MachineHandoverService');
+    await MachineHandoverService.assertProductionAllowed(machineCode, userId);
+    const activeOrder = await this.findActiveMachineOrder();
+    if (activeOrder) throw new Error('Cannot record manual stoppage while a production order is in progress');
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (currentEvent?.event_type === 'STOPPAGE_STARTED' && !currentEvent.batch_number) {
+      throw new Error('A manual stoppage is already active on this machine');
+    }
+    const shift = await ShiftDetectionService.resolveShift({ userId, machineCode });
+    const startAt = new Date();
+    await db.insertInto('txn.stoppage')
+      .values({
+        machine_code: machineCode,
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+        operator_id: userId,
+        start_at: startAt,
+        shift_log_id: shift.shiftLogId,
+        shift_code: shift.shiftCode,
+        prod_date: postgresDateOnly(shift.prodDate),
+      })
+      .execute();
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_STARTED', {
+      operatorId: userId,
+      shiftCode: shift.shiftCode,
+      categoryCode,
+      reason: remarks,
+      meta: { manual: true, breakdownCode: breakdownCode ?? null },
+    });
+    return this.getManualStoppageStatus();
+  }
+
+  static async updateManualStoppage(
+    categoryCode: string,
+    breakdownCode: string | undefined,
+    remarks: string | undefined,
+  ) {
+    const machineCode = 'HRS';
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+    const meta = this.parseMachineEventMeta(currentEvent.meta);
+    await MachineStateEventService.updateOpenEvent(currentEvent.event_id, {
+      categoryCode,
+      reason: remarks,
+      meta: {
+        ...meta,
+        manual: true,
+        breakdownCode: breakdownCode ?? meta.breakdownCode ?? null,
+      },
+    });
+    await db.updateTable('txn.stoppage')
+      .set({
+        category_code: categoryCode,
+        breakdown_code: breakdownCode ?? null,
+        remarks: remarks ?? null,
+      })
+      .where('machine_code', '=', machineCode)
+      .where('hrs_order_id', 'is', null)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .$if(Boolean(currentEvent.shift_code), (qb) => qb.where('shift_code', '=', currentEvent.shift_code!))
+      .execute();
+    return this.getManualStoppageStatus();
+  }
+
+  static async endManualStoppage(userId: number) {
+    const machineCode = 'HRS';
+    const currentEvent = await MachineStateEventService.getCurrentEvent(machineCode);
+    if (!currentEvent || currentEvent.event_type !== 'STOPPAGE_STARTED' || currentEvent.batch_number) {
+      throw new Error('No active manual stoppage on this machine');
+    }
+    const shiftCode = currentEvent.shift_code ?? undefined;
+    const endAt = new Date();
+    let openManualQ = db.selectFrom('txn.stoppage')
+      .select(['stoppage_id', 'start_at'])
+      .where('machine_code', '=', machineCode)
+      .where('hrs_order_id', 'is', null)
+      .where('order_id', 'is', null)
+      .where('end_at', 'is', null)
+      .orderBy('start_at', 'desc');
+    if (shiftCode) openManualQ = openManualQ.where('shift_code', '=', shiftCode);
+    const openManual = await openManualQ.executeTakeFirst();
+    if (openManual) {
+      const durationMin = resolveStoppageMinutes(openManual.start_at as Date, endAt, null);
+      await db.updateTable('txn.stoppage')
+        .set({ end_at: endAt, duration_min: durationMin })
+        .where('stoppage_id', '=', openManual.stoppage_id)
+        .execute();
+    }
+    await MachineStateEventService.recordEvent(machineCode, 'STOPPAGE_ENDED', {
+      operatorId: userId,
+      shiftCode,
+    });
+    await MachineStateEventService.recordEvent(machineCode, 'IDLE_STARTED', {
+      operatorId: userId,
+      shiftCode,
+    });
+    return this.getManualStoppageStatus();
   }
 }

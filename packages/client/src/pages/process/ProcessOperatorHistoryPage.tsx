@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnnOperatorHistoryPage } from './AnnOperatorHistoryPage';
+import { CrmOperatorHistoryPage } from '../sixHi/CrmOperatorHistoryPage';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { apiClient } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
 import { useShiftStore } from '../../store/shiftStore';
+import { isCrmMillCode } from '../../lib/millConfig';
 import { isProcessStationCode } from '../../lib/processConfig';
 
 type Tab = 'orders' | 'readings';
 
-/** Operator History for HRS/PKL/RWD — ANN keeps its own readings page. */
+/** Operator History for HRS/PKL/RWD — ANN readings; CRM mills use CrmOperatorHistoryPage. */
 export function ProcessOperatorHistoryPage() {
   const processCode = (useAuthStore((s) => s.activeMachine) ?? '').toUpperCase();
   const shiftLogId = useShiftStore((s) => s.shiftLogId);
@@ -21,6 +23,7 @@ export function ProcessOperatorHistoryPage() {
 
   const isAnn = processCode === 'ANN';
   const isProcess = isProcessStationCode(processCode);
+  const isCrm = isCrmMillCode(processCode);
   const showReadings = processCode === 'HRS' || processCode === 'RWD';
   const code = processCode.toLowerCase();
 
@@ -51,8 +54,9 @@ export function ProcessOperatorHistoryPage() {
   useEffect(() => { void load(); }, [load]);
 
   if (isAnn) return <AnnOperatorHistoryPage />;
+  if (isCrm) return <CrmOperatorHistoryPage />;
   if (!isProcess) {
-    return <p className="p-4 text-sm text-muted-foreground">History is available on process lines only.</p>;
+    return <p className="p-4 text-sm text-muted-foreground">History is available on process lines and CRM mills only.</p>;
   }
 
   return (

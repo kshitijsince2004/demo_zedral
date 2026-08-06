@@ -9,12 +9,60 @@ import type {
   M1SKPForm,
 } from '@m1/shared-validation';
 import { currentPlantDate, plantClockDate } from '@m1/shared-validation';
-import { db } from '../../../db';
+import type { Kysely } from 'kysely';
+import { db, type Database } from '../../../db';
 import { getTenantId } from '../../../context';
+import { derivedChildCoilNo } from '../../../utils/childCoil';
 import { mapPlanSurfaceToCode } from '../../../utils/rwdFieldMappers';
 
 function emptyToNull(value: string | undefined): string | null {
   return value?.trim() ? value.trim() : null;
+}
+
+type DbConn = Kysely<Database>;
+
+/** Mint mother-slot coils so prod_*_slit.child_coil_no FK can land. */
+async function ensureSlitChildCoils(
+  trx: DbConn,
+  motherCoilNo: string,
+  slits: Array<{
+    slot: string;
+    widthMm?: number | null;
+    thkMm?: number | null;
+    weightMt?: number | null;
+    hold?: boolean;
+  }>,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const mother = await trx
+    .selectFrom('coil.coil')
+    .selectAll()
+    .where('coil_no', '=', motherCoilNo)
+    .executeTakeFirst();
+  if (!mother) return out;
+
+  for (const slit of slits) {
+    const label = slit.slot.trim().toUpperCase();
+    if (!label) continue;
+    const coilNo = derivedChildCoilNo(motherCoilNo, label);
+    await trx
+      .insertInto('coil.coil')
+      .values({
+        coil_no: coilNo,
+        grade_code: mother.grade_code,
+        customer_id: mother.customer_id,
+        parent_coil_no: motherCoilNo,
+        nominal_width_mm: slit.widthMm ?? mother.nominal_width_mm,
+        coil_width_mm: slit.widthMm ?? mother.coil_width_mm,
+        coil_thk_mm: slit.thkMm ?? mother.coil_thk_mm,
+        weight_mt: slit.weightMt ?? null,
+        status: slit.hold ? 'HOLD' : 'PLANNED',
+      })
+      .onConflict((oc) => oc.column('coil_no').doNothing())
+      .execute();
+    out.set(label, coilNo);
+  }
+  return out;
 }
 
 function tenantIdOrDefault(): string {
@@ -55,44 +103,72 @@ async function emitCaptured(processCode: string, shiftLogId: string, entryId: st
 }
 
 export class ProductionService {
-  static async saveHrs(entry: M1HRSForm): Promise<string> {
+  static async saveHrs(entry: M1HRSForm, opts?: { draft?: boolean }): Promise<string> {
+    const draft = opts?.draft === true;
     const latestMotherWidth = latestByTime(entry.motherWidthReadings);
     const actualWidthMm = latestMotherWidth?.widthMm ?? entry.actualWidthMm ?? null;
+    const status = draft
+      ? 'IN_PROGRESS'
+      : (emptyToNull(entry.status) ?? 'COMPLETED');
+
+    const headerValues = {
+      shift_log_id: entry.shiftLogId,
+      sl_no: entry.slNo ?? null,
+      coil_no: entry.coilNo,
+      nominal_width_mm: entry.nominalWidthMm ?? null,
+      actual_width_mm: actualWidthMm,
+      nominal_thk_mm: entry.nominalThkMm ?? null,
+      weight_mt: entry.weightMt ?? null,
+      mother_coil_weight_mt: entry.motherCoilWeightMt ?? null,
+      source: emptyToNull(entry.source),
+      grade_code: emptyToNull(entry.gradeCode),
+      actual_slit_width_from_mm: entry.actualSlitWidthFromMm ?? null,
+      actual_slit_width_to_mm: entry.actualSlitWidthToMm ?? null,
+      scrap_mt: entry.scrapMt ?? null,
+      scrap_pct: entry.scrapPct ?? null,
+      net_runtime_min: entry.netRuntimeMin ?? null,
+      status,
+      crew_ref: emptyToNull(entry.crewRef),
+      setting_count: entry.settingCount ?? null,
+      spec_version_id: entry.specVersionId ?? null,
+      time_from: entry.timeFrom ?? null,
+      time_to: entry.timeTo ?? null,
+      remarks: emptyToNull(entry.remarks),
+    };
 
     const row = await db.transaction().execute(async (trx) => {
-      const created = await trx
-        .insertInto('txn.prod_hrs')
-        .values({
-          shift_log_id: entry.shiftLogId,
-          sl_no: entry.slNo ?? null,
-          coil_no: entry.coilNo,
-          nominal_width_mm: entry.nominalWidthMm ?? null,
-          actual_width_mm: actualWidthMm,
-          nominal_thk_mm: entry.nominalThkMm ?? null,
-          weight_mt: entry.weightMt ?? null,
-          mother_coil_weight_mt: entry.motherCoilWeightMt ?? null,
-          source: emptyToNull(entry.source),
-          grade_code: emptyToNull(entry.gradeCode),
-          actual_slit_width_from_mm: entry.actualSlitWidthFromMm ?? null,
-          actual_slit_width_to_mm: entry.actualSlitWidthToMm ?? null,
-          scrap_mt: entry.scrapMt ?? null,
-          scrap_pct: entry.scrapPct ?? null,
-          net_runtime_min: entry.netRuntimeMin ?? null,
-          status: emptyToNull(entry.status),
-          crew_ref: emptyToNull(entry.crewRef),
-          setting_count: entry.settingCount ?? null,
-          spec_version_id: entry.specVersionId ?? null,
-          time_from: entry.timeFrom ?? null,
-          time_to: entry.timeTo ?? null,
-          remarks: emptyToNull(entry.remarks),
-        })
-        .returning('entry_id')
-        .executeTakeFirstOrThrow();
+      const existing = await trx
+        .selectFrom('txn.prod_hrs')
+        .select('entry_id')
+        .where('coil_no', '=', entry.coilNo)
+        .where('shift_log_id', '=', entry.shiftLogId)
+        .orderBy('entry_id', 'desc')
+        .executeTakeFirst();
+
+      let entryId: string | number;
+      if (existing) {
+        await trx
+          .updateTable('txn.prod_hrs')
+          .set(headerValues as never)
+          .where('entry_id', '=', existing.entry_id)
+          .execute();
+        entryId = existing.entry_id;
+        await trx.deleteFrom('txn.prod_hrs_slit_reading').where('entry_id', '=', entryId).execute();
+        await trx.deleteFrom('txn.prod_hrs_slit').where('entry_id', '=', entryId).execute();
+        await trx.deleteFrom('txn.prod_hrs_width_reading').where('entry_id', '=', entryId).execute();
+      } else {
+        const created = await trx
+          .insertInto('txn.prod_hrs')
+          .values(headerValues as never)
+          .returning('entry_id')
+          .executeTakeFirstOrThrow();
+        entryId = created.entry_id;
+      }
 
       if (entry.motherWidthReadings?.length) {
         await trx.insertInto('txn.prod_hrs_width_reading').values(
           entry.motherWidthReadings.map((r) => ({
-            entry_id: created.entry_id,
+            entry_id: entryId,
             reading_time: readingInstant(r.time),
             actual_width_mm: r.widthMm,
           })),
@@ -100,6 +176,20 @@ export class ProductionService {
       }
 
       if (entry.slitSlots?.length) {
+        const childNos = await ensureSlitChildCoils(
+          trx,
+          entry.coilNo,
+          entry.slitSlots.map((slot) => ({
+            slot: slot.slot,
+            widthMm: slot.targetWidthMm ?? slot.widthMm ?? null,
+            thkMm: latestByTime(slot.thicknessReadings)?.thkMm
+              ?? slot.thkLatestMm
+              ?? slot.plannedThkMm
+              ?? null,
+            weightMt: slot.plannedWeightMt ?? null,
+            hold: slot.holdFlag ?? false,
+          })),
+        );
         await trx.insertInto('txn.prod_hrs_slit').values(
           entry.slitSlots.map((slot) => {
             const target = slot.targetWidthMm ?? slot.widthMm ?? null;
@@ -109,8 +199,9 @@ export class ProductionService {
             const taperLatest = latestByTime(slot.taperReadings)?.taper
               ?? emptyToNull(slot.taperLatest)
               ?? emptyToNull(slot.taper);
+            const slotKey = slot.slot.trim().toUpperCase();
             return {
-              entry_id: created.entry_id,
+              entry_id: entryId,
               slot: slot.slot,
               width_mm: target,
               target_width_mm: target,
@@ -126,7 +217,7 @@ export class ProductionService {
               actual_weight_mt: null,
               taper: taperLatest,
               taper_latest: taperLatest,
-              child_coil_no: emptyToNull(slot.childCoilNo),
+              child_coil_no: childNos.get(slotKey) ?? null,
               customer: emptyToNull(slot.customer),
               sap_batch_number: emptyToNull(slot.sapBatchNumber),
               surface_finish: emptyToNull(slot.surfaceFinish),
@@ -142,14 +233,14 @@ export class ProductionService {
 
         const slitReadings = entry.slitSlots.flatMap((slot) => {
           const thkRows = (slot.thicknessReadings ?? []).map((r) => ({
-            entry_id: created.entry_id,
+            entry_id: entryId,
             slot: slot.slot,
             reading_time: readingInstant(r.time),
             thk_mm: r.thkMm,
             taper: null as string | null,
           }));
           const taperRows = (slot.taperReadings ?? []).map((r) => ({
-            entry_id: created.entry_id,
+            entry_id: entryId,
             slot: slot.slot,
             reading_time: readingInstant(r.time),
             thk_mm: null as number | null,
@@ -162,11 +253,13 @@ export class ProductionService {
         }
       }
 
-      return created;
+      return entryId;
     });
 
-    const id = String(row.entry_id);
-    await emitCaptured('HRS', entry.shiftLogId, id, entry.coilNo);
+    const id = String(row);
+    if (!draft) {
+      await emitCaptured('HRS', entry.shiftLogId, id, entry.coilNo);
+    }
     return id;
   }
 
@@ -444,12 +537,23 @@ export class ProductionService {
         .executeTakeFirstOrThrow();
 
       if (entry.slitSlots?.length) {
+        const childNos = await ensureSlitChildCoils(
+          trx,
+          entry.coilNo,
+          entry.slitSlots.map((slot) => ({
+            slot: slot.slot,
+            widthMm: slot.widthMm ?? slot.finishWidthMm ?? null,
+            thkMm: slot.actualThkFrontMm ?? null,
+            weightMt: slot.outputWtMt ?? null,
+            hold: slot.holdFlag ?? false,
+          })),
+        );
         await trx.insertInto('txn.prod_crs_slit').values(
           entry.slitSlots.map((slot) => ({
             entry_id: created.entry_id,
             slot: slot.slot,
             width_mm: slot.widthMm ?? slot.finishWidthMm ?? null,
-            child_coil_no: emptyToNull(slot.childCoilNo),
+            child_coil_no: childNos.get(slot.slot.trim().toUpperCase()) ?? null,
             slit_no: emptyToNull(slot.slitNo),
             finish_width_mm: slot.finishWidthMm ?? slot.widthMm ?? null,
             no_of_slit: slot.noOfSlit ?? null,

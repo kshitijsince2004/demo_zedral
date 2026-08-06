@@ -2,7 +2,6 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "node",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,16 +10,15 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
-      "@zedral/platform": ["packages/platform/src"],
-      "@zedral/platform/*": ["packages/platform/src/*"],
-      "@zedral/m1-collection": ["packages/modules/m1-collection/src"],
-      "@zedral/m1-collection/*": ["packages/modules/m1-collection/src/*"],
-      "@zedral/connectors": ["packages/connectors/src"],
-      "@zedral/connectors/*": ["packages/connectors/src/*"],
-      "@m1/shared-validation": ["packages/shared-validation/src"],
-      "@m1/shared-validation/*": ["packages/shared-validation/src/*"]
+      "@zedral/platform": ["./packages/platform/src"],
+      "@zedral/platform/*": ["./packages/platform/src/*"],
+      "@zedral/m1-collection": ["./packages/modules/m1-collection/src"],
+      "@zedral/m1-collection/*": ["./packages/modules/m1-collection/src/*"],
+      "@zedral/connectors": ["./packages/connectors/src"],
+      "@zedral/connectors/*": ["./packages/connectors/src/*"],
+      "@m1/shared-validation": ["./packages/shared-validation/src"],
+      "@m1/shared-validation/*": ["./packages/shared-validation/src/*"]
     }
   }
 }

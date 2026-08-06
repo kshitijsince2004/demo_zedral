@@ -21,7 +21,7 @@ vi.mock('../src/services/sixHi', () => ({
   },
 }));
 
-import { LiveService, resolveMachineLiveStatus, resolveStateSinceAt } from '../src/services/LiveService';
+import { LiveService, resolveMachineLiveStatus, resolveStateSinceAt, resolveActiveProcessType } from '../src/services/LiveService';
 import { db } from '../src/db';
 import { SixHiShiftService } from '../src/services/sixHi';
 
@@ -61,6 +61,61 @@ describe('LiveService.getShiftCompletedProductionMt', () => {
   });
 });
 
+describe('resolveActiveProcessType', () => {
+  it('maps CRM rolling and skin pass when busy', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: true,
+      crmSubProcess: 'ROLLING',
+    })).toBe('ROLLING');
+    expect(resolveActiveProcessType({
+      crmBusy: true,
+      crmSubProcess: 'SKIN_PASS',
+    })).toBe('SKIN_PASS');
+  });
+
+  it('maps CRM rewinding sub_process', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: true,
+      crmSubProcess: 'REWINDING',
+    })).toBe('REWINDING');
+  });
+
+  it('prefers CRM over open re-roll', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: true,
+      crmSubProcess: 'ROLLING',
+      openRerollStatus: 'IN_PROGRESS',
+      openRwdStatus: 'IN_PROGRESS',
+    })).toBe('ROLLING');
+  });
+
+  it('maps manual re-roll when CRM idle', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: false,
+      openRerollStatus: 'IN_PROGRESS',
+    })).toBe('MANUAL_REROLL');
+    expect(resolveActiveProcessType({
+      crmBusy: false,
+      openRerollStatus: 'ON_HOLD',
+    })).toBe('MANUAL_REROLL');
+  });
+
+  it('maps open RWD when CRM and re-roll idle', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: false,
+      openRwdStatus: 'IN_PROGRESS',
+    })).toBe('REWINDING');
+  });
+
+  it('prefers re-roll over RWD', () => {
+    expect(resolveActiveProcessType({
+      crmBusy: false,
+      openRerollStatus: 'STOPPAGE',
+      openRwdStatus: 'IN_PROGRESS',
+    })).toBe('MANUAL_REROLL');
+  });
+});
+
 describe('LiveService machine status resolution', () => {
   it('treats queued PENDING orders as idle', () => {
     expect(
@@ -87,6 +142,46 @@ describe('LiveService machine status resolution', () => {
     expect(
       resolveMachineLiveStatus(undefined, { event_type: 'RUNNING_STARTED' }, undefined),
     ).toBe('IDLE');
+  });
+
+  it('treats open manual re-roll as running without CRM order', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, { event_type: 'RUNNING_STARTED' }, undefined, {
+        status: 'IN_PROGRESS',
+      }),
+    ).toBe('RUNNING');
+  });
+
+  it('treats open manual re-roll stoppage as STOPPAGE', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, undefined, undefined, {
+        status: 'STOPPAGE',
+        stoppageCategory: 'MECH',
+      }),
+    ).toBe('STOPPAGE');
+  });
+
+  it('maps manual re-roll on hold to IDLE', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, { event_type: 'IDLE_STARTED' }, undefined, {
+        status: 'ON_HOLD',
+      }),
+    ).toBe('IDLE');
+  });
+
+  it('treats open RWD order as running without CRM or re-roll', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, undefined, undefined, null, { status: 'IN_PROGRESS' }),
+    ).toBe('RUNNING');
+  });
+
+  it('prefers CRM active order over re-roll overlay', () => {
+    expect(
+      resolveMachineLiveStatus(undefined, undefined, {
+        status: 'IN_PROGRESS',
+        stoppage_category: null,
+      }, { status: 'STOPPAGE' }),
+    ).toBe('RUNNING');
   });
 
   it('maps master OFFLINE ahead of live events/orders', () => {

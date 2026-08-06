@@ -252,8 +252,7 @@ Auth & access: `authService`, `authzService`, `pinService`,
 Corrections & audit: `ChangeRequestService`, `changeRequestPk`,
 `overrideService`, `AuditTrailService`, `DomainEventPublisher`.
 
-Traceability & lineage: `CoilTraceabilityService`, `TraceabilityService`,
-`lineageService`.
+Traceability: `TraceabilityService` (Elasticsearch indexer + Postgres fallback).
 
 Reporting & dashboards: `ReportingService`, `DashboardService`, `LiveService`,
 `ExportService`.
@@ -264,10 +263,9 @@ Reporting & dashboards: `ReportingService`, `DashboardService`, `LiveService`,
 - `src/config/authConfig.ts` — startup auth validation.
 - `src/middleware/` — `authMiddleware`, `contextMiddleware`,
   `errorMiddleware` (RFC 7807), `rateLimitMiddleware`.
-- `src/reporting/` — `plantHeadDrilldown`, `plantHeadValidators`,
-  `plantHeadWindow`.
+- `src/reporting/` — `plantHeadDrilldown`, `plantHeadWindow`.
 - `src/repositories/BaseRepository.ts` — shared repository base.
-- `src/audit/auditedTables.ts` — audit table registry.
+- `src/utils/logger.ts` — stdout logger used by startup/schedulers.
 - `src/utils/` — CSV (`csvParser`, `csvTokenizer`, `csvWriter`), PPC parsers
   (`ppcCsvParser`, `PpcRouteTranslator`, `rollingPlanXlsxParser`),
   `kpiCalculator`, `machineAllocation`, `logger`, `entryUrl`.

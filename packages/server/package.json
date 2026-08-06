@@ -26,6 +26,9 @@
     "seed:supervisor": "node scripts/seed-supervisor.mjs",
     "ensure:crew-table": "node scripts/ensure-crew-table.mjs",
     "repair:migrations": "node scripts/repair-migration-history.mjs",
+    "reconcile:hrs-child-weights": "node scripts/reconcile-hrs-child-weights.mjs",
+    "db:codegen": "node scripts/db-codegen.mjs",
+    "db:codegen:check": "node scripts/db-codegen.mjs --check",
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
     "seed:data": "node scripts/seed-pilot-data.mjs",
     "seed:process-queues": "node scripts/seed-process-queues.mjs",
@@ -35,6 +38,7 @@
     "seed:admin": "node scripts/seed-admin.mjs",
     "seed:quality": "node scripts/seed-quality.mjs",
     "seed:zedral-demo": "node scripts/seed-zedral-demo.mjs",
+    "seed:combine-rolling": "node --env-file=../../.env scripts/seed-combine-rolling.mjs",
     "seed:export": "node scripts/seed-export-demo.mjs",
     "smoke:api": "node scripts/api-smoke.mjs",
     "reindex:traceability": "tsx scripts/reindex-traceability.mjs"

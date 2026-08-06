@@ -18,17 +18,25 @@ import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDispl
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
-import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
 import { deleteOrder } from '../../lib/sync/sixHiWrites';
 import { postQueued } from '../../lib/sync/queuedApi';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { jsonFingerprint } from '../../lib/silentRefresh';
-import { formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
+import { formatOrderProcessLabel, formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
 import type { MachineStatusCard } from '@m1/shared-validation';
+import {
+  type ManualRerollSession,
+  listManualRerollSessions,
+} from '../../services/manualRerollService';
 
 type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'completed' | 'handover';
 type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
+/** History tab pills — Rolling / Skin Pass / Manual Re-Rolling (+ All). */
+type HistoryProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL';
+
+const CRM_HISTORY_MILLS = ['6HI', '4HI', '2HI'] as const;
 
 const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected', 'completed'];
 const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
@@ -36,10 +44,75 @@ const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
 /** Active shopfloor statuses that belong on the Orders tab (includes stoppage). */
 const ACTIVE_ORDER_STATUSES = new Set(['PREPARING', 'IN_PROGRESS', 'RUNNING', 'STOPPAGE']);
 
+type HistoryRow = {
+  kind: 'CRM' | 'MANUAL_REROLL';
+  key: string;
+  batchNumber: string;
+  machineCode: string;
+  customer?: string;
+  grade?: string;
+  weightMt?: number;
+  prodEndAt?: string;
+  subProcess: string;
+  coilNo?: string;
+  motherCoil?: string;
+  slitId?: string;
+  operatorName?: string;
+};
+
 function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
   if (filter === 'ALL') return true;
   if (!subProcess) return allowUnknown;
   return subProcess === filter;
+}
+
+function sessionPlantDate(s: ManualRerollSession): string {
+  return formatPlantDate(s.endTime ?? s.startTime);
+}
+
+function mapRerollSessionToHistory(s: ManualRerollSession): HistoryRow {
+  const batches = (s.batchNumbers?.length ? s.batchNumbers : s.batchNumber ? [s.batchNumber] : [])
+    .filter(Boolean) as string[];
+  const batchLabel = batches.length > 1 ? batches.join(' · ') : (batches[0] ?? s.sessionId);
+  return {
+    kind: 'MANUAL_REROLL',
+    key: `mr-${s.sessionId}`,
+    batchNumber: batchLabel,
+    machineCode: s.machineCode,
+    weightMt: s.rerollQuantity != null ? Number(s.rerollQuantity) : undefined,
+    prodEndAt: s.endTime ?? undefined,
+    subProcess: 'MANUAL_REROLL',
+  };
+}
+
+function mapCrmCompletedToHistory(o: {
+  batchNumber: string;
+  machineCode?: string;
+  customer?: string;
+  grade?: string;
+  weightMt?: number;
+  prodEndAt?: string;
+  subProcess?: string;
+  coilNo?: string;
+  motherCoil?: string;
+  slitId?: string;
+  operatorName?: string;
+}): HistoryRow {
+  return {
+    kind: 'CRM',
+    key: `crm-${o.batchNumber}`,
+    batchNumber: o.batchNumber,
+    machineCode: o.machineCode ?? '—',
+    customer: o.customer,
+    grade: o.grade,
+    weightMt: o.weightMt != null ? Number(o.weightMt) : undefined,
+    prodEndAt: o.prodEndAt,
+    subProcess: o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
+    coilNo: o.coilNo,
+    motherCoil: o.motherCoil,
+    slitId: o.slitId,
+    operatorName: o.operatorName,
+  };
 }
 
 function formatDuration(minutes?: number): string {
@@ -156,7 +229,7 @@ const DASHBOARD_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'orders', label: 'Orders' },
   { id: 'stoppages', label: 'Stoppages' },
-  { id: 'completed', label: 'Completed' },
+  { id: 'completed', label: 'History' },
   { id: 'production', label: 'Production' },
   { id: 'rejected', label: 'Order Hold' },
   { id: 'handover', label: 'Handover' },
@@ -179,8 +252,9 @@ export function MachineHeadDashboard() {
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [completedOrders, setCompletedOrders] = useState<any[]>([]);
+  const [completedOrders, setCompletedOrders] = useState<HistoryRow[]>([]);
   const [completedLoading, setCompletedLoading] = useState(false);
+  const [historyProcessFilter, setHistoryProcessFilter] = useState<HistoryProcessFilter>('ALL');
   const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
   const [machineFilter, setMachineFilter] = useState<string>('ALL');
   const [shiftFilter, setShiftFilter] = useState<string>('ALL');
@@ -264,28 +338,92 @@ export function MachineHeadDashboard() {
 
   useEffect(() => {
     if (activeTab !== 'completed') return;
+    let cancelled = false;
     setCompletedLoading(true);
-    const qs = new URLSearchParams();
-    if (exportDate) qs.set('date', exportDate);
-    if (exportShift) qs.set('shiftCode', exportShift);
-    if (dashFilters.machine) qs.set('machine', dashFilters.machine);
-    
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    apiClient.get<any[]>(`/6hi/orders/completed?${qs.toString()}`)
-      .then((res) => {
-        const q = debouncedSearch.toLowerCase();
-        let rows = res;
-        if (q) {
-          rows = rows.filter((r) => 
-            `${r.batchNumber} ${r.coilNo ?? ''} ${r.customer ?? ''}`.toLowerCase().includes(q)
-          );
+
+    const millCodes = (() => {
+      const scoped = dashFilters.machine
+        ? [dashFilters.machine]
+        : (isPlantWideDeskRole(role)
+          ? [...CRM_HISTORY_MILLS]
+          : assignedMachines);
+      return scoped
+        .map((m) => m.toUpperCase())
+        .filter((m): m is typeof CRM_HISTORY_MILLS[number] =>
+          (CRM_HISTORY_MILLS as readonly string[]).includes(m));
+    })();
+
+    const wantCrm = historyProcessFilter === 'ALL'
+      || historyProcessFilter === 'ROLLING'
+      || historyProcessFilter === 'SKIN_PASS';
+    const wantReroll = historyProcessFilter === 'ALL' || historyProcessFilter === 'MANUAL_REROLL';
+
+    async function loadHistory() {
+      try {
+        const crmRows: HistoryRow[] = [];
+        if (wantCrm) {
+          const qs = new URLSearchParams();
+          if (exportDate) qs.set('date', exportDate);
+          if (exportShift) qs.set('shiftCode', exportShift);
+          if (dashFilters.machine) qs.set('machine', dashFilters.machine);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const res = await apiClient.get<any[]>(`/6hi/orders/completed?${qs.toString()}`);
+          const q = debouncedSearch.toLowerCase();
+          for (const o of res) {
+            const sub = o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING';
+            if (historyProcessFilter === 'ROLLING' && sub !== 'ROLLING') continue;
+            if (historyProcessFilter === 'SKIN_PASS' && sub !== 'SKIN_PASS') continue;
+            if (q) {
+              const hay = `${o.batchNumber} ${o.coilNo ?? ''} ${o.customer ?? ''}`.toLowerCase();
+              if (!hay.includes(q)) continue;
+            }
+            crmRows.push(mapCrmCompletedToHistory(o));
+          }
         }
-        rows = rows.filter((r) => matchesProcessFilter(r.subProcess, processFilter));
-        setCompletedOrders(rows);
-      })
-      .catch((err) => console.error('Failed to load completed orders', err))
-      .finally(() => setCompletedLoading(false));
-  }, [activeTab, exportDate, exportShift, dashFilters.machine, debouncedSearch, processFilter]);
+
+        const rerollRows: HistoryRow[] = [];
+        if (wantReroll && millCodes.length > 0) {
+          const results = await Promise.all(
+            millCodes.map((m) => listManualRerollSessions(m).catch(() => ({ sessions: [] as ManualRerollSession[] }))),
+          );
+          const q = debouncedSearch.toLowerCase();
+          for (const pack of results) {
+            for (const s of pack.sessions) {
+              if (s.status !== 'COMPLETED') continue;
+              if (exportDate && sessionPlantDate(s) !== exportDate) continue;
+              if (exportShift && (s.shiftCode ?? '').toUpperCase() !== exportShift.toUpperCase()) continue;
+              if (q) {
+                const hay = `${s.batchNumber ?? ''} ${(s.batchNumbers ?? []).join(' ')} ${s.machineCode}`.toLowerCase();
+                if (!hay.includes(q)) continue;
+              }
+              rerollRows.push(mapRerollSessionToHistory(s));
+            }
+          }
+        }
+
+        const merged = [...crmRows, ...rerollRows].sort((a, b) =>
+          String(b.prodEndAt ?? '').localeCompare(String(a.prodEndAt ?? '')));
+        if (!cancelled) setCompletedOrders(merged);
+      } catch (err) {
+        console.error('Failed to load history', err);
+        if (!cancelled) setCompletedOrders([]);
+      } finally {
+        if (!cancelled) setCompletedLoading(false);
+      }
+    }
+
+    void loadHistory();
+    return () => { cancelled = true; };
+  }, [
+    activeTab,
+    exportDate,
+    exportShift,
+    dashFilters.machine,
+    debouncedSearch,
+    historyProcessFilter,
+    assignedMachines,
+    role,
+  ]);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -363,6 +501,10 @@ export function MachineHeadDashboard() {
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
+  ).map((id) => ({ id, label: formatProcessFilterLabel(id) })), []);
+
+  const historyProcessFilterTabs = useMemo(() => (
+    ['ALL', 'ROLLING', 'SKIN_PASS', 'MANUAL_REROLL'] as HistoryProcessFilter[]
   ).map((id) => ({ id, label: formatProcessFilterLabel(id) })), []);
 
   const openMachineDetail = useCallback((machineCode: string) => {
@@ -550,7 +692,7 @@ export function MachineHeadDashboard() {
                         </td>
                         <td className="px-4 py-3 text-sm truncate max-w-[12rem] text-muted-foreground">{o.customer || '—'}</td>
                         <td className="px-4 py-3 text-sm font-medium">
-                          {o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : o.subProcess === 'ROLLING' ? 'Rolling' : o.currentProcess}
+                          {formatOrderProcessLabel(o.subProcess, o.currentProcess)}
                         </td>
                         <td className="px-4 py-3 text-sm font-mono tabular-nums">{o.weightMt} MT</td>
                         <td className="px-4 py-3 text-sm">
@@ -833,7 +975,7 @@ export function MachineHeadDashboard() {
               {dashboard && (
                 <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1">
                   <div className="flex items-baseline gap-1.5">
-                    <dt className="text-xs font-medium text-muted-foreground">Completed this shift</dt>
+                    <dt className="text-xs font-medium text-muted-foreground">History rows</dt>
                     <dd className="text-sm font-bold font-mono tabular-nums text-foreground">
                       {completedLoading
                         ? dashboard.shiftSummary.completedOrderCount
@@ -852,12 +994,13 @@ export function MachineHeadDashboard() {
                 </dl>
               )}
             </div>
-            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading completed orders…' : 'No completed orders'}>
+            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading history…' : 'No completed history'}>
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Process</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Machine</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
@@ -867,32 +1010,48 @@ export function MachineHeadDashboard() {
                   <tbody className="bg-transparent divide-y divide-border">
                     {completedOrders.map((o) => (
                       <tr
-                        key={o.batchNumber}
-                        className="hover:bg-secondary/50 cursor-pointer transition-colors"
+                        key={o.key}
+                        className={[
+                          'transition-colors',
+                          o.kind === 'CRM' ? 'hover:bg-secondary/50 cursor-pointer' : 'hover:bg-secondary/30',
+                        ].join(' ')}
                         onClick={() => {
+                          if (o.kind !== 'CRM') return;
                           const id = identityFromRow(o);
                           selectOrder({
                             batchNumber: o.batchNumber,
                             customer: o.customer ?? '—',
                             grade: o.grade ?? '—',
                             machineCode: o.machineCode ?? '—',
-                            machineName: o.machineName ?? o.machineCode ?? '—',
-                            currentProcess: o.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
+                            machineName: o.machineCode ?? '—',
+                            currentProcess: formatOrderProcessLabel(o.subProcess),
                             operatorName: o.operatorName,
                             status: 'COMPLETED',
-                            weightMt: o.weightMt,
+                            weightMt: o.weightMt ?? 0,
                             coilNo: id.coilNo,
                             motherCoil: id.motherCoil,
                             slitId: id.slitId,
+                            subProcess: o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
                           });
                         }}
                       >
                         <td className="px-4 py-3 text-sm">
-                          <OrderIdentityDisplay order={identityFromRow(o)} size="sm" />
+                          {o.kind === 'CRM' ? (
+                            <OrderIdentityDisplay order={identityFromRow(o)} size="sm" />
+                          ) : (
+                            <span className="font-mono text-xs font-bold text-foreground">{o.batchNumber}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium">
+                          {o.subProcess === 'MANUAL_REROLL'
+                            ? formatProcessFilterLabel('MANUAL_REROLL')
+                            : formatOrderProcessLabel(o.subProcess)}
                         </td>
                         <td className="px-4 py-3 text-sm font-mono font-bold">{o.machineCode ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer}</td>
-                        <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">{o.weightMt} MT</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">
+                          {o.weightMt != null ? `${o.weightMt} MT` : '—'}
+                        </td>
                         <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">{o.prodEndAt ? formatPlantDateTime(o.prodEndAt) : '—'}</td>
                       </tr>
                     ))}
@@ -1067,9 +1226,12 @@ export function MachineHeadDashboard() {
           {PROCESS_FILTER_TABS.includes(activeTab) && (
             <div className="overflow-x-auto flex flex-wrap gap-2 items-center border-t border-border/60 pt-2.5">
               <ZPillTabs
-                tabs={processFilterTabs}
-                activeId={processFilter}
-                onChange={(id) => setProcessFilter(id as ProcessFilter)}
+                tabs={activeTab === 'completed' ? historyProcessFilterTabs : processFilterTabs}
+                activeId={activeTab === 'completed' ? historyProcessFilter : processFilter}
+                onChange={(id) => {
+                  if (activeTab === 'completed') setHistoryProcessFilter(id as HistoryProcessFilter);
+                  else setProcessFilter(id as ProcessFilter);
+                }}
                 className="min-w-max"
               />
               <input

@@ -4,7 +4,6 @@ const integrationPatterns = [
   'tests/integration/**',
   'tests/platform-security.test.ts',
   'tests/platform-config-authz.test.ts',
-  'tests/platform-audit-lineage.test.ts',
   'tests/**/*.integration.test.ts',
   'tests/export/exportJobIntegration.test.ts',
   'tests/export/exportReadRepository.test.ts',

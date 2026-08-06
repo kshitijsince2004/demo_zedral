@@ -36,6 +36,7 @@ import canonRoutes from './routes/canonRoutes';
 import productionRoutes from './modules/m1-collection/routes/productionRoutes';
 import processStationRoutes from './routes/processStationRoutes';
 import tenantFlagsRoutes from './routes/tenantFlagsRoutes';
+import manualRerollRoutes from './routes/manualRerollRoutes';
 import { db } from './db';
 import { contextMiddleware } from './middleware/contextMiddleware';
 import { tenantScopeMiddleware } from './middleware/tenantScopeMiddleware';
@@ -165,12 +166,14 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
       '/hrs-order',
       '/pkl-order',
       '/machines/handover',
+      '/manual-reroll',
     ],
     idempotencyMiddleware,
   );
   app.use('/device', m1Guard, deviceRoutes);
   app.use('/planned-coils', m1Guard, plannedCoilRoutes);
   app.use('/6hi', m1Guard, SixHiRoutes);
+  app.use('/manual-reroll', m1Guard, manualRerollRoutes);
   app.use('/rewinding', m1Guard, rewindingRoutes);
   app.use('/hrs-order', m1Guard, hrsOrderRoutes);
   app.use('/pkl-order', m1Guard, pklOrderRoutes);

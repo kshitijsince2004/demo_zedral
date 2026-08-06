@@ -45,6 +45,21 @@ try {
     )
   `);
 
+  const prefixRenames = [
+    ['19590000000000_ppc_hrs_slit_plan_table', '1961000000000_ppc_hrs_slit_plan_table'],
+    ['19600000000000_pkl_order_batch_key', '1962000000000_pkl_order_batch_key'],
+    ['19610000000000_manual_reroll_session', '1963000000000_manual_reroll_session'],
+  ];
+  for (const [oldName, newName] of prefixRenames) {
+    const renamed = await client.query(
+      'UPDATE pgmigrations SET name = $1 WHERE name = $2',
+      [newName, oldName],
+    );
+    if (renamed.rowCount) {
+      console.log(`Renamed migration history ${oldName} → ${newName}`);
+    }
+  }
+
   const existing = await client.query('SELECT name FROM pgmigrations ORDER BY name ASC');
   const existingNames = new Set(existing.rows.map((r) => r.name));
   const allNames = listMigrationNames();

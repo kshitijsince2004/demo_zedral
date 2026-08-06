@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { UserRole } from '@m1/shared-validation';
 import { requireAuth } from '../middleware/authMiddleware';
 import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { ProcessStationService } from '../services/ProcessStationService';
+
+function canEditAnnBase(roles: string[] | undefined) {
+  const r = roles ?? [];
+  return r.includes(UserRole.MACHINE_HEAD) || r.includes(UserRole.ADMIN) || r.includes(UserRole.SUPERVISOR);
+}
 
 const router = Router();
 
@@ -37,7 +43,7 @@ const pklChartSchema = z.object({
 });
 
 const annChargeSchema = z.object({
-  action: z.enum(['create', 'roster', 'transition', 'disposition', 'advance-stage', 'skip-stage', 'reading', 'stoppage-start', 'stoppage-end']),
+  action: z.enum(['create', 'roster', 'transition', 'disposition', 'advance-stage', 'skip-stage', 'reading', 'stoppage-start', 'stoppage-end', 'assign-base', 'start']),
   chargeNo: z.string().optional(),
   baseNo: z.string().optional(),
   shiftLogId: z.string().optional(),
@@ -56,7 +62,7 @@ const annChargeSchema = z.object({
   skipReason: z.string().optional(),
   authorizedBy: z.number().optional(),
   transitionTempDegc: z.number().optional(),
-  status: z.enum(['IN_PROCESS', 'FOR_ANN', 'RW', 'DONE']).optional(),
+  status: z.enum(['PREPARING', 'IN_PROCESS', 'FOR_ANN', 'RW', 'DONE']).optional(),
   dewPointN2: z.number().optional(),
   dewPointH2: z.number().optional(),
   temperatureDegc: z.number().optional(),
@@ -178,6 +184,55 @@ router.post('/pkl/manual-stoppage/end', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/hrs/manual-stoppage', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'HRS', 'READ');
+    const { HrsOrderService } = await import('../services/HrsOrderService');
+    res.json(await HrsOrderService.getManualStoppageStatus());
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Manual stoppage status failed' });
+  }
+});
+
+router.post('/hrs/manual-stoppage/start', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'HRS', 'WRITE');
+    const { HrsOrderService } = await import('../services/HrsOrderService');
+    res.status(201).json(await HrsOrderService.startManualStoppage(
+      String(req.body?.categoryCode ?? ''),
+      req.body?.breakdownCode != null ? String(req.body.breakdownCode) : undefined,
+      req.body?.remarks != null ? String(req.body.remarks) : undefined,
+      req.user!.id,
+    ));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Start manual stoppage failed' });
+  }
+});
+
+router.patch('/hrs/manual-stoppage', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'HRS', 'WRITE');
+    const { HrsOrderService } = await import('../services/HrsOrderService');
+    res.json(await HrsOrderService.updateManualStoppage(
+      String(req.body?.categoryCode ?? ''),
+      req.body?.breakdownCode != null ? String(req.body.breakdownCode) : undefined,
+      req.body?.remarks != null ? String(req.body.remarks) : undefined,
+    ));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Update manual stoppage failed' });
+  }
+});
+
+router.post('/hrs/manual-stoppage/end', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'HRS', 'WRITE');
+    const { HrsOrderService } = await import('../services/HrsOrderService');
+    res.json(await HrsOrderService.endManualStoppage(req.user!.id));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'End manual stoppage failed' });
+  }
+});
+
 router.get('/pkl/spec-limits', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'PKL', 'READ');
@@ -272,6 +327,76 @@ router.get('/ann/charges/:chargeNo', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/ann/vacant-bases', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'ANN', 'READ');
+    const exceptChargeNo = req.query.exceptChargeNo ? String(req.query.exceptChargeNo) : undefined;
+    res.json({ bases: await ProcessStationService.listVacantAnnBases(exceptChargeNo) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Vacant bases failed' });
+  }
+});
+
+async function handleAssignAnnBase(req: import('express').Request, res: import('express').Response, chargeNo: string, editExisting: boolean) {
+  assertLineOperation(req.user!, 'ANN', 'WRITE');
+  const baseNo = String(req.body?.baseNo ?? req.body?.base_no ?? '');
+  if (!baseNo.trim()) return res.status(400).json({ error: 'baseNo required' });
+  const detail = await ProcessStationService.getAnnChargeDetail(chargeNo);
+  if (!detail) return res.status(404).json({ error: 'Charge not found' });
+  const existingBase = detail.charge.base_no as string | null;
+  if (editExisting || (existingBase && detail.charge.status !== 'PREPARING')) {
+    if (!canEditAnnBase(req.user?.roles)) {
+      return res.status(403).json({ error: 'Only Machine Head may change an assigned base' });
+    }
+  }
+  res.json(await ProcessStationService.assignAnnBase(
+    chargeNo,
+    baseNo,
+    req.user?.id ? Number(req.user.id) : undefined,
+  ));
+}
+
+router.post('/ann/charges/:chargeNo/assign-base', requireAuth, async (req, res) => {
+  try {
+    await handleAssignAnnBase(req, res, req.params.chargeNo, false);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Assign base failed' });
+  }
+});
+
+router.put('/ann/charges/:chargeNo/base', requireAuth, async (req, res) => {
+  try {
+    await handleAssignAnnBase(req, res, req.params.chargeNo, true);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Change base failed' });
+  }
+});
+
+router.post('/ann/charges/:chargeNo/start', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'ANN', 'WRITE');
+    res.json(await ProcessStationService.startAnnCharge(req.params.chargeNo));
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Start charge failed' });
+  }
+});
+
+router.post('/ann/batch/:id/assign-base', requireAuth, async (req, res) => {
+  try {
+    await handleAssignAnnBase(req, res, req.params.id, false);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Assign base failed' });
+  }
+});
+
+router.put('/ann/batch/:id/base', requireAuth, async (req, res) => {
+  try {
+    await handleAssignAnnBase(req, res, req.params.id, true);
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Change base failed' });
+  }
+});
+
 router.get('/ann/spec-limits', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'ANN', 'READ');
@@ -310,12 +435,13 @@ router.get('/ann/bases', requireAuth, async (req, res) => {
 router.post('/ann/bases', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'ANN', 'WRITE');
-    const baseNo = await ProcessStationService.createAnnBase({
+    const baseNo = await ProcessStationService.upsertAnnBase({
       baseNo: String(req.body?.baseNo ?? ''),
       capacityMaxCoils: req.body?.capacityMaxCoils != null ? Number(req.body.capacityMaxCoils) : null,
       capacityMaxWtMt: req.body?.capacityMaxWtMt != null ? Number(req.body.capacityMaxWtMt) : null,
       capacityMaxHeightMm: req.body?.capacityMaxHeightMm != null ? Number(req.body.capacityMaxHeightMm) : null,
       soakTimeAdjHr: req.body?.soakTimeAdjHr != null ? Number(req.body.soakTimeAdjHr) : null,
+      isActive: req.body?.isActive !== false,
     });
     res.status(201).json({ baseNo });
   } catch (e: unknown) {
@@ -462,6 +588,22 @@ router.post('/ann/charges', requireAuth, async (req, res) => {
         temperatureDegc: body.temperatureDegc,
       });
       return res.json({ ok: true });
+    }
+
+    if (body.action === 'assign-base') {
+      if (!body.chargeNo || !body.baseNo) {
+        return res.status(400).json({ error: 'chargeNo and baseNo required' });
+      }
+      return res.json(await ProcessStationService.assignAnnBase(
+        body.chargeNo,
+        body.baseNo,
+        req.user?.id ? Number(req.user.id) : undefined,
+      ));
+    }
+
+    if (body.action === 'start') {
+      if (!body.chargeNo) return res.status(400).json({ error: 'chargeNo required' });
+      return res.json(await ProcessStationService.startAnnCharge(body.chargeNo));
     }
 
     res.status(400).json({ error: 'Unknown action' });

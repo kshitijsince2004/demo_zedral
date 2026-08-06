@@ -29,6 +29,23 @@ describe('formatCaptureError', () => {
 });
 
 describe('mapQueue', () => {
+  it('maps HRS COMPLETED rows', () => {
+    const cards = mapQueue('HRS', {
+      queue: [{
+        coilNo: 'DONE-1',
+        gradeCode: 'G',
+        customerName: 'C',
+        widthMm: 1000,
+        thicknessMm: 2,
+        weightMt: 10,
+        status: 'COMPLETED',
+        journeyId: 'j1',
+        stepNo: 1,
+      }],
+    });
+    expect(cards[0]?.status).toBe('COMPLETED');
+  });
+
   it('maps HRS rows', () => {
     const cards = mapQueue('HRS', {
       queue: [{
@@ -42,6 +59,7 @@ describe('mapQueue', () => {
         journeyId: 'j1',
         stepNo: 1,
         combination: '500+500',
+        routeRaw: 'H-S-P',
       }],
     });
     expect(cards).toHaveLength(1);
@@ -50,6 +68,7 @@ describe('mapQueue', () => {
       status: 'PENDING',
       combination: '500+500',
       journeyId: 'j1',
+      routeRaw: 'H-S-P',
     });
   });
 

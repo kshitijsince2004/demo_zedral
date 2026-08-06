@@ -54,11 +54,13 @@ export function ProcessPPCCards({
   compact,
   groupCount,
   groupWeightMt,
+  hideRoute = false,
 }: {
   data: ProcessPpcFields;
   compact?: boolean;
   groupCount?: number;
   groupWeightMt?: number;
+  hideRoute?: boolean;
 }) {
   const id = data.motherCoilNo || data.coilNo || '—';
   const w = data.widthMm != null && data.widthMm !== '' ? `${data.widthMm}` : '—';
@@ -96,7 +98,7 @@ export function ProcessPPCCards({
         {cell('Batch', data.batch || '—', true, compact)}
         {showSurface ? cell('Surface', surfaceLabel(data.surface), false, compact) : null}
         {/* Route hidden when Surface is shown (RWD / 2HI rewinding). */}
-        {!showSurface && data.route ? cell('Route', data.route, false, compact) : null}
+        {!showSurface && !hideRoute && data.route ? cell('Route', data.route, false, compact) : null}
         {showPlanRow ? (
           <>
             {cell('Coil No', data.coilNo || id, true, compact)}

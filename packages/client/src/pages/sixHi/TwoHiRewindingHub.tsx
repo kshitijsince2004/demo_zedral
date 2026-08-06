@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { RefreshCw, Search, Play } from 'lucide-react';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { hubTabsForMill } from '../../lib/millConfig';
+import { useManualRerollEntry } from '../../hooks/useTenantFlag';
+import { showManualRerollEnterButton, withManualRerollTab } from '../../lib/manualRerollUi';
 import { apiClient } from '../../lib/apiClient';
 import { currentPlantDate } from '../../lib/dateFormat';
 import { notifyProductionChanged, subscribeProductionSync } from '../../lib/productionSync';
@@ -93,7 +95,8 @@ export function TwoHiRewindingHub() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { basePath, machineCode } = useWorkspaceBase();
   const setProcessTab = useSixHiStore((s) => s.setProcessTab);
-  const tabs = hubTabsForMill(machineCode);
+  const { showEntry: showRerollTab } = useManualRerollEntry(machineCode);
+  const tabs = withManualRerollTab(hubTabsForMill(machineCode), showRerollTab);
 
   const rawStatus = (searchParams.get('status') ?? 'ALL').toUpperCase();
   const statusFilter: StatusFilter = STATUS_FILTERS.some((f) => f.id === rawStatus)
@@ -321,6 +324,15 @@ export function TwoHiRewindingHub() {
               <RefreshCw className={`h-4 w-4 ${syncing || isValidating ? 'animate-spin text-primary' : ''}`} />
             </ZButton>
             <div className="hidden sm:block h-6 w-px bg-border mx-1" />
+            {showManualRerollEnterButton(showRerollTab, machineCode || '2HI', 'rewinding') && (
+              <button
+                type="button"
+                onClick={() => setTab('reroll')}
+                className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Manual Re-Roll
+              </button>
+            )}
             <SixHiPillTabs tabs={tabs} activeId="rewinding" onChange={setTab} />
           </div>
         }

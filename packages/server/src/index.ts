@@ -14,6 +14,7 @@ import { buildApp } from './app';
 import { buildModuleRegistry } from './modules/registerModules';
 import { registerJourneyAdvanceConsumer } from './modules/m1-collection/register';
 import { startModuleRuntime, type ModuleRuntime } from './modules/moduleRuntime';
+import { logger } from './utils/logger';
 
 validateAuthConfigAtStartup();
 
@@ -30,7 +31,7 @@ let server: Server;
 let moduleRuntime: ModuleRuntime | null = null;
 
 server = app.listen(port, host, async () => {
-  console.log(`Server listening on ${host}:${port}`);
+  logger.info(`Server listening on ${host}:${port}`);
 
   moduleRuntime = await startModuleRuntime(registry);
 
@@ -71,7 +72,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 function shutdown(signal: string) {
-  console.log(`[shutdown] ${signal} received — stopping background workers`);
+  logger.info(`[shutdown] ${signal} received — stopping background workers`);
   ExportWorker.stop();
   ExportScheduler.stop();
   ShiftBoundaryScheduler.stop();
@@ -82,7 +83,7 @@ function shutdown(signal: string) {
     console.error('[shutdown] event bus shutdown failed', err);
   });
   server.close(() => {
-    console.log('[shutdown] HTTP server closed');
+    logger.info('[shutdown] HTTP server closed');
     process.exit(0);
   });
   setTimeout(() => {

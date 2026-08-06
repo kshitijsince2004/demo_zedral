@@ -1,4 +1,5 @@
 import { getElasticClient, isElasticAvailable } from './elasticClient';
+import { logger } from '../utils/logger';
 
 export const TRACEABILITY_INDEX = 'zedral_traceability';
 
@@ -62,7 +63,7 @@ export async function ensureIndex(): Promise<void> {
   try {
     const exists = await client.indices.exists({ index: TRACEABILITY_INDEX });
     if (exists) {
-      console.log(`[elastic] Index "${TRACEABILITY_INDEX}" already exists`);
+      logger.info(`[elastic] Index "${TRACEABILITY_INDEX}" already exists`);
       return;
     }
 
@@ -75,7 +76,7 @@ export async function ensureIndex(): Promise<void> {
       },
       mappings: INDEX_MAPPING,
     });
-    console.log(`[elastic] Created index "${TRACEABILITY_INDEX}"`);
+    logger.info(`[elastic] Created index "${TRACEABILITY_INDEX}"`);
   } catch (err: any) {
     console.error(`[elastic] Failed to ensure index: ${err.message}`);
   }

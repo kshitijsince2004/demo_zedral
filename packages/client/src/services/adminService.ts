@@ -16,7 +16,15 @@ import { apiClient, getAuthHeaders } from '../lib/apiClient';
 // Shared types
 // ---------------------------------------------------------------------------
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL' | 'PICKLING';
+export type PpcXlsxSheetType =
+  | 'ROLLING'
+  | 'SKIN_PASS'
+  | 'REWINDING'
+  | 'ANNEALING'
+  | 'CTL'
+  | 'PICKLING'
+  | 'HRS'
+  | 'PKL';
 
 export type PpcPreviewRowStatus =
   | 'new'
@@ -64,6 +72,9 @@ export interface PpcRollingPreviewResult {
   rows: PpcRollingPreviewRow[];
   planDate: string;
   shiftCode: string;
+  planDateFrom?: string;
+  planDateTo?: string;
+  shiftCodes?: string[];
   sheetType?: PpcXlsxSheetType;
   sheetName?: string;
   /** Number of batch_numbers that appear more than once in the uploaded file. */

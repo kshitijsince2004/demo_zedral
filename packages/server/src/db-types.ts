@@ -94,15 +94,6 @@ export interface AuditExportJob {
   tenant_id: Generated<string>;
 }
 
-export interface AuditLineageRef {
-  batch_id: string | null;
-  created_at: Generated<Timestamp>;
-  mapping_version: string | null;
-  record_id: string;
-  source_row_ref: string | null;
-  tenant_id: string;
-}
-
 export interface BulkImportUsers {
   app_id: Generated<string>;
   created_at: Int8;
@@ -955,6 +946,7 @@ export interface MasterAnnStage {
   seq: number;
   label: string;
   is_skippable: Generated<boolean>;
+  default_active: Generated<boolean>;
   is_active: Generated<boolean>;
 }
 
@@ -1558,6 +1550,43 @@ export interface TxnProdRwd {
   width_mm: Numeric | null;
 }
 
+export interface TxnManualRerollStoppage {
+  category_code: string;
+  created_at: Generated<Timestamp>;
+  duration_min: number | null;
+  end_time: Timestamp | null;
+  machine_code: string;
+  operator_id: number | null;
+  remarks: string | null;
+  session_id: Int8;
+  start_time: Generated<Timestamp>;
+  stoppage_code: string | null;
+  stoppage_id: Generated<Int8>;
+  tenant_id: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TxnManualRerollSession {
+  batch_number: string | null;
+  batch_numbers: string[] | null;
+  created_at: Generated<Timestamp>;
+  created_by: number;
+  duration_min: number | null;
+  end_time: Timestamp | null;
+  machine_code: string;
+  machine_type: string;
+  operator_id: number;
+  order_id: Int8 | null;
+  remarks: string | null;
+  reroll_quantity: Numeric | null;
+  session_id: Generated<Int8>;
+  shift_code: string | null;
+  start_time: Generated<Timestamp>;
+  status: Generated<string>;
+  tenant_id: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface TxnSessionCrew {
   created_at: Generated<Timestamp>;
   crew_id: Int8;
@@ -1667,6 +1696,8 @@ export interface TxnHrsOrder {
 }
 
 export interface TxnPklOrder {
+  batch_id: Int8 | null;
+  batch_number: string | null;
   coil_no: string;
   created_at: Generated<Timestamp>;
   customer_name: string;
@@ -1808,7 +1839,6 @@ export interface DB {
   "audit.audit_log": AuditAuditLog;
   "audit.dpr_month_lock": AuditDprMonthLock;
   "audit.export_job": AuditExportJob;
-  "audit.lineage_ref": AuditLineageRef;
   bulk_import_users: BulkImportUsers;
   "canon.equipment_node": CanonEquipmentNode;
   "canon.event": CanonEvent;
@@ -1928,6 +1958,8 @@ export interface DB {
   "txn.prod_pkl_chart": TxnProdPklChart;
   "txn.prod_rwd": TxnProdRwd;
   "txn.hrs_order": TxnHrsOrder;
+  "txn.manual_reroll_session": TxnManualRerollSession;
+  "txn.manual_reroll_stoppage": TxnManualRerollStoppage;
   "txn.pkl_order": TxnPklOrder;
   "txn.rwd_order": TxnRwdOrder;
   "txn.session_crew": TxnSessionCrew;

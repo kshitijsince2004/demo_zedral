@@ -271,19 +271,44 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
     const refreshGen = ++machineStateRefreshGen;
     try {
       const mc = get().machineCode;
-      const [active, manualStoppage] = await Promise.all([
+      const [activeCrm, manualStoppage] = await Promise.all([
         apiClient.get<ActiveMachineOrder | null>(`/6hi/active-order?machine=${mc}`),
         apiClient.get<ManualStoppageState>(`/6hi/manual-stoppage?machine=${mc}`),
       ]);
 
       if (refreshGen !== machineStateRefreshGen) return;
 
+      let active = activeCrm;
+      if (!active?.batchNumber) {
+        try {
+          const reroll = await apiClient.get<{ active: {
+            batchNumber: string | null;
+            batchNumbers?: string[];
+            status: string;
+          } | null }>(`/manual-reroll/sessions?machine=${encodeURIComponent(mc)}`);
+          const open = reroll.active;
+          if (open && (open.status === 'IN_PROGRESS' || open.status === 'STOPPAGE' || open.status === 'ON_HOLD')) {
+            active = {
+              batchNumber: open.batchNumbers?.length
+                ? open.batchNumbers.join(' · ')
+                : (open.batchNumber ?? 'RE-ROLL'),
+              status: open.status,
+              subProcess: 'ROLLING',
+            };
+          }
+        } catch {
+          // Flag off / no access — leave CRM-only active.
+        }
+      }
+
+      if (refreshGen !== machineStateRefreshGen) return;
+
       const { workspaceOpen, combinedRun } = get();
       let nextCombinedRun = combinedRun;
 
-      if (active?.batchNumber) {
+      if (activeCrm?.batchNumber) {
         // Phase 2.2: derive combined run from store — no dual full-queue fetch.
-        if (!combinedRun?.batchNumbers.includes(active.batchNumber)) {
+        if (!combinedRun?.batchNumbers.includes(activeCrm.batchNumber)) {
           nextCombinedRun = null;
         }
       } else if (!workspaceOpen) {
@@ -301,14 +326,14 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
         get().setCombinedRun(nextCombinedRun);
       }
 
-      if (active?.batchNumber) {
+      if (activeCrm?.batchNumber) {
         const { workspaceOpen: wsOpen, workspaceBatch, combinedSelectedBatches, panelOrder: prevOrder } = get();
         const pickedPrimary = combinedSelectedBatches.length > 0
           ? (combinedSelectedBatches.includes(nextCombinedRun?.primaryBatchNumber ?? '')
             ? nextCombinedRun!.primaryBatchNumber
             : combinedSelectedBatches[0])
           : null;
-        const formBatch = pickedPrimary ?? nextCombinedRun?.primaryBatchNumber ?? active.batchNumber;
+        const formBatch = pickedPrimary ?? nextCombinedRun?.primaryBatchNumber ?? activeCrm.batchNumber;
 
         // RACE CONDITION FIX: If we have an active panelOrder with a valid start time,
         // and we are refreshing for the SAME batch, do not trigger a fresh load
@@ -322,7 +347,7 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
           return;
         }
 
-        if (!wsOpen || workspaceBatch === active.batchNumber || workspaceBatch === formBatch) {
+        if (!wsOpen || workspaceBatch === activeCrm.batchNumber || workspaceBatch === formBatch) {
           await get().loadPanelOrder(formBatch);
         }
       } else if (!get().workspaceOpen) {

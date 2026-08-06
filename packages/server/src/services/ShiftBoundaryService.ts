@@ -14,6 +14,7 @@ import {
   parsePlantDateOnly,
   postgresDateOnly,
 } from '@m1/shared-validation';
+import { logger } from '../utils/logger';
 
 // ponytail: handovers are operator-submitted; Tier-1 only fires for forgotten stale sessions.
 
@@ -22,7 +23,7 @@ const AUTO_STUB_REMARKS =
   'System-generated at shift boundary — operator did not submit handover before shift end.';
 
 function logTier1(event: string, payload: Record<string, unknown> = {}): void {
-  console.log(JSON.stringify({ msg: `tier1_${event}`, ...payload }));
+  logger.info(JSON.stringify({ msg: `tier1_${event}`, ...payload }));
 }
 
 function isUniqueViolation(err: unknown): boolean {

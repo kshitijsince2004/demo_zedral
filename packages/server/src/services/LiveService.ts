@@ -3,6 +3,7 @@ import type {
   LiveOrderDetail,
   LiveOrderRow,
   LiveSnapshot,
+  MachineActiveProcessType,
   MachineHeadDashboardData,
   MachineLiveStatus,
   MachineStatusCard,
@@ -17,6 +18,7 @@ import { ProcessRouteService } from './ProcessRouteService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { MachineCrewService } from './MachineCrewService';
+import { ManualRerollService, type OpenManualRerollLiveRow } from './ManualRerollService';
 import { currentPlantDate, formatPlantDate, startOfDateFilter } from '../utils/dateOnly';
 /** Live shopfloor queue — no COMPLETED (those belong in production history). */
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
@@ -71,6 +73,10 @@ function resolveMachineLiveStatus(
     status: string;
     stoppage_category?: string | null;
   } | undefined,
+  /** Open Manual Re-Roll overlay when no CRM production order is active. */
+  openReroll?: { status: string; stoppageCategory?: string | null } | null,
+  /** Open rewinding order on this machine when CRM + re-roll are inactive. */
+  openRwd?: { status: string } | null,
 ): MachineLiveStatus {
   if (masterStatus === 'OFFLINE') {
     return 'OFFLINE';
@@ -96,11 +102,62 @@ function resolveMachineLiveStatus(
   if (event?.event_type === 'RUNNING_STARTED' && activeOrder?.status === 'IN_PROGRESS') {
     return 'RUNNING';
   }
+
+  // CRM inactive — Manual Re-Roll overlay drives live status for MH/PH.
+  if (!fromOrder && openReroll) {
+    if (openReroll.status === 'STOPPAGE') {
+      return openReroll.stoppageCategory === 'BREAKDOWN' ? 'BREAKDOWN' : 'STOPPAGE';
+    }
+    if (openReroll.status === 'IN_PROGRESS') {
+      return 'RUNNING';
+    }
+    // ON_HOLD → IDLE (remarks filled by getMachineCards)
+  }
+
+  // CRM + re-roll inactive — open rewinding order on this mill (e.g. 2HI).
+  if (!fromOrder && !openReroll && openRwd) {
+    if (openRwd.status === 'STOPPAGE') {
+      return 'STOPPAGE';
+    }
+    if (openRwd.status === 'IN_PROGRESS') {
+      return 'RUNNING';
+    }
+  }
+
   if (event?.event_type === 'IDLE_STARTED') {
     return 'IDLE';
   }
 
   return 'IDLE';
+}
+
+/** Map CRM / overlay sources → MH tile process type. Priority: CRM → re-roll → RWD. */
+function resolveActiveProcessType(opts: {
+  crmSubProcess?: string | null;
+  crmBusy: boolean;
+  openRerollStatus?: string | null;
+  openRwdStatus?: string | null;
+}): MachineActiveProcessType | undefined {
+  if (opts.crmBusy && opts.crmSubProcess) {
+    if (opts.crmSubProcess === 'SKIN_PASS') return 'SKIN_PASS';
+    if (opts.crmSubProcess === 'ROLLING') return 'ROLLING';
+    if (opts.crmSubProcess === 'REWINDING' || opts.crmSubProcess === 'RWD') return 'REWINDING';
+  }
+  if (!opts.crmBusy && opts.openRerollStatus) {
+    if (
+      opts.openRerollStatus === 'IN_PROGRESS'
+      || opts.openRerollStatus === 'STOPPAGE'
+      || opts.openRerollStatus === 'ON_HOLD'
+    ) {
+      return 'MANUAL_REROLL';
+    }
+  }
+  if (!opts.crmBusy && opts.openRwdStatus) {
+    if (opts.openRwdStatus === 'IN_PROGRESS' || opts.openRwdStatus === 'STOPPAGE') {
+      return 'REWINDING';
+    }
+  }
+  return undefined;
 }
 
 function resolveStateSinceAt(
@@ -183,7 +240,12 @@ async function formatShiftWindow(shiftCode?: string | null): Promise<string | un
   const fmt = (t: string) => String(t).slice(0, 5);
   return `${shift.name} - ${fmt(String(shift.start_time))} to ${fmt(String(shift.end_time))}`;
 }
-export { resolveMachineLiveStatus, resolveStateSinceAt, statusFromActiveOrder };
+export {
+  resolveMachineLiveStatus,
+  resolveStateSinceAt,
+  statusFromActiveOrder,
+  resolveActiveProcessType,
+};
 
 export class LiveService {
   static async getMachineScope(userId: number, roles: string[]): Promise<string[] | null> {
@@ -409,6 +471,7 @@ export class LiveService {
           'pb.coil_no',
           'pb.customer_name',
           'pb.queue_seq',
+          'pb.sub_process',
           'u.full_name as operator_name',
           'os.category_code as stoppage_category',
           'os.start_at as stoppage_start_at',
@@ -482,6 +545,50 @@ export class LiveService {
       }),
     );
 
+    // 3c. Open Manual Re-Roll overlays (CRM mills) — fill live status when no CRM order
+    const openRerolls = machineCodes.length > 0
+      ? await ManualRerollService.listOpenSessionsForMachines(machineCodes).catch(() => [] as OpenManualRerollLiveRow[])
+      : [];
+    const rerollByMachine = new Map<string, OpenManualRerollLiveRow>();
+    for (const row of openRerolls) {
+      if (!rerollByMachine.has(row.machineCode)) rerollByMachine.set(row.machineCode, row);
+    }
+
+    // 3d. Open rewinding orders (e.g. 2HI) when CRM mill is otherwise idle
+    type OpenRwdLiveRow = {
+      machine_code: string;
+      batch_number: string;
+      coil_no: string | null;
+      status: string;
+      prod_start_at: Date | string | null;
+      shift_code: string | null;
+      operator_name: string | null;
+      ppc_weight_mt: string | number | null;
+    };
+    const openRwdRows: OpenRwdLiveRow[] = machineCodes.length > 0
+      ? await db.selectFrom('txn.rwd_order as ro')
+        .leftJoin('security.app_user as u', 'u.user_id', 'ro.logged_in_user_id')
+        .select([
+          'ro.machine_code',
+          'ro.batch_number',
+          'ro.coil_no',
+          'ro.status',
+          'ro.prod_start_at',
+          'ro.shift_code',
+          'ro.ppc_weight_mt',
+          'u.full_name as operator_name',
+        ])
+        .where('ro.machine_code', 'in', machineCodes)
+        .where('ro.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+        .orderBy('ro.updated_at', 'desc')
+        .execute()
+        .catch(() => [] as OpenRwdLiveRow[])
+      : [];
+    const rwdByMachine = new Map<string, OpenRwdLiveRow>();
+    for (const row of openRwdRows) {
+      if (!rwdByMachine.has(row.machine_code)) rwdByMachine.set(row.machine_code, row);
+    }
+
     // 4. Map to cards
     return machines.map((m): MachineStatusCard => {
       const ev = eventsByMachine.get(m.machine_code);
@@ -491,13 +598,46 @@ export class LiveService {
       const orderStats = activeOrder ?? (ev?.batch_number
         ? orderStatsByBatch.get(ev.batch_number)
         : undefined);
+      const openReroll = rerollByMachine.get(m.machine_code);
+      const openRwd = rwdByMachine.get(m.machine_code);
+      const crmBusy = activeOrder?.status === 'IN_PROGRESS' || activeOrder?.status === 'STOPPAGE';
+      const rerollForResolve = !crmBusy && openReroll
+        ? { status: openReroll.status, stoppageCategory: openReroll.stoppageCategory }
+        : null;
+      const rwdForResolve = !crmBusy && !openReroll && openRwd
+        ? { status: openRwd.status }
+        : null;
 
-      const status = resolveMachineLiveStatus(m.machine_status, ev, activeOrder);
+      const status = resolveMachineLiveStatus(
+        m.machine_status,
+        ev,
+        activeOrder,
+        rerollForResolve,
+        rwdForResolve,
+      );
+
+      const activeProcessType = resolveActiveProcessType({
+        crmSubProcess: activeOrder?.sub_process,
+        crmBusy,
+        openRerollStatus: !crmBusy ? openReroll?.status : null,
+        openRwdStatus: !crmBusy && !openReroll ? openRwd?.status : null,
+      });
 
       const weight = orderStats?.skinpass_weight ?? orderStats?.rolling_weight;
-      const targetMt = Number(orderStats?.ppc_weight_mt ?? 0);
+      const targetMt = Number(orderStats?.ppc_weight_mt ?? openRwd?.ppc_weight_mt ?? 0);
       const actualMt = weight != null ? Number(weight) : 0;
-      const stateSinceDate = resolveStateSinceAt(status, ev, activeOrder);
+      let stateSinceDate = resolveStateSinceAt(status, ev, activeOrder);
+      if (!crmBusy && openReroll) {
+        if (status === 'STOPPAGE' || status === 'BREAKDOWN') {
+          stateSinceDate = openReroll.stoppageStartAt
+            ? new Date(openReroll.stoppageStartAt)
+            : stateSinceDate;
+        } else if (status === 'RUNNING' || (status === 'IDLE' && openReroll.status === 'ON_HOLD')) {
+          stateSinceDate = new Date(openReroll.startTime);
+        }
+      } else if (!crmBusy && !openReroll && openRwd?.prod_start_at && status === 'RUNNING') {
+        stateSinceDate = new Date(openRwd.prod_start_at);
+      }
       const stateSince = stateSinceDate?.toISOString();
 
       let runtimeMin: number | undefined;
@@ -505,30 +645,54 @@ export class LiveService {
         runtimeMin = Math.round((Date.now() - stateSinceDate.getTime()) / 60000);
       }
 
+      const rerollBatchLabel = openReroll
+        ? (openReroll.batchNumbers.length > 1
+          ? openReroll.batchNumbers.join(' · ')
+          : (openReroll.batchNumber ?? openReroll.batchNumbers[0]))
+        : undefined;
+
       const batchNumber = (status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN')
-        ? (activeOrder?.batch_number ?? ev?.batch_number)
+        ? (activeOrder?.batch_number
+          ?? (!crmBusy ? rerollBatchLabel : undefined)
+          ?? (!crmBusy && !openReroll ? openRwd?.batch_number : undefined)
+          ?? ev?.batch_number)
         : undefined;
       const isActive = status === 'RUNNING' || status === 'STOPPAGE' || status === 'BREAKDOWN';
+      const currentCoil = isActive
+        ? (orderStats?.coil_no ?? (!crmBusy && !openReroll ? openRwd?.coil_no ?? undefined : undefined))
+        : undefined;
+      const rerollHoldRemarks = !crmBusy && openReroll?.status === 'ON_HOLD'
+        ? 'Manual re-roll on hold'
+        : undefined;
+      const rerollStopRemarks = !crmBusy && (status === 'STOPPAGE' || status === 'BREAKDOWN') && openReroll
+        ? (openReroll.stoppageRemarks?.trim() || openReroll.stoppageLabel || undefined)
+        : undefined;
 
       return {
         machineCode: m.machine_code,
         machineName: m.name,
         status,
         currentOrder: isActive ? (batchNumber ?? undefined) : undefined,
-        currentCoil: isActive ? (orderStats?.coil_no ?? undefined) : undefined,
+        currentCoil,
         currentOperator: isActive
-          ? (activeOrder?.operator_name ?? ev?.operator_name ?? undefined)
+          ? (activeOrder?.operator_name
+            ?? (!crmBusy ? openReroll?.operatorName : undefined)
+            ?? (!crmBusy && !openReroll ? openRwd?.operator_name ?? undefined : undefined)
+            ?? ev?.operator_name
+            ?? undefined)
           : undefined,
         stateSinceAt: stateSince,
         activeStoppageReason: (status === 'STOPPAGE' || status === 'BREAKDOWN')
-          ? (ev?.stoppage_label ?? activeOrder?.stoppage_label ?? ev?.reason ?? ev?.category_code ?? activeOrder?.stoppage_category ?? undefined)
+          ? (ev?.stoppage_label ?? activeOrder?.stoppage_label ?? openReroll?.stoppageLabel ?? ev?.reason ?? ev?.category_code ?? activeOrder?.stoppage_category ?? openReroll?.stoppageCategory ?? undefined)
           : undefined,
         operatorRemarks: (status === 'STOPPAGE' || status === 'BREAKDOWN' || status === 'RUNNING' || status === 'IDLE')
-          ? pickOperatorRemarks(activeOrder, ev)
+          ? (rerollHoldRemarks ?? rerollStopRemarks ?? pickOperatorRemarks(activeOrder, ev))
           : undefined,
-        lastOrderBatchNumber: status === 'IDLE' ? (ev?.batch_number ?? activeOrder?.batch_number ?? undefined) : undefined,
+        lastOrderBatchNumber: status === 'IDLE'
+          ? (ev?.batch_number ?? activeOrder?.batch_number ?? (!crmBusy && openReroll?.status === 'ON_HOLD' ? rerollBatchLabel : undefined))
+          : undefined,
         lastOperatorName: status === 'IDLE'
-          ? (ev?.operator_name ?? activeOrder?.operator_name ?? undefined)
+          ? (ev?.operator_name ?? activeOrder?.operator_name ?? (!crmBusy ? openReroll?.operatorName : undefined) ?? undefined)
           : undefined,
         runtimeMin,
         productionWeightMt: weight ? Number(weight) : undefined,
@@ -537,8 +701,15 @@ export class LiveService {
         rejectedWeightMt: rejects.weightMt,
         lastUpdateAt: orderStats?.updated_at ? new Date(orderStats.updated_at).toISOString() : undefined,
         processCode: m.process_code ?? undefined,
-        shiftCode: sessionShiftByMachine.get(m.machine_code) ?? ev?.shift_code ?? undefined,
-        activeOrderCount: machineActiveOrders.length > 1 ? machineActiveOrders.length : undefined,
+        shiftCode: sessionShiftByMachine.get(m.machine_code)
+          ?? ev?.shift_code
+          ?? openReroll?.shiftCode
+          ?? openRwd?.shift_code
+          ?? undefined,
+        activeProcessType,
+        activeOrderCount: machineActiveOrders.length > 1
+          ? machineActiveOrders.length
+          : (!crmBusy && openReroll && openReroll.batchNumbers.length > 1 ? openReroll.batchNumbers.length : undefined),
         activeOrders: machineActiveOrders.length > 1
           ? machineActiveOrders.map((o) => ({
             batchNumber: o.batch_number,
@@ -546,8 +717,15 @@ export class LiveService {
             status: o.status,
             customer: o.customer_name ?? undefined,
             weightMt: o.ppc_weight_mt != null ? Number(o.ppc_weight_mt) : undefined,
+            subProcess: o.sub_process ?? undefined,
           }))
-          : undefined,
+          : (!crmBusy && openReroll && openReroll.batchNumbers.length > 1
+            ? openReroll.batchNumbers.map((bn) => ({
+              batchNumber: bn,
+              status: openReroll.status,
+              subProcess: 'MANUAL_REROLL',
+            }))
+            : undefined),
       };
     });
   }

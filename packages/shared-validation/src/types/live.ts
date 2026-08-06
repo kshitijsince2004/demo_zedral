@@ -192,6 +192,9 @@ export interface LiveOrderRow {
   completionPct?: number;
 }
 
+/** Process type currently driving a CRM mill live tile (6HI / 4HI / 2HI). */
+export type MachineActiveProcessType = 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL' | 'REWINDING';
+
 export interface MachineStatusCard {
   machineCode: string;
   machineName: string;
@@ -217,6 +220,8 @@ export interface MachineStatusCard {
   lastUpdateAt?: string;
   processCode?: string;
   shiftCode?: string;
+  /** Rolling / Skin Pass / Re-Rolling / Rewinding — what the mill is running now. */
+  activeProcessType?: MachineActiveProcessType;
   /** When multiple orders run together on one machine (combined run). */
   activeOrderCount?: number;
   activeOrders?: Array<{
@@ -227,6 +232,7 @@ export interface MachineStatusCard {
     status: string;
     customer?: string;
     weightMt?: number;
+    subProcess?: string;
   }>;
 }
 

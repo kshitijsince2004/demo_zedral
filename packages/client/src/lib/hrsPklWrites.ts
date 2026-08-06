@@ -50,6 +50,8 @@ export type PklManualStoppageStatus = {
   } | null;
 };
 
+export type ProcessManualStoppageStatus = PklManualStoppageStatus;
+
 export function fetchPklManualStoppage(): Promise<PklManualStoppageStatus> {
   return apiClient.get('/stations/pkl/manual-stoppage');
 }
@@ -72,4 +74,28 @@ export function patchPklManualStoppage(payload: {
 
 export function endPklManualStoppage(): Promise<PklManualStoppageStatus> {
   return apiClient.post('/stations/pkl/manual-stoppage/end', {});
+}
+
+export function fetchHrsManualStoppage(): Promise<ProcessManualStoppageStatus> {
+  return apiClient.get('/stations/hrs/manual-stoppage');
+}
+
+export function startHrsManualStoppage(payload: {
+  categoryCode: string;
+  breakdownCode?: string;
+  remarks?: string;
+}): Promise<ProcessManualStoppageStatus> {
+  return apiClient.post('/stations/hrs/manual-stoppage/start', payload);
+}
+
+export function patchHrsManualStoppage(payload: {
+  categoryCode: string;
+  breakdownCode?: string;
+  remarks?: string;
+}): Promise<ProcessManualStoppageStatus> {
+  return apiClient.patch('/stations/hrs/manual-stoppage', payload);
+}
+
+export function endHrsManualStoppage(): Promise<ProcessManualStoppageStatus> {
+  return apiClient.post('/stations/hrs/manual-stoppage/end', {});
 }

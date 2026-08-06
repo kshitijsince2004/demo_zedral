@@ -7,6 +7,7 @@ import {
   getAutoBoundaryMode,
   ShiftBoundaryService,
 } from '../services/ShiftBoundaryService';
+import { logger } from '../utils/logger';
 
 const SWEEP_INTERVAL_MS = Number(process.env.SHIFT_STALE_SWEEP_MS ?? 60_000);
 
@@ -18,7 +19,7 @@ export class ShiftBoundaryScheduler {
   static start(): void {
     if (this.timer) return;
     const mode = getAutoBoundaryMode();
-    console.log(
+    logger.info(
       JSON.stringify({
         msg: 'shift_boundary_scheduler_armed',
         intervalMs: SWEEP_INTERVAL_MS,
@@ -41,7 +42,7 @@ export class ShiftBoundaryScheduler {
 
   static async tick(): Promise<number> {
     if (this.running) {
-      console.log(JSON.stringify({ msg: 'shift_boundary_scheduler_skip_overlap' }));
+      logger.info(JSON.stringify({ msg: 'shift_boundary_scheduler_skip_overlap' }));
       return 0;
     }
     this.running = true;
@@ -49,7 +50,7 @@ export class ShiftBoundaryScheduler {
     const mode = getAutoBoundaryMode();
     try {
       const closed = await ShiftBoundaryService.processStaleSessions(mode);
-      console.log(
+      logger.info(
         JSON.stringify({
           msg: 'shift_boundary_scheduler_tick',
           mode,

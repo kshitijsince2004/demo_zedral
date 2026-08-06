@@ -119,7 +119,11 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     planDate: '', shiftCode: 'A',
   });
   const isPkl = processCode === 'PKL';
+  const isHrs = processCode === 'HRS';
   const isRwd = processCode === 'RWD';
+  /** URL status + side-nav Manual — HRS/PKL/RWD (hub Manual Add hidden). */
+  const urlStatusTruth = isPkl || isHrs;
+  const sideNavManualOnly = isPkl || isHrs || isRwd;
   /** Skin Pass–style list + detail for all coil queues (not ANN charge board). */
   const isQueueDesk = config.archetype !== 'B';
   const queueError = swrError
@@ -144,13 +148,13 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   }, [tab, setHubTab]);
 
   // Land on Completed (etc.) after End — All hides COMPLETED by design (6HI-style).
-  // PKL: URL is source of truth (default ALL when query absent).
+  // HRS/PKL: URL is source of truth (default ALL when query absent).
   useEffect(() => {
     const raw = (searchParams.get('status') ?? '').toUpperCase();
     const allowed: QueueStatusFilter[] = isRwd
       ? ['ALL', 'PENDING', 'PREPARING', 'IN_PROGRESS', 'HOLD', 'COMPLETED']
       : ['ALL', 'PENDING', 'IN_PROGRESS', 'HOLD', 'COMPLETED'];
-    if (isPkl) {
+    if (urlStatusTruth) {
       const next = (raw && allowed.includes(raw as QueueStatusFilter)
         ? raw
         : 'ALL') as QueueStatusFilter;
@@ -161,7 +165,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     if (allowed.includes(raw as QueueStatusFilter) && statusFilter !== raw) {
       setStatusFilter(raw as QueueStatusFilter);
     }
-  }, [searchParams, setStatusFilter, statusFilter, isRwd, isPkl]);
+  }, [searchParams, setStatusFilter, statusFilter, isRwd, urlStatusTruth]);
 
   // ANN operators land on the base board first.
   useEffect(() => {
@@ -172,12 +176,12 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
 
   const prevManualToken = useRef(0);
   useEffect(() => {
-    if (processCode !== 'PKL' && processCode !== 'RWD') return;
+    if (!sideNavManualOnly) return;
     if (manualModalToken > prevManualToken.current) {
       setManualOpen(true);
     }
     prevManualToken.current = manualModalToken;
-  }, [manualModalToken, processCode]);
+  }, [manualModalToken, sideNavManualOnly]);
 
   function closeManualModal() {
     setManualOpen(false);
@@ -341,6 +345,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       motherCoilNo: card.motherCoilNo,
       slitId: card.slitId,
       combination: card.combination,
+      ...(card.routeRaw ? { routeRaw: card.routeRaw } : {}),
     });
     navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
   }
@@ -579,8 +584,8 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
             <ZButton type="button" variant="secondary" onClick={() => void refresh()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </ZButton>
-            {/* ponytail: PKL/RWD Manual is side-nav only */}
-            {!isPkl && !isRwd && (
+            {/* ponytail: HRS/PKL/RWD Manual is side-nav only */}
+            {!sideNavManualOnly && (
               <ZButton type="button" onClick={() => setManualOpen(true)}>Manual Add</ZButton>
             )}
           </div>

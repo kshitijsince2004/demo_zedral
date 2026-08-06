@@ -2,7 +2,15 @@ import * as XLSX from 'xlsx';
 import { translatePpcRoute } from './PpcRouteTranslator';
 import { currentPlantDate, formatDateOnly, formatPlantDate } from './dateOnly';
 
-export type PpcXlsxSheetType = 'ROLLING' | 'SKIN_PASS' | 'REWINDING' | 'ANNEALING' | 'CTL' | 'PICKLING';
+export type PpcXlsxSheetType =
+  | 'ROLLING'
+  | 'SKIN_PASS'
+  | 'REWINDING'
+  | 'ANNEALING'
+  | 'CTL'
+  | 'PICKLING'
+  | 'HRS'
+  | 'PKL';
 export type PpcMillCode = '6HI' | '4HI' | '2HI';
 
 export interface RollingPassPlanInput {
@@ -55,6 +63,8 @@ export interface ParsedRollingPlanRow {
   packingType?: string;
   lengthTolNegMm?: number;
   lengthTolPosMm?: number;
+  /** Line-plan extras (recipe, RM dims, combos) — lands in raw_row_json. */
+  rawExtras?: Record<string, unknown>;
   rollingPassPlans: RollingPassPlanInput[];
   errors: string[];
 }
@@ -71,6 +81,9 @@ const SHEET_NAME_PATTERNS: Record<PpcXlsxSheetType, RegExp[]> = {
   ANNEALING: [/anneal/i, /\bann\b/i],
   CTL: [/cut\s*to\s*length/i, /\bctl\b/i, /^sheet\s*1$/i],
   PICKLING: [/pickl/i, /\bpkl\b/i, /picking/i, /pkl\s*sheet/i],
+  // Line-scoped parsers read the first sheet; patterns kept for resolveWorkbookSheetName callers.
+  HRS: [/\bhrs\b/i, /^sheet\s*1$/i],
+  PKL: [/pickl/i, /\bpkl\b/i, /picking/i, /pkl\s*sheet/i, /^sheet\s*1$/i],
 };
 
 const HEADER_MAP: Record<string, string> = {
@@ -178,7 +191,7 @@ export function resolveWorkbookSheetName(sheetNames: string[], sheetType: PpcXls
     const hit = sheetNames.find((n) => pattern.test(n.trim()));
     if (hit) return hit;
   }
-  // PICKLING must not fall back to the first sheet — reject non-pickling workbooks.
+  // Legacy PICKLING tab-name path must not fall back — line-scoped PKL uses its own parser.
   if (sheetType === 'PICKLING') return '';
   return sheetNames[0] ?? '';
 }

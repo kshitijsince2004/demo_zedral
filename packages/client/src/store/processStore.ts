@@ -16,6 +16,7 @@ import type { z } from 'zod';
 
 const CAPTURE_SCHEMA_BY_ENDPOINT: Record<string, z.ZodTypeAny> = {
   '/production/hrs': hrsSchema,
+  '/production/hrs/draft': hrsSchema,
   '/production/pkl': pklSchema,
   '/production/pkl/draft': pklSchema,
   '/production/ann': annSchema,
@@ -134,6 +135,7 @@ export function mapQueue(code: ProcessStationCode, raw: unknown): ProcessQueueCa
         orderLines: c.orderLines as ProcessQueueCard['orderLines'],
         lineCount: c.lineCount != null ? Number(c.lineCount) : undefined,
         combination: c.combination != null ? String(c.combination) : undefined,
+        routeRaw: c.routeRaw != null ? String(c.routeRaw) : undefined,
       };
     });
   }
@@ -631,11 +633,15 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
   loadQueue: async () => get().loadQueueFor(get().processCode),
 
   loadQueueFor: async (code) => {
-    const data = await apiClient.get(processQueueUrl(code));
-    const queue = mapQueue(code, data);
-    // Always pin processCode — jsonEqual short-circuit must not leave a stale line.
-    set((s) => (jsonEqual(s.queue, queue) ? { processCode: code } : { queue, processCode: code }));
-    return queue;
+    try {
+      const data = await apiClient.get(processQueueUrl(code));
+      const queue = mapQueue(code, data);
+      // Always pin processCode — jsonEqual short-circuit must not leave a stale line.
+      set((s) => (jsonEqual(s.queue, queue) ? { processCode: code } : { queue, processCode: code }));
+      return queue;
+    } catch {
+      return get().queue;
+    }
   },
 
   loadPrefill: async (coilNo) => {

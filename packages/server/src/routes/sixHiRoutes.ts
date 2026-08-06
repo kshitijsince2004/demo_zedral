@@ -190,7 +190,8 @@ router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole(
       : sheetTypeRaw === 'REWINDING' ? 'REWINDING'
       : sheetTypeRaw === 'ANNEALING' ? 'ANNEALING'
       : sheetTypeRaw === 'CTL' ? 'CTL'
-      : sheetTypeRaw === 'PICKLING' ? 'PICKLING'
+      : sheetTypeRaw === 'HRS' ? 'HRS'
+      : sheetTypeRaw === 'PKL' || sheetTypeRaw === 'PICKLING' ? 'PKL'
       : 'ROLLING';
     const result = await PPCImportService.previewRollingXlsx(
       req.file.buffer,
@@ -809,6 +810,9 @@ router.post('/orders/start-combined', requireSixHi('WRITE'), async (req, res) =>
         activeBatchNumber: msg.split(':')[1],
       });
     }
+    if (msg === 'ACTIVE_REROLL_CONFLICT') {
+      return res.status(409).json({ error: 'Finish the active Manual Re-Roll session before starting production' });
+    }
     res.status(400).json({ error: msg });
   }
 });
@@ -830,6 +834,9 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
         activeBatchNumber: msg.split(':')[1],
         machineCode: mc,
       });
+    }
+    if (msg === 'ACTIVE_REROLL_CONFLICT') {
+      return res.status(409).json({ error: 'Finish the active Manual Re-Roll session before starting production' });
     }
     res.status(400).json({ error: msg });
   }

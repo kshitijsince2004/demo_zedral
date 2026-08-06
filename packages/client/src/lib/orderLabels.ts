@@ -22,8 +22,39 @@ export function formatOrderStatusLabel(status: string): string {
   }
 }
 
-export function formatProcessFilterLabel(process: 'ALL' | 'ROLLING' | 'SKIN_PASS'): string {
-  if (process === 'ROLLING') return 'Cold Rolling';
+export function formatProcessFilterLabel(
+  process: 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL',
+): string {
+  if (process === 'ROLLING') return 'Rolling';
   if (process === 'SKIN_PASS') return 'Skin Pass';
+  if (process === 'MANUAL_REROLL') return 'Manual Re-Rolling';
   return 'All Processes';
+}
+
+/** MH live tile / Orders column — process currently running on CRM mills. */
+export function formatActiveProcessType(
+  type?: 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL' | 'REWINDING' | string | null,
+): string | undefined {
+  if (!type) return undefined;
+  switch (type) {
+    case 'ROLLING':
+      return 'Rolling';
+    case 'SKIN_PASS':
+      return 'Skin Pass';
+    case 'MANUAL_REROLL':
+      return 'Re-Rolling';
+    case 'REWINDING':
+    case 'RWD':
+      return 'Rewinding';
+    default:
+      return undefined;
+  }
+}
+
+/** Orders table Process cell for CRM MH queue rows. */
+export function formatOrderProcessLabel(
+  subProcess?: string | null,
+  fallback?: string | null,
+): string {
+  return formatActiveProcessType(subProcess) ?? fallback ?? '—';
 }

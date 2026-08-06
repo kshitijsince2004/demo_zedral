@@ -25,6 +25,7 @@ import { apiClient } from '../../lib/apiClient';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessStore, type ProcessQueueCard } from '../../store/processStore';
 import { useShiftStore } from '../../store/shiftStore';
+import { AnnBaseAssignModal } from '../../components/process/bodies/AnnBaseAssignModal';
 
 type Stage = {
   stage_id: string;
@@ -142,12 +143,18 @@ function formatReadingTime(iso: string) {
   });
 }
 
-function formatElapsed(iso: string | null | undefined, nowMs: number): string {
-  if (!iso) return '—';
-  const min = Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 60_000));
+function formatDurationMin(raw: number | string | null | undefined): string {
+  if (raw == null || raw === '') return '—';
+  const min = Math.max(0, Math.floor(Number(raw)));
+  if (!Number.isFinite(min)) return '—';
   const h = Math.floor(min / 60);
   const m = min % 60;
   return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+function formatElapsed(iso: string | null | undefined, nowMs: number): string {
+  if (!iso) return '—';
+  return formatDurationMin(Math.floor((nowMs - new Date(iso).getTime()) / 60_000));
 }
 
 function MetaInline({ label, value, onPrimary }: { label: string; value: string; onPrimary?: boolean }) {
@@ -447,6 +454,8 @@ export function AnnChargePage() {
   const [stopCategory, setStopCategory] = useState('');
   const [stopReason, setStopReason] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const remarksRef = useRef<HTMLTextAreaElement | null>(null);
 
   async function reload() {
@@ -492,10 +501,26 @@ export function AnnChargePage() {
 
   async function advanceStage() {
     setBusy(true);
+    setActionError(null);
     try {
       const r = await apiClient.post<{ done?: boolean }>('/stations/ann/charges', { action: 'advance-stage', chargeNo });
       await reload();
       if (r.done) navigate(`${basePath}?tab=charges`);
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Advance failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startCharge() {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiClient.post(`/stations/ann/charges/${encodeURIComponent(chargeNo)}/start`);
+      await reload();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Start failed');
     } finally {
       setBusy(false);
     }
@@ -579,7 +604,9 @@ export function AnnChargePage() {
     remarksRef.current?.focus();
   }
 
-  const pendingCoils = queue.filter((c: ProcessQueueCard) => c.status === 'PENDING');
+  const pendingCoils = queue.filter((c: ProcessQueueCard) =>
+    c.status === 'PENDING' || c.status === 'PREPARING' || c.status === 'IN_PROGRESS',
+  );
   const active = detail?.stages.find((s) => s.start_at && !s.end_at && !s.skipped);
   const nextStage = useMemo(() => {
     if (!detail || !active) return null;
@@ -588,6 +615,8 @@ export function AnnChargePage() {
   const last = detail?.readings[0] ?? null;
   const charge = detail?.charge;
   const batchLabel = String(charge?.annealing_batch_no ?? chargeNo);
+  const needsBase = !charge?.base_no;
+  const isPreparing = charge?.status === 'PREPARING' || needsBase;
   const currentTemp = last?.charge_temp ?? (reading.chargeTemp || '—');
   const stageStart = active?.start_at ? formatReadingTime(active.start_at) : '—';
   const stageElapsed = formatElapsed(active?.start_at, nowMs);
@@ -673,11 +702,13 @@ export function AnnChargePage() {
           <div className="border-t border-white/15 bg-primary/95 px-3 pt-3.5 pb-3 md:px-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
               <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
-                <MetaInline onPrimary label="Base" value={String(charge?.base_no ?? '—')} />
+                <MetaInline onPrimary label="Base" value={String(charge?.base_no ?? 'unassigned')} />
                 <MetaInline onPrimary label="Charge" value={chargeNo} />
+                <MetaInline onPrimary label="Status" value={isPreparing ? 'Preparing' : String(charge?.status ?? '—')} />
                 <MetaInline onPrimary label="Stage" value={humanizeStage(String(charge?.current_stage_code ?? '—'))} />
                 <MetaInline onPrimary label="Start" value={stageStart} />
                 <MetaInline onPrimary label="Elapsed" value={stageElapsed} />
+                <MetaInline onPrimary label="Anneal time" value={formatDurationMin(charge?.total_active_min as number | string | null)} />
                 <MetaInline onPrimary label="Temp" value={`${currentTemp}${currentTemp !== '—' ? ' °C' : ''}`} />
                 <MetaInline onPrimary label="Shift" value={shiftCode ? String(shiftCode) : '—'} />
               </div>
@@ -776,8 +807,19 @@ export function AnnChargePage() {
             <h2 className="mb-2.5 shrink-0 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Operator action center</h2>
 
             <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain">
+              {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+              {needsBase && (
+                <ZButton type="button" variant="primary" fullWidth disabled={busy} onClick={() => setAssignOpen(true)}>
+                  Assign Base
+                </ZButton>
+              )}
+              {isPreparing && !needsBase && (
+                <ZButton type="button" variant="primary" fullWidth disabled={busy} onClick={() => void startCharge()}>
+                  Start / In Progress
+                </ZButton>
+              )}
               <SwipeAdvance
-                disabled={busy || !active || charge?.status === 'DONE'}
+                disabled={busy || isPreparing || !active || charge?.status === 'DONE'}
                 nextLabel={nextLabel}
                 onAdvance={advanceStage}
               />
@@ -1011,6 +1053,17 @@ export function AnnChargePage() {
           ))}
         </ul>
       </ZDrawer>
+      <AnnBaseAssignModal
+        open={assignOpen}
+        chargeNo={chargeNo}
+        title="Assign base"
+        confirmLabel="Assign Base"
+        onClose={() => setAssignOpen(false)}
+        onAssigned={async (baseNo) => {
+          await apiClient.post(`/stations/ann/charges/${encodeURIComponent(chargeNo)}/assign-base`, { baseNo });
+          await reload();
+        }}
+      />
     </div>
   );
 }

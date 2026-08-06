@@ -27,6 +27,9 @@ import {
 import { useAuthStore } from '../../lib/authStore';
 import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore } from '../../store/sixHiStore';
+import { useManualRerollEntry } from '../../hooks/useTenantFlag';
+import { showManualRerollEnterButton, withManualRerollTab } from '../../lib/manualRerollUi';
+import { ManualRerollHub } from '../../components/sixHi/manualReroll/ManualRerollHub';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZPageHeader } from '../../components/ui/operator/ZPageHeader';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
@@ -103,6 +106,8 @@ function matchesSearch(card: SixHiQueueCard, q: string): boolean {
 export function SixHiHub() {
   const [searchParams] = useSearchParams();
   const { machineCode: pathMachine } = useWorkspaceBase();
+  const { showEntry } = useManualRerollEntry(pathMachine);
+  if (showEntry && searchParams.get('tab') === 'reroll') return <ManualRerollHub />;
   const activeTab = normalizeMillTab(pathMachine, searchParams.get('tab'));
   // Rewinding is a separate pipeline (prod_rwd) — never feed it through SixHi getQueue.
   if (activeTab === 'rewinding') return <TwoHiRewindingHub />;
@@ -123,7 +128,8 @@ function SixHiCrmHub() {
   const logout = useAuthStore((s) => s.logout);
 
   const activeTab = normalizeMillTab(pathMachine, searchParams.get('tab'));
-  const tabs = hubTabsForMill(pathMachine);
+  const { showEntry: showRerollTab } = useManualRerollEntry(pathMachine);
+  const tabs = withManualRerollTab(hubTabsForMill(pathMachine), showRerollTab);
   const statusFilter = (searchParams.get('status')?.toUpperCase() as StatusFilter) || 'ALL';
   const apiSubProcess = activeTab === 'rolling' ? 'ROLLING' : 'SKIN_PASS';
   const subProcessLabel = activeTab === 'rolling' ? 'Rolling' : 'Skin Pass';
@@ -677,6 +683,16 @@ function SixHiCrmHub() {
             </button>
 
             <div className="hidden sm:block h-6 w-px bg-border mx-1" />
+
+            {showManualRerollEnterButton(showRerollTab, pathMachine, activeTab) && (
+              <button
+                type="button"
+                onClick={() => setTab('reroll')}
+                className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Manual Re-Roll
+              </button>
+            )}
 
             <SixHiPillTabs tabs={tabs} activeId={activeTab} onChange={setTab} />
           </div>

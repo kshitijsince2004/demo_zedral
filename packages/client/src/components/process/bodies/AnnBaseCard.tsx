@@ -41,6 +41,7 @@ const PROGRESS_FILL: Record<AnnBoardCardStatus, string> = {
 export function boardCardStatus(row: AnnBoardRow): AnnBoardCardStatus {
   if (!row.charge) return 'IDLE';
   if (row.charge.status === 'DONE') return 'COMPLETE';
+  if (row.charge.status === 'PREPARING') return 'IDLE';
   if (row.has_open_stoppage) return 'WARNING';
   return 'RUNNING';
 }

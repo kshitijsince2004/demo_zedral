@@ -6,6 +6,7 @@ import { ZButton } from '../../../components/primitives/ZButton';
 import { ZBadge } from '../../../components/primitives/ZBadge';
 import { apiClient } from '../../../lib/apiClient';
 import type { Tone } from '../../../lib/tones';
+import { AnnBaseAssignModal } from '../../../components/process/bodies/AnnBaseAssignModal';
 
 type Stage = { stage_code: string; seq: number; start_at: string | null; end_at: string | null; skipped: boolean };
 type Reading = {
@@ -170,6 +171,8 @@ export function AnnMhChargeDetailPage() {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
+  const [editBaseOpen, setEditBaseOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const d = await apiClient.get<typeof detail>(`/stations/ann/charges/${encodeURIComponent(chargeNo)}`);
@@ -195,10 +198,18 @@ export function AnnMhChargeDetailPage() {
 
   const stagesSorted = useMemo(() => [...(detail?.stages ?? [])].sort((a, b) => a.seq - b.seq), [detail]);
   const openStoppage = (detail?.stoppages ?? []).find((s) => !s.end_at);
+  const needsBase = !charge?.base_no;
+  const isPreparing = charge?.status === 'PREPARING' || needsBase;
   const statusLabel =
-    charge?.status === 'DONE' ? 'COMPLETE' : openStoppage ? 'STOPPAGE' : String(charge?.status ?? 'RUNNING');
+    charge?.status === 'DONE' ? 'COMPLETE'
+      : isPreparing ? 'PREPARING'
+      : openStoppage ? 'STOPPAGE'
+      : String(charge?.status ?? 'RUNNING');
   const statusTone: Tone =
-    statusLabel === 'COMPLETE' ? 'info' : statusLabel === 'STOPPAGE' ? 'warning' : statusLabel === 'PENDING' ? 'accent' : 'success';
+    statusLabel === 'COMPLETE' ? 'info'
+      : statusLabel === 'STOPPAGE' ? 'warning'
+      : statusLabel === 'PREPARING' || statusLabel === 'PENDING' ? 'accent'
+      : 'success';
 
   return (
     <MachineHeadShell
@@ -274,7 +285,31 @@ export function AnnMhChargeDetailPage() {
                 </p>
               </div>
             )}
-            <SwipeAdvance disabled={busy || charge?.status === 'DONE' || !active} nextLabel={nextLabel} onAdvance={advanceStage} />
+            {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+            {charge?.status !== 'DONE' && (
+              <ZButton type="button" variant="secondary" fullWidth disabled={busy} onClick={() => setEditBaseOpen(true)}>
+                {needsBase ? 'Assign Base' : 'Edit Base'}
+              </ZButton>
+            )}
+            {isPreparing && !needsBase && (
+              <ZButton
+                type="button"
+                variant="primary"
+                fullWidth
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  setActionError(null);
+                  void apiClient.post(`/stations/ann/charges/${encodeURIComponent(chargeNo)}/start`)
+                    .then(() => reload())
+                    .catch((e: unknown) => setActionError(e instanceof Error ? e.message : 'Start failed'))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Start / In Progress
+              </ZButton>
+            )}
+            <SwipeAdvance disabled={busy || isPreparing || charge?.status === 'DONE' || !active} nextLabel={nextLabel} onAdvance={advanceStage} />
           </section>
 
           <div className="space-y-3">
@@ -347,6 +382,21 @@ export function AnnMhChargeDetailPage() {
           </div>
         </div>
       )}
+      <AnnBaseAssignModal
+        open={editBaseOpen}
+        chargeNo={chargeNo}
+        title={needsBase ? 'Assign base' : 'Edit base'}
+        confirmLabel={needsBase ? 'Assign Base' : 'Save base'}
+        onClose={() => setEditBaseOpen(false)}
+        onAssigned={async (baseNo) => {
+          if (needsBase) {
+            await apiClient.post(`/stations/ann/charges/${encodeURIComponent(chargeNo)}/assign-base`, { baseNo });
+          } else {
+            await apiClient.put(`/stations/ann/charges/${encodeURIComponent(chargeNo)}/base`, { baseNo });
+          }
+          await reload();
+        }}
+      />
     </MachineHeadShell>
   );
 }

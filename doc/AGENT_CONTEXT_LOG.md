@@ -1341,192 +1341,577 @@ ewindingOrderLifecycle.test.ts
 - **Decisions / skipped:** App code was correct; migration had not been applied yet.
 - **Follow-ups:** Retry Admin ? Master Data ? Stoppage Codes edit/save.
 
-### 2026-08-04 — Fix ANN 500s + annealing PPC finishThk
+### 2026-08-04 ? Fix ANN 500s + annealing PPC finishThk
 
 - **Goal:** Unblock ANN board/bases/spec-limits (missing `master.ann_base` / `ann_spec_limit`) and ANN PPC preview (`finishThkMm` not required).
 - **Touched:** `packages/server/src/utils/rollingPlanXlsxParser.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/tests/rollingPlanXlsxParser.test.ts`; applied `1947000000000_ann_stages_readings_masters` + `19480000000000_ann_stoppage_delay_bucket` DDL on local DB (stamped in `pgmigrations`).
-- **Decisions / skipped:** Did not run full `npm run migrate` — blocked by `1933000000000_quality_spec_sheet` preceding already-run `1933000000000_reintroduce_supervisor_role`. Shift-log 404 left as-is (no active ANN shift log).
-- **Follow-ups:** Repair migrate order (rename/stamp quality_spec_sheet) so backlog 1940–1958 can apply cleanly; restart server if hot-reload missed parser change.
-### 2026-08-04 — ANN PPC preview + shift-log + ANNE xlsx
+- **Decisions / skipped:** Did not run full `npm run migrate` ? blocked by `1933000000000_quality_spec_sheet` preceding already-run `1933000000000_reintroduce_supervisor_role`. Shift-log 404 left as-is (no active ANN shift log).
+- **Follow-ups:** Repair migrate order (rename/stamp quality_spec_sheet) so backlog 1940?1958 can apply cleanly; restart server if hot-reload missed parser change.
+### 2026-08-04 ? ANN PPC preview + shift-log + ANNE xlsx
 
 - **Goal:** Fix ANN `/shift-logs/active` 404, PPC preview 500 (`txn.hrs_order`), align parser to `ANNE 21.07.2026.XLSX`.
 - **Touched:** `PPCImportService.ts` (process-scoped coil safety), `shiftLogRoutes.ts` (auto-ensure for all lines), `rollingPlanXlsxParser.ts` (ANN finish/width combo/aliases), `rollingPlanXlsxParser.test.ts`; DB: created `txn.hrs_order`/`pkl_order`/`rwd_order`, stamped 1953/1954/1956.
-- **Decisions / skipped:** Stoppage `order_kind` / `*_order_id` alters not applied (local `txn.stoppage` schema behind). Width combo `Σ(w×n)` for ANN plans.
-- **Follow-ups:** Full migrate-order repair still needed for 1940–1958 backlog; add stoppage discriminator cols when HRS/PKL stoppages are used.
-### 2026-08-04 — Migrate backlog + stoppage discriminator repair
+- **Decisions / skipped:** Stoppage `order_kind` / `*_order_id` alters not applied (local `txn.stoppage` schema behind). Width combo `?(w?n)` for ANN plans.
+- **Follow-ups:** Full migrate-order repair still needed for 1940?1958 backlog; add stoppage discriminator cols when HRS/PKL stoppages are used.
+### 2026-08-04 ? Migrate backlog + stoppage discriminator repair
 
-- **Goal:** Apply stoppage `order_kind` / `hrs|pkl|rwd_order_id` and clear 1940–1958 migrate backlog.
-- **Touched:** renamed `193301_quality_spec_sheet`, `193401_process_sheet`; normalized 14-digit migs → 13-digit (`1948`–`1958`); `repair-migration-history.mjs` (run_on realign); `scripts/gen-qss-migration.cjs`; local DB catch-up via `node-pg-migrate --check-order false` then run_on rewrite.
+- **Goal:** Apply stoppage `order_kind` / `hrs|pkl|rwd_order_id` and clear 1940?1958 migrate backlog.
+- **Touched:** renamed `193301_quality_spec_sheet`, `193401_process_sheet`; normalized 14-digit migs ? 13-digit (`1948`?`1958`); `repair-migration-history.mjs` (run_on realign); `scripts/gen-qss-migration.cjs`; local DB catch-up via `node-pg-migrate --check-order false` then run_on rewrite.
 - **Decisions / skipped:** Kept `checkOrder` on by default; history `run_on` rewritten so name order matches.
 - **Follow-ups:** none for migrate; `npm run migrate` now reports No migrations to run.
-### 2026-08-04 — ANN seed data (board + batching queue)
+### 2026-08-04 ? ANN seed data (board + batching queue)
 
 - **Goal:** Populate annealing demo data from imported PPC queue.
 - **Touched:** `packages/server/scripts/seed-process-queues.mjs` (`--ann-only` / `seedAnnOnly`), `package.json` (`seed:ann`), `seed-login-profiles.mjs`.
 - **Decisions / skipped:** Reused existing seed script (UTF-8 safe on Windows); picks first 5 PPC coils for 2 charges on AB16/AB01; resets remaining queue to PENDING for batching page.
 - **Run:** `npm run seed:ann -- --date=2026-08-04 --shift=A`
 
-### 2026-08-04 — Polish ANN MH charge profile UI
+### 2026-08-04 ? Polish ANN MH charge profile UI
 
 - **Goal:** Improve readability and visual hierarchy for ANN machine-head charge profile.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhChargeDetailPage.tsx`
 - **Decisions / skipped:** Kept all API calls and state logic unchanged; only presentation (skeleton loading, selected-stage highlight, operator readings layout, swipe motion smoothing).
 - **Follow-ups:** If desired, apply the same visual patterns to other `AnnMh*` ANN machine-head screens.
 
-### 2026-08-04 — Fix ANN Batching Stack column height
+### 2026-08-04 ? Fix ANN Batching Stack column height
 
-- **Goal:** Prevent the “Stack” (middle) panel from stretching to match “Incoming orders”; make each column size/scroll independently.
+- **Goal:** Prevent the ?Stack? (middle) panel from stretching to match ?Incoming orders?; make each column size/scroll independently.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhBatchingPage.tsx`
 - **Decisions / skipped:** Presentation-only layout refactor (grid alignment + max-height caps + independent vertical overflow); no changes to state, drag/order actions, or API calls.
 - **Follow-ups:** Verify on mobile/tablet that each panel scrolls independently and the Stack grows/shrinks with its own content.
-### 2026-08-04 — Seed extra ANN Trends readings
+### 2026-08-04 ? Seed extra ANN Trends readings
 
 - **Goal:** Make ANN Trends charts show more than 5 points per base.
-- **Touched:** DB only (	xn.ann_charge_reading) — inserted extra 5 readings per seeded ANN charge.
+- **Touched:** DB only (	xn.ann_charge_reading) ? inserted extra 5 readings per seeded ANN charge.
 - **Decisions / skipped:** Only added for charges with nn_charge_reading count = 5 to avoid duplicates.
 - **Follow-ups:** If user wants this for all imported charges automatically, we can adjust seed-process-queues.mjs threshold logic.
-### 2026-08-04 — Fix ANN Trends datetime-local filtering
+### 2026-08-04 ? Fix ANN Trends datetime-local filtering
 
 - **Goal:** Make ANN Trends charts show seeded readings (fix UTC/datetime-local mismatch).
 - **Touched:** packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx
 - **Decisions / skipped:** Keep server/data as-is; fix client time-window initialization only.
 - **Follow-ups:** If charts still empty, verify /stations/ann/charges/:chargeNo response contains expected numeric fields.
 
-### 2026-08-04 — Locate ANN MH analytics dashboard charts
+### 2026-08-04 ? Locate ANN MH analytics dashboard charts
 
 - **Goal:** Identify Annealing MH analytics dashboard entry point(s) and chart composition.
 - **Touched:** `packages/client/src/App.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhLiveDashboard.tsx`, `packages/client/src/components/layout/machinehead/MachineHeadShell.tsx`, `packages/client/src/components/process/bodies/AnnBaseCard.tsx`
 - **Decisions / skipped:** Only `AnnMhTrendsPage` uses `recharts`; live dashboard uses `AnnBaseCard` grid (no charts).
 - **Follow-ups:** N/A.
 
-### 2026-08-04 — Add ANN MH REPORT + XLSX export
+### 2026-08-04 ? Add ANN MH REPORT + XLSX export
 
 - **Goal:** Ship ANN-only `REPORT` page (filters + charts + table) and wire it to server-side `ANN_CHARGE_REPORT` XLSX export.
 - **Touched:** `packages/client/src/components/layout/machinehead/MachineHeadNav.tsx`, `packages/client/src/App.tsx`, `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`, `packages/client/src/lib/annReportUtils.ts`, `packages/client/src/lib/reportingService.ts`, `packages/server/src/export/types/index.ts`, `packages/server/src/export/definitions/index.ts`, `packages/server/src/export/auth/exportAuthz.ts`, `packages/server/src/export/jobs/ExportJobService.ts`, `packages/server/src/export/definitions/AnnChargeReport.ts`, `packages/server/src/export/render/AnnChargeReportWorkbookBuilder.ts`.
 - **Decisions / skipped:** Kept export rendering server-side via ExcelJS workbook builder (no embedded chart objects in XLSX); export filters are applied server-side using optional `dateFrom/dateTo` scope fields.
 - **Follow-ups:** Run a quick end-to-end browser check for ANN REPORT -> Generate -> Export (.xlsx) across typical time windows and large reading sets.
 
-### 2026-08-04 — Fix ANN report route import
+### 2026-08-04 ? Fix ANN report route import
 
 - **Goal:** Resolve frontend crash on `/machine-head/ann/report` caused by an undefined route component.
 - **Touched:** `packages/client/src/App.tsx`
 - **Decisions / skipped:** Added the missing `AnnMhReportPage` import only; left route structure and page implementation unchanged.
 - **Follow-ups:** Reopen the ANN report route in the browser and confirm the page renders past `AppRoutes`.
 
-### 2026-08-04 — Normalize ANN report page encoding
+### 2026-08-04 ? Normalize ANN report page encoding
 
 - **Goal:** Fix Vite parse failure on `AnnMhReportPage.tsx` caused by the file being saved as UTF-16 LE and treated as binary.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
 - **Decisions / skipped:** Re-encoded the existing file content to UTF-8 without changing the page logic.
 - **Follow-ups:** Reload `/machine-head/ann/report` and verify Vite recompiles the page cleanly.
 
-### 2026-08-04 — Audit and normalize UTF-16 source files
+### 2026-08-04 ? Audit and normalize UTF-16 source files
 
 - **Goal:** Eliminate repeated Vite "file appears to be binary" parse failures by auditing text-source encoding and converting affected files to UTF-8.
 - **Touched:** `packages/client/src/lib/annReportUtils.ts`, `packages/client/docs/OFFLINE_WRITES.md`, `packages/server/scripts/write-process-station-service.js`
 - **Decisions / skipped:** Converted every UTF-16/NUL-corrupted text file found by the repo scan; no logic changes were made during re-encoding.
 - **Follow-ups:** If another parse overlay appears, rescan the newly added files first because the current repo-wide audit returned zero remaining UTF-16/NUL source files.
 
-### 2026-08-04 — Fix ANN report export callback order
+### 2026-08-04 ? Fix ANN report export callback order
 
 - **Goal:** Resolve `Cannot access 'reportComputed' before initialization` in `AnnMhReportPage`.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
 - **Decisions / skipped:** Moved `handleExport` below the `reportComputed` `useMemo` so its dependency array no longer reads a not-yet-initialized binding; kept export behavior unchanged.
 - **Follow-ups:** Reload the ANN report page and verify both initial render and XLSX export action work.
-### 2026-08-04 — Deduplicate ANN REPORT screen content
+### 2026-08-04 ? Deduplicate ANN REPORT screen content
 
 - **Goal:** Remove repeated data on ANN MH REPORT, especially stage/cycle timeline shown twice.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhReportPage.tsx`
 - **Decisions / skipped:** Kept a single Cycle Timeline panel; dropped Live Dashboard stage/stoppage/readings lists, duplicate Charge/Gas temp charts, overlapping summary/KPI fields, and Process Duration peak/avg/min KPIs already shown above.
 - **Follow-ups:** Spot-check generated report layout in browser for remaining visual redundancy.
 
-### 2026-08-04 — Allow ANN_CHARGE_REPORT in export_job check
+### 2026-08-04 ? Allow ANN_CHARGE_REPORT in export_job check
 
 - **Goal:** Fix report export insert failing on `export_job_export_type_check`.
 - **Touched:** `packages/server/migrations/1959000000000_export_ann_charge_report_type.js`
 - **Decisions / skipped:** Extended the existing CHECK constraint to include `ANN_CHARGE_REPORT`; no app-code changes required beyond the already-wired export type.
 - **Follow-ups:** Retry ANN REPORT Export in the browser.
 
-### 2026-08-04 — Drop stale export_job_type_check
+### 2026-08-04 ? Drop stale export_job_type_check
 
 - **Goal:** Fix remaining 400 on ANN report export caused by duplicate constraint `export_job_type_check`.
 - **Touched:** `packages/server/migrations/1960000000000_drop_stale_export_job_type_check.js`
 - **Decisions / skipped:** Dropped the stale constraint; kept canonical `export_job_export_type_check` which already includes `ANN_CHARGE_REPORT`.
 - **Follow-ups:** Retry ANN REPORT Export once more.
 
-### 2026-08-04 — Redesign ANN MH Trends dashboard UI
+### 2026-08-04 ? Redesign ANN MH Trends dashboard UI
 
 - **Goal:** Premium industrial analytics UI for ANN Machine Head Trends without changing data/API/filter logic.
 - **Touched:** `packages/client/src/pages/machinehead/ann/AnnMhTrendsPage.tsx`
 - **Decisions / skipped:** Kept Recharts + `load`/`chartData`/search/base/date filters intact; UI-only sticky toolbar, metric cards (live value + relative time), custom tooltip/legend, skeletons, empty state, placeholder card actions.
 - **Follow-ups:** Visual smoke on `/machine-head/ann/trends` (filters, legend toggle, loading/empty).
 
-### 2026-08-04 — ANN Trends: drop card icons + pill UI
+### 2026-08-04 ? ANN Trends: drop card icons + pill UI
 
 - **Goal:** Remove unused chart action icons; modernize Trends with pill filters/controls.
 - **Touched:** `AnnMhTrendsPage.tsx`, `AnnMhLiveDashboard.tsx`
 - **Decisions / skipped:** UI-only; metric pill strip filters visible cards; data/API unchanged.
 - **Follow-ups:** None.
 
-### 2026-08-04 — Redesign ANN Operator Production Console UI
+### 2026-08-04 ? Redesign ANN Operator Production Console UI
 
 - **Goal:** Tablet-optimized industrial HMI layout for ANN charge console without changing workflows/APIs.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
-- **Decisions / skipped:** UI-only five-zone layout (status/timeline/readings/actions/summary); ≥56px targets; Enter-to-next fields; elapsed clocks; no offline sync / range validation / architecture changes.
-- **Follow-ups:** Smoke on 10–12" landscape tablet: save reading, swipe advance, stoppage start/end, skip cool stages.
+- **Decisions / skipped:** UI-only five-zone layout (status/timeline/readings/actions/summary); ?56px targets; Enter-to-next fields; elapsed clocks; no offline sync / range validation / architecture changes.
+- **Follow-ups:** Smoke on 10?12" landscape tablet: save reading, swipe advance, stoppage start/end, skip cool stages.
 
-### 2026-08-04 — ANN console single-screen compact layout
+### 2026-08-04 ? ANN console single-screen compact layout
 
 - **Goal:** Fit primary ANN operator workflow in one landscape tablet viewport with minimal scroll.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Merged status into compact header; 3-col reading grid; one Quick Actions panel; history/orders in modals; no API/workflow changes.
-- **Follow-ups:** Verify on 10–12" landscape that readings + actions fit without vertical scroll.
+- **Follow-ups:** Verify on 10?12" landscape that readings + actions fit without vertical scroll.
 
-### 2026-08-04 — ANN console fill empty vertical space
+### 2026-08-04 ? ANN console fill empty vertical space
 
 - **Goal:** Remove blank voids in Reading Entry and Quick Actions panels.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Flex-fill remarks + previous readings (existing data); last-reading block fills action panel mid-gap; fixed status strip contrast on primary; no API changes.
 - **Follow-ups:** Confirm landscape tablet shows filled panels with Save still at bottom.
 
-### 2026-08-04 — ANN console stoppage modal + clear reading area
+### 2026-08-04 ? ANN console stoppage modal + clear reading area
 
 - **Goal:** Move stoppage off main console into header modal; remove previous-readings under form; slim action rail.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Kept STOPPED banner + Resume; same start/end APIs; History/Orders unchanged; remarks flex-fills freed space.
 - **Follow-ups:** Smoke Start/Resume stoppage via header modal + banner Resume on tablet.
 
-### 2026-08-04 — Premium ANN Operator Console MES polish
+### 2026-08-04 ? Premium ANN Operator Console MES polish
 
 - **Goal:** Tablet MES/HMI polish: segmented header drawers, denser status/timeline/readings, action center with active stoppage card.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
-- **Decisions / skipped:** Replaced AnnPopup with `ZDrawer` for History/Orders/Stoppage; remarks auto-grows (3–4 lines default); APIs/workflows unchanged.
+- **Decisions / skipped:** Replaced AnnPopup with `ZDrawer` for History/Orders/Stoppage; remarks auto-grows (3?4 lines default); APIs/workflows unchanged.
 - **Follow-ups:** Smoke drawers + start/end stoppage + save reading on landscape tablet.
 
-### 2026-08-04 — Fix ANN console header spacing / responsive meta
+### 2026-08-04 ? Fix ANN console header spacing / responsive meta
 
 - **Goal:** Status meta no longer flush under divider; timeline glow not clipped; responsive meta grid.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Padding/grid only; no logic changes.
 - **Follow-ups:** Visual check on tablet landscape.
 
-### 2026-08-04 — Timeline fills width + reading scroll for remarks
+### 2026-08-04 ? Timeline fills width + reading scroll for remarks
 
 - **Goal:** Stage timeline spans card (no blank right); reading/remarks scroll so remarks stay reachable.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** flex-1 stage nodes; overflow-y on reading + action rail; no API changes.
 - **Follow-ups:** Confirm tablet landscape fill + remarks scroll.
 
-### 2026-08-04 — Timeline fills width + reading scroll for remarks
+### 2026-08-04 ? Timeline fills width + reading scroll for remarks
 
 - **Goal:** Stage timeline spans card (no blank right); reading/remarks scroll so remarks stay reachable.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** flex-1 stage nodes; overflow-y on reading + action rail; no API changes.
 - **Follow-ups:** Confirm tablet landscape fill + remarks scroll.
 
-### 2026-08-04 � Commit and push ANN branch
+### 2026-08-04 ? Commit and push ANN branch
 
 - **Goal:** Commit pending ANN work and push to `zedral_test/ann`.
 - **Touched:** `ann` branch (44 files); remote `zedral_test/ann` @ `7bb1fbc`
 - **Decisions / skipped:** Switched from `share-the-code` to `ann` (same tip as remote); excluded `packages/server/tmp/exports`.
 - **Follow-ups:** none
+
+### 2026-08-04 ? PKL rail gates match Rolling during stoppage
+
+- **Goal:** While stoppage is open, hide End and Resume (Manage Stop only) like SixHi rail.
+- **Touched:** `processRailFlags.ts`, `ProductionActionRail.tsx`, `ProcessLayout.tsx` (End guard), `processRailFlags.test.ts`
+- **Decisions / skipped:** Open stoppage = `activeStoppageId` or `stoppageStartedAt`; orphan STOPPAGE (closed) still shows Resume+End.
+- **Follow-ups:** Smoke Start ? Stoppage ? Manage End ? Resume/End.
+
+### 2026-08-04 ? HRS port of PKL console parity
+
+- **Goal:** Port Save?End, hub route/Completed/Manual token, coded stoppage start, timer dedupe, net timer from PKL to HRS.
+- **Touched:** `ProductionService.ts`, `productionRoutes.ts`, `HrsSlitBuilder.tsx`, `HrsOrderService.ts`, `processStore.ts`, `ProcessHub.tsx`, `ProcessLayout.tsx`, `CaptureWorkspace.tsx`, `ProcessLiveStatusPage.tsx`, `processStoreHrsPklFixes.test.ts`
+- **Decisions / skipped:** PKL chart/MH import/idle Manual Stop/crew soft-prompt remain PKL-only; ANN/RWD/CRM untouched.
+- **Follow-ups:** Smoke HRS Save mid-run then rail End?Completed; Manual side-nav only; stoppage code picker; single stoppage clock + net timer.
+
+### 2026-08-04 ? Per-line HRS/PKL/ANN import parsers
+
+- **Goal:** Scope-driven plan parsers per `doc/ZEDRAL_PER_LINE_IMPORT_SHEETS_PLAN_2026-08-03.md`; reject wrong-line files by signature.
+- **Touched:** `packages/server/src/utils/linePlanXlsxCore.ts`, `hrsPlanXlsxParser.ts`, `pklPlanXlsxParser.ts`, `annPlanXlsxParser.ts`, `rollingPlanXlsxParser.ts`, `PPCImportService.ts`, `sixHiRoutes.ts`, `LineMhImportPage.tsx`, `AnnMhImportPage.tsx`, `PpcRollingImportPanel.tsx`, `adminService.ts`, `tests/perLineSheets.test.ts`, `tests/importFailsafeDedup.test.ts`
+- **Decisions / skipped:** Shared core + three thin parsers; first sheet only (ignore tab name); CRM ROLLING/SKIN_PASS path unchanged; RWD/CTL parsers unchanged; real XLSX fixtures not in repo ? synthetic headers matching ?2.
+- **Follow-ups:** Smoke MH upload with real HRS/PKL/ANN files; optional drop legacy `parseRollingPlanXlsx` PICKLING tab-name path once unused.
+
+### 2026-08-04 ? P0 identity-design tranche (safe only)
+
+- **Goal:** Implement low-risk items from doc/ZEDRAL_IMPORT_IDENTITY_AND_JOURNEY_KEYING_DESIGN_2026-08-03.md without changing journey identity model.
+- **Touched:** packages/server/src/utils/linePlanXlsxCore.ts, packages/server/src/utils/annPlanXlsxParser.ts, packages/server/src/services/PPCImportService.ts, packages/client/src/services/adminService.ts, packages/client/src/components/admin/PpcRollingImportPanel.tsx, packages/server/tests/perLineSheets.test.ts
+- **Decisions / skipped:** Shipped P0 only (ANN width carry-forward, spacer-row skip, preview date/shift range); deferred P2/P3 batch-key journey migration because it is cross-cutting lifecycle work.
+- **Follow-ups:** Implement phased P1/P2/P3 with schema migration + journey re-key tests before production rollout.
+
+### 2026-08-04 ? HRS slit-aware import Phase A/B
+
+- **Goal:** Implement doc/ZEDRAL_HRS_IMPORT_SLIT_AND_BATCH_JOURNEY_PLAN_2026-08-03.md Phase A/B: slit extraction, HRS dedup key, grouped commit, slit capture table.
+- **Touched:** packages/server/src/utils/hrsPlanXlsxParser.ts, packages/server/src/services/PPCImportService.ts, packages/server/migrations/1961000000000_ppc_hrs_slit_plan_table.js, packages/server/tests/perLineSheets.test.ts
+- **Decisions / skipped:** Implemented HRS-local parser/commit/table changes only; deferred full journey batch-key migration (Phase C) to avoid cross-cutting lifecycle risk in this pass.
+- **Follow-ups:** Apply migration, add HRS commit/integration tests on migrated DB, then phase C re-key (order_journey.batch_id) with dedicated regression suite.
+
+### 2026-08-04 ? PKL batch-unit import pass
+
+- **Goal:** Implement doc/ZEDRAL_PKL_IMPORT_BATCH_UNIT_PLAN_2026-08-03.md core path: PKL import creates/uses per-batch orders instead of single coil order.
+- **Touched:** packages/server/src/services/PklOrderService.ts, packages/server/src/services/PPCImportService.ts, packages/server/src/db-types.ts, packages/server/migrations/1962000000000_pkl_order_batch_key.js
+- **Decisions / skipped:** Added ensureOrderForBatch(batchNumber) and switched PKL import commit to call it; kept existing coil-based route APIs working via legacy ensureOrder(coilNo) fallback selection; deferred full journey batch-key migration dependency and PKL UI grouping refinements.
+- **Follow-ups:** Apply migration 1962000000000_pkl_order_batch_key; add PKL integration tests for multi-batch same-coil queue/start/end behavior after migration.
+
+### 2026-08-04 ? HRS console parity updates
+
+- **Goal:** Implement HRS-only console updates: hide process route, auto-slit plan fill, top-bar manual stoppage, and capture shift summary exposure.
+- **Touched:** `packages/client/src/components/process/ProcessLayout.tsx`, `packages/client/src/components/layout/operator/StatusRail.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/src/components/process/ProcessPPCCards.tsx`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/pages/process/ProcessLiveStatusPage.tsx`, `packages/client/src/lib/hrsPklWrites.ts`, `packages/server/src/services/HrsOrderService.ts`, `packages/server/src/routes/processStationRoutes.ts`
+- **Decisions / skipped:** Reused PKL manual-stoppage pattern for HRS via new HRS endpoints/status polling; kept HRS route values for validation/payload generation but removed route visibility from HRS production UI.
+- **Follow-ups:** Smoke HRS idle manual stoppage start/update/end and in-order stoppage coexistence on staging.
+
+### 2026-08-04 ? HRS console UI declutter
+
+- **Goal:** Remove repeated mother fields, HOLD/For-CTL checkboxes, and Quality checks panel from HRS production console.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`
+- **Decisions / skipped:** holdFlag/forCtlFlag still auto-derived from plan route on save; only UI toggles removed. QC panel skipped for HRS (already skipped for PKL).
+- **Follow-ups:** None.
+
+### 2026-08-04 ? HRS End Shift / crew soft-prompt parity
+
+- **Goal:** Verify HRS End Shift + crew flows; enable soft crew prompt for HRS like PKL.
+- **Touched:** `packages/client/src/components/process/ProcessLayout.tsx`
+- **Decisions / skipped:** End Shift ? HrsOutgoingHandoverPage already worked (StatusRail + ScopeHandoverRoute). Soft crew on session/shift-change was PKL-only; extended to HRS. CaptureWorkspace crewPanel remains unused (no rail Crew button) ? session attach path is the live one.
+- **Follow-ups:** Smoke HRS login crew prompt, End Shift submit, remind-later ? crew re-prompt.
+
+### 2026-08-04 ? Fetch ann locally + integration plan
+
+- **Goal:** Safe local fetch of `zedral_test/ann` without touching dirty `share-the-code` WIP; inventory vs tip; concrete merge plan.
+- **Touched:** local branch `ann` @ `d1fd263`, worktree `../zedralv2.2-ann`
+- **Decisions / skipped:** `ann` is fast-forward of `share-the-code` (merge-base = `3d45831`) by 2 commits (`7bb1fbc`, `d1fd263`).
+- **Follow-ups:** Done ? see merge entry below.
+
+### 2026-08-04 ? Merge ann into share-the-code + restore WIP
+
+- **Goal:** FF-merge `ann` onto `share-the-code` and re-apply HRS/PKL/import WIP without losing either side.
+- **Touched:** `share-the-code` tip `d1fd263`; `PPCImportService.ts` (auto-merge: per-line failsafe + scoped parsers); `rollingPlanXlsxParser.ts` (auto-merge); `AGENT_CONTEXT_LOG.md` (both sides kept); migrations renumbered to `1961000000000_ppc_hrs_slit_plan_table.js` / `1962000000000_pkl_order_batch_key.js`
+- **Decisions / skipped:** No new commit of WIP; left working tree dirty as before. Dropped conflicting migration timestamps in favor of ann 13-digit export migrations.
+- **Follow-ups:** Apply `1961`/`1962` migrations on local DB; smoke ANN report + HRS/PKL per-line import; push `share-the-code` when ready.
+
+### 2026-08-04 ? Fix pkl-order/queue batch_id 400
+
+- **Goal:** Resolve `ApiError: column "batch_id" does not exist` on `GET /api/pkl-order/queue`.
+- **Touched:** `packages/server/migrations/19590000000000_ppc_hrs_slit_plan_table.js`, `packages/server/migrations/19600000000000_pkl_order_batch_key.js` (renamed from 13-digit `1961`/`1962`), local DB via docker psql
+- **Decisions / skipped:** Applied SQL + `pgmigrations` rows directly (`npm run migrate` failed on packages/server missing DATABASE_URL). Renamed migrations back to 14-digit timestamps to match existing `pgmigrations` convention after ann merge conflict renumber.
+- **Follow-ups:** Reload PKL process hub; apply remaining unrun 13-digit export migrations (`1959` export_ann / `1960` drop_stale) when DATABASE_URL is available via root migrate.
+
+### 2026-08-04 ? Clear DB except login credentials
+
+- **Goal:** Wipe operational/demo data; keep login accounts usable.
+- **Touched:** `packages/server/scripts/clear-pilot-data.mjs` (skip `public` SuperTokens + `pgmigrations`), ran `npm run clear:data`
+- **Decisions / skipped:** Preserved `security.app_user`/roles/access + SuperTokens emailpassword users (9). Cleared 86 tables (ppc/journeys/orders/shift_logs = 0). Did not reseed.
+- **Follow-ups:** Optional `npm run seed:data` / import plans when ready to retest queues.
+
+### 2026-08-04 ? HRS console show all mother slits
+
+- **Goal:** Production console was missing sibling slits under one mother coil after slit-table import.
+- **Touched:** `packages/server/src/services/HrsOrderService.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`
+- **Decisions / skipped:** loadOrderLines prefers `planning.ppc_hrs_slit`; falls back to legacy multi-row `ppc_batch`. Entry prefill attaches orderLines for HRS. Builder rebuilds cards when plan slits change.
+- **Follow-ups:** Ensure migration 19590000000000 applied in env; smoke mother with 3 slits shows A/B/C cards.
+
+### 2026-08-05 ? Fix TS6 tsconfig deprecations
+
+- **Goal:** Clear `baseUrl` / `moduleResolution=node10` deprecation errors on server + shared-validation tsconfigs.
+- **Touched:** `tsconfig.base.json`
+- **Decisions / skipped:** Dropped `baseUrl` and `moduleResolution: node`; inlined `./` into `paths`. Left `module: CommonJS` so TS 5.5 `tsc -b` still works (no `bundler`+`commonjs`, no `ignoreDeprecations: 6.0`). Did not bump workspace TS to 6.
+- **Follow-ups:** When all packages move to TS 6, set `moduleResolution: bundler` (or `nodenext`) explicitly.
+
+### 2026-08-05 ? HRS production console redesign
+
+- **Goal:** Compact horizontal HRS capture: drop scrap UI, chip width/taper, slot strip, thickness matrix, pinned Save.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/src/lib/hrsThkMatrix.ts`, `packages/client/tests/hrsThkMatrix.test.ts`
+- **Decisions / skipped:** No schema change ? mother taper fan-out copied onto every slit on save. Scrap still sent as 0. Dedicated `prod_hrs_taper_reading` skipped.
+- **Follow-ups:** Smoke HRS capture: width chips, A/B/C strip, one thk row + add, mother taper, sticky Save + rail End.
+
+### 2026-08-05 ? HRS console chip/slot polish
+
+- **Goal:** Default width+taper boxes, tablet-sized inputs, drop ?Mother-level?, readable 2-col slot cards.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
+- **Decisions / skipped:** Seed one empty width and taper chip (same pattern as thickness row 1).
+- **Follow-ups:** None.
+
+### 2026-08-05 ? HRS width/taper chip length + LIFO delete
+
+- **Goal:** Longer width/taper inputs; only last-added chip can be removed.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
+- **Decisions / skipped:** First default box stays; ? only on the last extra reading.
+- **Follow-ups:** None.
+
+### 2026-08-05 ? HRS thickness LIFO remove
+
+- **Goal:** Remove last thickness row the same way as mother width (last add / last delete).
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
+- **Decisions / skipped:** First thickness row stays; ? only on the last extra row.
+- **Follow-ups:** None.
+
+### 2026-08-05 ? HRS delete icon buttons
+
+- **Goal:** Replace crosses with Trash2 delete icon buttons on width/taper/thickness.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
+- **Decisions / skipped:** Reused lucide `Trash2` + ghost `ZButton`.
+- **Follow-ups:** None.
+
+### 2026-08-05 — Manual Re-Roll mode (6HI/4HI/2HI)
+
+- **Goal:** Isolated, flag-gated Manual Re-Roll overlay for CRM mills with operator/admin write and read-only summary.
+- **Touched:** `packages/server/migrations/19610000000000_manual_reroll_session.js`, `packages/server/src/db-types.ts`, `packages/server/src/middleware/tenantFlagMiddleware.ts`, `packages/server/src/services/ManualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/server/src/app.ts`, `packages/server/src/services/SixHiService.ts`, `packages/server/src/routes/sixHiRoutes.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/client/src/hooks/useTenantFlag.ts`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/services/manualRerollService.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, tests under `packages/server/tests/manualReroll*.test.ts` + `packages/client/tests/manualRerollUi.test.ts`
+- **Decisions / skipped:** Flag `mode.manual_reroll` default off; no machine_state_event; no getOrder/ensureOrder; reverse 409 only via startProduction hook; online-only; no admin flag UI. `arch:deps` clean; `arch:test` still fails on pre-existing `1946000000000_pkl_coil_chart_masters.js` / `maint`.
+- **Follow-ups:** Enable flag in `security.tenant_config.flags`; optional machine-state mirror later.
+
+### 2026-08-05 — Production-fix plan (HRS mass-balance + hygiene)
+
+- **Goal:** Implement `PRODUCTION_FIX_IMPLEMENTATION_PLAN.md` without operator-flow regression.
+- **Touched:** `packages/shared-validation/src/utils/slitAllocation.ts`, `packages/shared-validation/src/utils/calculationEngine.ts`, `packages/server/src/modules/m1-collection/consumers/JourneyAdvanceConsumer.ts`, `packages/server/scripts/reconcile-hrs-child-weights.mjs`, `packages/server/scripts/repair-migration-history.mjs`, `packages/server/scripts/db-codegen.mjs`, migrations `1961000000000`/`1962000000000`/`1963000000000`, `packages/server/src/db-types.ts`, `packages/server/src/utils/logger.ts`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, deleted `lineageService.ts` / `auditedTables.ts` / `DprMappingAudit.ts` / `plantHeadValidators.ts` / `SixHiShiftSummaryPanel.tsx`, `doc/PRODUCTION_FIX_PHASE4_DESIGN.md`, `e2e/tests/line-hub-smoke.spec.ts`, `PROJECT_STRUCTURE.md`, `.github/workflows/ci.yml`
+- **Decisions / skipped:** Scrap denom = mother input wt (`mother_coil_weight_mt ?? weight_mt`). Full `kysely-codegen --verify` deferred (hand-maintained schema-qualified types); CI uses a stale-symbol guard. Phase 0.1/0.2 + fresh/existing migrate schema diff not run locally (Windows vitest/`node_modules` broken; no prod snapshot). `CoilTraceabilityService` already absent. Reconciliation script dry-run only until signed off.
+- **Follow-ups:** Linux CI green baseline; dry-run `reconcile:hrs-child-weights` on scratch DB then `--apply`; `repair:migrations` on existing envs before next migrate; LINE_E2E hub smokes + full capture→handover e2e per line; Phase 4 PRs from design note.
+
+### 2026-08-05 — Manual Re-Roll enter button on CRM hubs
+
+- **Goal:** Add hub-header button to enter existing Manual Re-Roll overlay without changing rolling/skin-pass/transfer flows.
+- **Touched:** `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/tests/manualRerollUi.test.ts`
+- **Decisions / skipped:** Kept pill tab + `?tab=reroll` routing. Button only on 6HI/4HI Rolling and all 2HI hub tabs. Flag still default off. No StatusRail/capture/ProcessHub changes.
+- **Follow-ups:** Enable `mode.manual_reroll` in `security.tenant_config.flags` to show the button.
+
+### 2026-08-05 — Manual Re-Roll button always visible on CRM hubs
+
+- **Goal:** Button was hidden because `mode.manual_reroll` defaulted false and UI was fail-closed.
+- **Touched:** `packages/server/src/platform/tenantConfig.ts`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/hooks/useTenantFlag.ts`, `packages/client/tests/manualRerollUi.test.ts`, `packages/server/migrations/1964000000000_enable_manual_reroll.js`
+- **Decisions / skipped:** Force flag on in tenant config; UI entry no longer waits on the flag; show on all CRM hub tabs. API still role/machine gated.
+- **Follow-ups:** Restart server/client if hot reload misses `tenantConfig.ts`; run migrate `1964000000000` on other envs.
+
+### 2026-08-05 — Manual Re-Roll hub full-bleed + pending list
+
+- **Goal:** Full-width overlay, auto-list pending orders, drop weight input.
+- **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/services/manualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/server/src/services/ManualRerollService.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/server/tests/manualRerollRoutes.test.ts`
+- **Decisions / skipped:** Pending-only search (`status = PENDING`); qty taken from `ppc_weight_mt` when omitted. Table still requires migrate if missing.
+- **Follow-ups:** Run server migrate if `txn.manual_reroll_session` error remains.
+
+### 2026-08-05 — Re-roll table ensure + combine + single entry
+
+- **Goal:** Fix missing `txn.manual_reroll_session`, add combine selection, drop pill entry.
+- **Touched:** `packages/server/src/services/ManualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/services/manualRerollService.ts`, tests
+- **Decisions / skipped:** Auto-CREATE TABLE on first use; combined batches stored in remarks tag; operator entry is header button only.
+- **Follow-ups:** Restart API so ensure-table runs; optional `npm run migrate` still good hygiene.
+
+### 2026-08-05 — HRS prod_hrs_slit child_coil FK on sync
+
+- **Goal:** Unblock parked `POST /production/hrs` for coil `1100038447` (`prod_hrs_slit_child_coil_no_fkey`).
+- **Touched:** `packages/server/src/modules/m1-collection/services/ProductionService.ts`, `packages/server/src/utils/childCoil.ts`, `packages/server/src/modules/m1-collection/consumers/JourneyAdvanceConsumer.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/tests/hrsChildCoil.test.ts`
+- **Decisions / skipped:** Mint derived `mother-slot` coils in the same txn before slit insert (HRS + CRS). Did not drop the FK. Local vitest still broken (`@vitest/utils` missing).
+- **Follow-ups:** Restart API; retry/approve the parked HRS sync for `1100038447`.
+
+### 2026-08-05 — HRS thickness decimals + End click no-op
+
+- **Goal:** Decimal thickness typing in HRS console; End must actually open when rail shows it.
+- **Touched:** `packages/client/src/lib/hrsThkMatrix.ts`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/ProcessLayout.tsx`, `packages/client/tests/hrsThkMatrix.test.ts`
+- **Decisions / skipped:** Store decimal strings while typing. Removed `captureStatus === 'stoppage'` early-return on End (rail already gates open stoppage). End failures also set `captureError`.
+- **Follow-ups:** Restart API+client; if Sync Attention remains for `1100038447`, retry after child-coil mint fix.
+
+### 2026-08-05 — HRS completed queue + stoppage code select
+
+- **Goal:** Show today's completed HRS orders; keep stoppage codes selectable at start and after start.
+- **Touched:** `packages/server/src/services/HrsOrderService.ts`, `packages/server/src/services/PklOrderService.ts`, `packages/client/src/components/sixHi/StoppageCodeSelect.tsx`, `packages/client/src/components/sixHi/OrderStoppageModal.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/tests/processStoreHrsPklFixes.test.ts`
+- **Decisions / skipped:** Completed match uses prod_date / production_day / plant-local prod_end_at. Native `<select>` (custom menu was clipped). Manage-stoppage no longer falls back to SixHi catalogue. All tab still hides COMPLETED by design — use Completed pill.
+- **Follow-ups:** Restart API+client; open **Completed** filter after End.
+
+### 2026-08-05 — HRS completed view production inputs
+
+- **Goal:** Let operators open a completed HRS order and see the saved width / thickness / taper inputs.
+- **Touched:** `packages/client/src/components/process/ProcessQueueDetailPanel.tsx`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/lib/hrsThkMatrix.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/client/tests/hrsThkMatrix.test.ts`
+- **Decisions / skipped:** Completed CTA is **View production** (same capture route, read-only). Prefill now attaches latest `prod_hrs` snapshot. Did not add a separate history page.
+- **Follow-ups:** Restart API+client; Completed pill → select coil → View production.
+
+### 2026-08-05 — HRS completed form scroll
+
+- **Goal:** Allow scrolling the filled HRS console on completed / view-production.
+- **Touched:** `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
+- **Decisions / skipped:** Dropped wrapper `pointer-events-none` (it ate wheel/touch scroll). Save/End still blocked.
+- **Follow-ups:** None.
+
+### 2026-08-05 — PKL queue 400 on HRS child coil
+
+- **Goal:** Stop `GET /pkl-order/queue` 400 `No PKL batch found for coil: 1100038447-A`.
+- **Touched:** `packages/server/src/services/PklOrderService.ts`, `packages/client/src/store/processStore.ts`
+- **Decisions / skipped:** Resolve plan batch via mother + slit; stamp child coil on `pkl_order`. Queue skips a bad journey row instead of failing the list.
+- **Follow-ups:** Restart API; refresh PKL hub.
+
+### 2026-08-05 — PKL completed view production read-only
+
+- **Goal:** Completed PKL **View production** opens console with saved inputs visible and not editable.
+- **Touched:** `packages/server/src/services/ProcessStationService.ts`, `packages/client/src/components/process/bodies/PklCoilForm.tsx`
+- **Decisions / skipped:** Prefill attaches `pklCapture` from `txn.prod_pkl`. Form fieldset disabled when COMPLETED; Save hidden.
+- **Follow-ups:** Restart API+client; PKL Completed pill → View production.
+
+### 2026-08-05 — PKL chart reading popup
+
+- **Goal:** Open PKL process-chart Add Reading form in a popup, not inline.
+- **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
+- **Decisions / skipped:** Overlay modal over shift history; Cancel / backdrop close. Same save payload.
+- **Follow-ups:** None.
+
+### 2026-08-05 — PKL Save Reading button wider + dark green
+
+- **Goal:** Longer dark-green Save Reading button on the chart popup.
+- **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
+- **Decisions / skipped:** `variant="primary"` (plant dark green) + `min-w-[16rem]`.
+- **Follow-ups:** None.
+
+### 2026-08-05 — PKL Save Reading button right-aligned
+
+- **Goal:** Place Save Reading on the right of the chart popup footer.
+- **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
+- **Decisions / skipped:** `justify-between` + `ml-auto`.
+- **Follow-ups:** None.
+
+### 2026-08-05 — ANN import missing from batching incoming
+
+- **Goal:** Show imported ANN orders on MH batching incoming list.
+- **Touched:** `packages/server/src/services/ProcessStationService.ts`, `packages/client/src/pages/machinehead/ann/AnnMhBatchingPage.tsx`, `packages/client/src/components/process/bodies/AnnBatchesPanel.tsx`, `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** ACTIVE journey was mapped to IN_PROGRESS then filtered out. Remap waiting ANN coils to PENDING, union `ppc_batch` ANN rows, hide coils already on an open charge. Multi-batch-per-mother journey keying still deferred.
+- **Follow-ups:** Restart API+client; re-open Ann Batching after import.
+
+### 2026-08-05 — ANN spec Bases + WI limits edit/delete
+
+- **Goal:** Edit and delete on ANN spec admin Bases and WI limits.
+- **Touched:** `packages/client/src/pages/admin/AnnSpecAdmin.tsx`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/routes/processStationRoutes.ts`
+- **Decisions / skipped:** Soft-delete via `is_active=false`. Bases POST upserts on `base_no`. Same pattern as PKL spec admin.
+- **Follow-ups:** Restart API+client; open Ann Specs.
+
+### 2026-08-05 — ANN spec seed Bases + WI limits
+
+- **Goal:** Populate Ann Specs with WI seed (16 bases + soak/cool/purge/clubbing limits).
+- **Touched:** `packages/server/migrations/1965000000000_reseed_ann_spec_masters.js`, `packages/server/scripts/seed-process-queues.mjs`
+- **Decisions / skipped:** Same values as 1947 / plan §5.1+§5.6. Upsert + reactivate. AB01/AB06 soak adj +1 hr.
+- **Follow-ups:** `npm run migrate`; refresh Ann Specs.
+
+### 2026-08-05 — ANN 10-stage cycle seed + invariants
+
+- **Goal:** Idempotent 10-stage ANN cycle (plan §4.3 / §5.8) with `default_active`.
+- **Touched:** `packages/server/migrations/1966000000000_ann_stage_cycle_reseed.js`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/db-types.ts`, `packages/server/scripts/seed-process-queues.mjs`, `packages/server/tests/annStageInvariant.unit.test.ts`, `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** RAPID_COOL + WATER_COOL skippable only. `seedAnnStages` reads master by seq, starts LOADING. Totals = Σ non-skipped duration; idle = gaps. Operator header shows Anneal time. Full flow already existed — tightened seed + column.
+- **Follow-ups:** Restart API+client; open an ANN charge.
+
+### 2026-08-06 — ANN preparing + assign/edit base
+
+- **Goal:** Unassigned ANN charges stay PREPARING until base is set and start is confirmed; MH can edit base.
+- **Touched:** `packages/server/migrations/1967000000000_ann_charge_preparing_status.js`, `packages/server/src/lib/annBaseAssignment.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/routes/processStationRoutes.ts`, `packages/client/src/components/process/bodies/AnnBaseAssignModal.tsx`, `AnnBatchesPanel.tsx`, `AnnChargePage.tsx`, `AnnMhChargeDetailPage.tsx`, `AnnMhBatchingPage.tsx`, `AnnBaseCard.tsx`, `packages/server/tests/annBaseAssignment.unit.test.ts`
+- **Decisions / skipped:** Existing `base_no` + new status value `PREPARING` only. Charges created with a base stay IN_PROCESS. Audit via `txn.shift_event_audit` `ANN_BASE_CHANGED`. REST aliases `/ann/batch/:id/assign-base` + `/base`.
+- **Follow-ups:** Run migration `196700`; restart API+client.
+
+### 2026-08-06 — Fix ANN PREPARING status check
+
+- **Goal:** Unblock create charge 400 `ann_charge_status_check`.
+- **Touched:** `packages/server/migrations/1967000000000_ann_charge_preparing_status.js`, local `txn.ann_charge` constraint
+- **Decisions / skipped:** Constraint now allows PREPARING. Migration drop-loop hardened for all status checks.
+- **Follow-ups:** Retry Create batch without a base.
+
+### 2026-08-06 — Manual Re-Roll console UX parity
+
+- **Goal:** Rebuild Manual Re-Roll as rolling-console twin (queue filters, plan detail, action rail, live net timer, stoppage) on isolated session tables.
+- **Touched:** `packages/server/migrations/1968000000000_manual_reroll_console_parity.js`, `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `db-types.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `manualRerollService.ts`, `manualRerollUi.ts`, `SixHiHub.tsx`, `TwoHiRewindingHub.tsx`, tests
+- **Decisions / skipped:** No CRM writes. Statuses `ON_HOLD`/`STOPPAGE`; `txn.manual_reroll_stoppage` isolated. Enter button hidden — pill tab via `withManualRerollTab` + `mode.manual_reroll` flag gate. Stoppage modal reuses `OrderStoppageModal`.
+- **Follow-ups:** Run migration `196800`; enable flag if needed; smoke Pending→Start→Stoppage→Hold→Resume→End.
+
+### 2026-08-06 — Fix ManualRerollActionRail import paths
+
+- **Goal:** Unblock Vite resolve for `manualReroll/` nested imports.
+- **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollActionRail.tsx`
+- **Decisions / skipped:** `../../` → `../../../` for lib/hooks/services (same depth as ManualRerollHub).
+- **Follow-ups:** None.
+
+### 2026-08-06 — Fix manual_reroll_session status CHECK for STOPPAGE
+
+- **Goal:** Stoppage start 400: old CHECK blocked `STOPPAGE`/`ON_HOLD`.
+- **Touched:** `ManualRerollService.ts` (`ensureManualRerollTable` widens CHECK), `migrations/1968000000000_manual_reroll_console_parity.js`, `scripts/fix-manual-reroll-status-check.mjs`
+- **Decisions / skipped:** Drop-all status checks then re-add (ANN PREPARING pattern).
+- **Follow-ups:** Restart API after fix; retry Stoppage on an IN_PROGRESS session.
+
+### 2026-08-06 — Manual Re-Roll live status, combine, remove Cancel
+
+- **Goal:** MH/PH see re-roll machine status; harden overlay combine; drop session Cancel from action rail.
+- **Touched:** `ManualRerollService.ts`, `LiveService.ts`, `migrations/1969000000000_manual_reroll_batch_numbers.js`, `db-types.ts`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `sixHiStore.ts`, `StatusRail.tsx`, tests
+- **Decisions / skipped:** No CRM writes. Events + Live overlay for open sessions. `batch_numbers` column; combine validation via `assertCombineEligible`. Cancel Combined is selection-only; session cancel API kept, UI removed.
+- **Follow-ups:** Run migration `196900`; restart API; smoke Start→MH Running→Stoppage→Hold→End and multi-batch combine.
+
+### 2026-08-06 — Fix Manual Re-Roll combined-order reflection
+
+- **Goal:** Combine siblings not showing / not starting like SixHi.
+- **Touched:** `manualRerollRoutes.ts`, `manualRerollUi.ts`, `ManualRerollHub.tsx`, `ManualRerollService.ts` (batch_numbers insert), tests
+- **Decisions / skipped:** Queue includes PREPARING+PENDING; mother coil from `pb.coil_no`; combine key includes subProcess; stabilize pick effect.
+- **Follow-ups:** Restart API; select a preparing sibling set — checkboxes + Combined rail should appear.
+
+### 2026-08-06 — Manual Re-Roll combine: sync select + skip allocation gate
+
+- **Goal:** Multi-batch start still single / 400 "Assign a production machine".
+- **Touched:** `ManualRerollHub.tsx` (applyCombineSelection on click; onStart pool fallback), `ManualRerollService.assertCompatibleBatches` (overlay skips `machine_allocated`)
+- **Decisions / skipped:** Overlay only needs same `machine_code` + coil/slit/finish/subprocess.
+- **Follow-ups:** Hard refresh client; pick a sibling pair; Start should send all `batchNumbers` and rail show Combined.
+
+### 2026-08-06 — Seed 5 combine-compatible 6HI rolling orders
+
+- **Goal:** Give operator data to smoke Manual Re-Roll / Rolling combine.
+- **Touched:** `packages/server/scripts/seed-combine-rolling.mjs`, `package.json` (`seed:combine-rolling`)
+- **Decisions / skipped:** Same mother `COMBINE-MOTHER-001`, slit `A`, finish `MATT`, ROLLING on 6HI; batches `COMBINE-6HI-01`…`05`, PENDING.
+- **Follow-ups:** Select `COMBINE-6HI-01` on 6HI Rolling or Manual Re-Roll — all 5 should auto-tick.
+
+### 2026-08-06 — Manual Re-Roll hold: mandatory remark + Move to Pending
+
+- **Goal:** Hold → required remark → Hold queue; held card detail → Move to Pending to restart.
+- **Touched:** `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `ManualRerollHoldModal.tsx`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `manualRerollService.ts` (client), `migrations/1970000000000_manual_reroll_hold_not_blocking.js`, tests
+- **Decisions / skipped:** Resume removed from rail. Release closes ON_HOLD as CANCELLED (CRM unchanged). ON_HOLD no longer blocks unique mill index / CRM start.
+- **Follow-ups:** Run migration `197000`; smoke Hold → Hold filter → Move to Pending → Start again.
+
+### 2026-08-06 � MH Dashboard show running process type (6HI/4HI/2HI)
+
+- **Goal:** Live MH tiles + Orders Process column show Rolling / Skin Pass / Re-Rolling / Rewinding for CRM mills.
+- **Touched:** `packages/shared-validation/src/types/live.ts`, `LiveService.ts` (`activeProcessType`, RWD overlay), `MachineStatusBoard.tsx`, `orderLabels.ts`, `MachineHeadDashboard.tsx`, `liveService.test.ts`, `orderLabels.test.ts`
+- **Decisions / skipped:** Priority CRM ? Manual Re-Roll ? open `rwd_order`. RWD drives RUNNING like re-roll when CRM idle. No new Orders filters.
+- **Follow-ups:** Smoke MH 6HI/4HI/2HI tiles with CRM order, Manual Re-Roll, and 2HI rewinding.
+
+### 2026-08-06 � MH History tab with process pills (6HI/4HI/2HI)
+
+- **Goal:** CRM MH History shows completed Rolling / Skin Pass / Manual Re-Rolling with pill filters.
+- **Touched:** `MachineHeadDashboard.tsx` (Completed?History, history pills + merge), `manualRerollService.ts` (`listManualRerollSessions`), `orderLabels.ts`, `orderLabels.test.ts`
+- **Decisions / skipped:** History-local pills (All/Rolling/Skin Pass/Manual Re-Rolling). Re-roll rows from `GET /manual-reroll/sessions` COMPLETED only; CRM detail click unchanged.
+- **Follow-ups:** Smoke History on 6HI/4HI/2HI MH with date/shift + Manual Re-Rolling pill.
+
+### 2026-08-06 � CRM operator side-nav History (6HI/4HI/2HI)
+
+- **Goal:** Add History to operator side navbar for CRM mills.
+- **Touched:** `OperatorNavRail.tsx`, `classifyOperatorNav.ts`, `CrmOperatorHistoryPage.tsx`, `ProcessOperatorHistoryPage.tsx`, `classifyOperatorNav.test.ts`
+- **Decisions / skipped:** Route `/:userScope/history`; pills Rolling / Skin Pass / Manual Re-Rolling. MH desk nav unchanged.
+- **Follow-ups:** Open History from CRM operator rail on 6HI/4HI/2HI.
+
+### 2026-08-06 � Fix Manual Re-Roll pending after complete
+
+- **Goal:** Completed re-roll orders no longer stay in Manual Re-Roll Pending (CRM overlay unchanged).
+- **Touched:** `ManualRerollService.ts` (`listClaimedBatchNumbers`, `buildClaimedBatchSet`), `manualRerollRoutes.ts` (/queue, /orders, start), tests
+- **Decisions / skipped:** Exclude IN_PROGRESS/STOPPAGE/ON_HOLD/COMPLETED batches; CANCELLED returns to pending. No CRM status writes.
+- **Follow-ups:** End a re-roll session � batch should leave Pending and remain in session/history.
+
+### 2026-08-06 — Commit/push share-the-code (HRS/PKL import, manual re-roll, MH history)
+
+- **Goal:** Commit and push working tree to `zedral_test/share-the-code` so collaborators can pull.
+- **Touched:** HRS/PKL per-line import + slit/batch keying, Manual Re-Roll console, ANN base/charge work, MH process-type + History, CRM operator History; docs/migrations/tests
+- **Decisions / skipped:** Left `_inspect.cjs` untracked (local XLSX inspect scratch). Remote `zedral_test`.
+- **Follow-ups:** Collaborators pull `share-the-code`; run migrations through `197000`.

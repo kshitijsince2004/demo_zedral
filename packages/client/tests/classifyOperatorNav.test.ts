@@ -14,7 +14,7 @@ describe('classifyOperatorNav (debug H-F)', () => {
     expect(c.isCrm).toBe(true);
     expect(c.isProcess).toBe(false);
     expect(c.isPkl).toBe(false);
-    expect(c.wantsHistory).toBe(false);
+    expect(c.wantsHistory).toBe(true);
   });
 
   it('treats HRS user-scope as process with History', () => {

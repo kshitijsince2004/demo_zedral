@@ -1,9 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ZButton } from '../../primitives/ZButton';
 import { ZInput } from '../../primitives/ZInput';
 import { submitProcessCapture, useProcessStore } from '../../../store/processStore';
 import type { BodyProps } from '../../../lib/processConfig';
 import { ProcessPairedField, deltaBand } from '../ProcessPairedField';
+
+type PklCapture = {
+  weightMt?: number;
+  ppcWeightMt?: number;
+  lineSpeedMpm?: number;
+  wp?: 'W' | 'P';
+  endFilling?: boolean;
+  remarks?: string;
+};
 
 function fieldVal(raw: unknown): string | undefined {
   if (raw == null || raw === '') return undefined;
@@ -26,7 +35,13 @@ function fieldNum(raw: unknown): number {
 export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmitted }: BodyProps) {
   const pklGroupCoilNos = useProcessStore((s) => s.pklGroupCoilNos);
   const pklGroupWeightMt = useProcessStore((s) => s.pklGroupWeightMt);
-  const ppcWeight = fieldNum((prefill as { ppcWeightMt?: unknown }).ppcWeightMt) || fieldNum(prefill.weightMt);
+  const isCompleted = useProcessStore((s) =>
+    s.queue.find((c) => c.coilNo === coilNo)?.status === 'COMPLETED',
+  );
+  const pklCapture = (prefill as { pklCapture?: PklCapture | null }).pklCapture;
+  const ppcWeight = fieldNum((prefill as { ppcWeightMt?: unknown }).ppcWeightMt)
+    || fieldNum(pklCapture?.ppcWeightMt)
+    || fieldNum(prefill.weightMt);
   const [weightMt, setWeightMt] = useState(ppcWeight);
   const [lineSpeed, setLineSpeed] = useState<number | ''>('');
   const [wp, setWp] = useState<'W' | 'P' | ''>('');
@@ -36,6 +51,15 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!pklCapture) return;
+    if (pklCapture.weightMt != null) setWeightMt(pklCapture.weightMt);
+    if (pklCapture.lineSpeedMpm != null) setLineSpeed(pklCapture.lineSpeedMpm);
+    if (pklCapture.wp === 'W' || pklCapture.wp === 'P') setWp(pklCapture.wp);
+    if (pklCapture.endFilling != null) setEndFilling(pklCapture.endFilling);
+    if (pklCapture.remarks != null) setRemarks(pklCapture.remarks);
+  }, [coilNo, pklCapture]);
 
   const motherCoilNo = fieldVal((prefill as { motherCoilNo?: unknown }).motherCoilNo)
     ?? fieldVal((prefill as { parentCoilNo?: unknown }).parentCoilNo);
@@ -82,6 +106,7 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
 
   /** Mid-run save — persist only; timer/order stay active. */
   async function handleSaveOnly() {
+    if (isCompleted) return;
     setError(null);
     setMsg(null);
     const invalid = validateFields();
@@ -103,6 +128,7 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   /** Rail End → OrderEndModal → form.requestSubmit — finalize order. */
   async function handleComplete(e: React.FormEvent) {
     e.preventDefault();
+    if (isCompleted) return;
     setError(null);
     setMsg(null);
     const invalid = validateFields();
@@ -123,49 +149,51 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
 
   return (
     <form onSubmit={handleComplete} className="space-y-4 p-4">
-      <div className="grid grid-cols-2 gap-3">
-        <ProcessPairedField
-          planLabel="PPC Weight MT (plan)"
-          planValue={ppcWeight || '—'}
-          band={weightCue.band}
-          deltaLabel={weightCue.label}
-          actualControl={
-            <ZInput label="Weight MT (actual)" type="number" value={weightMt || ''} onChange={(e) => setWeightMt(Number(e.target.value))} />
-          }
-        />
-        {pklGroupCoilNos.length > 1 && (
-          <div className="bg-secondary/40 rounded-lg px-3 py-2">
-            <p className="text-[10px] uppercase text-muted-foreground">Group Σ Weight MT</p>
-            <p className="font-semibold font-mono">{pklGroupWeightMt.toFixed(2)}</p>
+      <fieldset disabled={isCompleted} className="min-w-0 space-y-4 border-0 p-0 m-0">
+        <div className="grid grid-cols-2 gap-3">
+          <ProcessPairedField
+            planLabel="PPC Weight MT (plan)"
+            planValue={ppcWeight || '—'}
+            band={weightCue.band}
+            deltaLabel={weightCue.label}
+            actualControl={
+              <ZInput label="Weight MT (actual)" type="number" value={weightMt || ''} onChange={(e) => setWeightMt(Number(e.target.value))} />
+            }
+          />
+          {pklGroupCoilNos.length > 1 && (
+            <div className="bg-secondary/40 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-muted-foreground">Group Σ Weight MT</p>
+              <p className="font-semibold font-mono">{pklGroupWeightMt.toFixed(2)}</p>
+            </div>
+          )}
+          <ZInput label="Line Speed M/min" type="number" value={lineSpeed} onChange={(e) => setLineSpeed(e.target.value === '' ? '' : Number(e.target.value))} />
+          <div>
+            <p className="text-[10px] uppercase text-muted-foreground mb-1">W/P</p>
+            <select
+              className="w-full min-h-10 rounded-xl border border-input bg-background px-3 text-sm disabled:opacity-70"
+              value={wp}
+              onChange={(e) => setWp(e.target.value as 'W' | 'P' | '')}
+            >
+              <option value="">Select…</option>
+              <option value="W">W</option>
+              <option value="P">P</option>
+            </select>
           </div>
-        )}
-        <ZInput label="Line Speed M/min" type="number" value={lineSpeed} onChange={(e) => setLineSpeed(e.target.value === '' ? '' : Number(e.target.value))} />
-        <div>
-          <p className="text-[10px] uppercase text-muted-foreground mb-1">W/P</p>
-          <select
-            className="w-full min-h-10 rounded-xl border border-input bg-background px-3 text-sm"
-            value={wp}
-            onChange={(e) => setWp(e.target.value as 'W' | 'P' | '')}
-          >
-            <option value="">Select…</option>
-            <option value="W">W</option>
-            <option value="P">P</option>
-          </select>
+          <div>
+            <p className="text-[10px] uppercase text-muted-foreground mb-1">Leader End</p>
+            <select
+              className="w-full min-h-10 rounded-xl border border-input bg-background px-3 text-sm disabled:opacity-70"
+              value={endFilling == null ? '' : endFilling ? 'Y' : 'N'}
+              onChange={(e) => setEndFilling(e.target.value === '' ? null : e.target.value === 'Y')}
+            >
+              <option value="">Select…</option>
+              <option value="Y">Yes</option>
+              <option value="N">No</option>
+            </select>
+          </div>
+          <ZInput label="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted-foreground mb-1">Leader End</p>
-          <select
-            className="w-full min-h-10 rounded-xl border border-input bg-background px-3 text-sm"
-            value={endFilling == null ? '' : endFilling ? 'Y' : 'N'}
-            onChange={(e) => setEndFilling(e.target.value === '' ? null : e.target.value === 'Y')}
-          >
-            <option value="">Select…</option>
-            <option value="Y">Yes</option>
-            <option value="N">No</option>
-          </select>
-        </div>
-        <ZInput label="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-      </div>
+      </fieldset>
 
       {weightWarn && (
         <p className="text-sm text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
@@ -174,14 +202,18 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
       )}
       {error && <p className="text-destructive text-sm">{error}</p>}
       {msg && <p className="text-sm text-success">{msg}</p>}
-      <div className="flex flex-wrap items-center gap-3">
-        <ZButton type="button" disabled={submitting} onClick={() => void handleSaveOnly()}>
-          {submitting ? 'Saving…' : 'Save Production'}
-        </ZButton>
-        <p className="text-xs text-muted-foreground">
-          Saves data only. To complete the order, use <span className="font-semibold text-foreground">End</span> on the right rail.
-        </p>
-      </div>
+      {isCompleted ? (
+        <p className="text-xs text-muted-foreground">Completed — saved input details (read only).</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <ZButton type="button" disabled={submitting} onClick={() => void handleSaveOnly()}>
+            {submitting ? 'Saving…' : 'Save Production'}
+          </ZButton>
+          <p className="text-xs text-muted-foreground">
+            Saves data only. To complete the order, use <span className="font-semibold text-foreground">End</span> on the right rail.
+          </p>
+        </div>
+      )}
     </form>
   );
 }

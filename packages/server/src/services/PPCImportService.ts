@@ -13,6 +13,9 @@ import {
 } from '../utils/rollingPlanXlsxParser';
 import { parseRewindingPlanXlsx } from '../utils/rewindingPlanXlsxParser';
 import { parseCtlPlanXlsx } from '../utils/ctlPlanXlsxParser';
+import { parseHrsPlanXlsx } from '../utils/hrsPlanXlsxParser';
+import { parsePklPlanXlsx } from '../utils/pklPlanXlsxParser';
+import { parseAnnPlanXlsx } from '../utils/annPlanXlsxParser';
 import { ProcessRouteService, parseRouteString, routeCodeFromBatch } from './ProcessRouteService';
 import { QualitySpecService } from './QualitySpecService';
 import {
@@ -24,6 +27,7 @@ import {
 import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
 import { currentPlantDate, postgresDateOnly } from '../utils/dateOnly';
 import { ShiftDetectionService } from './ShiftDetectionService';
+import { derivedChildCoilNo } from '../utils/childCoil';
 
 /** Thrown when an import row would overwrite active production data. */
 export class ProductionSafetyError extends Error {
@@ -68,8 +72,8 @@ export const LINE_IMPORT_SCOPE: Record<ImportLineScope, {
   defaultSheet: PpcXlsxSheetType;
   machineCode: string;
 }> = {
-  HRS: { routeCode: 'S', processCode: 'HRS', defaultSheet: 'ROLLING', machineCode: 'HRS' },
-  PKL: { routeCode: 'P', processCode: 'PKL', defaultSheet: 'PICKLING', machineCode: 'PKL' },
+  HRS: { routeCode: 'S', processCode: 'HRS', defaultSheet: 'HRS', machineCode: 'HRS' },
+  PKL: { routeCode: 'P', processCode: 'PKL', defaultSheet: 'PKL', machineCode: 'PKL' },
   RWD: { routeCode: 'R', processCode: 'RWD', defaultSheet: 'REWINDING', machineCode: 'RWD' },
   ANN: { routeCode: 'F', processCode: 'ANN', defaultSheet: 'ANNEALING', machineCode: 'ANN' },
 };
@@ -125,6 +129,22 @@ function routeHasToken(routeRaw: string | null | undefined, routeCode: string): 
   } catch {
     return false;
   }
+}
+
+function dedupKeyForRow(row: ParsedRollingPlanRow, lineScope?: ImportLineScope): string {
+  if (lineScope === 'HRS' || row.machineCode === 'HRS') {
+    const extras = (row.rawExtras ?? {}) as Record<string, unknown>;
+    const slitLabel = String(extras.hrsSlitLabel ?? row.slitId ?? '').trim().toUpperCase();
+    const width = Number.isFinite(row.widthMm) ? row.widthMm : 0;
+    return `${row.coilNo}|${slitLabel}|${width.toFixed(3)}`;
+  }
+  return row.batchNumber;
+}
+
+function numberFromUnknown(raw: unknown): number | undefined {
+  if (raw == null || raw === '') return undefined;
+  const n = Number.parseFloat(String(raw));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** Journey-aware row class for import fail-safe / dedup (A4). */
@@ -985,11 +1005,20 @@ export class PPCImportService {
     const effectiveSheet = lineScope
       ? (LINE_IMPORT_SCOPE[lineScope].defaultSheet)
       : sheetType;
-    const parsed = effectiveSheet === 'REWINDING'
-      ? parseRewindingPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
-      : effectiveSheet === 'CTL'
-        ? parseCtlPlanXlsx(buffer, { shiftCode: detectedShift.shiftCode })
-      : parseRollingPlanXlsx(buffer, { sheetType: effectiveSheet, shiftCode: detectedShift.shiftCode });
+    const shiftOpts = { shiftCode: detectedShift.shiftCode };
+    // Scope picks the parser (first sheet + signature). CRM ROLLING/SKIN_PASS untouched.
+    const parsed =
+      lineScope === 'HRS' || effectiveSheet === 'HRS'
+        ? parseHrsPlanXlsx(buffer, shiftOpts)
+        : lineScope === 'PKL' || effectiveSheet === 'PKL' || effectiveSheet === 'PICKLING'
+          ? parsePklPlanXlsx(buffer, shiftOpts)
+          : lineScope === 'ANN' || effectiveSheet === 'ANNEALING'
+            ? parseAnnPlanXlsx(buffer, shiftOpts)
+            : effectiveSheet === 'REWINDING' || lineScope === 'RWD'
+              ? parseRewindingPlanXlsx(buffer, shiftOpts)
+              : effectiveSheet === 'CTL'
+                ? parseCtlPlanXlsx(buffer, shiftOpts)
+                : parseRollingPlanXlsx(buffer, { sheetType: effectiveSheet, shiftCode: detectedShift.shiftCode });
     if (parsed.headerError) {
       return {
         headerError: parsed.headerError,
@@ -1017,6 +1046,10 @@ export class PPCImportService {
     const sessionId = randomUUID();
     const planDate = workingRows.find((r) => r.planDate)?.planDate ?? currentPlantDate();
     const effectiveShift = workingRows[0]?.shiftCode ?? detectedShift.shiftCode.toUpperCase();
+    const planDates = [...new Set(workingRows.map((r) => r.planDate).filter(Boolean))].sort();
+    const shiftCodes = [...new Set(workingRows.map((r) => (r.shiftCode ?? '').trim().toUpperCase()).filter(Boolean))].sort();
+    const planDateFrom = planDates[0] ?? planDate;
+    const planDateTo = planDates[planDates.length - 1] ?? planDate;
 
     // ── Enrich rows with production status for preview display ───────────────
     const allBatchNumbers = workingRows.map((r) => r.batchNumber).filter(Boolean);
@@ -1025,11 +1058,12 @@ export class PPCImportService {
     const firstOccurrenceBatch = new Set<string>();
     const duplicateSkippedRows = new Set<number>();
     for (const row of workingRows) {
-      if (!row.batchNumber) continue;
-      if (firstOccurrenceBatch.has(row.batchNumber)) {
+      const key = dedupKeyForRow(row, lineScope);
+      if (!key) continue;
+      if (firstOccurrenceBatch.has(key)) {
         duplicateSkippedRows.add(row.rowNum);
       } else {
-        firstOccurrenceBatch.add(row.batchNumber);
+        firstOccurrenceBatch.add(key);
       }
     }
     const duplicatesInFileCount = duplicateSkippedRows.size;
@@ -1167,6 +1201,9 @@ export class PPCImportService {
       rows: enrichedRows,
       planDate,
       shiftCode: effectiveShift,
+      planDateFrom,
+      planDateTo,
+      shiftCodes,
       sheetType: parsed.sheetType ?? effectiveSheet,
       sheetName: parsed.sheetName ?? '',
       duplicatesInFile: duplicatesInFileCount,
@@ -1210,12 +1247,14 @@ export class PPCImportService {
     const seenBatch = new Set<string>();
     const dedupedRows: typeof rowsToCommit = [];
     const skippedDuplicateRows: number[] = [];
+    const lineScope = session.lineScope;
     for (const row of rowsToCommit) {
-      if (row.batchNumber && seenBatch.has(row.batchNumber)) {
+      const key = dedupKeyForRow(row, lineScope);
+      if (key && seenBatch.has(key)) {
         skippedDuplicateRows.push(row.rowNum);
         continue;
       }
-      if (row.batchNumber) seenBatch.add(row.batchNumber);
+      if (key) seenBatch.add(key);
       dedupedRows.push(row);
     }
     const skippedDuplicates = skippedDuplicateRows.length;
@@ -1240,9 +1279,13 @@ export class PPCImportService {
     let skippedCompleted = 0;
     let skippedAdvanced = 0;
     let skippedAlreadyInLine = 0;
-    const lineScope = session.lineScope;
+    const isHrsScope = lineScope === 'HRS';
+    const hrsSourceRowsByBatch = new Map<string, ParsedRollingPlanRow[]>();
+    const rowsForUpsert: ParsedRollingPlanRow[] = isHrsScope
+      ? this.groupHrsRowsForCommit(dedupedRows, hrsSourceRowsByBatch)
+      : dedupedRows;
 
-    for (const row of dedupedRows) {
+    for (const row of rowsForUpsert) {
       if (row.errors.length > 0) {
         errors.push({ row: row.rowNum, message: row.errors.join('; ') });
         continue;
@@ -1267,7 +1310,12 @@ export class PPCImportService {
         const result = await db.transaction().execute(async (trx) => {
           await this.ensureShift(row.shiftCode, trx);
           await this.ensureGrade(row.gradeCode, trx);
-          return this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
+          const upserted = await this.upsertRollingPlanRow(trx, row, Number(batch.import_batch_id));
+          if (isHrsScope) {
+            const sourceRows = hrsSourceRowsByBatch.get(row.batchNumber) ?? [row];
+            await this.upsertHrsPlanSlits(trx, upserted.batchId, row.coilNo, sourceRows);
+          }
+          return upserted;
         });
         if (result.action === 'inserted') {
           // CRM mill orders only — RWD/CTL/HRS/PKL plan rows join their queues via journey link.
@@ -1292,7 +1340,7 @@ export class PPCImportService {
           }
           if (lineScope === 'PKL' || row.machineCode === 'PKL') {
             const { PklOrderService } = await import('./PklOrderService');
-            await PklOrderService.ensureOrder(row.coilNo, userId);
+            await PklOrderService.ensureOrderForBatch(row.batchNumber, userId);
           }
           loaded++;
         } else {
@@ -1326,7 +1374,7 @@ export class PPCImportService {
     }
 
     // Only newly inserted rows trigger shift log provisioning and Elasticsearch indexing
-    const syncedRows = dedupedRows.filter((r) =>
+    const syncedRows = rowsForUpsert.filter((r) =>
       r.errors.length === 0 && !errors.some((e) => e.row === r.rowNum),
     );
     const syncedBatchNumbers = syncedRows.map((r) => r.batchNumber);
@@ -1372,11 +1420,81 @@ export class PPCImportService {
     };
   }
 
+  private static groupHrsRowsForCommit(
+    rows: ParsedRollingPlanRow[],
+    groupedSource: Map<string, ParsedRollingPlanRow[]>,
+  ): ParsedRollingPlanRow[] {
+    const grouped = new Map<string, ParsedRollingPlanRow[]>();
+    for (const row of rows) {
+      const key = row.batchNumber || row.coilNo;
+      const list = grouped.get(key) ?? [];
+      list.push(row);
+      grouped.set(key, list);
+    }
+
+    const mergedRows: ParsedRollingPlanRow[] = [];
+    for (const [batchNumber, sourceRows] of grouped.entries()) {
+      groupedSource.set(batchNumber, sourceRows);
+      const first = sourceRows[0];
+      const sumWeight = sourceRows.reduce((acc, r) => acc + (Number.isFinite(r.ppcWeightMt) ? r.ppcWeightMt : 0), 0);
+      const rmWidth = numberFromUnknown((first.rawExtras as Record<string, unknown> | undefined)?.rmWidth);
+      const motherWeight = numberFromUnknown((first.rawExtras as Record<string, unknown> | undefined)?.mCoilWeight);
+      mergedRows.push({
+        ...first,
+        slitId: undefined,
+        ppcWeightMt: motherWeight ?? (sumWeight > 0 ? sumWeight : first.ppcWeightMt),
+        widthMm: rmWidth ?? first.widthMm,
+        rawExtras: {
+          ...(first.rawExtras ?? {}),
+          hrsSlitCount: sourceRows.length,
+        },
+      });
+    }
+    return mergedRows;
+  }
+
+  private static async upsertHrsPlanSlits(
+    trx: DbConn,
+    batchId: number,
+    motherCoilNo: string,
+    slitRows: ParsedRollingPlanRow[],
+  ): Promise<void> {
+    for (const row of slitRows) {
+      const extras = (row.rawExtras ?? {}) as Record<string, unknown>;
+      const slitNo = numberFromUnknown(extras.hrsSlitNo) ?? numberFromUnknown(row.slitId) ?? 0;
+      if (!Number.isFinite(slitNo) || slitNo <= 0) continue;
+      const slitNoInt = Math.trunc(slitNo);
+      const slitLabel = String(extras.hrsSlitLabel ?? row.slitId ?? slitNoInt).trim().toUpperCase();
+      const route = String(row.processRouteRaw ?? '').trim().toUpperCase() || null;
+      const child = derivedChildCoilNo(motherCoilNo, slitLabel);
+      await sql`
+        INSERT INTO planning.ppc_hrs_slit (
+          batch_id, slit_no, slit_label, width_mm, weight_mt, finish_thk_mm,
+          process_route_raw, sap_order_no, item_no, customer_name, child_coil_no
+        ) VALUES (
+          ${batchId}, ${slitNoInt}, ${slitLabel}, ${row.widthMm}, ${row.ppcWeightMt}, ${row.finishThkMm},
+          ${route}, ${row.sapOrderNo ?? null}, ${row.itemNo ?? null}, ${row.customerName}, ${child}
+        )
+        ON CONFLICT (batch_id, slit_no) DO UPDATE
+        SET
+          slit_label = EXCLUDED.slit_label,
+          width_mm = EXCLUDED.width_mm,
+          weight_mt = EXCLUDED.weight_mt,
+          finish_thk_mm = EXCLUDED.finish_thk_mm,
+          process_route_raw = EXCLUDED.process_route_raw,
+          sap_order_no = EXCLUDED.sap_order_no,
+          item_no = EXCLUDED.item_no,
+          customer_name = EXCLUDED.customer_name,
+          child_coil_no = EXCLUDED.child_coil_no
+      `.execute(trx);
+    }
+  }
+
   private static async upsertRollingPlanRow(
     trx: DbConn,
     row: ParsedRollingPlanRow,
     importBatchId: number,
-  ): Promise<{ action: 'inserted' | 'updated' }> {
+  ): Promise<{ action: 'inserted' | 'updated'; batchId: number }> {
     const processCode = processCodeFromBatchMachine(row.machineCode, row.subProcess ?? '');
     if (processCode) {
       const journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode);
@@ -1519,7 +1637,7 @@ export class PPCImportService {
       );
     }
 
-    return { action: existing ? 'updated' : 'inserted' };
+    return { action: existing ? 'updated' : 'inserted', batchId };
   }
 
   /** @deprecated Use SixHiConfigService.transferMachines */

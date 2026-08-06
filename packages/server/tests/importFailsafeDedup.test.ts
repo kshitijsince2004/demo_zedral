@@ -326,15 +326,15 @@ describe('re-import advanced coil regression (DB)', () => {
     const sheet = XLSX.utils.aoa_to_sheet([
       [
         'PV-Desc', 'Batch Number', 'Mother Coil', 'Customer Name', 'Grade',
-        'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width',
-        'Process Route', 'Plan Date', 'Count',
+        'Pre Stage Thickness', 'Coil Weight', 'Width',
+        'Process Route', 'Plan Date', 'Count', 'First ANL TMP',
       ],
-      ['6HIML', batchNo, coilNo, 'Hero Steels', 'CRCA', '0.50', '2.00', '12.5', '1000', 'SP4F', '2026-06-08', '1'],
+      ['PICKL', batchNo, coilNo, 'Hero Steels', 'CRCA', '2.00', '12.5', '1000', 'SP4F', '2026-06-08', '1', '680'],
     ]);
-    XLSX.utils.book_append_sheet(wb, sheet, 'Pickling');
+    XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
     const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
-    const preview = await PPCImportService.previewRollingXlsx(buf, 'adv.xlsx', userId, 'PICKLING', 'PKL');
+    const preview = await PPCImportService.previewRollingXlsx(buf, 'adv.xlsx', userId, 'PKL', 'PKL');
     const row = preview.rows.find((r) => r.batchNumber === batchNo);
     expect(row?.previewStatus).toBe('advanced-skipped');
 
@@ -544,15 +544,15 @@ describe('inject-path safety DB (F1)', () => {
     const sheet = XLSX.utils.aoa_to_sheet([
       [
         'PV-Desc', 'Batch Number', 'Mother Coil', 'Customer Name', 'Grade',
-        'Finish Thickness', 'Pre Stage Thickness', 'Coil Weight', 'Width',
-        'Process Route', 'Plan Date', 'Count',
+        'Pre Stage Thickness', 'Coil Weight', 'Width',
+        'Process Route', 'Plan Date', 'Count', 'First ANL TMP',
       ],
-      ['6HIML', batchNo, coilNo, 'Hero Steels', 'CRCA', '0.50', '2.00', '12.5', '1000', 'SP4F', '2026-06-08', '1'],
+      ['PICKL', batchNo, coilNo, 'Hero Steels', 'CRCA', '2.00', '12.5', '1000', 'SP4F', '2026-06-08', '1', '680'],
     ]);
-    XLSX.utils.book_append_sheet(wb, sheet, 'Pickling');
+    XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
     const buf = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
-    const preview = await PPCImportService.previewRollingXlsx(buf, 'inj.xlsx', userId, 'PICKLING', 'PKL');
+    const preview = await PPCImportService.previewRollingXlsx(buf, 'inj.xlsx', userId, 'PKL', 'PKL');
     const row = preview.rows.find((r) => r.batchNumber === batchNo);
     expect(row?.previewStatus).toBe('in-production');
     expect(row?.skipReason).toMatch(/IN_PROGRESS on PKL/);

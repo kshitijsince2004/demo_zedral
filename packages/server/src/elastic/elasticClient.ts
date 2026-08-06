@@ -1,4 +1,5 @@
 import { Client } from '@elastic/elasticsearch';
+import { logger } from '../utils/logger';
 
 // ── Configuration ───────────────────────────────────────────────────────────
 const ELASTICSEARCH_URL = process.env.ELASTICSEARCH_URL || 'http://127.0.0.1:9200';
@@ -46,7 +47,7 @@ export async function checkElasticHealth(): Promise<boolean> {
     const client = getElasticClient();
     await client.ping();
     _available = true;
-    console.log(`[elastic] Connected to ${ELASTICSEARCH_URL}`);
+    logger.info(`[elastic] Connected to ${ELASTICSEARCH_URL}`);
     return true;
   } catch (err: any) {
     _available = false;

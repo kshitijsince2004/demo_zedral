@@ -28,7 +28,7 @@ export async function getTenantModuleConfig(tenantId: string): Promise<TenantMod
   if (!row) {
     return {
       enabledModules: ['M1'],
-      flags: { 'module.m1_collection': true },
+      flags: { 'module.m1_collection': true, 'mode.manual_reroll': true },
     };
   }
 
@@ -37,6 +37,7 @@ export async function getTenantModuleConfig(tenantId: string): Promise<TenantMod
     flags: {
       'module.m1_collection': true,
       ...toFlagRecord(row.flags),
+      'mode.manual_reroll': true,
     },
   };
 }

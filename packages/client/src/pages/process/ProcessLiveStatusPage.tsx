@@ -53,6 +53,10 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     wpW?: number; wpP?: number; chartReadings: number; chartDue: number;
   } | null>(null);
   const [pklMetricsLoading, setPklMetricsLoading] = useState(false);
+  const [hrsMetrics, setHrsMetrics] = useState<{
+    targetMt: number; totalProdMt: number; scrapMt: number; scrapPct: number; coilsDone: number; settingCount: number;
+  } | null>(null);
+  const [hrsMetricsLoading, setHrsMetricsLoading] = useState(false);
 
   useEffect(() => {
     if (!isProcessStationCode(processCode)) return;
@@ -123,6 +127,31 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     };
   }, [processCode, shiftLogId, producedMt]);
 
+  useEffect(() => {
+    if (processCode !== 'HRS' || !shiftLogId) {
+      setHrsMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    setHrsMetricsLoading(true);
+    void apiClient
+      .get<{
+        targetMt: number; totalProdMt: number; scrapMt: number; scrapPct: number; coilsDone: number; settingCount: number;
+      }>(`/stations/hrs/shift-metrics/${encodeURIComponent(shiftLogId)}`)
+      .then((m) => {
+        if (!cancelled) setHrsMetrics(m);
+      })
+      .catch(() => {
+        if (!cancelled) setHrsMetrics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setHrsMetricsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [processCode, shiftLogId, producedMt]);
+
   const pklShiftItems = useMemo(() => {
     if (!pklMetrics) return [];
     return [
@@ -134,6 +163,17 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
       { label: 'Chart', value: `${pklMetrics.chartReadings} / ${pklMetrics.chartDue}` },
     ];
   }, [pklMetrics]);
+  const hrsShiftItems = useMemo(() => {
+    if (!hrsMetrics) return [];
+    return [
+      { label: 'Produced MT', value: hrsMetrics.totalProdMt.toFixed(2) },
+      { label: 'Input MT', value: hrsMetrics.targetMt.toFixed(2) },
+      { label: 'Scrap MT', value: hrsMetrics.scrapMt.toFixed(2) },
+      { label: 'Scrap %', value: hrsMetrics.scrapPct.toFixed(2) },
+      { label: 'Coils Done', value: String(hrsMetrics.coilsDone) },
+      { label: 'Settings', value: String(hrsMetrics.settingCount) },
+    ];
+  }, [hrsMetrics]);
 
   const running = useMemo(() => {
     const byStatus = queue.find((c) => c.status === 'IN_PROGRESS' || c.status === 'STOPPAGE');
@@ -206,10 +246,10 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
   const netRuntime = useProcessNetTimer(
     runStartedAt,
     runStoppages,
-    processCode === 'PKL' && captureStatus === 'running',
+    (processCode === 'PKL' || processCode === 'HRS') && captureStatus === 'running',
     activeStoppageId,
   );
-  const runtime = processCode === 'PKL' && captureStatus === 'running'
+  const runtime = (processCode === 'PKL' || processCode === 'HRS') && captureStatus === 'running'
     ? (netRuntime ?? wallRuntime)
     : wallRuntime;
 
@@ -246,10 +286,10 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-auto">
-        {processCode === 'PKL' && (
+        {(processCode === 'PKL' || processCode === 'HRS') && (
           <ProcessShiftSummaryPanel
-            items={pklShiftItems}
-            loading={pklMetricsLoading}
+            items={processCode === 'PKL' ? pklShiftItems : hrsShiftItems}
+            loading={processCode === 'PKL' ? pklMetricsLoading : hrsMetricsLoading}
             footnote={!shiftLogId ? 'Shift log not ready yet.' : undefined}
           />
         )}

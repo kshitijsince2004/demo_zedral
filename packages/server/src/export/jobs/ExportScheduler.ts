@@ -3,6 +3,7 @@ import { getUserWithRolesAndAccess } from '../../services/authService';
 import { ExportWorker } from './ExportWorker';
 import type { ExportRequest } from '../types';
 import { getPlantClockParts, addPlantDays, currentPlantDate, IST_OFFSET } from '@m1/shared-validation';
+import { logger } from '../../utils/logger';
 
 const DEFAULT_CRON_HOUR = Number(process.env.DPR_SCHEDULE_HOUR ?? 7);
 const SYSTEM_USER_ID = Number(process.env.EXPORT_SYSTEM_USER_ID ?? 1);
@@ -30,7 +31,7 @@ export class ExportScheduler {
   static start(): void {
     if (process.env.DPR_SCHEDULER_ENABLED === 'false') return;
     this.scheduleNext();
-    console.log(`[ExportScheduler] DPR nightly enabled (hour ${DEFAULT_CRON_HOUR} local)`);
+    logger.info(`[ExportScheduler] DPR nightly enabled (hour ${DEFAULT_CRON_HOUR} local)`);
   }
 
   static stop(): void {
@@ -83,7 +84,7 @@ export class ExportScheduler {
 
     const jobId = String(job.export_id);
     ExportWorker.kick();
-    console.log(`[ExportScheduler] queued nightly DPR for ${month} (job ${jobId})`);
+    logger.info(`[ExportScheduler] queued nightly DPR for ${month} (job ${jobId})`);
     return jobId;
   }
 }

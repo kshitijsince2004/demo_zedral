@@ -1250,6 +1250,8 @@ export class SixHiService {
     if (active && active.batchNumber !== batchNumber) {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
     }
+    const { ManualRerollService } = await import('./ManualRerollService');
+    await ManualRerollService.assertNoActiveReroll(machineCode);
 
     const orderRow = await db.selectFrom('txn.crm_order')
       .select(['order_id', 'status', 'coil_no', 'prod_start_at'])
@@ -1420,6 +1422,8 @@ export class SixHiService {
     if (active && !uniqueBatchNumbers.includes(active.batchNumber)) {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
     }
+    const { ManualRerollService } = await import('./ManualRerollService');
+    await ManualRerollService.assertNoActiveReroll(machineCode);
 
     // Ensure every selected batch has an order row and collect current statuses.
     type StartRow = {

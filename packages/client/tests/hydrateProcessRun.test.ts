@@ -33,7 +33,13 @@ describe('orderToHydrateInput', () => {
       prodStartAt: '2026-08-02T10:00:00.000Z',
       stoppageStartedAt: '2026-08-02T11:00:00.000Z',
       activeStoppageId: '99',
+      stoppages: [
+        { stoppageId: '99', startAt: '2026-08-02T11:00:00.000Z' },
+        { stoppageId: '88', startAt: '2026-08-02T09:00:00.000Z', endAt: '2026-08-02T09:30:00.000Z' },
+      ],
     });
+    expect(processRailFlags('stoppage', input.coilNo, { hasActiveStoppage: true }).canEnd).toBe(false);
+    expect(processRailFlags('stoppage', input.coilNo, { hasActiveStoppage: true }).canResume).toBe(false);
   });
 
   it('clears stoppage fields when running', () => {

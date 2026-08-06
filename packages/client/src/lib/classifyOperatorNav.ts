@@ -17,7 +17,7 @@ export function classifyOperatorNav(processCode: string, pathname: string) {
     isAnn,
     isHrs,
     isRwd,
-    /** Order history tab for HRS/RWD/PKL/ANN. */
-    wantsHistory: isAnn || isHrs || isRwd || isPkl,
+    /** Order history for HRS/RWD/PKL/ANN and CRM mills (6HI/4HI/2HI). */
+    wantsHistory: isAnn || isHrs || isRwd || isPkl || isCrm,
   };
 }

@@ -33,6 +33,9 @@ const PRESERVE_TABLES = new Set([
   'master.rp_oil_grade',
 ]);
 
+/** Whole schemas skipped — SuperTokens credentials + migration history. */
+const PRESERVE_SCHEMAS = new Set(['public', 'pg_catalog', 'information_schema']);
+
 export async function clearPilotData(databaseUrl = DATABASE_URL) {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
@@ -47,7 +50,10 @@ export async function clearPilotData(databaseUrl = DATABASE_URL) {
 
     const toClear = rows
       .map((r) => `${r.schemaname}.${r.tablename}`)
-      .filter((fqn) => !PRESERVE_TABLES.has(fqn));
+      .filter((fqn) => {
+        const schema = fqn.split('.')[0];
+        return !PRESERVE_SCHEMAS.has(schema) && !PRESERVE_TABLES.has(fqn);
+      });
 
     if (toClear.length === 0) {
       console.log('No tables to clear.');

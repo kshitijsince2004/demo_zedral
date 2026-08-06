@@ -25,7 +25,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
   const { basePath: processBase } = useProcessWorkspaceBase();
 
   const machineNav = getMachineNavItems(role, machineAccess, lineAccess, username);
-  const { isProcess, isCrm, isPkl, isAnn, wantsHistory } = classifyOperatorNav(processCode, location.pathname);
+  const { isProcess, isPkl, isAnn, wantsHistory } = classifyOperatorNav(processCode, location.pathname);
 
   const millBase = millBasePath(
     (activeMachine as '6HI' | '4HI' | '2HI') ?? millCodeFromPath(location.pathname) ?? '6HI',
@@ -106,7 +106,8 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
             label: 'Orders',
             icon: ListOrdered,
             path: millBase,
-            match: (p: string) => isMillPath(p) && !p.includes('/capture') && !p.includes('/handover'),
+            match: (p: string) =>
+              isMillPath(p) && !p.includes('/capture') && !p.includes('/handover') && !p.includes('/history'),
           },
           {
             id: 'capture',
@@ -114,6 +115,13 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
             icon: ClipboardList,
             path: `${millBase}/capture`,
             match: (p: string) => p.endsWith('/capture'),
+          },
+          {
+            id: 'history',
+            label: 'History',
+            icon: History,
+            path: `${millBase}/history`,
+            match: (p: string) => p.includes('/history'),
           },
         ];
 

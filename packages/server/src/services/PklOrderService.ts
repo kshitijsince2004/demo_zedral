@@ -1,8 +1,9 @@
 /**
  * PKL line order lifecycle over txn.pkl_order.
- * Mirrors HrsOrderService, keyed by mother coil_no — single line, no order-lines.
+ * Mirrors HrsOrderService; supports per-batch PKL orders (multi-batch mother coils).
  */
-import { formatPlantDate, postgresDateOnly } from '@m1/shared-validation';
+import { formatPlantDate, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
+import { sql } from 'kysely';
 import { db } from '../db';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
@@ -70,6 +71,26 @@ export type PklOrderDetail = {
 const PKL_PROCESS_CODE = 'PKL';
 
 export class PklOrderService {
+  private static readonly ORDER_STATUS_PRIORITY: Record<PklOrderStatus, number> = {
+    IN_PROGRESS: 6,
+    STOPPAGE: 5,
+    PREPARING: 4,
+    PENDING: 3,
+    REJECTED: 2,
+    COMPLETED: 1,
+  };
+
+  private static choosePreferredOrder<T extends { status: string; order_id: unknown }>(rows: T[]): T | undefined {
+    return rows
+      .slice()
+      .sort((a, b) => {
+        const pa = this.ORDER_STATUS_PRIORITY[a.status as PklOrderStatus] ?? 0;
+        const pb = this.ORDER_STATUS_PRIORITY[b.status as PklOrderStatus] ?? 0;
+        if (pa !== pb) return pb - pa;
+        return Number(b.order_id) - Number(a.order_id);
+      })[0];
+  }
+
   static async getProcessId(): Promise<number> {
     const row = await db
       .selectFrom('master.process')
@@ -94,42 +115,40 @@ export class PklOrderService {
     return resolved.shiftLogId;
   }
 
-  /** Ensure pkl_order row exists for a mother coil. */
-  static async ensureOrder(coilNo: string, userId: number): Promise<string> {
+  /** Ensure pkl_order row exists for a PKL plan batch. */
+  static async ensureOrderForBatch(
+    batchNumber: string,
+    userId: number,
+    coilNoOverride?: string,
+  ): Promise<string> {
+    const batch = await db
+      .selectFrom('planning.ppc_batch')
+      .selectAll()
+      .where('batch_number', '=', batchNumber)
+      .executeTakeFirst();
+    if (!batch) throw new Error(`PKL batch not found: ${batchNumber}`);
+
     const existing = await db
       .selectFrom('txn.pkl_order')
-      .select('order_id')
-      .where('coil_no', '=', coilNo)
+      .select(['order_id', 'coil_no'])
+      .where('batch_id', '=', batch.batch_id)
       .executeTakeFirst();
     if (existing) {
+      if (coilNoOverride && existing.coil_no !== coilNoOverride) {
+        const id = parseCoilIdentity(coilNoOverride);
+        await db
+          .updateTable('txn.pkl_order')
+          .set({
+            coil_no: coilNoOverride,
+            mother_coil_no: id.coilNo,
+            slit_id: batch.slit_id ?? id.slitId,
+            updated_at: new Date(),
+          } as any)
+          .where('order_id', '=', existing.order_id)
+          .execute();
+      }
       return String(existing.order_id);
     }
-
-    const coil = await db
-      .selectFrom('coil.coil as c')
-      .leftJoin('master.customer as cu', 'cu.customer_id', 'c.customer_id')
-      .select([
-        'c.coil_no', 'c.grade_code', 'c.nominal_width_mm', 'c.coil_width_mm',
-        'c.coil_thk_mm', 'c.weight_mt', 'cu.customer_name', 'c.parent_coil_no',
-      ])
-      .where('c.coil_no', '=', coilNo)
-      .executeTakeFirst();
-    if (!coil) throw new Error(`Coil not found: ${coilNo}`);
-
-    const firstBatch = await db
-      .selectFrom('planning.ppc_batch')
-      .select(['customer_name', 'grade_code', 'width_mm', 'input_thk_mm', 'ppc_thk_mm', 'ppc_weight_mt'])
-      .where('coil_no', '=', coilNo)
-      .where((eb) =>
-        eb.or([
-          eb('machine_code', '=', 'PKL'),
-          eb('sub_process', '=', 'PKL'),
-          eb('from_work_center', 'in', ['P', 'PKL']),
-        ]),
-      )
-      .orderBy('slit_id', 'asc')
-      .orderBy('batch_number', 'asc')
-      .executeTakeFirst();
 
     const detected = await ShiftDetectionService.getCurrentShift({
       userId,
@@ -145,26 +164,29 @@ export class PklOrderService {
         join.onRef('ojs.journey_id', '=', 'oj.journey_id').onRef('ojs.step_no', '=', 'oj.current_step_no'),
       )
       .select('ojs.status')
-      .where('oj.coil_no', '=', coilNo)
+      .where('oj.coil_no', '=', batch.coil_no)
       .where('ojs.process_code', '=', 'PKL')
       .where('ojs.status', '=', 'ACTIVE')
       .executeTakeFirst();
 
+    const coilNo = coilNoOverride ?? batch.coil_no;
     const identity = parseCoilIdentity(coilNo);
-    const motherCoilNo = coil.parent_coil_no ?? undefined;
-    const slitId = identity.slitId ?? undefined;
+    const motherCoilNo = identity.coilNo;
+    const slitId = batch.slit_id ?? identity.slitId ?? null;
 
     const order = await db
       .insertInto('txn.pkl_order')
       .values({
+        batch_id: batch.batch_id,
+        batch_number: batch.batch_number,
         coil_no: coilNo,
         mother_coil_no: motherCoilNo ?? null,
-        slit_id: slitId ?? null,
-        customer_name: firstBatch?.customer_name ?? coil.customer_name ?? 'Unknown',
-        grade_code: firstBatch?.grade_code ?? coil.grade_code ?? 'NA',
-        nominal_width_mm: firstBatch?.width_mm ?? coil.nominal_width_mm ?? coil.coil_width_mm ?? 0,
-        nominal_thk_mm: firstBatch?.input_thk_mm ?? firstBatch?.ppc_thk_mm ?? coil.coil_thk_mm ?? 0,
-        mother_coil_weight_mt: firstBatch?.ppc_weight_mt ?? coil.weight_mt ?? 0,
+        slit_id: slitId,
+        customer_name: batch.customer_name,
+        grade_code: batch.grade_code,
+        nominal_width_mm: batch.width_mm,
+        nominal_thk_mm: batch.input_thk_mm ?? batch.ppc_thk_mm,
+        mother_coil_weight_mt: batch.ppc_weight_mt,
         machine_code: 'PKL',
         status: activeStep ? 'PREPARING' : 'PENDING',
         logged_in_user_id: userId,
@@ -179,12 +201,104 @@ export class PklOrderService {
     return String(order.order_id);
   }
 
+  /** Legacy ensure for coil routes; picks/creates one best-fit batch order. */
+  static async ensureOrder(coilNo: string, userId: number): Promise<string> {
+    const identity = parseCoilIdentity(coilNo);
+    const existingOrders = await db
+      .selectFrom('txn.pkl_order')
+      .select(['order_id', 'status', 'coil_no'])
+      .where((eb) => {
+        const conds = [eb('coil_no', '=', coilNo)];
+        if (identity.slitId && identity.coilNo !== coilNo) {
+          conds.push(eb.and([
+            eb('coil_no', '=', identity.coilNo),
+            eb('slit_id', '=', identity.slitId),
+          ]));
+          conds.push(eb.and([
+            eb('mother_coil_no', '=', identity.coilNo),
+            eb('slit_id', '=', identity.slitId),
+          ]));
+        }
+        return eb.or(conds);
+      })
+      .execute();
+    const preferred = this.choosePreferredOrder(existingOrders);
+    if (preferred) {
+      if (preferred.coil_no !== coilNo) {
+        await db
+          .updateTable('txn.pkl_order')
+          .set({
+            coil_no: coilNo,
+            mother_coil_no: identity.coilNo,
+            slit_id: identity.slitId,
+            updated_at: new Date(),
+          } as any)
+          .where('order_id', '=', preferred.order_id)
+          .execute();
+      }
+      return String(preferred.order_id);
+    }
+
+    const batchNumber = await this.findPklBatchNumber(coilNo);
+    if (!batchNumber) throw new Error(`No PKL batch found for coil: ${coilNo}`);
+    return this.ensureOrderForBatch(batchNumber, userId, coilNo);
+  }
+
+  private static async findPklBatchNumber(coilNo: string): Promise<string | undefined> {
+    const direct = await db
+      .selectFrom('planning.ppc_batch')
+      .select('batch_number')
+      .where('coil_no', '=', coilNo)
+      .where((eb) => eb.or([
+        eb('machine_code', '=', 'PKL'),
+        eb('sub_process', '=', 'PKL'),
+        eb('from_work_center', 'in', ['P', 'PKL']),
+      ]))
+      .orderBy('slit_id', 'asc')
+      .orderBy('batch_number', 'asc')
+      .executeTakeFirst();
+    if (direct?.batch_number) return String(direct.batch_number);
+
+    const identity = parseCoilIdentity(coilNo);
+    if (!identity.slitId || identity.coilNo === coilNo) return undefined;
+
+    const bySlit = await db
+      .selectFrom('planning.ppc_batch')
+      .select('batch_number')
+      .where('coil_no', '=', identity.coilNo)
+      .where(sql<boolean>`upper(trim(slit_id)) = ${identity.slitId.toUpperCase()}`)
+      .where((eb) => eb.or([
+        eb('machine_code', '=', 'PKL'),
+        eb('sub_process', '=', 'PKL'),
+        eb('from_work_center', 'in', ['P', 'PKL']),
+      ]))
+      .orderBy('batch_number', 'asc')
+      .executeTakeFirst();
+    if (bySlit?.batch_number) return String(bySlit.batch_number);
+
+    const motherRows = await db
+      .selectFrom('planning.ppc_batch')
+      .select('batch_number')
+      .where('coil_no', '=', identity.coilNo)
+      .where((eb) => eb.or([
+        eb('machine_code', '=', 'PKL'),
+        eb('sub_process', '=', 'PKL'),
+        eb('from_work_center', 'in', ['P', 'PKL']),
+      ]))
+      .orderBy('slit_id', 'asc')
+      .orderBy('batch_number', 'asc')
+      .execute();
+    return motherRows.length === 1 && motherRows[0]?.batch_number
+      ? String(motherRows[0].batch_number)
+      : undefined;
+  }
+
   static async getOrder(coilNo: string, userId: number): Promise<PklOrderDetail> {
-    await this.ensureOrder(coilNo, userId);
+    const ensuredOrderId = await this.ensureOrder(coilNo, userId);
     const order = await db
       .selectFrom('txn.pkl_order')
       .selectAll()
-      .where('coil_no', '=', coilNo)
+      .where('order_id', '=', ensuredOrderId as any)
       .executeTakeFirstOrThrow();
 
     const stoppages = await db
@@ -253,7 +367,7 @@ export class PklOrderService {
       .innerJoin('planning.order_journey_step as ojs', (join) =>
         join.onRef('ojs.journey_id', '=', 'oj.journey_id').onRef('ojs.step_no', '=', 'oj.current_step_no'),
       )
-      .select(['oj.journey_id', 'oj.coil_no', 'ojs.step_no'])
+      .select(['oj.journey_id', 'oj.coil_no', 'ojs.step_no', 'ojs.queue_batch_id'])
       .where('oj.status', 'in', ['ACTIVE', 'HOLD'])
       .where('ojs.process_code', '=', 'PKL')
       .where('ojs.status', 'in', ['PENDING', 'ACTIVE', 'HOLD'])
@@ -262,7 +376,7 @@ export class PklOrderService {
       .execute();
 
     const queue: PklQueueCard[] = [];
-    const seenCoils = new Set<string>();
+    const seenOrders = new Set<string>();
 
     const resolveRoute = async (coilNo: string): Promise<string | undefined> => {
       const batch = await db
@@ -296,8 +410,9 @@ export class PklOrderService {
       },
       extra?: { journeyId?: string; stepNo?: number },
     ) => {
-      if (seenCoils.has(order.coil_no)) return;
-      seenCoils.add(order.coil_no);
+      const oid = String((order as any).order_id ?? `${order.coil_no}|${order.slit_id ?? ''}|${order.status}`);
+      if (seenOrders.has(oid)) return;
+      seenOrders.add(oid);
       queue.push({
         coilNo: order.coil_no,
         gradeCode: order.grade_code ?? '',
@@ -316,13 +431,35 @@ export class PklOrderService {
     };
 
     for (const row of rows) {
-      await this.ensureOrder(row.coil_no, userId);
-      const order = await db
-        .selectFrom('txn.pkl_order')
-        .selectAll()
-        .where('coil_no', '=', row.coil_no)
-        .executeTakeFirstOrThrow();
-      await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
+      try {
+        if (row.queue_batch_id != null) {
+          const matched = await db
+            .selectFrom('planning.ppc_batch')
+            .select(['batch_number'])
+            .where('batch_id', '=', row.queue_batch_id as any)
+            .executeTakeFirst();
+          const orderId = matched?.batch_number
+            ? await this.ensureOrderForBatch(String(matched.batch_number), userId, row.coil_no)
+            : await this.ensureOrder(row.coil_no, userId);
+          const order = await db
+            .selectFrom('txn.pkl_order')
+            .selectAll()
+            .where('order_id', '=', orderId as any)
+            .executeTakeFirstOrThrow();
+          await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
+        } else {
+          await this.ensureOrder(row.coil_no, userId);
+          const order = await db
+            .selectFrom('txn.pkl_order')
+            .selectAll()
+            .where('coil_no', '=', row.coil_no)
+            .orderBy('order_id', 'desc')
+            .executeTakeFirstOrThrow();
+          await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
+        }
+      } catch (err) {
+        console.warn(`[pkl.queue] skip ${row.coil_no}:`, err instanceof Error ? err.message : err);
+      }
     }
 
     const extraOrders = await db
@@ -341,7 +478,11 @@ export class PklOrderService {
       .selectFrom('txn.pkl_order')
       .selectAll()
       .where('status', '=', 'COMPLETED')
-      .where('prod_date', '=', prodDate as any)
+      .where(sql<boolean>`(
+        prod_date = ${prodDate}::date
+        OR production_day = ${prodDate}::date
+        OR (prod_end_at AT TIME ZONE ${PLANT_TIME_ZONE})::date = ${prodDate}::date
+      )`)
       .orderBy('prod_end_at', 'desc')
       .execute();
     for (const order of completed) {
@@ -450,10 +591,11 @@ export class PklOrderService {
   }
 
   static async endProduction(coilNo: string, userId: number): Promise<PklOrderDetail> {
+    const orderId = await this.ensureOrder(coilNo, userId);
     const order = await db
       .selectFrom('txn.pkl_order')
       .selectAll()
-      .where('coil_no', '=', coilNo)
+      .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
     if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
       throw new Error('Only running orders can be completed');
@@ -466,6 +608,8 @@ export class PklOrderService {
     const duration = order.prod_start_at
       ? netProdDurationMin(new Date(order.prod_start_at), endAt, stopMin)
       : 0;
+    const shift = await ShiftDetectionService.getCurrentShift({ userId, machineCode: 'PKL' });
+    const prodDate = postgresDateOnly(shift.prodDate);
 
     await db
       .updateTable('txn.pkl_order')
@@ -473,6 +617,8 @@ export class PklOrderService {
         status: 'COMPLETED',
         prod_end_at: endAt,
         prod_duration_min: duration,
+        prod_date: prodDate as never,
+        production_day: prodDate as never,
         updated_at: endAt,
       })
       .where('order_id', '=', order.order_id)

@@ -7,6 +7,7 @@ import { bootstrapShiftContext } from '../../../lib/shiftDetection';
 import { formatShiftDate } from '../../../lib/dateFormat';
 import { useShiftStore } from '../../../store/shiftStore';
 import type { AnnBoardRow } from '../../../components/process/bodies/AnnBaseCard';
+import { AnnBaseAssignModal } from '../../../components/process/bodies/AnnBaseAssignModal';
 import type { ProcessQueueCard } from '../../../store/processStore';
 import {
   annBatchingAdvisories,
@@ -19,6 +20,13 @@ export function AnnMhBatchingPage() {
   const shiftLogId = useShiftStore((s) => s.shiftLogId);
   const [queue, setQueue] = useState<ProcessQueueCard[]>([]);
   const [board, setBoard] = useState<AnnBoardRow[]>([]);
+  const [charges, setCharges] = useState<Array<{
+    charge_no: string;
+    annealing_batch_no: string | null;
+    base_no: string | null;
+    status: string;
+    current_stage_code: string | null;
+  }>>([]);
   const [bases, setBases] = useState<AnnBaseCapacity[]>([]);
   const [limits, setLimits] = useState<AnnSpecLimit[]>([]);
   const [stack, setStack] = useState<string[]>([]);
@@ -29,6 +37,7 @@ export function AnnMhBatchingPage() {
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [incomingSearch, setIncomingSearch] = useState('');
+  const [assignFor, setAssignFor] = useState<string | null>(null);
 
   const ensureShift = useCallback(async () => {
     await bootstrapShiftContext('ANN');
@@ -46,16 +55,20 @@ export function AnnMhBatchingPage() {
   }, []);
 
   const reload = useCallback(async () => {
-    const [q, b, basesRes, lims] = await Promise.all([
+    const [q, b, basesRes, lims, ch] = await Promise.all([
       apiClient.get<{ queue: ProcessQueueCard[] }>('/stations/ann/queue'),
       apiClient.get<{ board: AnnBoardRow[] }>('/stations/ann/board'),
       apiClient.get<{ bases: AnnBaseCapacity[] }>('/stations/ann/bases'),
       apiClient.get<{ limits: AnnSpecLimit[] }>('/stations/ann/spec-limits'),
+      apiClient.get<{ charges: Array<{ charge_no: string; annealing_batch_no: string | null; base_no: string | null; status: string; current_stage_code: string | null }> }>('/stations/ann/charges'),
     ]);
-    setQueue((q.queue ?? []).filter((c) => c.status === 'PENDING'));
+    setQueue((q.queue ?? []).filter((c) =>
+      c.status === 'PENDING' || c.status === 'PREPARING' || c.status === 'IN_PROGRESS',
+    ));
     setBoard(b.board ?? []);
     setBases(basesRes.bases ?? []);
     setLimits(lims.limits ?? []);
+    setCharges((ch.charges ?? []).filter((c) => c.status !== 'DONE'));
   }, []);
 
   useEffect(() => {
@@ -71,6 +84,11 @@ export function AnnMhBatchingPage() {
   const prepared = useMemo(
     () => board.filter((r) => r.charge && r.charge.status !== 'DONE'),
     [board],
+  );
+
+  const unassigned = useMemo(
+    () => charges.filter((c) => !c.base_no || c.status === 'PREPARING'),
+    [charges],
   );
 
   const stackWeight = useMemo(
@@ -263,7 +281,31 @@ export function AnnMhBatchingPage() {
         <aside className="flex min-h-0 flex-col overflow-hidden max-h-full rounded-lg border border-border bg-background shadow-sm">
           <h2 className="shrink-0 border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">On bases</h2>
           <ul className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 text-xs">
-            {prepared.length === 0 && <li className="text-muted-foreground px-1 py-3">No active charges.</li>}
+            {unassigned.length > 0 && (
+              <>
+                <li className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Preparing</li>
+                {unassigned.map((c) => (
+                  <li key={c.charge_no} className="rounded-lg border border-border bg-card px-2 py-2 space-y-1">
+                    <p className="font-bold font-mono">{c.annealing_batch_no ?? c.charge_no}</p>
+                    <p className="text-muted-foreground">Base {c.base_no ?? 'unassigned'} · {c.status}</p>
+                    {!c.base_no ? (
+                      <button type="button" className="text-xs underline text-primary" onClick={() => setAssignFor(c.charge_no)}>Assign Base</button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-xs underline text-primary"
+                        onClick={() => {
+                          void apiClient.post(`/stations/ann/charges/${encodeURIComponent(c.charge_no)}/start`).then(() => reload()).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Start failed'));
+                        }}
+                      >
+                        Start
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </>
+            )}
+            {prepared.length === 0 && unassigned.length === 0 && <li className="text-muted-foreground px-1 py-3">No active charges.</li>}
             {prepared.map((r) => (
               <li key={r.base_no} className="rounded-lg border border-border bg-card px-2 py-2">
                 <p className="font-bold font-mono">{r.base_no}</p>
@@ -280,6 +322,18 @@ export function AnnMhBatchingPage() {
           </ul>
         </aside>
       </div>
+      <AnnBaseAssignModal
+        open={!!assignFor}
+        chargeNo={assignFor ?? ''}
+        title="Assign base"
+        confirmLabel="Assign Base"
+        onClose={() => setAssignFor(null)}
+        onAssigned={async (bn) => {
+          if (!assignFor) return;
+          await apiClient.post(`/stations/ann/charges/${encodeURIComponent(assignFor)}/assign-base`, { baseNo: bn });
+          await reload();
+        }}
+      />
     </MachineHeadShell>
   );
 }

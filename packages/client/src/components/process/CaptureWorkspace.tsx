@@ -6,7 +6,6 @@ import { useProcessStore } from '../../store/processStore';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { getProcessConfig } from '../../lib/processConfig';
 import { useShiftStore } from '../../store/shiftStore';
-import { resolveStoppageDisplayCode } from '../sixHi/SixHiStoppageCodes';
 import { DefectTagSelector } from '../sixHi/DefectTagSelector';
 import { OrderStoppageModal } from '../sixHi/OrderStoppageModal';
 import { CrewCaptureModal } from '../sixHi/CrewCaptureModal';
@@ -76,6 +75,8 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   const [manageStoppageOpen, setManageStoppageOpen] = useState(false);
   const { codes: machineStoppageCodes, loading: machineStoppageCodesLoading } = useMachineStoppageCodes(processCode);
   const isPkl = processCode === 'PKL';
+  const isHrs = processCode === 'HRS';
+  const isHrsOrPkl = isHrs || isPkl;
   // Prefer machine-classified stoppage codes; PKL keeps legacy alias for clarity
   const stoppageCodes = machineStoppageCodes;
   const stoppageCodesLoading = machineStoppageCodesLoading;
@@ -119,8 +120,20 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   }, [defectPanelOpen]);
 
   useEffect(() => {
-    setActiveCoil(coilNo);
-    void loadPrefill(coilNo).then(setPrefill).catch(() => {
+    // Keep hub-seeded orderLines until entry prefill returns (do not wipe to null).
+    const seeded = useProcessStore.getState().activePrefill;
+    setActiveCoil(coilNo, seeded);
+    void loadPrefill(coilNo).then((p) => {
+      const orderLines = (p as { orderLines?: unknown[] }).orderLines;
+      const seededLines = (seeded as { orderLines?: unknown[] } | null)?.orderLines;
+      if ((!orderLines || orderLines.length === 0) && seededLines?.length) {
+        const merged = { ...p, orderLines: seededLines };
+        setPrefill(merged);
+        useProcessStore.setState({ activePrefill: merged });
+        return;
+      }
+      setPrefill(p);
+    }).catch(() => {
       /* soft: missing line access must not block Start/End rail */
     });
   }, [coilNo, loadPrefill, setActiveCoil]);
@@ -157,7 +170,15 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     coilNo: fieldVal(prefill.displayCoilNo) ?? coilNo,
     customer: fieldVal(prefill.customerName) ?? fieldVal(prefill.customer),
     grade: gradeCode,
-    slitId: fieldVal(prefill.slitId),
+    slitId: (() => {
+      const direct = fieldVal(prefill.slitId);
+      if (direct) return direct;
+      const planned = (Array.isArray(prefill.orderLines) ? prefill.orderLines : [])
+        .map((line) => fieldVal((line as Record<string, unknown>).slitId))
+        .filter((value): value is string => !!value);
+      if (planned.length === 0) return undefined;
+      return [...new Set(planned)].join(', ');
+    })(),
     widthMm: planWidth,
     thicknessMm: planThk,
     weightMt: fieldVal(prefill.weightMt) ?? (prefill.weightMt as number | undefined),
@@ -174,6 +195,66 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   useEffect(() => {
     if (stoppageManageToken > 0 && stoppageActive) setManageStoppageOpen(true);
   }, [stoppageManageToken, stoppageActive]);
+
+  const bannerAndPpc = (
+    <>
+      <ProcessStatusBanner
+        compact
+        timerMode={isHrsOrPkl ? 'net' : 'wall'}
+        stoppageLabel={stoppageRemarks.trim() || `Code ${stoppageCode}`}
+        /** HRS/PKL: live stoppage clock lives on the action rail only — avoid duplicate timers. */
+        hideStoppageTimer={isHrsOrPkl}
+      />
+      {!isHrsOrPkl && stoppageActive && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5">Stoppage details</p>
+          <p className="font-mono">Code {stoppageCode}{stoppageRemarks ? ` · ${stoppageRemarks}` : ''}</p>
+        </div>
+      )}
+      <ProcessPPCCards
+        compact
+        data={ppc}
+        hideRoute={isHrs}
+        groupCount={processCode === 'PKL' ? pklGroupCoilNos.length : undefined}
+        groupWeightMt={processCode === 'PKL' && pklGroupCoilNos.length > 1 ? pklGroupWeightMt : undefined}
+      />
+    </>
+  );
+
+  const captureBody = (
+    <div
+      className={[
+        'bg-card border border-border rounded-xl shadow overflow-hidden',
+        isHrs ? 'flex-1 min-h-0 flex flex-col' : '',
+        isCompleted ? 'opacity-70' : '',
+      ].join(' ')}
+      aria-readonly={isCompleted || undefined}
+    >
+      <Body
+        coilNo={coilNo}
+        prefill={prefill}
+        shiftLogId={shiftLogId ?? ''}
+        machineCode={processCode}
+        onSubmitted={() => {
+          if (isCompleted) return;
+          requestQueueRefresh();
+          closeDefectPanel();
+          closeCrewPanel();
+          closeRemarkPanel();
+          if (processCode === 'PKL') {
+            const next = advancePklGroup(coilNo);
+            if (next) {
+              navigate(`${basePath}/capture/${encodeURIComponent(next)}`);
+              return;
+            }
+            clearPklGroup();
+          }
+          finishCapture();
+          navigate(isHrsOrPkl ? `${basePath}?status=COMPLETED` : basePath);
+        }}
+      />
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-secondary">
@@ -208,70 +289,26 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         </button>
       </div>
 
-      <div id="process-capture-form" className="flex-1 min-h-0 overflow-y-auto">
-        <div className="p-2 flex flex-col gap-2">
-          <ProcessStatusBanner
-            compact
-            timerMode={isPkl ? 'net' : 'wall'}
-            stoppageLabel={stoppageRemarks.trim() || `Code ${stoppageCode}`}
-            /** PKL: live stoppage clock lives on the action rail only — avoid duplicate timers. */
-            hideStoppageTimer={isPkl}
-          />
-          {!isPkl && stoppageActive && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5">Stoppage details</p>
-              <p className="font-mono">Code {stoppageCode}{stoppageRemarks ? ` · ${stoppageRemarks}` : ''}</p>
-            </div>
-          )}
-          <ProcessPPCCards
-            compact
-            data={ppc}
-            groupCount={processCode === 'PKL' ? pklGroupCoilNos.length : undefined}
-            groupWeightMt={processCode === 'PKL' && pklGroupCoilNos.length > 1 ? pklGroupWeightMt : undefined}
-          />
-
-          <div
-            className={[
-              'bg-card border border-border rounded-xl shadow overflow-hidden',
-              isCompleted ? 'pointer-events-none opacity-70' : '',
-            ].join(' ')}
-            aria-readonly={isCompleted || undefined}
-          >
-            <Body
-              coilNo={coilNo}
-              prefill={prefill}
-              shiftLogId={shiftLogId ?? ''}
-              machineCode={processCode}
-              onSubmitted={() => {
-                if (isCompleted) return;
-                requestQueueRefresh();
-                closeDefectPanel();
-                closeCrewPanel();
-                closeRemarkPanel();
-                if (processCode === 'PKL') {
-                  const next = advancePklGroup(coilNo);
-                  if (next) {
-                    navigate(`${basePath}/capture/${encodeURIComponent(next)}`);
-                    return;
-                  }
-                  clearPklGroup();
-                }
-                finishCapture();
-                navigate(isPkl ? `${basePath}?status=COMPLETED` : basePath);
-              }}
-            />
+      <div id="process-capture-form" className={isHrs ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : 'flex-1 min-h-0 overflow-y-auto'}>
+        {isHrs ? (
+          <>
+            <div className="shrink-0 p-2 flex flex-col gap-2">{bannerAndPpc}</div>
+            <div className="flex-1 min-h-0 px-2 pb-2 flex flex-col">{captureBody}</div>
+          </>
+        ) : (
+          <div className="p-2 flex flex-col gap-2">
+            {bannerAndPpc}
+            {captureBody}
+            {processCode !== 'PKL' && (
+              <QcCapturePanel
+                processCode={processCode}
+                coilNo={coilNo}
+                gradeCode={gradeCode}
+                shiftLogId={shiftLogId ?? undefined}
+              />
+            )}
           </div>
-
-          {/* ponytail: PKL pre-CR has no QC params — skip empty Quality checks panel */}
-          {processCode !== 'PKL' && (
-            <QcCapturePanel
-              processCode={processCode}
-              coilNo={coilNo}
-              gradeCode={gradeCode}
-              shiftLogId={shiftLogId ?? undefined}
-            />
-          )}
-        </div>
+        )}
       </div>
 
       <OrderStoppageModal
@@ -286,23 +323,15 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         }}
         subtitle={`${processCode} · ${coilNo}`}
         title="Manage Stoppage"
-        stoppageCodes={stoppageCodes.length > 0 ? stoppageCodes : undefined}
+        stoppageCodes={stoppageCodes}
         stoppageCodesLoading={stoppageCodesLoading}
         onClose={() => setManageStoppageOpen(false)}
-        onUpdate={async (_id, categoryCode, breakdownCode, remarks) => {
-          setStoppageCode(
-            isPkl
-              ? toStoppageCategoryCode(categoryCode)
-              : resolveStoppageDisplayCode(categoryCode, breakdownCode),
-          );
+        onUpdate={async (_id, categoryCode, _breakdownCode, remarks) => {
+          setStoppageCode(toStoppageCategoryCode(categoryCode));
           setStoppageRemarks(remarks ?? '');
         }}
-        onEnd={async (_id, categoryCode, breakdownCode, remarks) => {
-          setStoppageCode(
-            isPkl
-              ? toStoppageCategoryCode(categoryCode)
-              : resolveStoppageDisplayCode(categoryCode, breakdownCode),
-          );
+        onEnd={async (_id, categoryCode, _breakdownCode, remarks) => {
+          setStoppageCode(toStoppageCategoryCode(categoryCode));
           setStoppageRemarks(remarks ?? '');
           setManageStoppageOpen(false);
           startCapture(coilNo);

@@ -20,11 +20,15 @@ import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from 
 import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
 import { rejectRwdOrder } from '../../lib/rewindingWrites';
 import {
+  endHrsManualStoppage,
+  fetchHrsManualStoppage,
+  patchHrsManualStoppage,
+  startHrsManualStoppage,
   endPklManualStoppage,
   fetchPklManualStoppage,
   patchPklManualStoppage,
   startPklManualStoppage,
-  type PklManualStoppageStatus,
+  type ProcessManualStoppageStatus,
 } from '../../lib/hrsPklWrites';
 import { useMachineStoppageCodes, toStoppageCategoryCode } from '../../lib/pklStoppageCodes';
 import { machineHandoverService } from '../../services/machineHandoverService';
@@ -73,7 +77,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [manualStoppageOpen, setManualStoppageOpen] = useState(false);
   const [orderStoppageOpen, setOrderStoppageOpen] = useState(false);
-  const [pklManualStoppage, setPklManualStoppage] = useState<PklManualStoppageStatus | null>(null);
+  const [processManualStoppage, setProcessManualStoppage] = useState<ProcessManualStoppageStatus | null>(null);
   const [crewPrompt, setCrewPrompt] = useState<{ sessionId: string } | null>(null);
   const [crewSnoozeUntil, setCrewSnoozeUntil] = useState(0);
   const [crewPendingSessionId, setCrewPendingSessionId] = useState<string | null>(null);
@@ -92,6 +96,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
   const activeCard = activeCoilNo ? queue.find((c) => c.coilNo === activeCoilNo) : undefined;
   const isCompleted = activeCard?.status === 'COMPLETED';
   const isPkl = machine === 'PKL';
+  const isHrsOrPkl = machine === 'HRS' || machine === 'PKL';
 
   useLayoutEffect(() => {
     // Sync reset on line change — authStore→processStore would cycle via apiClient.
@@ -112,9 +117,9 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
     if (endConfirmToken > 0) setEndOpen(true);
   }, [endConfirmToken]);
 
-  // Rolling parity (PKL): after shift-change modal closes, soft-prompt crew again.
+  // Rolling parity (HRS/PKL): after shift-change modal closes, soft-prompt crew again.
   useEffect(() => {
-    if (!isPkl) return;
+    if (!isHrsOrPkl) return;
     if (shiftWatcher.status !== 'changed') return;
     if (shiftWatcher.visible) return;
     if (Date.now() < crewSnoozeUntil) return;
@@ -137,15 +142,15 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
         /* soft — do not block production */
       }
     })();
-  }, [isPkl, shiftWatcher.status, shiftWatcher.visible, crewSnoozeUntil, crewPendingSessionId, crewPrompt, machine]);
+  }, [isHrsOrPkl, shiftWatcher.status, shiftWatcher.visible, crewSnoozeUntil, crewPendingSessionId, crewPrompt, machine]);
 
   useEffect(() => {
     async function init() {
       if (!machine) return;
       try {
         await bootstrapShiftContext(machine);
-        // Rolling parity (PKL): soft-mandatory crew when session created / needsCrew.
-        if (isPkl) {
+        // Rolling parity (HRS/PKL): soft-mandatory crew when session created / needsCrew.
+        if (isHrsOrPkl) {
           const sess = await machineHandoverService.ensureSession(machine).catch(() => null);
           const sid = sess?.session
             ? String(sess.session.session_id ?? sess.session.sessionId ?? '')
@@ -198,20 +203,22 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
       }
     }
     void init();
-  }, [machine, logout, isPkl]);
+  }, [machine, logout, isHrsOrPkl]);
 
   useEffect(() => {
-    if (machine !== 'PKL') {
-      setPklManualStoppage(null);
+    if (machine !== 'PKL' && machine !== 'HRS') {
+      setProcessManualStoppage(null);
       return;
     }
     let cancelled = false;
     const refresh = async () => {
       try {
-        const status = await fetchPklManualStoppage();
-        if (!cancelled) setPklManualStoppage(status);
+        const status = machine === 'PKL'
+          ? await fetchPklManualStoppage()
+          : await fetchHrsManualStoppage();
+        if (!cancelled) setProcessManualStoppage(status);
       } catch {
-        if (!cancelled) setPklManualStoppage(null);
+        if (!cancelled) setProcessManualStoppage(null);
       }
     };
     void refresh();
@@ -223,7 +230,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
   }, [machine]);
 
   const pklManualActiveStoppage = useMemo((): SixHiOrderStoppage | undefined => {
-    const active = pklManualStoppage?.active;
+    const active = processManualStoppage?.active;
     if (!active) return undefined;
     return {
       id: active.eventId,
@@ -233,14 +240,14 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
       startAt: active.startedAt,
       remarks: active.reason,
     };
-  }, [pklManualStoppage]);
+  }, [processManualStoppage]);
 
   return (
     <HandoverAcceptGate machineCode={machine}>
       <OperatorShell
         processCode={machine}
-        onManualStoppage={machine === 'PKL' ? () => setManualStoppageOpen(true) : undefined}
-        processManualStoppage={machine === 'PKL' ? pklManualStoppage : null}
+        onManualStoppage={isHrsOrPkl ? () => setManualStoppageOpen(true) : undefined}
+        processManualStoppage={isHrsOrPkl ? processManualStoppage : null}
       >        <div className={[
           'flex flex-1 min-h-0 overflow-hidden',
           activeCoilNo && !hideShellRail && config.archetype !== 'B' ? 'pr-[6.5rem]' : '',
@@ -249,7 +256,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
             {captureError && (
               <div className="mx-4 mt-3 shrink-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex gap-3 items-start justify-between">
                 <div>
-                  <p className="font-bold">Cannot start / stoppage</p>
+                  <p className="font-bold">Action failed</p>
                   <p className="mt-1">{captureError}</p>
                 </div>
                 <button type="button" className="text-xs font-bold uppercase shrink-0" onClick={clearCaptureError}>
@@ -265,7 +272,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
               status={captureStatus}
               stoppageStartedAt={stoppageStartedAt ?? undefined}
               runStartedAt={runStartedAt ?? undefined}
-              timerMode={isPkl ? 'net' : 'wall'}
+              timerMode={isHrsOrPkl ? 'net' : 'wall'}
               runStoppages={runStoppages}
               activeStoppageId={activeStoppageId}
               busy={busy || isCompleted}
@@ -281,7 +288,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
               onStoppage={() => {
                 if (isCompleted) return;
                 if (captureStatus === 'running') {
-                  if (isPkl) {
+                  if (isHrsOrPkl) {
                     setOrderStoppageOpen(true);
                     return;
                   }
@@ -362,7 +369,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           reminderMinutes={Math.round(SHIFT_END_REMINDER_MS / 60_000)}
           onRemindLater={() => {
             shiftWatcher.remindLater();
-            if (!isPkl) return;
+            if (!isHrsOrPkl) return;
             const sid = crewPendingSessionId;
             if (sid && Date.now() >= crewSnoozeUntil) {
               setCrewPrompt({ sessionId: sid });
@@ -383,7 +390,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           }}
         />
 
-        {isPkl && (
+        {isHrsOrPkl && (
           <CrewCaptureModal
             open={!!crewPrompt && !shiftWatcher.visible && !manualStoppageOpen && !orderStoppageOpen}
             machineCode={machine}
@@ -430,12 +437,12 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           />
         )}
 
-        {isPkl && (
+        {isHrsOrPkl && (
           <OrderStoppageModal
             open={orderStoppageOpen && captureStatus === 'running'}
             hasActiveStoppage={false}
             title="Record Stoppage"
-            subtitle={activeCoilNo ? `PKL · ${activeCoilNo}` : 'Pickling'}
+            subtitle={activeCoilNo ? `${machine} · ${activeCoilNo}` : config.label}
             startButtonLabel="Start Stoppage"
             stoppageCodes={machineStoppageCodes}
             stoppageCodesLoading={machineStoppageCodesLoading}
@@ -455,41 +462,65 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           />
         )}
 
-        {isPkl && (
+        {isHrsOrPkl && (
           <OrderStoppageModal
             open={manualStoppageOpen}
             hasActiveStoppage={!!pklManualActiveStoppage}
             activeStoppage={pklManualActiveStoppage}
             title={pklManualActiveStoppage ? 'Manage Manual Stoppage' : 'Manual Stoppage'}
-            subtitle="Record pickling line downtime when no coil is in production."
+            subtitle={isPkl
+              ? 'Record pickling line downtime when no coil is in production.'
+              : 'Record HRS line downtime when no coil is in production.'}
             startButtonLabel="Start Stoppage"
             stoppageCodes={machineStoppageCodes}
             stoppageCodesLoading={machineStoppageCodesLoading}
             onClose={() => setManualStoppageOpen(false)}
             onStart={async (categoryCode, breakdownCode, remarks) => {
-              const status = await startPklManualStoppage({
+              const status = isPkl
+                ? await startPklManualStoppage({
+                  categoryCode: toStoppageCategoryCode(categoryCode),
+                  breakdownCode,
+                  remarks,
+                })
+                : await startHrsManualStoppage({
                 categoryCode: toStoppageCategoryCode(categoryCode),
                 breakdownCode,
                 remarks,
               });
-              setPklManualStoppage(status);
+              setProcessManualStoppage(status);
             }}
             onUpdate={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
-              const status = await patchPklManualStoppage({
+              const status = isPkl
+                ? await patchPklManualStoppage({
+                  categoryCode: toStoppageCategoryCode(categoryCode),
+                  breakdownCode,
+                  remarks,
+                })
+                : await patchHrsManualStoppage({
                 categoryCode: toStoppageCategoryCode(categoryCode),
                 breakdownCode,
                 remarks,
               });
-              setPklManualStoppage(status);
+              setProcessManualStoppage(status);
             }}
             onEnd={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
-              await patchPklManualStoppage({
-                categoryCode: toStoppageCategoryCode(categoryCode),
-                breakdownCode,
-                remarks,
-              });
-              const status = await endPklManualStoppage();
-              setPklManualStoppage(status);
+              if (isPkl) {
+                await patchPklManualStoppage({
+                  categoryCode: toStoppageCategoryCode(categoryCode),
+                  breakdownCode,
+                  remarks,
+                });
+              } else {
+                await patchHrsManualStoppage({
+                  categoryCode: toStoppageCategoryCode(categoryCode),
+                  breakdownCode,
+                  remarks,
+                });
+              }
+              const status = isPkl
+                ? await endPklManualStoppage()
+                : await endHrsManualStoppage();
+              setProcessManualStoppage(status);
             }}
           />
         )}

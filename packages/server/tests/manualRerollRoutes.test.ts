@@ -1,0 +1,273 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import type { AuthUser } from '../src/services/authService';
+
+const flags: Record<string, boolean> = { 'mode.manual_reroll': true };
+
+vi.mock('../src/context', () => ({
+  getTenantId: () => '00000000-0000-0000-0000-000000000001',
+}));
+
+vi.mock('../src/platform/tenantConfig', () => ({
+  getTenantModuleConfig: async () => ({ flags, enabledModules: ['M1'] }),
+}));
+
+const mockStart = vi.fn();
+const mockEnd = vi.fn();
+const mockCancel = vi.fn();
+const mockList = vi.fn();
+const mockActive = vi.fn();
+const mockSummary = vi.fn();
+const mockClaimed = vi.fn(async () => new Set<string>());
+
+vi.mock('../src/services/ManualRerollService', () => ({
+  ACTIVE_REROLL_CONFLICT: 'ACTIVE_REROLL_CONFLICT',
+  ManualRerollService: {
+    startSession: (...args: unknown[]) => mockStart(...args),
+    endSession: (...args: unknown[]) => mockEnd(...args),
+    cancelSession: (...args: unknown[]) => mockCancel(...args),
+    listSessions: (...args: unknown[]) => mockList(...args),
+    listQueueSessions: (...args: unknown[]) => mockList(...args),
+    listClaimedBatchNumbers: (...args: unknown[]) => mockClaimed(...args),
+    getActiveSession: (...args: unknown[]) => mockActive(...args),
+    getProductionSummary: (...args: unknown[]) => mockSummary(...args),
+    holdSession: vi.fn(),
+    resumeSession: vi.fn(),
+  },
+}));
+
+vi.mock('../src/services/ShiftDetectionService', () => ({
+  ShiftDetectionService: {
+    getCurrentShift: vi.fn(async () => ({ shiftCode: 'A', prodDate: '2026-08-05' })),
+  },
+}));
+
+const mockExecute = vi.fn();
+const mockExecuteTakeFirst = vi.fn();
+vi.mock('../src/db', () => ({
+  db: {
+    selectFrom: () => {
+      const chain: Record<string, unknown> = {};
+      const self = () => chain;
+      chain.innerJoin = self;
+      chain.select = self;
+      chain.where = self;
+      chain.orderBy = self;
+      chain.limit = self;
+      chain.execute = (...args: unknown[]) => mockExecute(...args);
+      chain.executeTakeFirst = (...args: unknown[]) => mockExecuteTakeFirst(...args);
+      return chain;
+    },
+  },
+}));
+
+let currentUser: AuthUser = {
+  id: 10,
+  username: 'op6hi',
+  roles: ['OPERATOR'],
+  lineAccess: ['6HI'],
+  lineScopes: [{ code: '6HI', accessLevel: 'WRITE' }],
+  machineAccess: ['6HI'],
+};
+
+vi.mock('../src/middleware/authMiddleware', () => ({
+  requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    req.user = currentUser;
+    next();
+  },
+}));
+
+import manualRerollRoutes from '../src/routes/manualRerollRoutes';
+
+const app = express();
+app.use(express.json());
+app.use('/manual-reroll', manualRerollRoutes);
+
+describe('manualRerollRoutes auth matrix', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    flags['mode.manual_reroll'] = true;
+    currentUser = {
+      id: 10,
+      username: 'op6hi',
+      roles: ['OPERATOR'],
+      lineAccess: ['6HI'],
+      lineScopes: [{ code: '6HI', accessLevel: 'WRITE' }],
+      machineAccess: ['6HI'],
+    };
+    mockExecute.mockResolvedValue([]);
+    mockExecuteTakeFirst.mockResolvedValue({
+      order_id: '99',
+      batch_number: 'B-1',
+      coil_no: 'C-1',
+      status: 'PENDING',
+      customer_name: 'Acme',
+      machine_code: '6HI',
+      grade_code: 'G1',
+      ppc_weight_mt: '2.5',
+    });
+    mockStart.mockResolvedValue({ sessionId: '1', status: 'IN_PROGRESS' });
+    mockList.mockResolvedValue([]);
+    mockActive.mockResolvedValue(null);
+    mockClaimed.mockResolvedValue(new Set());
+    mockSummary.mockResolvedValue({ totalRerollMt: 0, sessionCount: 0 });
+  });
+
+  it('returns 403 when the tenant flag is off', async () => {
+    flags['mode.manual_reroll'] = false;
+    const res = await request(app).get('/manual-reroll/sessions?machine=6HI');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Feature disabled/);
+  });
+
+  it('returns 403 when the operator has no machine access', async () => {
+    currentUser = { ...currentUser, machineAccess: ['4HI'], lineAccess: ['4HI'], lineScopes: [] };
+    const res = await request(app).get('/manual-reroll/sessions?machine=6HI');
+    expect(res.status).toBe(403);
+  });
+
+  it('allows operator write start', async () => {
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(201);
+    expect(mockStart).toHaveBeenCalled();
+  });
+
+  it('starts without a client weight and uses ppc weight', async () => {
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+    });
+    expect(res.status).toBe(201);
+    expect(mockStart.mock.calls[0][0].rerollQuantity).toBe(2.5);
+  });
+
+  it('allows admin write start', async () => {
+    currentUser = {
+      id: 1,
+      username: 'admin',
+      roles: ['ADMIN'],
+      lineAccess: [],
+      lineScopes: [],
+      machineAccess: [],
+    };
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects machine-head write', async () => {
+    currentUser = {
+      id: 3,
+      username: 'mh',
+      roles: ['MACHINE_HEAD'],
+      lineAccess: ['6HI'],
+      lineScopes: [{ code: '6HI', accessLevel: 'WRITE' }],
+      machineAccess: ['6HI'],
+    };
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(403);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('allows machine-head read', async () => {
+    currentUser = {
+      id: 3,
+      username: 'mh',
+      roles: ['MACHINE_HEAD'],
+      lineAccess: ['6HI'],
+      lineScopes: [{ code: '6HI', accessLevel: 'WRITE' }],
+      machineAccess: ['6HI'],
+    };
+    const res = await request(app).get('/manual-reroll/sessions?machine=6HI');
+    expect(res.status).toBe(200);
+  });
+
+  it('allows supervisor and plant-head read', async () => {
+    for (const role of ['SUPERVISOR', 'PLANT_HEAD'] as const) {
+      currentUser = {
+        id: 8,
+        username: role.toLowerCase(),
+        roles: [role],
+        lineAccess: [],
+        lineScopes: [],
+        machineAccess: [],
+      };
+      const res = await request(app).get('/manual-reroll/summary?machine=6HI&from=2026-08-05&to=2026-08-05');
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('maps production conflict to 409', async () => {
+    mockStart.mockRejectedValue(new Error('ACTIVE_ORDER_CONFLICT:LIVE-9'));
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.activeBatchNumber).toBe('LIVE-9');
+  });
+
+  it('omits claimed COMPLETED batches from the pending queue', async () => {
+    mockExecute.mockResolvedValue([
+      {
+        order_id: '1',
+        batch_number: 'DONE-1',
+        coil_no: 'C-1',
+        status: 'PENDING',
+        customer_name: 'Acme',
+        machine_code: '6HI',
+        grade_code: 'G1',
+        ppc_weight_mt: '1',
+        slit_id: null,
+        roll_finish: null,
+        sub_process: 'ROLLING',
+        ppc_thk_mm: null,
+        width_mm: null,
+      },
+      {
+        order_id: '2',
+        batch_number: 'OPEN-1',
+        coil_no: 'C-2',
+        status: 'PENDING',
+        customer_name: 'Acme',
+        machine_code: '6HI',
+        grade_code: 'G1',
+        ppc_weight_mt: '2',
+        slit_id: null,
+        roll_finish: null,
+        sub_process: 'ROLLING',
+        ppc_thk_mm: null,
+        width_mm: null,
+      },
+    ]);
+    mockClaimed.mockResolvedValue(new Set(['DONE-1']));
+    const res = await request(app).get('/manual-reroll/queue?machine=6HI');
+    expect(res.status).toBe(200);
+    expect(res.body.pending.map((p: { batchNumber: string }) => p.batchNumber)).toEqual(['OPEN-1']);
+  });
+
+  it('rejects start when batch already has a completed re-roll session', async () => {
+    mockClaimed.mockResolvedValue(new Set(['B-1']));
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '6HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/completed Manual Re-Roll/i);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+});

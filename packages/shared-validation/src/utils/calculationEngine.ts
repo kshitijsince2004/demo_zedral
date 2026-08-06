@@ -1,8 +1,7 @@
 /**
- * Calculates the scrap percentage based on scrap weight and total weight.
- * @param scrapMt Scrap weight in metric tons.
- * @param totalMt Total weight in metric tons.
- * @returns Scrap percentage, rounded to 2 decimal places. Returns 0 if totalMt is 0.
+ * Scrap % = scrapMt / denominator × 100, rounded to 2 dp.
+ * Denominator is **mother input weight** (`mother_coil_weight_mt`, then `weight_mt`).
+ * Client and server must both call this — do not recompute inline.
  */
 export const calculateScrapPct = (scrapMt: number, totalMt: number): number => {
   if (totalMt <= 0) return 0;

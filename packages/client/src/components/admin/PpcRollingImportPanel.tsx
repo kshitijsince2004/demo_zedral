@@ -58,9 +58,11 @@ const SHEET_LOCK_LABEL: Record<PpcXlsxSheetType, string> = {
   ROLLING: 'Rolling (locked)',
   SKIN_PASS: 'Skin Pass (locked)',
   REWINDING: 'Rewinding (locked)',
-  ANNEALING: 'Annealing (locked)',
+  ANNEALING: 'ANN plan file (locked)',
   CTL: 'CTL (locked)',
   PICKLING: 'PKL Pickling Plan (locked)',
+  HRS: 'HRS plan file (locked)',
+  PKL: 'PKL plan file (locked)',
 };
 
 export function PpcRollingImportPanel({
@@ -101,6 +103,9 @@ export function PpcRollingImportPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [duplicatesInFile, setDuplicatesInFile] = useState(0);
   const [statusCounts, setStatusCounts] = useState<PpcRollingPreviewResult['statusCounts']>();
+  const [planDateFrom, setPlanDateFrom] = useState<string | undefined>();
+  const [planDateTo, setPlanDateTo] = useState<string | undefined>();
+  const [previewShifts, setPreviewShifts] = useState<string[]>([]);
 
   const validRows = useMemo(() => rows.filter((r) => r.errors.length === 0), [rows]);
   const importableRows = useMemo(() => rows.filter(isRowImportable), [rows]);
@@ -121,6 +126,9 @@ export function PpcRollingImportPanel({
     setCommitResult(null);
     setDuplicatesInFile(0);
     setStatusCounts(undefined);
+    setPlanDateFrom(undefined);
+    setPlanDateTo(undefined);
+    setPreviewShifts([]);
     try {
       const result = await adminService.previewPpcRolling(file, sheetType, line);
       setSessionId(result.sessionId);
@@ -128,6 +136,9 @@ export function PpcRollingImportPanel({
       setRows(result.rows);
       setDuplicatesInFile(result.duplicatesInFile ?? 0);
       setStatusCounts(result.statusCounts);
+      setPlanDateFrom(result.planDateFrom);
+      setPlanDateTo(result.planDateTo);
+      setPreviewShifts(result.shiftCodes ?? []);
       // Auto-select only importable rows (new + safe-update)
       setSelected(new Set(result.rows.filter(isRowImportable).map((r) => r.batchNumber)));
     } catch (err: unknown) {
@@ -157,6 +168,9 @@ export function PpcRollingImportPanel({
         setSelected(new Set());
         setFile(null);
         setParsedSheetName('');
+        setPlanDateFrom(undefined);
+        setPlanDateTo(undefined);
+        setPreviewShifts([]);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Commit failed');
@@ -186,12 +200,23 @@ export function PpcRollingImportPanel({
   return (
     <div className="p-4 space-y-4">
       <p className="text-xs text-muted-foreground">
-        Upload the PPC plan workbook (e.g. ROLLLING PLAN.XLSX or SKINPASS PLAN.XLSX). Choose the sheet type.
-        Machine line is optional: <span className="font-mono">PV-Desc</span> or{' '}
-        <span className="font-mono">From Work Center</span> (X → 2HI, Y → 4HI, Z → 6HI) when present;
-        otherwise rows default to 6HI. Skin-pass sheets use{' '}
-        <span className="font-mono">SP thickness</span> / <span className="font-mono">SP Surface Finish</span>.
-        Plan date comes from the sheet; shift is derived automatically during import.
+        {line ? (
+          <>
+            Upload the <span className="font-medium">{line}</span> plan file (single sheet).
+            Wrong-line files are rejected by signature columns.
+            Fail-safe import skips coils already in this line or advanced past it.
+            Plan date comes from the sheet; shift is derived automatically during import.
+          </>
+        ) : (
+          <>
+            Upload the PPC plan workbook (e.g. ROLLLING PLAN.XLSX or SKINPASS PLAN.XLSX). Choose the sheet type.
+            Machine line is optional: <span className="font-mono">PV-Desc</span> or{' '}
+            <span className="font-mono">From Work Center</span> (X → 2HI, Y → 4HI, Z → 6HI) when present;
+            otherwise rows default to 6HI. Skin-pass sheets use{' '}
+            <span className="font-mono">SP thickness</span> / <span className="font-mono">SP Surface Finish</span>.
+            Plan date comes from the sheet; shift is derived automatically during import.
+          </>
+        )}
       </p>
 
       <div className="grid grid-cols-1 gap-3">
@@ -329,6 +354,13 @@ export function PpcRollingImportPanel({
               {' · '}
               {importableRows.length} importable · {rows.length - importableRows.length} blocked · {selected.size} selected
             </p>
+            {(planDateFrom || planDateTo || previewShifts.length > 0) && (
+              <p>
+                Plan dates: {formatPlantDate(planDateFrom ?? planDateTo ?? rows[0]?.planDate ?? new Date().toISOString().slice(0, 10))}
+                {planDateTo && planDateTo !== planDateFrom ? ` → ${formatPlantDate(planDateTo)}` : ''}
+                {previewShifts.length > 0 ? ` · Shifts: ${previewShifts.join(', ')}` : ''}
+              </p>
+            )}
             {statusCounts && (
               <p>
                 {statusCounts.new} new

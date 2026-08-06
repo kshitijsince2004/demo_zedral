@@ -62,7 +62,7 @@ function RailButton({
 }
 
 /**
- * 6HI-parity: Start becomes End when running; Stoppage shows Resume (not End+Resume).
+ * 6HI-parity: Start | Resume | End exclusive; open stoppage → Manage Stop only (no End/Resume).
  * Stack: [Start|Resume|End] · Stoppage · Remark · Hold + footer timer.
  */
 export function ProductionActionRail({
@@ -80,18 +80,19 @@ export function ProductionActionRail({
   onRemark,
   onHold,
 }: ProcessActionRailProps) {
-  const f = processRailFlags(status, coilNo);
+  const hasActiveStoppage = status === 'stoppage' && (!!activeStoppageId || !!stoppageStartedAt);
+  const f = processRailFlags(status, coilNo, { hasActiveStoppage });
   const { formatted: wallTimer } = useLiveTimer(
-    f.isStoppage ? stoppageStartedAt : f.isRunning ? runStartedAt : undefined,
-    f.isRunning || f.isStoppage,
+    f.hasActiveStoppage ? stoppageStartedAt : f.isRunning ? runStartedAt : undefined,
+    f.isRunning || f.hasActiveStoppage,
   );
   const netTimer = useProcessNetTimer(
     runStartedAt,
     runStoppages,
-    timerMode === 'net' && f.isRunning,
+    timerMode === 'net' && f.isRunning && !f.hasActiveStoppage,
     activeStoppageId,
   );
-  const timer = f.isStoppage
+  const timer = f.hasActiveStoppage
     ? wallTimer
     : timerMode === 'net' && f.isRunning
       ? netTimer
@@ -119,11 +120,11 @@ export function ProductionActionRail({
           <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
         )}
         <RailButton
-          label={f.isStoppage ? 'Manage Stop' : 'Stoppage'}
+          label={f.hasActiveStoppage ? 'Manage Stop' : 'Stoppage'}
           icon={AlertTriangle}
           onClick={onStoppage}
           disabled={busy || (!f.isRunning && !f.isStoppage)}
-          variant={f.isStoppage ? 'stoppage' : 'default'}
+          variant={f.hasActiveStoppage ? 'stoppage' : 'default'}
         />
         <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         <RailButton
@@ -136,7 +137,7 @@ export function ProductionActionRail({
       </div>
 
       <div className="shrink-0 px-2 py-3 border-t border-border space-y-2 text-center">
-        {f.isStoppage ? (
+        {f.hasActiveStoppage ? (
           <div className="space-y-1">
             <p className="text-[9px] font-bold uppercase tracking-widest text-destructive">Stoppage</p>
             <p className="font-mono text-lg font-bold text-destructive">{timer || '00:00:00'}</p>

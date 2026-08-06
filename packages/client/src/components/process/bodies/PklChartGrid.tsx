@@ -228,17 +228,15 @@ export function PklChartGrid() {
           <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15">PKL</span>
           {duePrompt && <span className="text-xs opacity-90">Reading due · every {intervalHours}h</span>}
         </div>
-        {!formOpen && (
-          <ZButton
-            type="button"
-            variant="secondary"
-            className="shrink-0 bg-white text-primary hover:bg-white/90"
-            onClick={openForm}
-            disabled={!shiftLogId}
-          >
-            Add Reading
-          </ZButton>
-        )}
+        <ZButton
+          type="button"
+          variant="secondary"
+          className="shrink-0 bg-white text-primary hover:bg-white/90"
+          onClick={openForm}
+          disabled={!shiftLogId}
+        >
+          Add Reading
+        </ZButton>
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4">
@@ -249,73 +247,90 @@ export function PklChartGrid() {
         )}
 
         {formOpen && (
-          <section className="rounded-xl border border-border bg-card p-4 shadow-sm space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">New reading</h2>
-              <ZButton type="button" variant="secondary" onClick={closeForm} disabled={saving}>Cancel</ZButton>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Chart time" value={chartTime} onChange={setChartTime} text />
-              <Field
-                label="Line incharge"
-                value={line.lineIncharge}
-                onChange={(v) => setLine({ ...line, lineIncharge: v })}
-                text
-              />
-            </div>
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+            <button
+              type="button"
+              aria-label="Close reading form"
+              className="fixed inset-0 bg-primary/50"
+              onClick={() => { if (!saving) closeForm(); }}
+            />
+            <section className="relative z-10 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">New reading</h2>
+                <ZButton type="button" variant="secondary" onClick={closeForm} disabled={saving}>Cancel</ZButton>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Chart time" value={chartTime} onChange={setChartTime} text />
+                <Field
+                  label="Line incharge"
+                  value={line.lineIncharge}
+                  onChange={(v) => setLine({ ...line, lineIncharge: v })}
+                  text
+                />
+              </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              {([1, 2, 3] as const).map((n) => (
-                <div key={n} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-                  <p className="text-sm font-bold text-foreground">Tank T{n}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Level mm" value={tanks[n].level} paramKey="tank_level" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], level: v } })} />
-                    <Field label="Temp °C" value={tanks[n].temp} paramKey="tank_temp" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], temp: v } })} />
-                    <Field label="Acid %" value={tanks[n].acid} paramKey="acid_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], acid: v } })} />
-                    <Field label="Iron %" value={tanks[n].iron} paramKey="iron_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], iron: v } })} />
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {([1, 2, 3] as const).map((n) => (
+                  <div key={n} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                    <p className="text-sm font-bold text-foreground">Tank T{n}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Level mm" value={tanks[n].level} paramKey="tank_level" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], level: v } })} />
+                      <Field label="Temp °C" value={tanks[n].temp} paramKey="tank_temp" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], temp: v } })} />
+                      <Field label="Acid %" value={tanks[n].acid} paramKey="acid_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], acid: v } })} />
+                      <Field label="Iron %" value={tanks[n].iron} paramKey="iron_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], iron: v } })} />
+                    </div>
                   </div>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                <p className="text-sm font-bold text-foreground">Steam / burner</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Field label="Inlet PRV" value={line.steamInlet} paramKey="steam_inlet" scope="LINE" onChange={(v) => setLine({ ...line, steamInlet: v })} />
+                  <Field label="Out PRV" value={line.steamOutlet} paramKey="steam_outlet" scope="LINE" onChange={(v) => setLine({ ...line, steamOutlet: v })} />
+                  <Field label="Masha" value={line.masha} paramKey="burner_pressure" scope="LINE" onChange={(v) => setLine({ ...line, masha: v })} />
+                  <Field label="Hot air °C" value={line.hotAir} paramKey="hot_air_temp" scope="LINE" onChange={(v) => setLine({ ...line, hotAir: v })} />
                 </div>
-              ))}
-            </div>
-
-            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-              <p className="text-sm font-bold text-foreground">Steam / burner</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <Field label="Inlet PRV" value={line.steamInlet} paramKey="steam_inlet" scope="LINE" onChange={(v) => setLine({ ...line, steamInlet: v })} />
-                <Field label="Out PRV" value={line.steamOutlet} paramKey="steam_outlet" scope="LINE" onChange={(v) => setLine({ ...line, steamOutlet: v })} />
-                <Field label="Masha" value={line.masha} paramKey="burner_pressure" scope="LINE" onChange={(v) => setLine({ ...line, masha: v })} />
-                <Field label="Hot air °C" value={line.hotAir} paramKey="hot_air_temp" scope="LINE" onChange={(v) => setLine({ ...line, hotAir: v })} />
               </div>
-            </div>
 
-            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-              <p className="text-sm font-bold text-foreground">Dosage L/min</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Field label="Acid" value={line.dosageAcid} onChange={(v) => setLine({ ...line, dosageAcid: v })} />
-                <Field label="Water" value={line.dosageWater} onChange={(v) => setLine({ ...line, dosageWater: v })} />
-                <Field label="Inhibitor" value={line.dosageInhib} onChange={(v) => setLine({ ...line, dosageInhib: v })} />
+              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                <p className="text-sm font-bold text-foreground">Dosage L/min</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Field label="Acid" value={line.dosageAcid} onChange={(v) => setLine({ ...line, dosageAcid: v })} />
+                  <Field label="Water" value={line.dosageWater} onChange={(v) => setLine({ ...line, dosageWater: v })} />
+                  <Field label="Inhibitor" value={line.dosageInhib} onChange={(v) => setLine({ ...line, dosageInhib: v })} />
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-              <p className="text-sm font-bold text-foreground">Hot rinse</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <Field label="Cl" value={line.rinseCl} paramKey="rinse_cl" scope="RINSE" onChange={(v) => setLine({ ...line, rinseCl: v })} />
-                <Field label="pH" value={line.rinsePh} paramKey="rinse_ph" scope="RINSE" onChange={(v) => setLine({ ...line, rinsePh: v })} />
-                <Field label="Flow" value={line.rinseFlow} paramKey="rinse_flow" scope="RINSE" onChange={(v) => setLine({ ...line, rinseFlow: v })} />
-                <Field label="Temp °C" value={line.rinseTemp} paramKey="rinse_temp" scope="RINSE" onChange={(v) => setLine({ ...line, rinseTemp: v })} />
+              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                <p className="text-sm font-bold text-foreground">Hot rinse</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Field label="Cl" value={line.rinseCl} paramKey="rinse_cl" scope="RINSE" onChange={(v) => setLine({ ...line, rinseCl: v })} />
+                  <Field label="pH" value={line.rinsePh} paramKey="rinse_ph" scope="RINSE" onChange={(v) => setLine({ ...line, rinsePh: v })} />
+                  <Field label="Flow" value={line.rinseFlow} paramKey="rinse_flow" scope="RINSE" onChange={(v) => setLine({ ...line, rinseFlow: v })} />
+                  <Field label="Temp °C" value={line.rinseTemp} paramKey="rinse_temp" scope="RINSE" onChange={(v) => setLine({ ...line, rinseTemp: v })} />
+                </div>
+                <p className="text-[10px] text-muted-foreground">Rinse acid % / iron % are entered once at end of shift.</p>
               </div>
-              <p className="text-[10px] text-muted-foreground">Rinse acid % / iron % are entered once at end of shift.</p>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <ZButton type="button" onClick={() => void saveChart()} disabled={saving || !shiftLogId}>
-                {saving ? 'Saving…' : 'Save Reading'}
-              </ZButton>
-              <p className="text-xs text-muted-foreground">Out-of-spec cells amber — still saves. Specs advisory only.</p>
-              {msg && <p className="text-sm">{msg}</p>}
-            </div>
-          </section>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs text-muted-foreground">Out-of-spec cells amber — still saves. Specs advisory only.</p>
+                  {msg && <p className="text-sm">{msg}</p>}
+                </div>
+                <ZButton
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="min-w-[16rem] px-12 font-bold ml-auto"
+                  onClick={() => void saveChart()}
+                  disabled={saving || !shiftLogId}
+                >
+                  {saving ? 'Saving…' : 'Save Reading'}
+                </ZButton>
+              </div>
+            </section>
+          </div>
         )}
 
         <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -328,9 +343,7 @@ export function PklChartGrid() {
                   : `${stacked.length} reading${stacked.length === 1 ? '' : 's'} this shift`}
               </p>
             </div>
-            {!formOpen && (
-              <p className="text-xs text-muted-foreground hidden sm:block">Use Add Reading to log the next interval.</p>
-            )}
+            <p className="text-xs text-muted-foreground hidden sm:block">Use Add Reading to log the next interval.</p>
           </div>
           {stacked.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground text-center">No readings logged this shift yet.</p>
