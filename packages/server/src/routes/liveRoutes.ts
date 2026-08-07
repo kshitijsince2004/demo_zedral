@@ -4,8 +4,10 @@ import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { LiveDashboardService, LiveOrderService } from '../services/live';
 import { MachineStateEventService } from '../services/MachineStateEventService';
 import { formatPlantDate } from '../utils/dateOnly';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const router = Router();
+router.use(rateLimitMiddleware(120, 60_000));
 router.use(requireAuth);
 router.use(requireRole([
   UserRole.SUPERVISOR,
@@ -108,6 +110,8 @@ router.get('/machine-head-dashboard', async (req, res) => {
       search,
       subProcess,
       shift,
+      historyLimit: req.query.historyLimit != null ? Number(req.query.historyLimit) : undefined,
+      historyCursor: typeof req.query.historyCursor === 'string' ? req.query.historyCursor : undefined,
     });
     res.json(data);
   } catch (error: unknown) {

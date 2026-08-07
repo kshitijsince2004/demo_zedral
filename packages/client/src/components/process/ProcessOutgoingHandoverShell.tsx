@@ -6,6 +6,7 @@ import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useHandoverDraft, useHandoverPreview } from '../../hooks/useHandoverState';
 import { machineHandoverService, type HandoverPreview, type PendingHandover } from '../../services/machineHandoverService';
 import { ZButton } from '../primitives/ZButton';
+import { DataFreshnessBadge } from '../DataFreshnessBadge';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
 import { useManualDraft } from '../../lib/useFormDraft';
@@ -304,6 +305,7 @@ export function ProcessOutgoingHandoverShell({
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
+          <DataFreshnessBadge />
           {draftSaved && (
             <span className="text-xs text-success flex items-center gap-1">
               <CheckCircle2 className="h-3.5 w-3.5" /> Draft saved

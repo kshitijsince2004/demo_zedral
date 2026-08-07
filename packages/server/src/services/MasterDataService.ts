@@ -20,6 +20,25 @@ function normalizeAppliesTo(raw: unknown, fallback?: string | null): string | nu
 
 const MASTER_CACHE_TTL_SEC = 60;
 
+/** Whitelisted master tables used by MasterDataService CRUD. */
+export type MasterEntityTable =
+  | 'master.customer'
+  | 'master.grade'
+  | 'master.surface_finish'
+  | 'master.defect_code'
+  | 'master.stoppage_category'
+  | 'master.stoppage_code'
+  | 'master.operator'
+  | 'master.furnace';
+
+const ACTIVE_FILTER_TABLES: ReadonlySet<MasterEntityTable> = new Set([
+  'master.customer',
+  'master.grade',
+  'master.defect_code',
+  'master.stoppage_code',
+  'master.operator',
+]);
+
 export class MasterDataService {
   private static cacheKey(tableName: string, includeInactive: boolean): string {
     return tenantCacheKey(getTenantId(), 'master', tableName, `inactive_${includeInactive}`);
@@ -36,18 +55,16 @@ export class MasterDataService {
   /**
    * Retrieves all master data for a given table, filtering by is_active by default.
    */
-  static async getAll(tableName: string, includeInactive: boolean = false) {
+  static async getAll(tableName: MasterEntityTable | string, includeInactive: boolean = false) {
     const key = this.cacheKey(tableName, includeInactive);
     const cached = await getAppCache().get<Record<string, unknown>[]>(key);
     if (cached) return cached;
 
-    let query = db.selectFrom(tableName as any).selectAll();
-    
-    // Not all tables have is_active, but for the ones that do (customer, grade, defect_code, stoppage_code, operator)
-    if (!includeInactive) {
-      if (['master.customer', 'master.grade', 'master.defect_code', 'master.stoppage_code', 'master.operator'].includes(tableName)) {
-        query = query.where('is_active', '=', true);
-      }
+    const table = tableName as MasterEntityTable;
+    let query = db.selectFrom(table).selectAll();
+
+    if (!includeInactive && ACTIVE_FILTER_TABLES.has(table)) {
+      query = query.where('is_active', '=', true);
     }
     const rows = await query.execute() as Record<string, unknown>[];
     await getAppCache().set(key, rows, MASTER_CACHE_TTL_SEC);
@@ -57,20 +74,21 @@ export class MasterDataService {
   /**
    * Retrieves a single master data record by its code/id.
    */
-  static async getById(tableName: string, pkColumn: string, id: string) {
-    return await db.selectFrom(tableName as any)
+  static async getById(tableName: MasterEntityTable | string, pkColumn: string, id: string) {
+    return await db.selectFrom(tableName as MasterEntityTable)
       .selectAll()
-      .where(pkColumn as any, '=', id)
+      .where(pkColumn as 'grade_code', '=', id)
       .executeTakeFirst();
   }
 
   /**
    * Creates a new master data record.
    */
-  static async create(tableName: string, pkColumn: string, data: any) {
+  static async create(tableName: MasterEntityTable | string, pkColumn: string, data: any) {
     let values = { ...data };
+    const table = tableName as MasterEntityTable;
 
-    if (tableName === 'master.defect_code') {
+    if (table === 'master.defect_code') {
       values = {
         defect_code: data.defect_code ?? data.code,
         description: data.description ?? data.name,
@@ -83,7 +101,7 @@ export class MasterDataService {
       };
     }
 
-    if (tableName === 'master.stoppage_code') {
+    if (table === 'master.stoppage_code') {
       values = {
         stoppage_code: data.stoppage_code ?? data.code,
         description: data.description ?? data.name,
@@ -97,24 +115,25 @@ export class MasterDataService {
       };
     }
 
-    if (['master.customer', 'master.grade', 'master.defect_code', 'master.stoppage_code', 'master.operator'].includes(tableName)) {
-        values.is_active = values.is_active ?? true;
+    if (ACTIVE_FILTER_TABLES.has(table)) {
+      values.is_active = values.is_active ?? true;
     }
 
-    const result = await db.insertInto(tableName as any)
+    const result = await db.insertInto(table)
       .values(values)
-      .returning(pkColumn as any)
+      .returning(pkColumn as 'grade_code')
       .executeTakeFirst();
-      
-    return (result as any)[pkColumn];
+
+    return (result as Record<string, unknown>)?.[pkColumn];
   }
 
   /**
    * Updates an existing master data record.
    */
-  static async update(tableName: string, pkColumn: string, id: string, data: any) {
+  static async update(tableName: MasterEntityTable | string, pkColumn: string, id: string, data: any) {
     let values = { ...data };
-    if (tableName === 'master.defect_code') {
+    const table = tableName as MasterEntityTable;
+    if (table === 'master.defect_code') {
       values = {
         ...(data.description != null || data.name != null
           ? { description: data.description ?? data.name }
@@ -133,7 +152,7 @@ export class MasterDataService {
           : {}),
       };
     }
-    if (tableName === 'master.stoppage_code') {
+    if (table === 'master.stoppage_code') {
       values = {
         ...(data.description != null || data.name != null
           ? { description: data.description ?? data.name }
@@ -152,25 +171,26 @@ export class MasterDataService {
           : {}),
       };
     }
-    await db.updateTable(tableName as any)
+    await db.updateTable(table)
       .set(values)
-      .where(pkColumn as any, '=', id)
+      .where(pkColumn as 'grade_code', '=', id)
       .execute();
   }
 
   /**
    * Soft-deletes a master data record.
    */
-  static async deactivate(tableName: string, pkColumn: string, id: string) {
-    if (['master.customer', 'master.grade', 'master.defect_code', 'master.stoppage_code', 'master.operator'].includes(tableName)) {
-        await db.updateTable(tableName as any)
-          .set({ is_active: false })
-          .where(pkColumn as any, '=', id)
-          .execute();
+  static async deactivate(tableName: MasterEntityTable | string, pkColumn: string, id: string) {
+    const table = tableName as MasterEntityTable;
+    if (ACTIVE_FILTER_TABLES.has(table)) {
+      await db.updateTable(table)
+        .set({ is_active: false })
+        .where(pkColumn as 'grade_code', '=', id)
+        .execute();
     } else {
-        await db.deleteFrom(tableName as any)
-          .where(pkColumn as any, '=', id)
-          .execute();
+      await db.deleteFrom(table)
+        .where(pkColumn as 'grade_code', '=', id)
+        .execute();
     }
   }
 
@@ -181,10 +201,9 @@ export class MasterDataService {
    */
   static async createGradeSpec(data: any) {
     const id = data.id || crypto.randomUUID();
-    // Unique constraint on (grade_code, customer_id) is handled by the DB schema
-    await db.insertInto('master.grade_spec' as any).values({
+    await db.insertInto('master.grade_spec').values({
       ...data,
-      customer_id: data.customerId || null
+      customer_id: data.customerId || null,
     }).execute();
     return id;
   }
@@ -195,17 +214,16 @@ export class MasterDataService {
    */
   static async getGradeSpec(gradeCode: string, customerId?: string) {
     if (customerId) {
-      const specific = await db.selectFrom('master.grade_spec' as any)
+      const specific = await db.selectFrom('master.grade_spec')
         .selectAll()
         .where('grade_code', '=', gradeCode)
-        .where('customer_id', '=', customerId)
+        .where('customer_id', '=', Number(customerId))
         .executeTakeFirst();
-      
+
       if (specific) return specific;
     }
 
-    // Fallback to default
-    const fallback = await db.selectFrom('master.grade_spec' as any)
+    const fallback = await db.selectFrom('master.grade_spec')
       .selectAll()
       .where('grade_code', '=', gradeCode)
       .where('customer_id', 'is', null)

@@ -25,6 +25,8 @@ import {
   type RewindingMachineCode,
 } from '../utils/rewindingMachines';
 import { ProductionService } from '../modules/m1-collection/services/ProductionService';
+import { assertMachineClaimOrIdempotent } from '../utils/machineAllocation';
+import { throwVersionConflict } from '../utils/versionConflict';
 
 export type RwdOrderStatus =
   | 'PENDING'
@@ -486,9 +488,11 @@ export class RewindingOrderService {
       throw new Error(`Batch ${batchNumber} is not a rewinding order`);
     }
 
-    const already =
-      (batch.machine_allocated ?? true) && batch.machine_code === machine;
-    if (already) return this.getOrder(batchNumber, userId);
+    const claim = assertMachineClaimOrIdempotent(
+      { batchNumber, machine_code: batch.machine_code, machine_allocated: batch.machine_allocated },
+      machine,
+    );
+    if (claim === 'idempotent') return this.getOrder(batchNumber, userId);
 
     const order = await db
       .selectFrom('txn.rwd_order')
@@ -511,7 +515,7 @@ export class RewindingOrderService {
         .executeTakeFirst();
       const queueSeq = (Number(maxSeq?.max_seq) || 0) + 1;
 
-      await trx
+      const result = await trx
         .updateTable('planning.ppc_batch')
         .set({
           machine_code: machine,
@@ -519,7 +523,25 @@ export class RewindingOrderService {
           queue_seq: queueSeq,
         })
         .where('batch_id', '=', batch.batch_id)
-        .execute();
+        .where((eb) => eb.or([
+          eb('machine_allocated', '=', false),
+          eb('machine_code', '=', machine),
+        ]))
+        .executeTakeFirst();
+
+      if (Number(result.numUpdatedRows ?? 0) === 0) {
+        const cur = await trx
+          .selectFrom('planning.ppc_batch')
+          .select(['batch_number', 'machine_code', 'machine_allocated'])
+          .where('batch_id', '=', batch.batch_id)
+          .executeTakeFirst();
+        if (cur?.machine_allocated && cur.machine_code === machine) return;
+        throwVersionConflict({
+          batchNumber: cur?.batch_number ?? batchNumber,
+          machineCode: cur?.machine_code ?? null,
+          machineAllocated: cur?.machine_allocated ?? true,
+        });
+      }
 
       await trx
         .updateTable('txn.rwd_order')

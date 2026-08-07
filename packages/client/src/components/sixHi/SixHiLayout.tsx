@@ -46,6 +46,7 @@ import { ShiftReadingsModal } from './ShiftReadingsModal';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { buildCombinedRunFromSelected } from '../../lib/combinedProductionRun';
 import { resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
+import { useMachineStoppageCodes } from '../../lib/pklStoppageCodes';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 
 function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): SixHiOrderStoppage | undefined {
@@ -70,6 +71,11 @@ export function SixHiLayout() {
   const role = useAuthStore((s) => s.role);
   const machineAccess = useAuthStore((s) => s.machineAccess);
   const { shiftLogId } = useShiftStore();
+  // Admin Master Data stoppage_code.applies_to — same source as process stations
+  const { codes: machineStoppageCodes, loading: machineStoppageCodesLoading } =
+    useMachineStoppageCodes(pathMill);
+  // Empty catalogue → OrderStoppageModal falls back to legacy stoppage_category
+  const millStoppageCodes = machineStoppageCodes.length > 0 ? machineStoppageCodes : undefined;
 
   const {
     workspaceOpen,
@@ -545,6 +551,8 @@ export function SixHiLayout() {
           initialRollInCode={panelOrder?.rolling?.rollInCode}
           initialRollOutNo={panelOrder?.rolling?.rollOutNo}
           initialRollOutCode={panelOrder?.rolling?.rollOutCode}
+          stoppageCodes={millStoppageCodes}
+          stoppageCodesLoading={machineStoppageCodesLoading}
           onClose={closeStoppageDialog}
           onStart={async (categoryCode, breakdownCode, remarks) => {
             // Server cascades stoppage across combined_group_id — post once.
@@ -594,6 +602,8 @@ export function SixHiLayout() {
         subtitle="Record machine downtime when no production order is active."
         startButtonLabel="Start Stoppage"
         rollChangeTiming="before"
+        stoppageCodes={millStoppageCodes}
+        stoppageCodesLoading={machineStoppageCodesLoading}
         onClose={() => setManualStoppageOpen(false)}
         onStart={async (categoryCode, breakdownCode, remarks) => {
           await startManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });

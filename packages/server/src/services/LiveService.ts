@@ -1253,8 +1253,16 @@ export class LiveService {
   static async getMachineHeadDashboard(
     userId: number,
     roles: string[],
-    opts: { machine?: string; search?: string; subProcess?: string; shift?: string } = {},
-  ): Promise<MachineHeadDashboardData> {
+    opts: {
+      machine?: string;
+      search?: string;
+      subProcess?: string;
+      shift?: string;
+      /** PERF-C2: page productionHistory. Omit → existing 200-cap. */
+      historyLimit?: number;
+      historyCursor?: string;
+    } = {},
+  ): Promise<MachineHeadDashboardData & { productionHistoryNextCursor?: string | null }> {
     let machineFilter = await this.getMachineScope(userId, roles);
     if (opts.machine && opts.machine !== 'ALL') {
       const code = opts.machine.toUpperCase();
@@ -1268,7 +1276,7 @@ export class LiveService {
     const ctx = await this.getShiftQueueContext(userId, contextMachine);
     const prodDate = ctx.prodDate;
     const shiftCode = opts.shift && opts.shift !== 'ALL' ? opts.shift.toUpperCase() : ctx.shiftCode;
-    const { SixHiExecutionService, SixHiShiftService } = await import('./sixHi');
+    const { SixHiShiftService } = await import('./sixHi');
     const search = opts.search?.trim() || undefined;
     const subProcess = opts.subProcess === 'ROLLING' || opts.subProcess === 'SKIN_PASS'
       ? opts.subProcess
@@ -1323,8 +1331,26 @@ export class LiveService {
       ])
       .where('o.status', '=', 'COMPLETED')
       .orderBy('o.prod_end_at', 'desc')
-      // Full shift production history (not just the last 10) — see Task 2.3.
-      .limit(200);
+      .orderBy('pb.batch_number', 'desc');
+    const historyLimit = opts.historyLimit != null && opts.historyLimit > 0
+      ? Math.min(200, Math.max(1, Math.floor(opts.historyLimit)))
+      : 200;
+    const historyPaging = opts.historyLimit != null;
+    if (opts.historyCursor) {
+      const sep = opts.historyCursor.indexOf('|');
+      const curAt = sep >= 0 ? opts.historyCursor.slice(0, sep) : opts.historyCursor;
+      const curBn = sep >= 0 ? opts.historyCursor.slice(sep + 1) : '';
+      const curDate = new Date(curAt);
+      if (!Number.isNaN(curDate.getTime())) {
+        completedQ = completedQ.where((eb) => {
+          if (!curBn) return eb('o.prod_end_at', '<', curDate);
+          return eb.or([
+            eb('o.prod_end_at', '<', curDate),
+            eb.and([eb('o.prod_end_at', '=', curDate), eb('pb.batch_number', '<', curBn)]),
+          ]);
+        });
+      }
+    }
     if (shiftLogIds.length > 0) {
       completedQ = completedQ.where('o.shift_log_id', 'in', shiftLogIds);
     } else {
@@ -1347,7 +1373,17 @@ export class LiveService {
         ]),
       );
     }
-    const completed = await completedQ.execute();
+    // Fetch one extra when paging so we can emit nextCursor.
+    const completedRaw = await completedQ.limit(historyPaging ? historyLimit + 1 : historyLimit).execute();
+    let productionHistoryNextCursor: string | null | undefined = historyPaging ? null : undefined;
+    let completed = completedRaw;
+    if (historyPaging && completedRaw.length > historyLimit) {
+      completed = completedRaw.slice(0, historyLimit);
+      const last = completed[completed.length - 1];
+      if (last?.prod_end_at) {
+        productionHistoryNextCursor = `${new Date(last.prod_end_at).toISOString()}|${last.batch_number}`;
+      }
+    }
 
     let rejectedQ = db.selectFrom('txn.crm_order as o')
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -1493,24 +1529,21 @@ export class LiveService {
         orderCount,
         completedOrderCount,
       },
-      runtimeUtilization: await Promise.all(machines.map(async (m) => {
-        try {
-          const summary = await MachineStateEventService.getUtilizationSummary(m.machineCode, 24);
+      runtimeUtilization: await (async () => {
+        const utilBy = await MachineStateEventService.getUtilizationSummaries(
+          machines.map((m) => m.machineCode),
+          24,
+        );
+        return machines.map((m) => {
+          const summary = utilBy.get(m.machineCode);
           return {
             machineCode: m.machineCode,
             machineName: m.machineName,
-            runtimeUtilizationPct: summary.runningPct,
-            windowHours: summary.windowHours,
+            runtimeUtilizationPct: summary?.runningPct ?? 0,
+            windowHours: summary?.windowHours ?? 24,
           };
-        } catch {
-          return {
-            machineCode: m.machineCode,
-            machineName: m.machineName,
-            runtimeUtilizationPct: 0,
-            windowHours: 24,
-          };
-        }
-      })),
+        });
+      })(),
       stoppages: stoppageRows.map((s) => {
         const coilNo = ((s as { order_coil_no?: string | null }).order_coil_no ?? s.coil_no ?? '').trim() || undefined;
         const slitId = ((s as { order_slit_id?: string | null }).order_slit_id ?? s.slit_id)?.trim() || undefined;
@@ -1550,28 +1583,51 @@ export class LiveService {
           slitId: o.slitId,
         })),
       handoverOverview,
-      productionHistory: await Promise.all(
-        completed
-          .filter((c) => c.prod_end_at)
-          .map(async (c) => {
-            const coilNo = ((c as { order_coil_no?: string | null }).order_coil_no ?? c.coil_no ?? '').trim() || undefined;
-            const slitId = ((c as { order_slit_id?: string | null }).order_slit_id ?? c.slit_id)?.trim() || undefined;
-            return {
-              batchNumber: c.batch_number,
-              machineCode: c.machine_code,
-              completedAt: new Date(c.prod_end_at!).toISOString(),
-              weightMt: await SixHiExecutionService.resolveOrderWeight(
-                String(c.order_id),
-                c.sub_process,
-                Number(c.ppc_weight_mt),
-              ),
-              subProcess: c.sub_process ?? undefined,
-              coilNo,
-              motherCoil: coilNo,
-              slitId,
-            };
-          }),
-      ),
+      productionHistory: await (async () => {
+        const historySrc = completed.filter((c) => c.prod_end_at);
+        const rollingIds = historySrc
+          .filter((c) => c.sub_process === 'ROLLING')
+          .map((c) => String(c.order_id));
+        const skinIds = historySrc
+          .filter((c) => c.sub_process !== 'ROLLING')
+          .map((c) => String(c.order_id));
+        const weightByOrder = new Map<string, number>();
+        if (rollingIds.length > 0) {
+          const rows = await db
+            .selectFrom('txn.crm_rolling')
+            .select(['order_id', 'actual_weight_mt'])
+            .where('order_id', 'in', rollingIds)
+            .execute();
+          for (const r of rows) {
+            if (r.actual_weight_mt != null) weightByOrder.set(String(r.order_id), Number(r.actual_weight_mt));
+          }
+        }
+        if (skinIds.length > 0) {
+          const rows = await db
+            .selectFrom('txn.crm_skinpass')
+            .select(['order_id', 'actual_weight_mt'])
+            .where('order_id', 'in', skinIds)
+            .execute();
+          for (const r of rows) {
+            if (r.actual_weight_mt != null) weightByOrder.set(String(r.order_id), Number(r.actual_weight_mt));
+          }
+        }
+        return historySrc.map((c) => {
+          const coilNo = ((c as { order_coil_no?: string | null }).order_coil_no ?? c.coil_no ?? '').trim() || undefined;
+          const slitId = ((c as { order_slit_id?: string | null }).order_slit_id ?? c.slit_id)?.trim() || undefined;
+          const oid = String(c.order_id);
+          return {
+            batchNumber: c.batch_number,
+            machineCode: c.machine_code,
+            completedAt: new Date(c.prod_end_at!).toISOString(),
+            weightMt: weightByOrder.get(oid) ?? Number(c.ppc_weight_mt),
+            subProcess: c.sub_process ?? undefined,
+            coilNo,
+            motherCoil: coilNo,
+            slitId,
+          };
+        });
+      })(),
       rejectedOrders: rejected.map((r) => {
         const coilNo = r.coil_no ?? undefined;
         const slitId = r.slit_id?.trim() || undefined;
@@ -1594,6 +1650,7 @@ export class LiveService {
       deskNotifications: await import('./DeskNotificationService')
         .then(({ DeskNotificationService }) => DeskNotificationService.listOpenForUser(userId))
         .catch(() => []),
+      ...(historyPaging ? { productionHistoryNextCursor } : {}),
     };
   }
 }

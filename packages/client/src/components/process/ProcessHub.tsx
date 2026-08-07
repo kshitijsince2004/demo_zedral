@@ -5,6 +5,7 @@ import { ZPageHeader } from '../ui/operator/ZPageHeader';
 import { ZFilterPills } from '../ui/operator/ZFilterPills';
 import { ZInput } from '../primitives/ZInput';
 import { ZButton } from '../primitives/ZButton';
+import { DataFreshnessBadge } from '../DataFreshnessBadge';
 import { useProcessStore, type ProcessQueueCard, type QueueStatusFilter } from '../../store/processStore';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessHubQueue } from '../../hooks/useProcessHubQueue';
@@ -466,6 +467,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       <ZPageHeader
         title={isQueueDesk ? queueTitle : config.label}
         subtitle={isQueueDesk ? `${queueCountLabel} · ${subtitle}` : subtitle}
+        actions={<DataFreshnessBadge />}
       />
 
       {queueError && (

@@ -1,5 +1,6 @@
 import { Router, type Application, type Request } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const ALLOWED_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const MAX_ITEMS = 100;
@@ -116,6 +117,7 @@ export async function dispatchSyncItem(
 
 export function createSyncBatchRouter(app: Application): Router {
   const router = Router();
+  router.use(rateLimitMiddleware(30, 60_000));
 
   router.post('/batch', requireAuth, async (req, res) => {
     if (process.env.SYNC_BATCH_ENABLED === 'false') {

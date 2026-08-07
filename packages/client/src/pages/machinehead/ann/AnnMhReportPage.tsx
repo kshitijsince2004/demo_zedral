@@ -1,23 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, memo } from 'react';
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Clock, Flame, TimerReset } from 'lucide-react';
 
-import type { Tone } from '../../../lib/tones';
-import { ChartTooltip } from '../../../components/analytics/ChartTooltip';
 import { ChartPanel } from '../../../components/analytics/ChartPanel';
-import { MeasuredChart } from '../../../components/analytics/MeasuredChart';
 import { DataUnavailable } from '../../../components/plant-head/DataUnavailable';
 import { MachineHeadShell } from '../../../components/layout/machinehead/MachineHeadShell';
 import type { AnnBoardRow } from '../../../components/process/bodies/AnnBaseCard';
@@ -30,12 +14,10 @@ import { ZInput } from '../../../components/primitives/ZInput';
 import { apiClient } from '../../../lib/apiClient';
 import { reportingService } from '../../../lib/reportingService';
 import type { AnnSpecLimit } from '../../../lib/annBatchingAdvisories';
-import { toneRail } from '../../../lib/tones';
 import {
   METRICS,
   num,
   fmt,
-  toChartLabel,
   toDateTimeLocalValue,
   computeStats,
   statusFromSpec,
@@ -49,44 +31,18 @@ import {
   type MetricKey,
 } from '../../../lib/annReportUtils';
 import { DataFreshnessBadge } from '../../../components/DataFreshnessBadge';
+import {
+  AnnReportDetailRow,
+  SearchableValueSelect,
+  type AnnReportTableRow,
+} from './AnnMhReportControls';
 
-type AnnReportTableRow = {
-  rowId: string;
-  taken_at: string;
-  parameter: string;
-  current: number | string | null;
-  min: number | null;
-  max: number | null;
-  avg: number | null;
-  status: string;
-  statusTone: Tone;
-  remarks: string;
-};
+// PERF-A3 — recharts panels only after report is generated
+const AnnMhReportCharts = lazy(() =>
+  import('./AnnMhReportCharts').then((m) => ({ default: m.AnnMhReportCharts })),
+);
 
-const AnnReportDetailRow = memo(function AnnReportDetailRow({ r }: { r: AnnReportTableRow }) {
-  return (
-    <tr
-      className={[
-        'border-t border-border font-mono tabular-nums text-foreground',
-        'odd:bg-muted/10 even:bg-background hover:bg-muted/30 transition-colors',
-      ].join(' ')}
-    >
-      <td className="p-2 whitespace-nowrap">{new Date(r.taken_at).toLocaleString('en-IN')}</td>
-      <td className="p-2">{r.parameter}</td>
-      <td className="p-2">{r.current != null ? (typeof r.current === 'number' ? r.current.toFixed(2) : String(r.current)) : '—'}</td>
-      <td className="p-2">{r.min != null ? r.min.toFixed(2) : '—'}</td>
-      <td className="p-2">{r.max != null ? r.max.toFixed(2) : '—'}</td>
-      <td className="p-2">{r.avg != null ? r.avg.toFixed(2) : '—'}</td>
-      <td className="p-2">
-        <span className={`inline-flex items-center gap-2 ${toneRail[r.statusTone]} px-2 py-1 rounded-md`} style={{ background: 'transparent' }}>
-          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
-          {r.status}
-        </span>
-      </td>
-      <td className="p-2 text-muted-foreground">{r.remarks}</td>
-    </tr>
-  );
-});
+// PERF-B3 — page is container; row/select live in AnnMhReportControls
 
 type ChargeDetail = {
   charge: Record<string, unknown>;
@@ -95,97 +51,6 @@ type ChargeDetail = {
   readings: Reading[];
   stoppages: Stoppage[];
 };
-
-function SearchableValueSelect({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  placeholder?: string;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    if (!qq) return options;
-    return options.filter((o) => o.toLowerCase().includes(qq));
-  }, [options, q]);
-
-  const selected = value ? options.find((o) => o === value) : undefined;
-
-  return (
-    <div className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-      <span>{label}</span>
-      <div className="relative">
-        <ZInput
-          className="!h-10 rounded-lg"
-          value={open ? q : (selected ?? '')}
-          placeholder={placeholder}
-          mono={false}
-          disabled={disabled}
-          onChange={(e) => {
-            setQ(e.target.value);
-            if (!open) setOpen(true);
-          }}
-          onPointerDown={() => setOpen(true)}
-          onFocus={() => setOpen(true)}
-          aria-label={label}
-        />
-        {open && !disabled && (
-          <div
-            className="absolute z-20 mt-2 w-full rounded-lg border border-border bg-background shadow-lg max-h-60 overflow-auto"
-            role="listbox"
-            aria-label={`${label} options`}
-          >
-            {filtered.length === 0 ? (
-              <div className="p-3 text-xs text-muted-foreground">No matches</div>
-            ) : (
-              filtered.map((opt) => {
-                const isActive = opt === value;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    className={[
-                      'w-full text-left px-3 py-2 text-sm',
-                      isActive ? 'bg-muted/30' : 'hover:bg-muted/30',
-                    ].join(' ')}
-                    onClick={() => {
-                      onChange(opt);
-                      setOpen(false);
-                      setQ('');
-                    }}
-                  >
-                    <span className="font-mono tabular-nums">{opt}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-      {open && (
-        <button
-          type="button"
-          className="sr-only"
-          onBlur={() => {
-            setOpen(false);
-            setQ('');
-          }}
-        />
-      )}
-    </div>
-  );
-}
 
 export function AnnMhReportPage() {
   const [bases, setBases] = useState<Array<{ base_no: string }>>([]);
@@ -533,34 +398,7 @@ export function AnnMhReportPage() {
   const pageRows = reportComputed ? filteredSortedRows.slice((page - 1) * pageSize, page * pageSize) : [];
 
   // --- Chart series builders ---
-  const chartSeries = useMemo(() => {
-    if (!reportComputed) return null;
-    const readings = reportComputed.readingsInWindow;
-    const toPoint = (r: Reading) => ({ t: toChartLabel(r.taken_at), x: new Date(r.taken_at).getTime(), taken_at: r.taken_at });
-    const make = (key: MetricKey) => {
-      const pts = readings.map((r) => ({
-        t: toChartLabel(r.taken_at),
-        v: num(r[key]),
-      }));
-      const filtered = pts.filter((p) => p.v != null);
-      return {
-        points: pts.map((p) => ({ t: p.t, [key]: p.v })),
-        stats: reportComputed.metricsStats[key],
-        filteredPoints: filtered,
-      };
-    };
-    return {
-      readings,
-      charge: make('charge_temp'),
-      gas: make('gas_temp'),
-      furnace: make('fc_temp'),
-      press: make('base_press'),
-      fanRpm: make('base_fan_rpm'),
-      n2h2: make('n2h2_flow'),
-      fuel: make('fuel_flow'),
-      rcf: make('rcf_rpm'),
-    };
-  }, [reportComputed]);
+  // (recharts series live in AnnMhReportCharts — PERF-A3)
 
   const heatingWindows = useMemo(() => {
     if (!reportComputed) return [];
@@ -858,196 +696,14 @@ export function AnnMhReportPage() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                {/* Temperature Trend (charge + gas) */}
-                <ChartPanel title="Temperature Trend">
-                  <div className="h-64">
-                    {chartSeries && chartSeries.charge && reportComputed.readingsInWindow.length > 0 ? (
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <LineChart
-                              data={reportComputed.readingsInWindow.map((r) => ({
-                                t: toChartLabel(r.taken_at),
-                                charge: num(r.charge_temp),
-                                gas: num(r.gas_temp),
-                              }))}
-                              margin={{ top: 10, right: 10, bottom: 0, left: 0 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Legend wrapperStyle={{ fontSize: 11 }} />
-                              {reportComputed.metricsStats.charge_temp.avg != null && (
-                                <ReferenceLine y={reportComputed.metricsStats.charge_temp.avg ?? 0} stroke="hsl(var(--chart-2))" strokeDasharray="3 3" />
-                              )}
-                              <Line type="monotone" dataKey="charge" stroke="var(--color-chart-1)" strokeWidth={2} name="Charge temp" dot={false} />
-                              <Line type="monotone" dataKey="gas" stroke="var(--color-chart-2)" strokeWidth={2} name="Gas temp" dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    ) : (
-                      <DataUnavailable message="No readings available in range." />
-                    )}
-                  </div>
-                </ChartPanel>
-
-                {/* Base Temperature */}
-                <ChartPanel title="Base Temperature">
-                  {reportComputed.readingsInWindow.length > 0 ? (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <LineChart data={reportComputed.readingsInWindow.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.fc_temp) }))}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Line type="monotone" dataKey="v" stroke="var(--color-chart-4)" strokeWidth={2} dot={false} name="Base temp" />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  ) : (
-                    <DataUnavailable message="No data" />
-                  )}
-                </ChartPanel>
-
-                {/* Fan RPM */}
-                <ChartPanel title="Fan RPM">
-                  {reportComputed.readingsInWindow.length > 0 ? (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <LineChart data={reportComputed.readingsInWindow.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.base_fan_rpm) }))}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Line type="monotone" dataKey="v" stroke="var(--color-chart-5)" strokeWidth={2} dot={false} name="Fan RPM" />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  ) : (
-                    <DataUnavailable message="No data" />
-                  )}
-                </ChartPanel>
-
-                {/* Pressure */}
-                <ChartPanel title="Pressure">
-                  {reportComputed.readingsInWindow.length > 0 ? (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <LineChart data={reportComputed.readingsInWindow.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.base_press) }))}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Line type="monotone" dataKey="v" stroke="var(--color-primary)" strokeWidth={2} dot={false} name="Pressure" />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  ) : (
-                    <DataUnavailable message="No data" />
-                  )}
-                </ChartPanel>
-
-                {/* N2/H2 Flow */}
-                <ChartPanel title="N2/H2 Flow">
-                  {reportComputed.readingsInWindow.length > 0 ? (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <LineChart data={reportComputed.readingsInWindow.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.n2h2_flow) }))}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Line type="monotone" dataKey="v" stroke="var(--color-chart-3)" strokeWidth={2} dot={false} name="N2/H2 flow" />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  ) : (
-                    <DataUnavailable message="No data" />
-                  )}
-                </ChartPanel>
-
-                {/* Heating Curve */}
-                <ChartPanel title="Heating Curve">
-                  {heatingReadings.length === 0 ? (
-                    <DataUnavailable message="No heating stage data found." />
-                  ) : (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <AreaChart
-                              data={heatingReadings.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.charge_temp) }))}
-                              margin={{ top: 10, right: 10, bottom: 0, left: 0 }}
-                            >
-                              <defs>
-                                <linearGradient id="heatGrad" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.25} />
-                                  <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0} />
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Area type="monotone" dataKey="v" stroke="var(--color-chart-1)" fill="url(#heatGrad)" strokeWidth={2} name="Heating (charge temp)" dot={false} />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  )}
-                </ChartPanel>
-
-                {/* Cooling Curve */}
-                <ChartPanel title="Cooling Curve">
-                  {coolingReadings.length === 0 ? (
-                    <DataUnavailable message="No cooling stage data found." />
-                  ) : (
-                    <div className="h-64">
-                      <MeasuredChart minHeight={220}>
-                        {({ width, height }) => (
-                          <ResponsiveContainer width={width} height={height}>
-                            <AreaChart
-                              data={coolingReadings.map((r) => ({ t: toChartLabel(r.taken_at), v: num(r.charge_temp) }))}
-                              margin={{ top: 10, right: 10, bottom: 0, left: 0 }}
-                            >
-                              <defs>
-                                <linearGradient id="coolGrad" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="var(--color-chart-4)" stopOpacity={0.25} />
-                                  <stop offset="95%" stopColor="var(--color-chart-4)" stopOpacity={0} />
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                              <YAxis tick={{ fontSize: 9 }} />
-                              <Tooltip content={<ChartTooltip />} />
-                              <Area type="monotone" dataKey="v" stroke="var(--color-chart-4)" fill="url(#coolGrad)" strokeWidth={2} name="Cooling (charge temp)" dot={false} />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        )}
-                      </MeasuredChart>
-                    </div>
-                  )}
-                </ChartPanel>
+                <Suspense fallback={<div className="col-span-full h-64 animate-pulse rounded-lg bg-muted/40" aria-busy />}>
+                  <AnnMhReportCharts
+                    readingsInWindow={reportComputed.readingsInWindow}
+                    chargeTempAvg={reportComputed.metricsStats.charge_temp.avg}
+                    heatingReadings={heatingReadings}
+                    coolingReadings={coolingReadings}
+                  />
+                </Suspense>
 
                 {/* Cycle Timeline */}
                 <ChartPanel title="Cycle Timeline">
@@ -1064,7 +720,6 @@ export function AnnMhReportPage() {
                               const total = Math.max(1, endMs - startMs);
                               return reportComputed.stageTimeline.map((seg) => {
                                 const w = ((seg.endMs - seg.startMs) / total) * 100;
-                                const tone: Tone = seg.stage.skipped ? 'muted' : 'success';
                                 return (
                                   <div
                                     key={`${seg.stage.seq}:${seg.key}`}

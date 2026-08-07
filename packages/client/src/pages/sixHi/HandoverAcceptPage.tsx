@@ -12,6 +12,7 @@ import {
   resolveHandoverQueueSnapshot,
 } from '../../services/machineHandoverService';
 import { ZButton } from '../../components/primitives/ZButton';
+import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 import { OperatorShell } from '../../components/layout/operator/OperatorShell';
 import {
   AlertTriangle, CheckCircle2, Package, ChevronRight,
@@ -172,6 +173,7 @@ export function HandoverAcceptPage({ handover, onAccepted }: HandoverAcceptPageP
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
+              <DataFreshnessBadge />
               <div className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${PRIORITY_STYLES[priority]}`}>
                 {priority} PRIORITY
               </div>

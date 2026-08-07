@@ -170,6 +170,8 @@ function SixHiCrmHub() {
     isLoading,
     isValidating,
     mutate: mutateQueue,
+    loadMoreQueue,
+    hasMoreQueue,
   } = useSixHiHubQueue({
     apiSubProcess,
     date,
@@ -272,11 +274,16 @@ function SixHiCrmHub() {
   const applyCombinedSelection = useCallback((anchor: SixHiQueueCard, opts?: { keepPicks?: boolean }) => {
     const compatible = findCompatibleOrdersForCombine(anchor, allOrders, queueMachine);
     const ids = new Set(compatible.map((o) => o.batchNumber));
-    setCompatiblePool(ids);
+    const sameSet = (a: Set<string>, b: Set<string>) =>
+      a.size === b.size && [...a].every((x) => b.has(x));
+    setCompatiblePool((prev) => (sameSet(prev, ids) ? prev : ids));
     if (opts?.keepPicks) {
-      setAutoCombinedBatchNumbers((prev) => new Set([...prev].filter((b) => ids.has(b))));
+      setAutoCombinedBatchNumbers((prev) => {
+        const next = new Set([...prev].filter((b) => ids.has(b)));
+        return sameSet(prev, next) ? prev : next;
+      });
     } else {
-      setAutoCombinedBatchNumbers(ids);
+      setAutoCombinedBatchNumbers((prev) => (sameSet(prev, ids) ? prev : ids));
     }
   }, [allOrders, queueMachine]);
 
@@ -795,6 +802,7 @@ function SixHiCrmHub() {
                 className="min-h-[240px] max-h-[min(60vh,720px)]"
                 getKey={(card) => card.batchNumber}
                 renderItem={(card) => renderQueueRow(card)}
+                onNearEnd={hasMoreQueue ? loadMoreQueue : undefined}
               />
             ) : (
               showOperationalSections && sortedAssigned.map((card) => renderQueueRow(card))

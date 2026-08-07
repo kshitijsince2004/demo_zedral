@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
@@ -12,7 +12,10 @@ export interface SixHiHubQueueData {
   backlog: SixHiQueueCard[];
   completed: SixHiQueueCard[];
   rejected: SixHiQueueCard[];
+  queueNextCursor?: string | null;
 }
+
+const QUEUE_PAGE_LIMIT = 50;
 
 function buildQueueUrl(input: {
   apiSubProcess: string;
@@ -21,16 +24,19 @@ function buildQueueUrl(input: {
   shift?: string;
   shiftLogId?: string | null;
   operationalDate: string;
+  cursor?: string | null;
 }): string {
   const params = new URLSearchParams({
     subProcess: input.apiSubProcess,
     date: input.date,
     machine: input.queueMachine,
+    limit: String(QUEUE_PAGE_LIMIT),
   });
   if (input.shift) params.set('shift', input.shift);
   if (input.shiftLogId && input.date === input.operationalDate) {
     params.set('shiftLogId', input.shiftLogId);
   }
+  if (input.cursor) params.set('cursor', input.cursor);
   return `/6hi/queue?${params.toString()}`;
 }
 
@@ -46,6 +52,7 @@ async function fetchHubQueue(url: string): Promise<SixHiHubQueueData> {
     backlog: Array.isArray(res) ? [] : (res.backlog ?? []),
     completed: completedForShift,
     rejected: Array.isArray(res) ? [] : (res.rejected ?? []),
+    queueNextCursor: Array.isArray(res) ? null : (res.queueNextCursor ?? null),
   };
 }
 
@@ -67,6 +74,16 @@ export function useSixHiHubQueue(input: {
     compare: (a, b) => jsonEqual(a, b),
   });
 
+  const [tail, setTail] = useState<SixHiQueueCard[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const loadingMore = useRef(false);
+
+  useEffect(() => {
+    // Bail when already empty — setTail([]) is a new [] every time and re-renders.
+    setTail((prev) => (prev.length === 0 ? prev : []));
+    setNextCursor(data?.queueNextCursor ?? null);
+  }, [queueUrl, data?.queueNextCursor]);
+
   useEffect(() => subscribeProductionSync(() => { void mutate(); }), [mutate]);
 
   useEffect(() => {
@@ -74,5 +91,42 @@ export function useSixHiHubQueue(input: {
     void mutate();
   }, [input.refreshToken, mutate]);
 
-  return { data, error, isLoading, isValidating, mutate };
+  const loadMoreQueue = useCallback(async () => {
+    if (!nextCursor || loadingMore.current) return;
+    loadingMore.current = true;
+    try {
+      const page = await fetchHubQueue(buildQueueUrl({
+        apiSubProcess: input.apiSubProcess,
+        date: input.date,
+        queueMachine: input.queueMachine,
+        shift: input.shift,
+        shiftLogId: input.shiftLogId,
+        operationalDate: input.operationalDate,
+        cursor: nextCursor,
+      }));
+      setTail((prev) => [...prev, ...page.queue]);
+      setNextCursor(page.queueNextCursor ?? null);
+    } finally {
+      loadingMore.current = false;
+    }
+  }, [
+    input.apiSubProcess,
+    input.date,
+    input.queueMachine,
+    input.shift,
+    input.shiftLogId,
+    input.operationalDate,
+    nextCursor,
+  ]);
+
+  // Stable reference — bare `{...data, queue:[...]}` every render made SixHiCrmHub
+  // allOrders churn → selection useEffects → max update depth.
+  const merged = useMemo(
+    () => (data
+      ? { ...data, queue: [...data.queue, ...tail], queueNextCursor: nextCursor }
+      : data),
+    [data, tail, nextCursor],
+  );
+
+  return { data: merged, error, isLoading, isValidating, mutate, loadMoreQueue, hasMoreQueue: !!nextCursor };
 }

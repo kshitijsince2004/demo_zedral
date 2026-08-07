@@ -340,7 +340,7 @@ async function ensureManualRerollTable(): Promise<void> {
 
 async function loadStoppages(sessionId: string): Promise<ManualRerollStoppageDto[]> {
   const rows = await db
-    .selectFrom('txn.manual_reroll_stoppage' as any)
+    .selectFrom('txn.manual_reroll_stoppage')
     .selectAll()
     .where('session_id', '=', sessionId)
     .orderBy('start_time', 'asc')
@@ -350,7 +350,7 @@ async function loadStoppages(sessionId: string): Promise<ManualRerollStoppageDto
 
 async function loadActiveStoppage(sessionId: string): Promise<ManualRerollStoppageDto | null> {
   const row = await db
-    .selectFrom('txn.manual_reroll_stoppage' as any)
+    .selectFrom('txn.manual_reroll_stoppage')
     .selectAll()
     .where('session_id', '=', sessionId)
     .where('end_time', 'is', null)
@@ -618,7 +618,7 @@ export class ManualRerollService {
     if (existing) throw new Error('STOPPAGE_ALREADY_OPEN');
 
     await db
-      .insertInto('txn.manual_reroll_stoppage' as any)
+      .insertInto('txn.manual_reroll_stoppage')
       .values({
         session_id: input.sessionId,
         machine_code: current.machine_code,
@@ -654,7 +654,7 @@ export class ManualRerollService {
     await ensureManualRerollTable();
     await this.requireOpenSession(input.sessionId);
     const updated = await db
-      .updateTable('txn.manual_reroll_stoppage' as any)
+      .updateTable('txn.manual_reroll_stoppage')
       .set({
         category_code: input.categoryCode,
         stoppage_code: input.stoppageCode ?? null,
@@ -679,7 +679,7 @@ export class ManualRerollService {
     await ensureManualRerollTable();
     const session = await this.requireOpenSession(input.sessionId);
     const current = await db
-      .selectFrom('txn.manual_reroll_stoppage' as any)
+      .selectFrom('txn.manual_reroll_stoppage')
       .selectAll()
       .where('stoppage_id', '=', input.stoppageId)
       .where('session_id', '=', input.sessionId)
@@ -692,7 +692,7 @@ export class ManualRerollService {
     const durationMin = computeDurationMin(startTime, endTime);
 
     await db
-      .updateTable('txn.manual_reroll_stoppage' as any)
+      .updateTable('txn.manual_reroll_stoppage')
       .set({
         end_time: endTime,
         duration_min: durationMin,

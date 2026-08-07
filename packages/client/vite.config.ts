@@ -31,7 +31,8 @@ export default defineConfig(({ mode }) => {
           handler: 'NetworkFirst' as const,
           options: {
             cacheName: 'api-reads',
-            networkTimeoutSeconds: 10,
+            // PERF-D3: Workbox timeout is static; 30s matches apiClient adaptive cap
+            networkTimeoutSeconds: 30,
             expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
             cacheableResponse: { statuses: [0, 200] },
           },
@@ -74,6 +75,8 @@ export default defineConfig(({ mode }) => {
           handler: 'NetworkFirst' as const,
           options: {
             cacheName: 'master-data-cache',
+            // PERF-D3: Workbox timeout is static; 30s matches apiClient adaptive cap
+            networkTimeoutSeconds: 30,
             expiration: {
               maxEntries: 100,
               maxAgeSeconds: 60 * 60 * 24 * 7,
@@ -88,6 +91,8 @@ export default defineConfig(({ mode }) => {
           handler: 'NetworkFirst' as const,
           options: {
             cacheName: 'planning-data-cache',
+            // PERF-D3: Workbox timeout is static; 30s matches apiClient adaptive cap
+            networkTimeoutSeconds: 30,
             expiration: {
               maxEntries: 50,
               maxAgeSeconds: 60 * 60 * 24,
@@ -117,6 +122,8 @@ export default defineConfig(({ mode }) => {
           handler: 'NetworkFirst' as const,
           options: {
             cacheName: 'master-data-cache',
+            // PERF-D3: Workbox timeout is static; 30s matches apiClient adaptive cap
+            networkTimeoutSeconds: 30,
             expiration: {
               maxEntries: 100,
               maxAgeSeconds: 60 * 60 * 24 * 7,
@@ -131,6 +138,8 @@ export default defineConfig(({ mode }) => {
           handler: 'NetworkFirst' as const,
           options: {
             cacheName: 'planning-data-cache',
+            // PERF-D3: Workbox timeout is static; 30s matches apiClient adaptive cap
+            networkTimeoutSeconds: 30,
             expiration: {
               maxEntries: 50,
               maxAgeSeconds: 60 * 60 * 24,

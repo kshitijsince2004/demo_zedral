@@ -1972,60 +1972,171 @@ ewindingOrderLifecycle.test.ts
 - **Decisions / skipped:** Full `npm run migrate` blocked by legacy check-order collision (`1933000000000_reintroduce_supervisor_role`); applied `1970000000000_order_journey_tenant_id` via targeted script. Smoke used `m1_user` (superuser) for insert privilege; `m1_app` verified present `NOSUPERUSER NOBYPASSRLS`.
 - **Follow-ups:** Repair migration history before clean `npm run migrate` on fresh hosts; production still needs real secrets in `deploy/.env`.
 
-### 2026-08-06 � PERF-D1�D4 latency resilience
+### 2026-08-06 ? PERF-D1?D4 latency resilience
 
 - **Goal:** Phase 3 high-ping work: RTT quality probe, latency-aware polling, adaptive API timeouts, sync backoff.
 - **Touched:** `packages/client/src/lib/networkQuality.ts` (new), `networkAwareInterval.ts`, `apiClient.ts`, `sync/engine.ts`, `DeviceStatusIndicators.tsx`, `useProcessHubQueue.ts`, `useSixHiHubQueue.ts`, `operator/native/init.ts`
-- **Decisions / skipped:** Probe via existing `measurePingMs`; degraded poll = clamp(activeMs�2, 30�60s); timeout = max(3s, p95�3)=30s; jittered 5/15/45s backoff after transient `bumpAttempt`; outboxPolicy unchanged. Skipped PWA `networkTimeoutSeconds` (plan D3 vite note).
+- **Decisions / skipped:** Probe via existing `measurePingMs`; degraded poll = clamp(activeMs?2, 30?60s); timeout = max(3s, p95?3)=30s; jittered 5/15/45s backoff after transient `bumpAttempt`; outboxPolicy unchanged. Skipped PWA `networkTimeoutSeconds` (plan D3 vite note).
 - **Follow-ups:** Smoke APK status rail + throttled Wi-Fi; optional vite PWA timeout align.
 
-### 2026-08-06 � PERF Phase 2 server (C1/F2/F3)
+### 2026-08-06 ? PERF Phase 2 server (C1/F2/F3)
 
 - **Goal:** Hot-read column narrowing, shift_log index, N+1 batching, master-data TTL cache.
 - **Touched:** LiveService.ts, SixHiService.ts, ProcessStationService.ts, MachineCrewService.ts, ShiftDetectionService.ts, MasterDataService.ts, masterDataRoutes.ts, migrations/1971000000000_shift_log_prod_date_process_index.js
 - **Decisions / skipped:** ProcessStation only Ann board/shift-review/PKL-review stoppages + CRS assign (not all 27 selectAlls). Master cache 60s like ValidationConfigService.
 - **Follow-ups:** Run migration 1971000000000; smoke live board + six-hi queue + master-data CRUD invalidation.
 
-### 2026-08-06 � PERF Phases 1�3 implementation
+### 2026-08-06 ? PERF Phases 1?3 implementation
 
-- **Goal:** Ship performance plan Phases 1�3 (cold start, interaction/payload, high-ping); defer Phase 4.
-- **Touched:** `packages/client` (`App.tsx` lazy routes, `vite.manualChunks.ts`, `VirtualizedList.tsx`, `DataFreshnessBadge`, memo/virtual on live/shift-review/ANN/SixHi, `networkQuality`/`networkAwareInterval`/`apiClient`/`sync/engine`, operator `pull.prefetchOperatorCaches`), `packages/server` (`compression`, `syncBatchRoutes`, Live/SixHi/ProcessStation selects, `1971000000000_shift_log_�` index, MasterData 60s cache), `deploy/nginx.prod.conf`
+- **Goal:** Ship performance plan Phases 1?3 (cold start, interaction/payload, high-ping); defer Phase 4.
+- **Touched:** `packages/client` (`App.tsx` lazy routes, `vite.manualChunks.ts`, `VirtualizedList.tsx`, `DataFreshnessBadge`, memo/virtual on live/shift-review/ANN/SixHi, `networkQuality`/`networkAwareInterval`/`apiClient`/`sync/engine`, operator `pull.prefetchOperatorCaches`), `packages/server` (`compression`, `syncBatchRoutes`, Live/SixHi/ProcessStation selects, `1971000000000_shift_log_?` index, MasterData 60s cache), `deploy/nginx.prod.conf`
 - **Decisions / skipped:** Batch sync on by default (`VITE_SYNC_BATCH=false` / `SYNC_BATCH_ENABLED=false` to disable); sequential fallback on 404/errors; nginx brotli left commented (alpine lacks module). Phase 4 E*/B3/C2 deferred.
 - **Follow-ups:** Apply migration `1971000000000`; smoke MH live + shift review + offline outbox drain with batch on; optional enable nginx brotli module image.
 
-### 2026-08-06 � PERF verify: migration + smoke
+### 2026-08-06 ? PERF verify: migration + smoke
 
 - **Goal:** Apply `1971000000000_shift_log_prod_date_process_index`; smoke MH live, shift review, `/sync/batch` drain.
-- **Touched:** `scripts/apply-shift-log-index.mjs`, `scripts/smoke-perf-verify.mjs`, `syncBatchRoutes.ts` (loopback fetch instead of `app.handle` � prior path crashed API), `tests/syncBatch.test.ts`
+- **Touched:** `scripts/apply-shift-log-index.mjs`, `scripts/smoke-perf-verify.mjs`, `syncBatchRoutes.ts` (loopback fetch instead of `app.handle` ? prior path crashed API), `tests/syncBatch.test.ts`
 - **Decisions / skipped:** Full `npm run migrate` still blocked by legacy check-order; targeted apply + `pgmigrations` insert. Batch smoke uses intentional 400s on `/crew` to prove aggregate skip without mutating production rows.
 - **Follow-ups:** Optional UI browser smoke on Vite :3000; rotate inconsistent local MH PIN (4000/5678 vs op 3000/1234) if undesired.
 
-### 2026-08-07 — MH nav line-capability registry (CRS/CTL gate)
+### 2026-08-07 ? MH nav line-capability registry (CRS/CTL gate)
 
-- **Goal:** Task 1 — stop `ALL_NAV_ITEMS` fallback leaking specs/assignments; CRS/CTL get gated union only.
+- **Goal:** Task 1 ? stop `ALL_NAV_ITEMS` fallback leaking specs/assignments; CRS/CTL get gated union only.
 - **Touched:** `packages/client/src/lib/mhLineCapabilities.ts`, `packages/client/src/components/layout/machinehead/MachineHeadNav.tsx`, `packages/client/src/components/layout/machinehead/MachineHeadShell.tsx`, `packages/client/tests/mhLineCapabilities.test.ts`
 - **Decisions / skipped:** Specialized ANN/RWD/HRS/PKL desks unchanged; no CRS/CTL desks; ImportableLine not widened. Shell switcher always lands `/live` for non-ANN/PKL/HRS/RWD.
 - **Follow-ups:** Task 2 PLANNER when scheduled.
 
-### 2026-08-07 — Planning-Lite PLANNER + Task 3 delta audit
+### 2026-08-07 ? Planning-Lite PLANNER + Task 3 delta audit
 
-- **Goal:** Tasks 2–3 — import-only `PLANNER` role, CTL line scope, hub route, seed; scoped auth/nav audit.
+- **Goal:** Tasks 2?3 ? import-only `PLANNER` role, CTL line scope, hub route, seed; scoped auth/nav audit.
 - **Touched:** `packages/shared-validation/src/types/roles.ts`, `packages/server/migrations/1972000000000_add_planner_role.js`, `packages/server/src/auth/planImportPolicy.ts`, `sixHiRoutes.ts`, `importRoutes.ts`, `PPCImportService.ts`, `previewSessionStore.ts`, `UserService.ts`, `scripts/seed-planner.mjs`, `seed-pilot-users.mjs`, `packages/client/src/pages/planning/PlanningImportHub.tsx`, `roleHome.ts`, `App.tsx`, `PpcRollingImportPanel.tsx`, `adminService.ts`, `tests/auth/planImportPolicy.test.ts`, `plannerRole.test.ts`, `doc/ZEDRAL_MH_AND_PLANNING_LITE_PLAN.md`
 - **Decisions / skipped:** Option A `assertPlanImportAccess` (no WRITE widen on `assertLineOperation`); `/planning/import` gated `minRole=ADMIN` + `allow=[PLANNER]`; live HTTP 403 / full migrate / workspace build / audit-log smoke left as follow-ups.
-- **Follow-ups:** `npm run seed:planner` + migrate `197200…`; optional live import smoke for CTL fail-safe + audit trail.
+- **Follow-ups:** `npm run seed:planner` + migrate `197200?`; optional live import smoke for CTL fail-safe + audit trail.
 
 
-### 2026-08-07 � Fix parked 6hi reject (machine param)
+### 2026-08-07 ? Fix parked 6hi reject (machine param)
 
 - **Goal:** Unpark outbox POST /6hi/orders/:batchNo/reject failing with machine param required.
 - **Touched:** packages/server/src/routes/sixHiRoutes.ts, packages/client/src/lib/sync/sixHiWrites.ts
-- **Decisions / skipped:** equireCrmMill derives mill from order batch when ?machine= omitted (outbox replay); client stamps active mill on enqueue URL. No change to reinstate/delete patterns beyond shared middleware.
-- **Follow-ups:** Redeploy/restart server; reopen Sync Attention and retry � parked reject for 2005638206 should sync.
+- **Decisions / skipped:** 
+equireCrmMill derives mill from order batch when ?machine= omitted (outbox replay); client stamps active mill on enqueue URL. No change to reinstate/delete patterns beyond shared middleware.
+- **Follow-ups:** Redeploy/restart server; reopen Sync Attention and retry ? parked reject for 2005638206 should sync.
 
-### 2026-08-07 — Commit + push worktree to origin/update
+### 2026-08-07 ? Commit + push worktree to origin/update
 
 - **Goal:** Commit local MH/planning-lite, perf, and related changes; push to `hsl_zedral` `update`.
 - **Touched:** broad client/server/deploy/docs + `dist-operator` rebuild (see commit)
 - **Decisions / skipped:** Excluded `_inspect.cjs` and `doc/AUDIT_REPORT (1).md` (local/junk).
 - **Follow-ups:** None for push; migrate/seed planner + perf index still env-specific.
 
+
+### 2026-08-07 ? PERF-D3/D5/F1 (ponytail full)
+
+- **Goal:** Adaptive PWA timeouts (30s), freshness badge on process hub + handover, nginx brotli.
+- **Touched:** `packages/client/vite.config.ts`, `ProcessHub.tsx`, `ProcessOutgoingHandoverShell.tsx`, `HandoverAcceptPage.tsx`, `CrmOutgoingHandoverPage.tsx`, `deploy/nginx.prod.conf`, `Dockerfile`
+- **Decisions / skipped:** Workbox static 30s (matches adaptiveTimeoutMs cap); keepPreviousData already global; nginx stage switched to alpine:3.21 + `nginx-mod-http-brotli` (official nginx:alpine ABI-mismatches alpine module). Per-station process pages covered via ProcessHub; ANN/HRS/PKL/RWD outgoing via shell.
+- **Follow-ups:** Rebuild/push nginx image; smoke process hub + handover headers; confirm `Content-Encoding: br` on assets.
+
+### 2026-08-07 ? PERF-E1/E4/F2 (ponytail)
+
+- **Goal:** Data tier table; SQLCipher local SQLite; batch LiveService/SixHi N+1 hot paths.
+- **Touched:** `doc/DATA_TIER_CLASSIFICATION.md`, `packages/client/src/operator/db/sqlite.ts`, `packages/client/capacitor.config.ts`, `packages/server/src/services/MachineStateEventService.ts`, `LiveService.ts`, `SixHiService.ts`
+- **Decisions / skipped:** Preferences-held passphrase + plugin `setEncryptionSecret` / mode `secret|encryption`; `wipeLocalDb` exported but not auto-wired to logout (outbox captures). No full retention framework. Indexes half of F2 already done earlier.
+- **Follow-ups:** Native APK smoke (encrypted open + upgrade from unencrypted); wire wipe when retention decided.
+
+### 2026-08-07 ? PERF-A3 defer recharts
+
+- **Goal:** Remove static top-level `recharts` from MH parents; lazy chart siblings; `/live` not pull recharts for non-PKL desks.
+- **Touched:** `PklMhLiveCharts.tsx`, `PklMhLiveDashboard.tsx`, `AnnMhTrendsCharts.tsx`, `AnnMhTrendsPage.tsx`, `AnnMhReportCharts.tsx`, `AnnMhReportPage.tsx`, `MhLiveEntry.tsx`, `PlantMainOpsArea.tsx`, `PlantQualityDowntimeArea.tsx`
+- **Decisions / skipped:** Approach 2 (sibling `*Charts.tsx` + `React.lazy`); plant-head already deferred via `PlantHeadDashboard` lazy ? no further split; no shared `lazyRecharts` helper.
+- **Follow-ups:** Optional vite `manualChunks` for `recharts` name if chunk naming desired.
+
+### 2026-08-07 ? PERF-C1/C2 (ponytail full)
+
+- **Goal:** Explicit selects on ProcessStation + MachineHandover hot reads; cursor paging for virtualized list APIs.
+- **Touched:** `packages/server/src/services/ProcessStationService.ts`, `MachineHandoverService.ts`, `SixHiService.ts`, `LiveService.ts`, `routes/sixHiRoutes.ts`, `processStationRoutes.ts`, `shiftLogRoutes.ts`, `liveRoutes.ts`, `packages/client/src/components/VirtualizedList.tsx`, `hooks/useSixHiHubQueue.ts`, `pages/sixHi/SixHiHub.tsx`, `pages/plant/PlantShiftReviewPage.tsx`, `lib/liveService.ts`
+- **Decisions / skipped:** No bulk selectAll sweep; process-queue paging is in-memory (small); MH productionHistory paging is API-ready but dashboard not VirtualizedList yet; exports omit `limit` ? full lists; no new route tests (none existed).
+- **Follow-ups:** Wire MH dashboard history load-more if/when VirtualizedList lands; optional DB-level cursor for process station queue if ANN boards grow.
+
+### 2026-08-07 ? PERF-E2/E3 claim + CAS (ponytail full)
+
+- **Goal:** Optimistic concurrency + server-authoritative acquire on shared Tier-3 writes; never silent overwrite; keep idempotent retries.
+- **Touched:** `packages/server/src/utils/versionConflict.ts`, `machineAllocation.ts`, `SixHiService.ts`, `RewindingOrderService.ts`, `ProcessStationService.ts`, `MachineHandoverService.ts`, `sixHiRoutes.ts`, `rewindingRoutes.ts`, `processStationRoutes.ts`, `machineHandoverRoutes.ts`, `tests/machineClaimConflict.test.ts`
+- **Decisions / skipped:** No migration ? `ppc_batch`/handover lack `updated_at`; claim uses allocation/status CAS; journey start/hold optional `expectedUpdatedAt`. MH transfer passes `allowReassign: true`. No new conflict UI.
+- **Follow-ups:** Client may pass `expectedUpdatedAt` on process start/hold when refreshing from queue; CRS MH reassign needs force flag if product wants board moves after claim.
+
+### 2026-08-07 ? PERF-B1/B2/B3 (ponytail full)
+
+- **Goal:** Memoize live-board rows; VirtualizedList (len>20); split four god pages into container + siblings.
+- **Touched:** `MachineHeadDashboard.tsx` + `Panels/Rows/Tabs`, `LiveDashboard.tsx`, `PlantShiftReviewPage.tsx` + `Panels/Rows`, `AnnMhReportPage.tsx` + `Controls`, `AnnChargePage.tsx` + `Panels`
+- **Decisions / skipped:** MachineStatusBoard stays grid (no VirtualizedList); AnnMhReport further results extract skipped (heroic); sticky thead kept outside virtual scroll.
+- **Follow-ups:** Optional AnnMhReport results sibling if LOC target <700 demanded; Profiler smoke on MH lists.
+
+### 2026-08-07 ? PERF plan complete (all remaining)
+
+- **Goal:** Close every open/partial item from `doc/ZEDRAL_PERFORMANCE_OPTIMIZATION_PLAN.md` (ponytail full).
+- **Touched:** A3 chart siblings; B1?B3 MH/Plant/Ann splits + VirtualizedList; C1/C2 selects + cursor paging + MH history load-more; D3 Workbox 30s; D5 freshness on ProcessHub/handover; E1 `doc/DATA_TIER_CLASSIFICATION.md`; E2/E3 claim CAS + 409; E4 SQLCipher; F1 brotli nginx; F2 batched Live/SixHi queries; plan status table.
+- **Decisions / skipped:** Workbox timeout static (cannot read RTT); wipe-on-logout not wired (outbox risk); AnnMhReport not forced under 700 LOC; conflict UI framework skipped.
+- **Verify:** client `tsc` green; `check:operator-bundle` passed; `machineClaimConflict.test.ts` 4/4.
+- **Follow-ups:** Native APK smoke for encrypted SQLite upgrade path; optional `expectedUpdatedAt` from process queue clients.
+
+### 2026-08-07 ? Audit H-2/M-4/L-3 production-ready (ponytail full)
+
+- **Goal:** Close remaining audit gaps: RLS app role env, query-builder `as any` lint, rate limits on hot routes.
+- **Touched:** .env.example, deploy/.env.production.example, deploy/scripts/init-prod-env.sh, .github/workflows/ci.yml, packages/server/scripts/run-migrate.mjs, check-no-query-any.mjs, package.json, packages/server/package.json, itest.integration.config.ts, MasterDataService.ts, ManualRerollService.ts, overrideService.ts, configService.ts, shiftLogService.ts, shiftLogValidationService.ts, shiftLogRoutes.ts, canonRoutes.ts, syncBatchRoutes.ts, sixHiRoutes.ts, processStationRoutes.ts, liveRoutes.ts, machineHandoverRoutes.ts
+- **Decisions / skipped:** No `db.ts` DB_APP_* magic (env clarity); no SixHiService rewrite; `lint:query-any` via `arch:check`; tenantIsolation on integration include.
+- **Follow-ups:** Point local `.env` DATABASE_URL at `m1_app` + keep MIGRATE_DATABASE_URL as `m1_user`; rotate prod `DB_APP_PASSWORD` via init-prod-env.
+
+### 2026-08-07 ? Full production readiness (audit close-out)
+
+- **Goal:** Close remaining AUDIT_REPORT gaps for production / multi-tenant gate (ponytail full).
+- **Touched:** `.env.example`, `deploy/.env.production.example`, `deploy/scripts/init-prod-env.sh`, `deploy/docker-entrypoint.sh`, `deploy/docker-compose.prod.yml`, `.github/workflows/ci.yml`, `packages/server/scripts/run-migrate.mjs`, `sync-app-role-password.mjs`, `check-no-query-any.mjs`, `dbRoleAssertion.ts`, rate-limit on canon/sync/sixhi/stations/live/handover, `doc/AUDIT_REPORT (1).md` status table.
+- **Decisions / skipped:** L-5 full SixHiService extract deferred (facades only); residual non-query `as any` and await-in-loops are hygiene. Entrypoint now restores `DATABASE_URL` to `m1_app` after migrate (was leaving bootstrap role ? H-2 hole).
+- **Verify:** `lint:query-any` OK; carryForward/serviceAuth/envValidation unit tests.
+- **Follow-ups:** Point local `.env` at `.env.example` shape; smoke prod container role assert; optional SixHiService real split later.
+
+### 2026-08-07 ? CRM stoppages via Admin machine classification
+
+- **Goal:** Defect + stoppage catalogues per machine from Admin Master Data (`applies_to`); CRM mills use same source as process stations.
+- **Touched:** `packages/server/migrations/1973000000000_crm_stoppage_codes_machine_class.js`, `packages/client/src/components/sixHi/SixHiLayout.tsx`, `packages/client/src/lib/pklStoppageCodes.ts`
+- **Decisions / skipped:** Seeded CRM `01`-`16` into `master.stoppage_code` with `applies_to=CRM6`; SixHi stoppage modals use `useMachineStoppageCodes(pathMill)` with fallback to legacy `stoppage_category` if empty. ANN `ann_stoppage_category` unchanged. No inventing RWD/SKP full catalogues.
+- **Follow-ups:** Run migrate (`197300`); smoke Admin Master Data Stoppage Codes classification + 6HI stoppage picker.
+
+### 2026-08-07 ? Fix SixHiCrmHub max update depth
+
+- **Goal:** Stop infinite re-render warning on CRM hub (`Maximum update depth exceeded`).
+- **Touched:** `packages/client/src/hooks/useSixHiHubQueue.ts`, `packages/client/src/pages/sixHi/SixHiHub.tsx`
+- **Decisions / skipped:** Root cause was unmemoized merged queue page object from PERF cursor paging; selection effects then setState(new Set) every render. Also bail identical Sets in `applyCombinedSelection`; avoid `setTail([])` no-op churn.
+- **Follow-ups:** Reload 6HI hub and confirm console clean.
+
+### 2026-08-07 ? Fix PlantShiftReviewPage useRef import
+
+- **Goal:** Uncaught `ReferenceError: useRef is not defined` on plant shift review.
+- **Touched:** `packages/client/src/pages/plant/PlantShiftReviewPage.tsx`
+- **Decisions / skipped:** PERF-B3 split left `useRef` usage without import.
+- **Follow-ups:** Reload plant shift review page.
+
+
+
+
+### 2026-08-07 ? PLANNER in User Management
+
+- **Goal:** Add Planning role option in admin UsersAdmin (create/edit).
+- **Touched:** `packages/client/src/pages/admin/UsersAdmin.tsx`, `packages/server/src/services/UserService.ts`
+- **Decisions / skipped:** PLANNER saves `line_access` WRITE (not `machine_access`); also added QUALITY to role dropdown for completeness. Seed script still available.
+- **Follow-ups:** None.
+
+### 2026-08-07 ? Planning import UI redesign
+
+- **Goal:** Brand Planning-Lite hub with Zedral logo header; tighten layout.
+- **Touched:** `packages/client/src/pages/planning/PlanningImportHub.tsx`, `PpcRollingImportPanel.tsx` (padding only)
+- **Decisions / skipped:** Reused desk/login nav chrome (`bg-nav` + `white logo.png`); no new assets.
+- **Follow-ups:** None.
+
+### 2026-08-07 ? Operator APK for QA (qa.zedral.com)
+
+- **Goal:** Rebuild operator app with latest client changes, point at hosted QA, assemble APK, smoke-test.
+- **Touched:** `packages/client/.env.operator` (gitignored, `VITE_API_URL=https://qa.zedral.com`), `packages/client/android/app/build.gradle` (versionCode 11 / 1.2.8), `.env.example`, `dist-operator` + release APK
+- **Decisions / skipped:** Cap sync OK; `gradlew` blocked by services.gradle.org SSL ? used local Gradle 9.4.1 from GitHub zip. APK debug-signed (no `ZEDRAL_KEYSTORE_*`). No fleet/HeadWind upload.
+- **Follow-ups:** Sideload `Zedral-Operator-QA-1.2.8-vc11.apk`; badge/PIN smoke on QA; set keystore env for production-signed fleet build.

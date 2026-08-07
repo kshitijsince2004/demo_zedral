@@ -195,7 +195,10 @@ export class UserService {
       .executeTakeFirstOrThrow();
 
     await replaceRole(created.user_id, input.role);
-    if (input.machine_access !== undefined) {
+    if (input.role.toUpperCase() === 'PLANNER') {
+      await MachineAccessService.setForUser(created.user_id, [], assignedBy ?? created.user_id);
+      await replaceLineAccess(created.user_id, input.line_access ?? []);
+    } else if (input.machine_access !== undefined) {
       await MachineAccessService.setForUser(
         created.user_id,
         input.machine_access,
@@ -296,7 +299,13 @@ export class UserService {
     if (input.role) {
       await replaceRole(Number(userId), input.role);
     }
-    if (input.machine_access !== undefined) {
+    const effectiveRole = (input.role || await loadPrimaryRole(existing.user_id)).toUpperCase();
+    if (effectiveRole === 'PLANNER') {
+      await MachineAccessService.setForUser(Number(userId), [], assignedBy ?? Number(userId));
+      if (input.line_access) {
+        await replaceLineAccess(Number(userId), input.line_access);
+      }
+    } else if (input.machine_access !== undefined) {
       await MachineAccessService.setForUser(
         Number(userId),
         input.machine_access,

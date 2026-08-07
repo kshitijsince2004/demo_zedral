@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { RewindingOrderService } from '../services/RewindingOrderService';
 import { assertRewindingMachine, parseRewindingMachineCode } from '../utils/rewindingMachines';
+import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
 
 const router = Router();
 
@@ -54,6 +55,10 @@ function zodMsg(error: z.ZodError): string {
 
 function respondError(res: import('express').Response, context: string, error: unknown) {
   console.error(`${context}:`, error);
+  if (isVersionConflict(error)) {
+    res.status(409).json(versionConflictBody(error));
+    return;
+  }
   const message = error instanceof Error ? error.message : 'Request failed';
   if (message.startsWith('ACTIVE_ORDER_CONFLICT:')) {
     res.status(409).json({ error: message });

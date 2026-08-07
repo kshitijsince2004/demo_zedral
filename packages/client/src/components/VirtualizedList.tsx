@@ -1,7 +1,7 @@
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
-/** Fixed-row-height virtual list for long queues / tables (PERF-B2). */
+/** Fixed-row-height virtual list for long queues / tables (PERF-B2 + C2 near-end). */
 export function VirtualizedList<T>({
   items,
   estimateSize,
@@ -9,6 +9,8 @@ export function VirtualizedList<T>({
   className = '',
   getKey,
   renderItem,
+  onNearEnd,
+  nearEndOffset = 4,
 }: {
   items: T[];
   estimateSize: number;
@@ -16,6 +18,9 @@ export function VirtualizedList<T>({
   className?: string;
   getKey: (item: T, index: number) => string | number;
   renderItem: (item: T, index: number) => ReactNode;
+  /** PERF-C2: fire when the last visible virtual row is within nearEndOffset of the end. */
+  onNearEnd?: () => void;
+  nearEndOffset?: number;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -25,12 +30,20 @@ export function VirtualizedList<T>({
     overscan,
   });
 
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastIdx = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1]!.index : -1;
+
+  useEffect(() => {
+    if (!onNearEnd || items.length === 0 || lastIdx < 0) return;
+    if (lastIdx >= items.length - nearEndOffset) onNearEnd();
+  }, [lastIdx, items.length, nearEndOffset, onNearEnd]);
+
   return (
     <div ref={parentRef} className={`overflow-auto ${className}`}>
       <div
         style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}
       >
-        {virtualizer.getVirtualItems().map((row) => {
+        {virtualItems.map((row) => {
           const item = items[row.index];
           return (
             <div

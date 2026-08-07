@@ -25,14 +25,17 @@ import {
   SixHiStoppageService,
 } from '../services/sixHi';
 import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
+import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
 import { PPCImportService, parseImportLineScope } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
 import { currentPlantDate, formatPlantDate, startOfPlantDay, endOfPlantDay } from '../utils/dateOnly';
 import { SixHiService } from '../services/SixHiService';
 import { MachineCrewService } from '../services/MachineCrewService';
 import multer from 'multer';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const router = Router();
+router.use(rateLimitMiddleware(120, 60_000));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function respondSixHiServerError(res: import('express').Response, context: string, error: unknown) {
@@ -471,6 +474,12 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
       shiftCode,
       parsedMachine,
       shiftLogId,
+      (() => {
+        const limitRaw = req.query.limit != null ? Number(req.query.limit) : undefined;
+        const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+        if (limitRaw == null || !Number.isFinite(limitRaw)) return undefined;
+        return { limit: limitRaw, cursor };
+      })(),
     );
     res.json(result);
   } catch (e: unknown) {
@@ -732,6 +741,9 @@ router.post(
     );
     res.json(order);
   } catch (e: unknown) {
+    if (isVersionConflict(e)) {
+      return res.status(409).json(versionConflictBody(e));
+    }
     res.status(400).json({ error: e instanceof Error ? e.message : 'Machine allocation failed' });
   }
 });

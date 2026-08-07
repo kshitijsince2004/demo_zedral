@@ -33,6 +33,12 @@ export async function assertDatabaseRoleAtStartup(): Promise<void> {
   if (!isProductionRuntime()) return;
 
   const role = await getDatabaseRoleInfo();
+  const expected = process.env.DB_APP_USER || 'm1_app';
+  if (role.currentUser !== expected) {
+    throw new Error(
+      `Production startup blocked: connected as "${role.currentUser}" but expected "${expected}" (RLS app role). Check DATABASE_URL / entrypoint restore.`,
+    );
+  }
   if (role.isSuperuser || role.bypassRls) {
     throw new Error(
       `Production startup blocked: database role "${role.currentUser}" bypasses RLS (rolsuper=${role.isSuperuser}, rolbypassrls=${role.bypassRls}). Use m1_app (NOBYPASSRLS) for runtime connections.`,

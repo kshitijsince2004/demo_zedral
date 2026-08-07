@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
   android: { allowMixedContent: true },
   plugins: {
     SplashScreen: { launchShowDuration: 800, backgroundColor: '#163328' },
-    CapacitorSQLite: { androidIsEncryption: false },
+    CapacitorSQLite: { androidIsEncryption: true },
   },
 };
 

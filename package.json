@@ -17,7 +17,7 @@
     "test": "npm run test --workspaces --if-present",
     "arch:deps": "depcruise --config .dependency-cruiser.cjs packages",
     "arch:test": "npm run test:arch -w @m1/server",
-    "arch:check": "npm run arch:deps && npm run arch:test",
+    "arch:check": "npm run arch:deps && npm run arch:test && npm run lint:query-any -w @m1/server",
     "smoke:pilot": "npm run smoke:pilot -w @m1/server",
     "smoke:api": "npm run smoke:api -w @m1/server",
     "migrate": "npm run migrate -w @m1/server",

@@ -80,9 +80,11 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
 
 # ── Nginx (SPA + /api proxy) ────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS nginx
+# PERF-F1: alpine nginx + nginx-mod-http-brotli (official nginx:alpine ABI-mismatches the alpine brotli module)
+FROM alpine:3.21 AS nginx
 
-RUN apk upgrade --no-cache
+RUN apk upgrade --no-cache && \
+    apk add --no-cache nginx nginx-mod-http-brotli wget
 
 COPY deploy/nginx.prod.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/packages/client/dist /usr/share/nginx/html
@@ -91,3 +93,5 @@ EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1/health || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -6,6 +6,7 @@ import { DataUnavailable } from './DataUnavailable';
 import { ChartTooltip } from '../analytics/ChartTooltip';
 import { MeasuredChart } from '../analytics/MeasuredChart';
 import { AlertCircle, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react';
+// PERF-A3 — module already lazy-loaded from PlantHeadDashboard
 import {
   Area,
   AreaChart,

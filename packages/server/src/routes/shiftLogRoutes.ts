@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sql } from 'kysely';
-import { ShiftLogService } from '../services/shiftLogService';
+import { ShiftLogService, type ProcessEntryTable } from '../services/shiftLogService';
 import { requireAuth, requireLineAccess, requireRole } from '../middleware/authMiddleware';
 import { validateBadgePin } from '../services/authService';
 import { assertShiftLogAccess } from '../services/shiftLogAccessService';
@@ -245,7 +245,7 @@ router.get('/', async (req, res) => {
 
     // Non-CRM process entry totals (one query per distinct process table).
     const nonCrmCountByLog = new Map<string, number>();
-    const byProcessTable = new Map<string, string[]>();
+    const byProcessTable = new Map<Exclude<ProcessEntryTable, 'txn.crm_order'>, string[]>();
     for (const log of logs) {
       const table = ShiftLogService.getProcessTable(log.processId);
       if (!table || table === 'txn.crm_order') continue;
@@ -256,9 +256,9 @@ router.get('/', async (req, res) => {
     await Promise.all(
       [...byProcessTable.entries()].map(async ([table, ids]) => {
         const rows = await db
-          .selectFrom(table as any)
+          .selectFrom(table)
           .select(['shift_log_id', db.fn.countAll<number>().as('count')])
-          .where('shift_log_id', 'in', ids as any)
+          .where('shift_log_id', 'in', ids)
           .groupBy('shift_log_id')
           .execute();
         for (const row of rows) {
@@ -524,6 +524,23 @@ router.get('/:id/review', async (req, res) => {
     const review = await ReportingService.getShiftReview(req.params.id, machine);
     if (!review) {
       return res.status(404).json({ error: 'Shift log not found' });
+    }
+    // PERF-C2: optional completedOrders page; omit limit → full list (exports).
+    const limitRaw = req.query.limit != null ? Number(req.query.limit) : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    if (limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0) {
+      const limit = Math.min(200, Math.max(1, Math.floor(limitRaw)));
+      const all = review.completedOrders ?? [];
+      let start = 0;
+      if (cursor) {
+        const idx = all.findIndex((o: { batchNumber?: string }) => o.batchNumber === cursor);
+        start = idx >= 0 ? idx + 1 : 0;
+      }
+      const page = all.slice(start, start + limit);
+      const completedOrdersNextCursor = start + limit < all.length && page.length > 0
+        ? page[page.length - 1].batchNumber
+        : null;
+      return res.json({ ...review, completedOrders: page, completedOrdersNextCursor });
     }
     res.json(review);
   } catch (error: any) {

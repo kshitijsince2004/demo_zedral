@@ -9,6 +9,7 @@ import {
   type OrderSnapshot,
 } from '../../services/machineHandoverService';
 import { ZButton } from '../../components/primitives/ZButton';
+import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 import {
   AlertTriangle, CheckCircle2, Clock, Package, Users, Wrench,
   ChevronRight, ChevronDown, Lock, Edit3, AlertCircle, Zap, BarChart2,
@@ -473,6 +474,7 @@ export function CrmOutgoingHandoverPage() {
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
+              <DataFreshnessBadge />
               <div className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${PRIORITY_COLORS[priority]}`}>
                 {priority} PRIORITY
               </div>

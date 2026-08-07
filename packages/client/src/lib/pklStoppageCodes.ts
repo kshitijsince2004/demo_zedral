@@ -34,6 +34,8 @@ async function loadMachineStoppageCodes(machine: string): Promise<SixHiStoppageC
           categoryCode,
           label: row.description || display,
           requiresReason: true,
+          // CRM work-roll change (legacy category 04)
+          requiresRollChange: categoryCode === '04',
         };
       });
       _cacheByMachine.set(key, codes);

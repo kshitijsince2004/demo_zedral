@@ -5,8 +5,63 @@ import { AutoSourceService } from './AutoSourceService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { parseCoilIdentity } from '../utils/rwdFieldMappers';
 import { ANN_BASE_REQUIRED_MSG, annCreateStatus, assertAnnBaseAssigned } from '../lib/annBaseAssignment';
+import { throwVersionConflict } from '../utils/versionConflict';
+
+/** PERF-C1: explicit columns for hot reads (no selectAll). */
+const PKL_CHART_COLS = [
+  'chart_id', 'shift_log_id', 'chart_time', 'tank_no', 'tank_level', 'tank_temp_degc',
+  'acid_strength_pct', 'iron_strength_pct', 'steam_inlet_kgcm2', 'steam_outlet_kgcm2',
+  'steam_outlet_burner_kgcm2', 'dosage_acid', 'dosage_water', 'dosage_inhibitor',
+  'rinse_cl', 'rinse_ph', 'rinse_flow', 'rinse_temp_degc', 'rinse_acid_pct', 'rinse_iron_pct',
+  'burner_pressure_kgcm2', 'hot_air_temp_degc', 'line_incharge',
+] as const;
+const PKL_SPEC_COLS = ['param_key', 'tank_scope', 'min_val', 'max_val', 'unit', 'is_active'] as const;
+const PKL_CHART_CFG_COLS = ['config_id', 'interval_hours', 'reading_labels', 'reminder_mode', 'is_active'] as const;
+const ANN_CHARGE_COLS = [
+  'charge_no', 'base_no', 'shift_log_id', 'furnace_id', 'grade_code', 'annealing_batch_no',
+  'cooling_hood_id', 'soak_temp_degc', 'soak_time_hr', 'status', 'no_of_coils', 'charge_wt_mt',
+  'current_stage_code', 'dew_point_n2', 'dew_point_h2', 'temperature_degc', 'exp_unloading_time',
+  'unloading_wt_mt', 'loading_mt', 'unloading_mt', 'cumm_loading_mt', 'cumm_unloading_mt',
+  'total_active_min', 'total_idle_min', 'height_mm', 'tightness_drop_mmwc', 'total_h2_flow_cycle',
+  'charged_condition', 'ann_cycle_code', 'oxygen_pct', 'prod_date', 'shift_code', 'created_by_user_id',
+] as const;
+const ANN_STAGE_COLS = [
+  'stage_id', 'charge_no', 'stage_code', 'seq', 'start_at', 'end_at', 'duration_min',
+  'skipped', 'skip_authorized_by', 'skip_reason', 'started_by_user_id', 'transition_temp_degc',
+] as const;
+const ANN_READING_COLS = [
+  'reading_id', 'charge_no', 'base_no', 'stage_code', 'shift_code', 'operator_user_id',
+  'taken_at', 'charge_temp', 'gas_temp', 'fc_temp', 'n2h2_flow', 'base_press',
+  'base_fan_rpm', 'fuel_flow', 'rcf_rpm',
+] as const;
+const ANN_STOPPAGE_COLS = [
+  'stoppage_id', 'charge_no', 'base_no', 'category_code', 'start_at', 'end_at',
+  'duration_min', 'reason', 'remark',
+] as const;
 
 export type ProcessStationCode = 'HRS' | 'PKL' | 'ANN' | 'RWD' | 'CRS' | 'CTL';
+
+/** PERF-C2: in-memory page when limit set; full list otherwise (exports / legacy). */
+// ponytail: journey queue is small enough that DB cursor isn't worth a second code path yet
+function pageProcessQueue(
+  cards: ProcessQueueCard[],
+  paging?: { limit?: number; cursor?: string },
+): { queue: ProcessQueueCard[]; nextCursor?: string | null } {
+  const limit = paging?.limit != null && paging.limit > 0
+    ? Math.min(200, Math.max(1, Math.floor(paging.limit)))
+    : undefined;
+  if (!limit) return { queue: cards };
+  let start = 0;
+  if (paging?.cursor) {
+    const idx = cards.findIndex((c) => c.journeyId === paging.cursor || c.coilNo === paging.cursor);
+    start = idx >= 0 ? idx + 1 : 0;
+  }
+  const page = cards.slice(start, start + limit);
+  const nextCursor = start + limit < cards.length && page.length > 0
+    ? (page[page.length - 1].journeyId || page[page.length - 1].coilNo)
+    : null;
+  return { queue: page, nextCursor };
+}
 
 export interface ProcessQueueCard {
   coilNo: string;
@@ -105,13 +160,17 @@ export class ProcessStationService {
     return code as ProcessStationCode;
   }
 
-  static async getQueue(processCode: string, _userId?: number): Promise<ProcessQueueCard[]> {
+  static async getQueue(
+    processCode: string,
+    _userId?: number,
+    paging?: { limit?: number; cursor?: string },
+  ): Promise<{ queue: ProcessQueueCard[]; nextCursor?: string | null }> {
     const code = this.assertProcessCode(processCode);
     // RWD is its own order line (txn.rwd_order) — do not use journey station queue.
     if (code === 'RWD') {
       const { RewindingOrderService } = await import('./RewindingOrderService');
       const { queue } = await RewindingOrderService.getQueue('RWD');
-      return queue.map((c) => {
+      const mapped = queue.map((c) => {
         const raw = (c.status ?? 'PENDING').toUpperCase();
         const status: ProcessQueueCard['status'] =
           raw === 'COMPLETED' ? 'COMPLETED'
@@ -135,6 +194,7 @@ export class ProcessStationService {
           slitId: c.slitId,
         } satisfies ProcessQueueCard;
       });
+      return pageProcessQueue(mapped, paging);
     }
 
     // HRS/PKL queues live on /hrs-order/queue & /pkl-order/queue — stations queue is ANN/CRS/CTL.
@@ -249,10 +309,10 @@ export class ProcessStationService {
           batchNumber: row.batch_number ?? undefined,
         });
       }
-      return waiting;
+      return pageProcessQueue(waiting, paging);
     }
 
-    return cards;
+    return pageProcessQueue(cards, paging);
   }
 
   static async getCrsShiftMetrics(shiftLogId: string): Promise<CrsShiftMetrics> {
@@ -377,10 +437,23 @@ export class ProcessStationService {
     const code = machineCode.toUpperCase();
     if (!/^CRS[1-6]$/.test(code)) throw new Error('machineCode must be CRS1–CRS6');
     const batch = await db.selectFrom('planning.ppc_batch')
-      .select(['width_mm', 'ppc_thk_mm', 'ppc_weight_mt', 'machine_code'])
+      .select(['width_mm', 'ppc_thk_mm', 'ppc_weight_mt', 'machine_code', 'batch_number'])
       .where('batch_id', '=', batchId)
       .executeTakeFirst();
     if (!batch) throw new Error('Batch not found');
+
+    const current = (batch.machine_code ?? '').toUpperCase();
+    // PERF-E3: already on this CRS = idempotent; other CRS claim = 409.
+    if (/^CRS[1-6]$/.test(current) && current === code) {
+      return { ok: true, eligibility: { hardBlocked: false, overrideRequired: false, warnings: [] as string[] } };
+    }
+    if (/^CRS[1-6]$/.test(current) && current !== code) {
+      throwVersionConflict({
+        batchId,
+        batchNumber: batch.batch_number,
+        machineCode: current,
+      });
+    }
 
     const { MachineSpecService } = await import('./MachineSpecService');
     const { isEligible } = await import('../utils/machineEligibility');
@@ -399,10 +472,25 @@ export class ProcessStationService {
       throw new Error(`Override reason required: ${result.warnings.join('; ')}`);
     }
 
-    await db.updateTable('planning.ppc_batch')
+    // CAS on prior machine_code (ppc_batch has no updated_at).
+    const upd = await db.updateTable('planning.ppc_batch')
       .set({ machine_code: code })
       .where('batch_id', '=', batchId)
-      .execute();
+      .where('machine_code', '=', batch.machine_code)
+      .executeTakeFirst();
+    if (Number(upd.numUpdatedRows ?? 0) === 0) {
+      const cur = await db.selectFrom('planning.ppc_batch')
+        .select(['machine_code', 'batch_number'])
+        .where('batch_id', '=', batchId)
+        .executeTakeFirst();
+      const curCode = (cur?.machine_code ?? '').toUpperCase();
+      if (curCode === code) return { ok: true, eligibility: result };
+      throwVersionConflict({
+        batchId,
+        batchNumber: cur?.batch_number ?? batch.batch_number,
+        machineCode: cur?.machine_code ?? null,
+      });
+    }
 
     return { ok: true, eligibility: result };
   }
@@ -673,7 +761,12 @@ export class ProcessStationService {
   }
 
   /** Start / resume production — journey ACTIVE + step ACTIVE (queue shows IN_PROGRESS). */
-  static async startCoil(processCode: string, coilNo: string, userId?: number) {
+  static async startCoil(
+    processCode: string,
+    coilNo: string,
+    userId?: number,
+    options?: { expectedUpdatedAt?: string },
+  ) {
     const code = this.assertProcessCode(processCode);
     if (code === 'HRS' && userId != null) {
       const { HrsOrderService } = await import('./HrsOrderService');
@@ -707,7 +800,7 @@ export class ProcessStationService {
     const row = await db.selectFrom('planning.order_journey as oj')
       .innerJoin('planning.order_journey_step as ojs', (join) =>
         join.onRef('ojs.journey_id', '=', 'oj.journey_id').onRef('ojs.step_no', '=', 'oj.current_step_no'))
-      .select(['oj.journey_id', 'ojs.step_id', 'ojs.started_at'])
+      .select(['oj.journey_id', 'oj.updated_at', 'oj.status', 'ojs.step_id', 'ojs.started_at'])
       .where('oj.coil_no', '=', coilNo)
       .where('ojs.process_code', '=', code)
       .where('ojs.status', 'in', ['PENDING', 'ACTIVE', 'HOLD'])
@@ -716,10 +809,27 @@ export class ProcessStationService {
       if (code === 'HRS' || code === 'PKL') return { coilNo, status: 'IN_PROGRESS' as const };
       throw new Error(`No active ${code} journey for ${coilNo}`);
     }
-    await db.updateTable('planning.order_journey')
+    // PERF-E2: optional updated_at CAS when client sends expectedUpdatedAt.
+    let journeyUpd = db.updateTable('planning.order_journey')
       .set({ status: 'ACTIVE' as never, updated_at: new Date() })
-      .where('journey_id', '=', row.journey_id)
-      .execute();
+      .where('journey_id', '=', row.journey_id);
+    if (options?.expectedUpdatedAt) {
+      journeyUpd = journeyUpd.where('updated_at', '=', new Date(options.expectedUpdatedAt));
+    }
+    const journeyResult = await journeyUpd.executeTakeFirst();
+    if (options?.expectedUpdatedAt && Number(journeyResult.numUpdatedRows ?? 0) === 0) {
+      const cur = await db.selectFrom('planning.order_journey')
+        .select(['journey_id', 'status', 'updated_at', 'current_step_no'])
+        .where('journey_id', '=', row.journey_id)
+        .executeTakeFirst();
+      throwVersionConflict({
+        coilNo,
+        journeyId: String(cur?.journey_id ?? row.journey_id),
+        status: cur?.status ?? row.status,
+        updatedAt: cur?.updated_at ? new Date(cur.updated_at as Date).toISOString() : null,
+        currentStepNo: cur?.current_step_no ?? null,
+      });
+    }
     // ponytail: keep first started_at (timer durability); only stamp if missing
     await db.updateTable('planning.order_journey_step')
       .set({
@@ -732,7 +842,14 @@ export class ProcessStationService {
   }
 
   /** Hold journey + current step — no advance (PKL revamp §6 / plan §9). */
-  static async holdCoil(processCode: string, coilNo: string, userId?: number, reason = 'HOLD', remarks = 'Operator hold') {
+  static async holdCoil(
+    processCode: string,
+    coilNo: string,
+    userId?: number,
+    reason = 'HOLD',
+    remarks = 'Operator hold',
+    options?: { expectedUpdatedAt?: string },
+  ) {
     const code = this.assertProcessCode(processCode);
     if (code === 'HRS' && userId != null) {
       const { HrsOrderService } = await import('./HrsOrderService');
@@ -765,7 +882,7 @@ export class ProcessStationService {
     const row = await db.selectFrom('planning.order_journey as oj')
       .innerJoin('planning.order_journey_step as ojs', (join) =>
         join.onRef('ojs.journey_id', '=', 'oj.journey_id').onRef('ojs.step_no', '=', 'oj.current_step_no'))
-      .select(['oj.journey_id', 'ojs.step_id'])
+      .select(['oj.journey_id', 'oj.updated_at', 'oj.status', 'ojs.step_id'])
       .where('oj.coil_no', '=', coilNo)
       .where('ojs.process_code', '=', code)
       .executeTakeFirst();
@@ -773,10 +890,26 @@ export class ProcessStationService {
       if (code === 'HRS' || code === 'PKL') return { coilNo, status: 'HOLD' as const };
       throw new Error(`No active ${code} journey for ${coilNo}`);
     }
-    await db.updateTable('planning.order_journey')
+    let journeyUpd = db.updateTable('planning.order_journey')
       .set({ status: 'HOLD' as never, updated_at: new Date() })
-      .where('journey_id', '=', row.journey_id)
-      .execute();
+      .where('journey_id', '=', row.journey_id);
+    if (options?.expectedUpdatedAt) {
+      journeyUpd = journeyUpd.where('updated_at', '=', new Date(options.expectedUpdatedAt));
+    }
+    const journeyResult = await journeyUpd.executeTakeFirst();
+    if (options?.expectedUpdatedAt && Number(journeyResult.numUpdatedRows ?? 0) === 0) {
+      const cur = await db.selectFrom('planning.order_journey')
+        .select(['journey_id', 'status', 'updated_at', 'current_step_no'])
+        .where('journey_id', '=', row.journey_id)
+        .executeTakeFirst();
+      throwVersionConflict({
+        coilNo,
+        journeyId: String(cur?.journey_id ?? row.journey_id),
+        status: cur?.status ?? row.status,
+        updatedAt: cur?.updated_at ? new Date(cur.updated_at as Date).toISOString() : null,
+        currentStepNo: cur?.current_step_no ?? null,
+      });
+    }
     await db.updateTable('planning.order_journey_step')
       .set({ status: 'HOLD' as JourneyStepStatus })
       .where('step_id', '=', row.step_id)
@@ -785,7 +918,7 @@ export class ProcessStationService {
   }
 
   static async getPklChart(shiftLogId: string) {
-    return db.selectFrom('txn.prod_pkl_chart').selectAll().where('shift_log_id', '=', shiftLogId).orderBy('chart_time', 'asc').orderBy('tank_no', 'asc').execute();
+    return db.selectFrom('txn.prod_pkl_chart').select([...PKL_CHART_COLS]).where('shift_log_id', '=', shiftLogId).orderBy('chart_time', 'asc').orderBy('tank_no', 'asc').execute();
   }
 
   /** ponytail: line-level singletons written only on tank_no=1 (plan §2.2). */
@@ -926,7 +1059,7 @@ export class ProcessStationService {
   }
 
   static async listPklSpecLimits() {
-    return db.selectFrom('master.pkl_spec_limit').selectAll().where('is_active', '=', true).execute();
+    return db.selectFrom('master.pkl_spec_limit').select([...PKL_SPEC_COLS]).where('is_active', '=', true).execute();
   }
 
   static async upsertPklSpecLimit(row: {
@@ -951,7 +1084,7 @@ export class ProcessStationService {
   }
 
   static async getPklChartConfig() {
-    return db.selectFrom('master.pkl_chart_config').selectAll().where('is_active', '=', true).executeTakeFirst();
+    return db.selectFrom('master.pkl_chart_config').select([...PKL_CHART_CFG_COLS]).where('is_active', '=', true).executeTakeFirst();
   }
 
   static async setPklChartConfig(intervalHours: number, readingLabels?: string[]) {
@@ -974,10 +1107,12 @@ export class ProcessStationService {
     }
   }
 
-  static async getAnnCharges() { return db.selectFrom('txn.ann_charge as ac').selectAll().orderBy('ac.charge_no', 'desc').execute(); }
+  static async getAnnCharges() {
+    return db.selectFrom('txn.ann_charge').select([...ANN_CHARGE_COLS]).orderBy('charge_no', 'desc').execute();
+  }
 
   static async getAnnChargeDetail(chargeNo: string) {
-    const charge = await db.selectFrom('txn.ann_charge').selectAll().where('charge_no', '=', chargeNo).executeTakeFirst();
+    const charge = await db.selectFrom('txn.ann_charge').select([...ANN_CHARGE_COLS]).where('charge_no', '=', chargeNo).executeTakeFirst();
     if (!charge) return null;
     const roster = await db.selectFrom('txn.ann_charge_coil as acc')
       .innerJoin('coil.coil as c', 'c.coil_no', 'acc.coil_no')
@@ -985,14 +1120,14 @@ export class ProcessStationService {
       .where('acc.charge_no', '=', chargeNo)
       .orderBy('acc.seq_no', 'asc')
       .execute();
-    let stages = await db.selectFrom('txn.ann_charge_stage').selectAll().where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
+    let stages = await db.selectFrom('txn.ann_charge_stage').select([...ANN_STAGE_COLS]).where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
     // ponytail: backfill stages for open in-process charges only (not PREPARING)
     if (stages.length === 0 && charge.status !== 'DONE' && charge.status !== 'PREPARING') {
       await this.seedAnnStages(chargeNo);
-      stages = await db.selectFrom('txn.ann_charge_stage').selectAll().where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
+      stages = await db.selectFrom('txn.ann_charge_stage').select([...ANN_STAGE_COLS]).where('charge_no', '=', chargeNo).orderBy('seq', 'asc').execute();
     }
-    const readings = await db.selectFrom('txn.ann_charge_reading').selectAll().where('charge_no', '=', chargeNo).orderBy('taken_at', 'desc').execute();
-    const stoppages = await db.selectFrom('txn.ann_charge_stoppage').selectAll().where('charge_no', '=', chargeNo).orderBy('start_at', 'desc').execute();
+    const readings = await db.selectFrom('txn.ann_charge_reading').select([...ANN_READING_COLS]).where('charge_no', '=', chargeNo).orderBy('taken_at', 'desc').execute();
+    const stoppages = await db.selectFrom('txn.ann_charge_stoppage').select([...ANN_STOPPAGE_COLS]).where('charge_no', '=', chargeNo).orderBy('start_at', 'desc').execute();
     return { charge, roster, stages, readings, stoppages };
   }
 
@@ -1108,7 +1243,7 @@ export class ProcessStationService {
   /** Seed WI stages from master (seq order); start LOADING immediately. Idempotent. */
   private static async seedAnnStages(chargeNo: string) {
     const defs = await db.selectFrom('master.ann_stage')
-      .selectAll()
+      .select(['stage_code', 'seq'])
       .where('is_active', '=', true)
       .where('default_active', '=', true)
       .orderBy('seq', 'asc')
@@ -1139,7 +1274,7 @@ export class ProcessStationService {
     let current = active?.stage_code ?? null;
     if (!current) {
       const first = await db.selectFrom('txn.ann_charge_stage')
-        .selectAll()
+        .select(['stage_id', 'stage_code', 'start_at'])
         .where('charge_no', '=', chargeNo)
         .where('skipped', '=', false)
         .where('end_at', 'is', null)
@@ -1186,7 +1321,7 @@ export class ProcessStationService {
     }
 
     const active = await db.selectFrom('txn.ann_charge_stage')
-      .selectAll()
+      .select(['stage_id', 'stage_code', 'start_at'])
       .where('charge_no', '=', chargeNo)
       .where('skipped', '=', false)
       .where('start_at', 'is not', null)
@@ -1220,7 +1355,7 @@ export class ProcessStationService {
 
     // ponytail: skip over already-skipped rows when finding next
     const next = await db.selectFrom('txn.ann_charge_stage')
-      .selectAll()
+      .select(['stage_id', 'stage_code'])
       .where('charge_no', '=', chargeNo)
       .where('skipped', '=', false)
       .where('start_at', 'is', null)
@@ -1249,11 +1384,11 @@ export class ProcessStationService {
     if (!Number.isFinite(opts.authorizedBy) || opts.authorizedBy <= 0) {
       throw new Error('Machine-Head authorization required to skip stage');
     }
-    const def = await db.selectFrom('master.ann_stage').selectAll().where('stage_code', '=', stageCode).executeTakeFirst();
+    const def = await db.selectFrom('master.ann_stage').select(['stage_code', 'is_skippable']).where('stage_code', '=', stageCode).executeTakeFirst();
     if (!def?.is_skippable) throw new Error(`Stage ${stageCode} is not skippable`);
 
     const stage = await db.selectFrom('txn.ann_charge_stage')
-      .selectAll()
+      .select(['stage_id', 'stage_code', 'start_at', 'end_at', 'duration_min'])
       .where('charge_no', '=', chargeNo)
       .where('stage_code', '=', stageCode)
       .executeTakeFirst();
@@ -1274,7 +1409,7 @@ export class ProcessStationService {
 
     if (wasActive) {
       const next = await db.selectFrom('txn.ann_charge_stage')
-        .selectAll()
+        .select(['stage_id', 'stage_code'])
         .where('charge_no', '=', chargeNo)
         .where('skipped', '=', false)
         .where('start_at', 'is', null)
@@ -1332,7 +1467,10 @@ export class ProcessStationService {
   }
 
   static async endAnnStoppage(stoppageId: string) {
-    const row = await db.selectFrom('txn.ann_charge_stoppage').selectAll().where('stoppage_id', '=', stoppageId).executeTakeFirst();
+    const row = await db.selectFrom('txn.ann_charge_stoppage')
+      .select(['stoppage_id', 'start_at', 'end_at'])
+      .where('stoppage_id', '=', stoppageId)
+      .executeTakeFirst();
     if (!row || row.end_at) return;
     const now = new Date();
     const durationMin = (now.getTime() - new Date(String(row.start_at)).getTime()) / 60000;
@@ -1343,7 +1481,10 @@ export class ProcessStationService {
   }
 
   static async listAnnSpecLimits() {
-    return db.selectFrom('master.ann_spec_limit').selectAll().where('is_active', '=', true).execute();
+    return db.selectFrom('master.ann_spec_limit')
+      .select(['param_key', 'scope', 'min_val', 'max_val', 'unit', 'is_active'])
+      .where('is_active', '=', true)
+      .execute();
   }
 
   static async upsertAnnSpecLimit(row: {
@@ -1368,7 +1509,10 @@ export class ProcessStationService {
   }
 
   static async listAnnBases() {
-    return db.selectFrom('master.ann_base').selectAll().where('is_active', '=', true).execute();
+    return db.selectFrom('master.ann_base')
+      .select(['base_no', 'capacity_max_coils', 'capacity_max_wt_mt', 'capacity_max_height_mm', 'soak_time_adj_hr', 'is_active'])
+      .where('is_active', '=', true)
+      .execute();
   }
 
   static async upsertAnnBase(input: {
@@ -1406,7 +1550,10 @@ export class ProcessStationService {
   }
 
   static async listAnnStoppageCategories() {
-    return db.selectFrom('master.ann_stoppage_category').selectAll().orderBy('category_code', 'asc').execute();
+    return db.selectFrom('master.ann_stoppage_category')
+      .select(['category_code', 'description', 'delay_bucket', 'is_active'])
+      .orderBy('category_code', 'asc')
+      .execute();
   }
 
   /** ANN-only shift review aggregate — charges/stoppages/dew for one shift log. */
@@ -1719,7 +1866,7 @@ export class ProcessStationService {
   /** Σ non-skipped stage durations → total_active_min; idle = gaps between stages. */
   private static async refreshAnnTotals(chargeNo: string) {
     const stages = await db.selectFrom('txn.ann_charge_stage')
-      .selectAll()
+      .select(['seq', 'start_at', 'end_at', 'duration_min'])
       .where('charge_no', '=', chargeNo)
       .where('skipped', '=', false)
       .orderBy('seq', 'asc')

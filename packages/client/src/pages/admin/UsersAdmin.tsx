@@ -7,11 +7,35 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AdminShell } from '../../components/layout/admin/AdminShell';
 import { AdminPanel } from '../../components/admin/AdminPanel';
 import { ZButton } from '../../components/primitives/ZButton';
-import { UserRole } from '@m1/shared-validation';
+import { ROLE_LABELS, UserRole } from '@m1/shared-validation';
 import { adminService, type UserAccess, type UserStatus } from '../../services/adminService';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { hasImplicitAllMachines, MACHINE_OPTIONS, resolveMachineAccess } from '../../lib/accessOptions';
 import { fetchMachineRegistry } from '../../lib/machineRegistry';
+
+/** Plan-import lines for PLANNER (no machine_access — WRITE line scopes only). */
+const PLANNER_LINE_OPTIONS = ['HRS', 'PKL', 'ANN', 'RWD', 'CTL', 'CRS', 'ROLLING'] as const;
+
+const ASSIGNABLE_ROLES: UserRole[] = [
+  UserRole.OPERATOR,
+  UserRole.SUPERVISOR,
+  UserRole.PLANNER,
+  UserRole.MACHINE_HEAD,
+  UserRole.QUALITY,
+  UserRole.PLANT_HEAD,
+  UserRole.ADMIN,
+];
+
+function isStaffFormRole(role: UserRole): boolean {
+  return (
+    role === UserRole.ADMIN ||
+    role === UserRole.PLANT_HEAD ||
+    role === UserRole.MACHINE_HEAD ||
+    role === UserRole.SUPERVISOR ||
+    role === UserRole.PLANNER ||
+    role === UserRole.QUALITY
+  );
+}
 
 export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   const [users, setUsers] = useState<UserAccess[]>([]);
@@ -53,16 +77,30 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    
+
     setSaveError(null);
     try {
-      const { line_access, ...payload } = editingUser;
+      const { line_access, machine_access, ...payload } = editingUser;
       void line_access;
-      const implicitAll = hasImplicitAllMachines(editingUser.role);
-      await adminService.upsertUser({
-        ...payload,
-        ...(implicitAll ? {} : { machine_access: editingUser.machine_access ?? [] }),
-      });
+      if (editingUser.role === UserRole.PLANNER) {
+        // PLANNER: line WRITE scopes only (import hub); do not send machine_access
+        const codes = machine_access?.length
+          ? machine_access
+          : (editingUser.line_access ?? []).map((la) => la.line_id);
+        await adminService.upsertUser({
+          ...payload,
+          line_access: codes.map((line_id) => ({
+            line_id,
+            level: 'WRITE' as const,
+          })),
+        });
+      } else {
+        const implicitAll = hasImplicitAllMachines(editingUser.role);
+        await adminService.upsertUser({
+          ...payload,
+          ...(implicitAll ? {} : { machine_access: machine_access ?? [] }),
+        });
+      }
       setEditingUser(null);
       await loadUsers();
     } catch (err: unknown) {
@@ -84,6 +122,8 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
       case 'ADMIN': return 'purple';
       case 'PLANT_HEAD': return 'info';
       case 'MACHINE_HEAD': return 'warning';
+      case 'PLANNER': return 'info';
+      case 'QUALITY': return 'success';
       default: return 'muted';
     }
   };
@@ -162,7 +202,15 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                         <StatusBadge tone={statusTone(u.status)} label={u.status} />
                       </td>
                       <td className="px-4 py-3 text-xs font-mono text-muted-foreground max-w-[200px] truncate">
-                        {hasImplicitAllMachines(u.role) ? 'All machines' : access.length ? access.join(', ') : '—'}
+                        {hasImplicitAllMachines(u.role)
+                          ? 'All machines'
+                          : u.role === 'PLANNER'
+                            ? (u.line_access?.length
+                              ? u.line_access.map((la) => la.line_id).join(', ')
+                              : '—')
+                            : access.length
+                              ? access.join(', ')
+                              : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
@@ -230,7 +278,7 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
               </div>
             </div>
 
-            {['ADMIN', 'PLANT_HEAD', 'MACHINE_HEAD'].includes(editingUser.role) && (
+            {isStaffFormRole(editingUser.role) && (
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Email (Required for Staff)</label>
@@ -261,14 +309,27 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                 <label className="block text-xs font-medium text-foreground mb-1">Role</label>
                 <select 
                   value={editingUser.role}
-                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as UserAccess['role'] })}
+                  onChange={(e) => {
+                    const role = e.target.value as UserAccess['role'];
+                    setEditingUser({
+                      ...editingUser,
+                      role,
+                      // Planner uses line chips; clear mill selection when switching away/to
+                      machine_access:
+                        role === UserRole.PLANNER
+                          ? (editingUser.line_access?.map((la) => la.line_id) ??
+                            editingUser.machine_access ??
+                            [])
+                          : editingUser.machine_access ?? [],
+                    });
+                  }}
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <option value="OPERATOR">OPERATOR</option>
-                  <option value="SUPERVISOR">Supervisor</option>
-                  <option value="MACHINE_HEAD">MACHINE_HEAD</option>
-                  <option value="PLANT_HEAD">PLANT_HEAD</option>
-                  <option value="ADMIN">ADMIN</option>
+                  {ASSIGNABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -291,6 +352,38 @@ export function UsersAdmin({ embedded = false }: { embedded?: boolean }) {
                 <p className="text-sm text-muted-foreground">
                   Plant Head, Admin, and Supervisor accounts automatically have access to all machines. No assignment needed.
                 </p>
+              ) : editingUser.role === UserRole.PLANNER ? (
+                <>
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    Planning-Lite: select process lines for plan import (WRITE). No mill login.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {PLANNER_LINE_OPTIONS.map((code) => {
+                      const selected = (editingUser.machine_access ?? []).includes(code);
+                      return (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => {
+                            const current = editingUser.machine_access ?? [];
+                            const next = selected
+                              ? current.filter((c) => c !== code)
+                              : [...current, code];
+                            setEditingUser({ ...editingUser, machine_access: next });
+                          }}
+                          className={[
+                            'px-3 py-1.5 rounded-lg border text-xs font-bold font-mono transition-colors',
+                            selected
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'border-border hover:bg-muted/30',
+                          ].join(' ')}
+                        >
+                          {code}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               ) : (
                 <>
                   <p className="text-[10px] text-muted-foreground mb-3">

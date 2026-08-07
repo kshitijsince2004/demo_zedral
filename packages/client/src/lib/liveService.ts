@@ -28,14 +28,25 @@ export const liveService = {
   getMachines: () =>
     apiClient.get<{ machines: MachineStatusCard[]; refreshedAt: string }>('/live/machines'),
 
-  getMachineHeadDashboard: (params?: { machine?: string; search?: string; subProcess?: string; shift?: string }) => {
+  getMachineHeadDashboard: (params?: {
+    machine?: string;
+    search?: string;
+    subProcess?: string;
+    shift?: string;
+    historyLimit?: number;
+    historyCursor?: string;
+  }) => {
     const q = new URLSearchParams();
     if (params?.machine && params.machine !== 'ALL') q.set('machine', params.machine);
     if (params?.search?.trim()) q.set('search', params.search.trim());
     if (params?.subProcess && params.subProcess !== 'ALL') q.set('subProcess', params.subProcess);
     if (params?.shift && params.shift !== 'ALL') q.set('shift', params.shift);
+    if (params?.historyLimit != null) q.set('historyLimit', String(params.historyLimit));
+    if (params?.historyCursor) q.set('historyCursor', params.historyCursor);
     const suffix = q.toString() ? `?${q.toString()}` : '';
-    return apiClient.get<MachineHeadDashboardData>(`/live/machine-head-dashboard${suffix}`);
+    return apiClient.get<MachineHeadDashboardData & { productionHistoryNextCursor?: string | null }>(
+      `/live/machine-head-dashboard${suffix}`,
+    );
   },
   getRejectedOrders: (params?: {
     date?: string;

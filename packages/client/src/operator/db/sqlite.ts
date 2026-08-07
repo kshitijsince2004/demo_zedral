@@ -1,7 +1,11 @@
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite';
 import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 
 let db: SQLiteDBConnection | null = null;
+
+const DB_NAME = 'm1operator';
+const KEY_PREF = 'm1operator_sqlite_key';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS outbox (
@@ -44,6 +48,35 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 );
 `;
 
+async function getOrCreatePassphrase(): Promise<string> {
+  const existing = await Preferences.get({ key: KEY_PREF });
+  if (existing.value) return existing.value;
+  const value = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+  await Preferences.set({ key: KEY_PREF, value });
+  return value;
+}
+
+/** Ensure plugin secure-store has the passphrase (SQLCipher). */
+async function ensureEncryptionSecret(sqlite: SQLiteConnection): Promise<void> {
+  const passphrase = await getOrCreatePassphrase();
+  const stored = await sqlite.isSecretStored();
+  if (!stored.result) {
+    await sqlite.setEncryptionSecret(passphrase);
+  }
+}
+
+async function encryptionMode(sqlite: SQLiteConnection): Promise<'secret' | 'encryption'> {
+  const exists = await sqlite.isDatabase(DB_NAME);
+  if (!exists.result) return 'secret';
+  try {
+    const enc = await sqlite.isDatabaseEncrypted(DB_NAME);
+    // mode "encryption" = encrypt an existing unencrypted DB once
+    return enc.result ? 'secret' : 'encryption';
+  } catch {
+    return 'encryption';
+  }
+}
+
 export async function initDb(): Promise<void> {
   if (!Capacitor.isNativePlatform() || db) return;
   if (!Capacitor.isPluginAvailable('CapacitorSQLite')) {
@@ -53,13 +86,16 @@ export async function initDb(): Promise<void> {
 
   try {
     const sqlite = new SQLiteConnection(CapacitorSQLite);
+    await ensureEncryptionSecret(sqlite);
+
     const check = await sqlite.checkConnectionsConsistency();
-    const isConn = (await sqlite.isConnection('m1operator', false)).result;
+    const isConn = (await sqlite.isConnection(DB_NAME, false)).result;
 
     if (isConn && check.result) {
-      db = await sqlite.retrieveConnection('m1operator', false);
+      db = await sqlite.retrieveConnection(DB_NAME, false);
     } else {
-      db = await sqlite.createConnection('m1operator', false, 'no-encryption', 1, false);
+      const mode = await encryptionMode(sqlite);
+      db = await sqlite.createConnection(DB_NAME, true, mode, 1, false);
     }
 
     await db.open();
@@ -76,3 +112,37 @@ export function getDb(): SQLiteDBConnection {
 }
 
 export const hasNativeDb = () => db !== null;
+
+/**
+ * Wipe encrypted local DB (device retention).
+ * // ponytail: call on logout / factory device wipe when retention is decided;
+ * // do not auto-wipe while outbox may still hold unsynced captures.
+ */
+export async function wipeLocalDb(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isPluginAvailable('CapacitorSQLite')) return;
+
+  const sqlite = new SQLiteConnection(CapacitorSQLite);
+  try {
+    if (db) {
+      try {
+        await db.close();
+      } catch {
+        /* already closed */
+      }
+      try {
+        await db.delete();
+      } catch {
+        /* missing */
+      }
+      db = null;
+    }
+    const isConn = (await sqlite.isConnection(DB_NAME, false)).result;
+    if (isConn) {
+      await sqlite.closeConnection(DB_NAME, false);
+    }
+  } catch (err) {
+    console.warn('[SQLite] wipeLocalDb failed', err);
+    db = null;
+  }
+}

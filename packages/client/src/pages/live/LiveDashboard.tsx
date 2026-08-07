@@ -1,5 +1,5 @@
 import { formatPlantTime } from '../../lib/dateFormat';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { LiveOrderDetail, LiveOrderRow } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
@@ -10,6 +10,10 @@ import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDispl
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
 import { jsonFingerprint } from '../../lib/silentRefresh';
+import { VirtualizedList } from '../../components/VirtualizedList';
+
+// PERF-B2
+const VIRTUALIZE_THRESHOLD = 20;
 
 function statusTone(status: string) {
   if (status === 'IN_PROGRESS' || status === 'PREPARING') return 'info' as const;
@@ -17,6 +21,47 @@ function statusTone(status: string) {
   if (status === 'COMPLETED') return 'success' as const;
   return 'muted' as const;
 }
+
+// PERF-B1
+const LiveQueueOrderRow = memo(function LiveQueueOrderRow({
+  o,
+  onSelect,
+}: {
+  o: LiveOrderRow;
+  onSelect: (batchNo: string) => void;
+}) {
+  return (
+    <tr
+      className="hover:bg-muted/30 cursor-pointer transition-colors"
+      onClick={() => onSelect(o.batchNumber)}
+    >
+      <td className="px-5 py-3 align-middle">
+        <OrderIdentityDisplay order={o} size="sm" />
+        <div className="text-xs text-muted-foreground mt-0.5">{o.customer} · {o.weightMt} MT</div>
+      </td>
+      <td className="px-5 py-3 align-middle">
+        <ZBadge tone={statusTone(o.status)} label={o.status} />
+      </td>
+      <td className="px-5 py-3 align-middle">
+        <div className="text-xs font-bold text-foreground/80">{o.currentProcess}</div>
+      </td>
+      <td className="px-5 py-3 align-middle">
+        <div className="text-xs font-bold text-foreground">{o.machineCode}</div>
+        {o.operatorName && <div className="text-[11px] text-muted-foreground mt-0.5">{o.operatorName}</div>}
+      </td>
+      <td className="px-5 py-3 align-middle">
+        {o.completionPct != null && (
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-info" style={{ width: `${o.completionPct}%` }} />
+            </div>
+            <span className="font-mono text-xs font-medium text-muted-foreground">{o.completionPct}%</span>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 export function LiveDashboard() {
   const { snapshot, loading, error } = useLiveSnapshot();
@@ -128,7 +173,7 @@ export function LiveDashboard() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-card">
                   <tr className="bg-muted/10 border-b border-border/50">
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Order</th>
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</th>
@@ -137,48 +182,34 @@ export function LiveDashboard() {
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Progress</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/50">
-                  {orders.map((o) => (
-                    <tr
-                      key={o.batchNumber}
-                      className="hover:bg-muted/30 cursor-pointer transition-colors"
-                      onClick={() => loadDetail(o.batchNumber)}
-                    >
-                      <td className="px-5 py-3 align-middle">
-                        <OrderIdentityDisplay order={o} size="sm" />
-                        <div className="text-xs text-muted-foreground mt-0.5">{o.customer} · {o.weightMt} MT</div>
-                      </td>
-                      <td className="px-5 py-3 align-middle">
-                        <ZBadge tone={statusTone(o.status)} label={o.status} />
-                      </td>
-                      <td className="px-5 py-3 align-middle">
-                        <div className="text-xs font-bold text-foreground/80">{o.currentProcess}</div>
-                      </td>
-                      <td className="px-5 py-3 align-middle">
-                        <div className="text-xs font-bold text-foreground">{o.machineCode}</div>
-                        {o.operatorName && <div className="text-[11px] text-muted-foreground mt-0.5">{o.operatorName}</div>}
-                      </td>
-                      <td className="px-5 py-3 align-middle">
-                        {o.completionPct != null && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full bg-info" style={{ width: `${o.completionPct}%` }} />
-                            </div>
-                            <span className="font-mono text-xs font-medium text-muted-foreground">{o.completionPct}%</span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {orders.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-12 text-center text-sm text-muted-foreground font-medium">
-                        No active orders
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
               </table>
+              {orders.length === 0 ? (
+                <div className="px-5 py-12 text-center text-sm text-muted-foreground font-medium">
+                  No active orders
+                </div>
+              ) : orders.length > VIRTUALIZE_THRESHOLD ? (
+                <VirtualizedList
+                  items={orders}
+                  estimateSize={64}
+                  className="max-h-[min(60vh,720px)]"
+                  getKey={(o) => o.batchNumber}
+                  renderItem={(o) => (
+                    <table className="w-full text-left border-collapse">
+                      <tbody className="divide-y divide-border/50">
+                        <LiveQueueOrderRow o={o} onSelect={loadDetail} />
+                      </tbody>
+                    </table>
+                  )}
+                />
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <tbody className="divide-y divide-border/50">
+                    {orders.map((o) => (
+                      <LiveQueueOrderRow key={o.batchNumber} o={o} onSelect={loadDetail} />
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

@@ -4,13 +4,25 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth } from '../middleware/authMiddleware';
 import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { ProcessStationService } from '../services/ProcessStationService';
+import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 function canEditAnnBase(roles: string[] | undefined) {
   const r = roles ?? [];
   return r.includes(UserRole.MACHINE_HEAD) || r.includes(UserRole.ADMIN) || r.includes(UserRole.SUPERVISOR);
 }
 
+function respondProcessError(res: import('express').Response, e: unknown, fallback: string) {
+  if (isVersionConflict(e)) {
+    return res.status(409).json(versionConflictBody(e));
+  }
+  const msg = e instanceof Error ? e.message : fallback;
+  const status = msg.includes('Forbidden') ? 403 : 400;
+  return res.status(status).json({ error: msg });
+}
+
 const router = Router();
+router.use(rateLimitMiddleware(120, 60_000));
 
 function requireProcess(processParam: string) {
   return ProcessStationService.assertProcessCode(processParam);
@@ -688,7 +700,7 @@ router.post('/crs/assignment', requireAuth, async (req, res) => {
     const result = await ProcessStationService.assignCrsMachine(batchId, machineCode, overrideReason);
     res.json(result);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Assign failed' });
+    respondProcessError(res, e, 'Assign failed');
   }
 });
 
@@ -696,8 +708,13 @@ router.get('/:process/queue', requireAuth, async (req, res) => {
   try {
     const code = requireProcess(req.params.process);
     assertLineOperation(req.user!, code, 'READ');
-    const cards = await ProcessStationService.getQueue(code, req.user!.id);
-    res.json({ queue: cards });
+    const limitRaw = req.query.limit != null ? Number(req.query.limit) : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const paging = limitRaw != null && Number.isFinite(limitRaw)
+      ? { limit: limitRaw, cursor }
+      : undefined;
+    const result = await ProcessStationService.getQueue(code, req.user!.id, paging);
+    res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Queue load failed';
     const status = msg.includes('Forbidden') ? 403 : msg.includes('Unknown') ? 400 : 500;
@@ -745,9 +762,12 @@ router.post('/:process/start', requireAuth, async (req, res) => {
     assertLineOperation(req.user!, code, 'WRITE');
     const coilNo = String(req.body?.coilNo ?? '');
     if (!coilNo) return res.status(400).json({ error: 'coilNo required' });
-    res.json(await ProcessStationService.startCoil(code, coilNo, req.user!.id));
+    const expectedUpdatedAt = req.body?.expectedUpdatedAt
+      ? String(req.body.expectedUpdatedAt)
+      : undefined;
+    res.json(await ProcessStationService.startCoil(code, coilNo, req.user!.id, { expectedUpdatedAt }));
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Start failed' });
+    respondProcessError(res, e, 'Start failed');
   }
 });
 
@@ -847,9 +867,12 @@ router.post('/:process/hold', requireAuth, async (req, res) => {
     if (!coilNo) return res.status(400).json({ error: 'coilNo required' });
     const remarks = String(req.body?.remarks ?? 'Operator hold');
     const reason = String(req.body?.reason ?? req.body?.rejectionReason ?? 'HOLD');
-    res.json(await ProcessStationService.holdCoil(code, coilNo, req.user!.id, reason, remarks));
+    const expectedUpdatedAt = req.body?.expectedUpdatedAt
+      ? String(req.body.expectedUpdatedAt)
+      : undefined;
+    res.json(await ProcessStationService.holdCoil(code, coilNo, req.user!.id, reason, remarks, { expectedUpdatedAt }));
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Hold failed' });
+    respondProcessError(res, e, 'Hold failed');
   }
 });
 

@@ -21,17 +21,8 @@ export const persistOverrides = async (
   }));
 
   // Assuming `txn.validation_overrides` exists in the Kysely Database interface
-  // The actual insert would look like this:
-  /*
   await db
-    .insertInto('txn.validation_overrides' as any)
-    .values(insertData)
-    .execute();
-  */
-  
-  // Note: Kysely types are still empty from earlier, so we bypass strict type checking for the insert for now.
-  await db
-    .insertInto('txn.validation_overrides' as any)
+    .insertInto('txn.validation_overrides')
     .values(insertData)
     .execute();
 };

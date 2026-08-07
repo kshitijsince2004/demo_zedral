@@ -180,70 +180,139 @@ export class MachineStateEventService {
    * Get utilization summary for a machine over the last N hours.
    */
   static async getUtilizationSummary(machineCode: string, hours = 24, sinceOverride?: Date) {
+    const map = await this.getUtilizationSummaries([machineCode], hours, sinceOverride);
+    return map.get(machineCode)!;
+  }
+
+  /** Batch utilization for many machines — one query (`WHERE machine_code IN (...)`). */
+  static async getUtilizationSummaries(
+    machineCodes: string[],
+    hours = 24,
+    sinceOverride?: Date,
+  ) {
     const since = sinceOverride || new Date(Date.now() - hours * 60 * 60 * 1000);
     const now = new Date();
     const windowMin = sinceOverride ? Math.max(1, (now.getTime() - since.getTime()) / 60000) : hours * 60;
 
+    type Summary = {
+      machineCode: string;
+      windowHours: number;
+      runningMin: number;
+      idleMin: number;
+      stoppageMin: number;
+      breakdownMin: number;
+      maintenanceMin: number;
+      runningPct: number;
+      idlePct: number;
+      stopPagePct: number;
+      maintenancePct: number;
+      orderCount: number;
+      stoppageCount: number;
+      topStoppageReasons: Array<{ reason: string; count: number; totalMin: number }>;
+    };
+    const empty = (machineCode: string): Summary => ({
+      machineCode,
+      windowHours: hours,
+      runningMin: 0,
+      idleMin: 0,
+      stoppageMin: 0,
+      breakdownMin: 0,
+      maintenanceMin: 0,
+      runningPct: 0,
+      idlePct: 0,
+      stopPagePct: 0,
+      maintenancePct: 0,
+      orderCount: 0,
+      stoppageCount: 0,
+      topStoppageReasons: [],
+    });
+
+    const out = new Map<string, Summary>();
+    for (const code of machineCodes) out.set(code, empty(code));
+    if (machineCodes.length === 0) return out;
+
     const events = await db
       .selectFrom('txn.machine_state_event')
-      .select(['event_type', 'occurred_at', 'ended_at', 'duration_min', 'reason', 'category_code'])
-      .where('machine_code', '=', machineCode)
+      .select(['machine_code', 'event_type', 'occurred_at', 'ended_at', 'duration_min', 'reason', 'category_code'])
+      .where('machine_code', 'in', machineCodes)
       .where('occurred_at', '>=', since)
       .execute();
 
-    let runningMin = 0;
-    let idleMin = 0;
-    let stoppageMin = 0;
-    let maintenanceMin = 0;
-    let stoppageCount = 0;
-    let orderCount = 0;
-    let breakdownMin = 0;
-
-    const stoppageReasonMap = new Map<string, { count: number; totalMin: number }>();
+    type Acc = {
+      runningMin: number;
+      idleMin: number;
+      stoppageMin: number;
+      maintenanceMin: number;
+      stoppageCount: number;
+      orderCount: number;
+      breakdownMin: number;
+      stoppageReasonMap: Map<string, { count: number; totalMin: number }>;
+    };
+    const accBy = new Map<string, Acc>();
+    const getAcc = (code: string): Acc => {
+      let a = accBy.get(code);
+      if (!a) {
+        a = {
+          runningMin: 0,
+          idleMin: 0,
+          stoppageMin: 0,
+          maintenanceMin: 0,
+          stoppageCount: 0,
+          orderCount: 0,
+          breakdownMin: 0,
+          stoppageReasonMap: new Map(),
+        };
+        accBy.set(code, a);
+      }
+      return a;
+    };
 
     for (const ev of events) {
+      const a = getAcc(ev.machine_code);
       const end = ev.ended_at ? new Date(ev.ended_at) : now;
       const start = new Date(ev.occurred_at);
       const min = Math.max(0, (end.getTime() - start.getTime()) / 60000);
 
       if (ev.event_type === 'RUNNING_STARTED') {
-        runningMin += min;
-        orderCount++;
+        a.runningMin += min;
+        a.orderCount++;
       } else if (ev.event_type === 'IDLE_STARTED') {
-        idleMin += min;
+        a.idleMin += min;
       } else if (ev.event_type === 'STOPPAGE_STARTED') {
-        stoppageMin += min;
-        stoppageCount++;
-        if (ev.category_code === 'BREAKDOWN') breakdownMin += min;
+        a.stoppageMin += min;
+        a.stoppageCount++;
+        if (ev.category_code === 'BREAKDOWN') a.breakdownMin += min;
         const key = ev.reason ?? ev.category_code ?? 'Unknown';
-        const existing = stoppageReasonMap.get(key) ?? { count: 0, totalMin: 0 };
-        stoppageReasonMap.set(key, { count: existing.count + 1, totalMin: existing.totalMin + min });
+        const existing = a.stoppageReasonMap.get(key) ?? { count: 0, totalMin: 0 };
+        a.stoppageReasonMap.set(key, { count: existing.count + 1, totalMin: existing.totalMin + min });
       } else if (ev.event_type === 'MAINTENANCE_STARTED') {
-        maintenanceMin += min;
+        a.maintenanceMin += min;
       }
     }
 
-    const topStoppageReasons = Array.from(stoppageReasonMap.entries())
-      .map(([reason, data]) => ({ reason, ...data }))
-      .sort((a, b) => b.totalMin - a.totalMin)
-      .slice(0, 5);
-
-    return {
-      machineCode,
-      windowHours: hours,
-      runningMin: Math.round(runningMin),
-      idleMin: Math.round(idleMin),
-      stoppageMin: Math.round(stoppageMin),
-      breakdownMin: Math.round(breakdownMin),
-      maintenanceMin: Math.round(maintenanceMin),
-      runningPct: Math.round((runningMin / windowMin) * 100),
-      idlePct: Math.round((idleMin / windowMin) * 100),
-      stopPagePct: Math.round((stoppageMin / windowMin) * 100),
-      maintenancePct: Math.round((maintenanceMin / windowMin) * 100),
-      orderCount,
-      stoppageCount,
-      topStoppageReasons,
-    };
+    for (const [machineCode, a] of accBy) {
+      const topStoppageReasons = Array.from(a.stoppageReasonMap.entries())
+        .map(([reason, data]) => ({ reason, ...data }))
+        .sort((x, y) => y.totalMin - x.totalMin)
+        .slice(0, 5);
+      out.set(machineCode, {
+        machineCode,
+        windowHours: hours,
+        runningMin: Math.round(a.runningMin),
+        idleMin: Math.round(a.idleMin),
+        stoppageMin: Math.round(a.stoppageMin),
+        breakdownMin: Math.round(a.breakdownMin),
+        maintenanceMin: Math.round(a.maintenanceMin),
+        runningPct: Math.round((a.runningMin / windowMin) * 100),
+        idlePct: Math.round((a.idleMin / windowMin) * 100),
+        stopPagePct: Math.round((a.stoppageMin / windowMin) * 100),
+        maintenancePct: Math.round((a.maintenanceMin / windowMin) * 100),
+        orderCount: a.orderCount,
+        stoppageCount: a.stoppageCount,
+        topStoppageReasons,
+      });
+    }
+    return out;
   }
 
   /**

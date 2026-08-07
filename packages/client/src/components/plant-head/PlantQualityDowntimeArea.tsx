@@ -4,6 +4,7 @@ import { DataUnavailable } from './DataUnavailable';
 import { ChartTooltip } from '../analytics/ChartTooltip';
 import { MeasuredChart } from '../analytics/MeasuredChart';
 import { AlertTriangle, Clock, TrendingDown } from 'lucide-react';
+// PERF-A3 — module already lazy-loaded via PlantQualityDowntimeCards → PlantHeadDashboard
 import {
   Area,
   AreaChart,

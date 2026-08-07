@@ -12,12 +12,27 @@ import {
 } from '../validation/manufacturingValidation';
 import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { parseCrmMillCode } from '../utils/machineAllocation';
+import { throwVersionConflict } from '../utils/versionConflict';
 import { toPgJsonb } from '../utils/pgJsonb';
 import { getOrderSourceStrategy } from './handover/OrderSource';
 import { reparentOpenWork } from './handover/carryForward';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ShiftLogValidationService } from './shiftLogValidationService';
 import { publishShiftClosed } from '../platform/m1Events';
+
+/** PERF-C1: handover list/detail columns (PendingHandover + write paths). */
+const HANDOVER_COLS = [
+  'handover_id', 'machine_code', 'process_code', 'order_id', 'batch_number',
+  'outgoing_shift_code', 'incoming_shift_code', 'outgoing_prod_date', 'incoming_prod_date',
+  'outgoing_operator_id', 'incoming_operator_id', 'machine_status', 'breakdown_code',
+  'breakdown_description', 'downtime_minutes', 'maintenance_status', 'remarks',
+  'handover_priority', 'production_snapshot', 'open_stoppages', 'queue_snapshot',
+  'status', 'created_at', 'accepted_at', 'created_by_boundary', 'clarification_notes',
+] as const;
+const SESSION_COLS = [
+  'session_id', 'machine_code', 'shift_code', 'prod_date', 'operator_user_id',
+  'status', 'started_at', 'closed_at', 'shift_log_id', 'override_id',
+] as const;
 
 /**
  * Outgoing handover closes the pinned ACTIVE session (via getCurrentShift with machine).
@@ -117,7 +132,7 @@ export class MachineHandoverService {
     if (operational.length === 0) return [];
     return db
       .selectFrom('txn.machine_handover')
-      .selectAll()
+      .select([...HANDOVER_COLS])
       .where('machine_code', 'in', operational)
       .where('status', '=', 'PENDING')
       .orderBy('created_at', 'desc')
@@ -127,7 +142,7 @@ export class MachineHandoverService {
   static async getPendingForMachine(machineCode: string) {
     return db
       .selectFrom('txn.machine_handover')
-      .selectAll()
+      .select([...HANDOVER_COLS])
       .where('machine_code', '=', machineCode)
       .where('status', '=', 'PENDING')
       .orderBy('created_at', 'desc')
@@ -138,7 +153,7 @@ export class MachineHandoverService {
   static async getDraftForMachine(machineCode: string, operatorUserId: number) {
     return db
       .selectFrom('txn.machine_handover')
-      .selectAll()
+      .select([...HANDOVER_COLS])
       .where('machine_code', '=', machineCode)
       .where('outgoing_operator_id', '=', operatorUserId)
       .where('status', '=', 'DRAFT')
@@ -792,13 +807,22 @@ export class MachineHandoverService {
   static async acceptHandover(handoverId: string, incomingUserId: number) {
     const handover = await db
       .selectFrom('txn.machine_handover')
-      .selectAll()
+      .select([...HANDOVER_COLS])
       .where('handover_id', '=', handoverId)
       .executeTakeFirst();
 
     if (!handover) throw new Error('Handover not found');
+    // Idempotent retry of same accept.
+    if (handover.status === 'ACCEPTED' && Number(handover.incoming_operator_id) === incomingUserId) {
+      return handover;
+    }
     if (handover.status !== 'PENDING') {
-      throw new Error(`Handover is ${handover.status}, not pending acceptance`);
+      throwVersionConflict({
+        handoverId,
+        status: handover.status,
+        incomingOperatorId: handover.incoming_operator_id,
+        machineCode: handover.machine_code,
+      });
     }
 
     const acceptedAt = new Date();
@@ -817,8 +841,26 @@ export class MachineHandoverService {
           accepted_at: acceptedAt,
         })
         .where('handover_id', '=', handoverId)
+        .where('status', '=', 'PENDING')
         .returningAll()
-        .executeTakeFirstOrThrow();
+        .executeTakeFirst();
+
+      if (!updated) {
+        const cur = await trx
+          .selectFrom('txn.machine_handover')
+          .select([...HANDOVER_COLS])
+          .where('handover_id', '=', handoverId)
+          .executeTakeFirst();
+        if (cur?.status === 'ACCEPTED' && Number(cur.incoming_operator_id) === incomingUserId) {
+          return cur;
+        }
+        throwVersionConflict({
+          handoverId,
+          status: cur?.status ?? null,
+          incomingOperatorId: cur?.incoming_operator_id ?? null,
+          machineCode: cur?.machine_code ?? handover.machine_code,
+        });
+      }
 
       await trx
         .updateTable('txn.machine_shift_session')
@@ -924,13 +966,33 @@ export class MachineHandoverService {
 
     const handover = await db
       .selectFrom('txn.machine_handover')
-      .selectAll()
+      .select(['handover_id', 'machine_code', 'status'])
       .where('handover_id', '=', handoverId)
       .executeTakeFirst();
 
     if (!handover) throw new Error('Handover not found');
+    if (handover.status === 'CLARIFICATION_REQUESTED') {
+      // Idempotent if same operator already requested.
+      const full = await db
+        .selectFrom('txn.machine_handover')
+        .select([...HANDOVER_COLS])
+        .where('handover_id', '=', handoverId)
+        .executeTakeFirstOrThrow();
+      if (Number(full.incoming_operator_id) === incomingUserId) return full;
+      throwVersionConflict({
+        handoverId,
+        status: full.status,
+        incomingOperatorId: full.incoming_operator_id,
+        machineCode: full.machine_code,
+      });
+    }
     if (handover.status !== 'PENDING') {
-      throw new Error(`Handover is ${handover.status}`);
+      throwVersionConflict({
+        handoverId,
+        status: handover.status,
+        incomingOperatorId: null,
+        machineCode: handover.machine_code,
+      });
     }
 
     const updated = await db
@@ -941,8 +1003,29 @@ export class MachineHandoverService {
         clarification_notes: notes.trim(),
       })
       .where('handover_id', '=', handoverId)
+      .where('status', '=', 'PENDING')
       .returningAll()
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
+
+    if (!updated) {
+      const cur = await db
+        .selectFrom('txn.machine_handover')
+        .select([...HANDOVER_COLS])
+        .where('handover_id', '=', handoverId)
+        .executeTakeFirst();
+      if (
+        cur?.status === 'CLARIFICATION_REQUESTED'
+        && Number(cur.incoming_operator_id) === incomingUserId
+      ) {
+        return cur;
+      }
+      throwVersionConflict({
+        handoverId,
+        status: cur?.status ?? null,
+        incomingOperatorId: cur?.incoming_operator_id ?? null,
+        machineCode: cur?.machine_code ?? handover.machine_code,
+      });
+    }
 
     await db
       .insertInto('txn.shift_event_audit')
@@ -968,7 +1051,7 @@ export class MachineHandoverService {
 
     const existing = await db
       .selectFrom('txn.machine_shift_session')
-      .selectAll()
+      .select([...SESSION_COLS])
       .where('machine_code', '=', machineCode)
       .where('operator_user_id', '=', operatorUserId)
       .where('status', '=', 'ACTIVE')

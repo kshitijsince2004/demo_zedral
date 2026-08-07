@@ -43,6 +43,15 @@ export interface HandoverSummary {
   notes: string;
 }
 
+export type ProcessEntryTable =
+  | 'txn.prod_hrs'
+  | 'txn.prod_pkl'
+  | 'txn.crm_order'
+  | 'txn.ann_charge'
+  | 'txn.prod_rwd'
+  | 'txn.prod_crs'
+  | 'txn.prod_ctl';
+
 export class ShiftLogService {
   /**
    * shift_manager_id references master.operator(operator_id), not app_user.
@@ -475,8 +484,8 @@ export class ShiftLogService {
     };
   }
 
-  static getProcessTable(processId: number): string | null {
-    const map: Record<number, string> = {
+  static getProcessTable(processId: number): ProcessEntryTable | null {
+    const map: Record<number, ProcessEntryTable> = {
       1: 'txn.prod_hrs',
       2: 'txn.prod_pkl',
       3: 'txn.crm_order',
@@ -596,22 +605,26 @@ export class ShiftLogService {
       return total;
     }
 
-    let weightCol = 'weight_mt';
     if (processTable === 'txn.prod_crs') {
-      weightCol = 'output_wt_mt';
+      const rows = await db.selectFrom('txn.prod_crs')
+        .select('output_wt_mt')
+        .where('shift_log_id', '=', shiftLogId)
+        .execute();
+      let total = 0;
+      for (const r of rows) {
+        if (r.output_wt_mt != null) total += Number(r.output_wt_mt);
+      }
+      return total;
     }
 
-    const rows = await db.selectFrom(processTable as any)
-      .select(weightCol as any)
+    const rows = await db.selectFrom(processTable)
+      .select('weight_mt')
       .where('shift_log_id', '=', shiftLogId)
       .execute();
 
     let total = 0;
     for (const r of rows) {
-      const wt = (r as any)[weightCol];
-      if (wt != null) {
-        total += Number(wt);
-      }
+      if (r.weight_mt != null) total += Number(r.weight_mt);
     }
     return total;
   }

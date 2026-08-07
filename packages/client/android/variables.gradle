@@ -1,7 +1,7 @@
 ext.appMinSdkVersion = 24
 ext.appCompileSdkVersion = 36
 ext.appTargetSdkVersion = 36
-ext.kotlinVersion = '2.0.21'
+ext.kotlinVersion = '2.2.10'
 ext.composeVersion = '1.7.5'
 ext.composeMaterial3Version = '1.3.1'
 ext.androidxActivityVersion = '1.11.0'

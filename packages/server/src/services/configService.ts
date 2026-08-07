@@ -25,7 +25,7 @@ const PLATFORM_DEFAULTS = {
 
 class ConfigRepository extends BaseRepository<'security.tenant_config'> {
   constructor() {
-    super('security.tenant_config' as any);
+    super('security.tenant_config');
   }
 }
 
@@ -34,7 +34,7 @@ const configRepo = new ConfigRepository();
 export const getConfig = async (): Promise<TenantConfig> => {
   // Try to get from DB using ambient context
   const storedConfig = await withTenantContext(async (trx) => {
-    return await trx.selectFrom('security.tenant_config' as any)
+    return await trx.selectFrom('security.tenant_config')
       .selectAll()
       // BaseRepository context handles isolation, but since this is 1:1 with tenant,
       // we can just get the first row returned for the current tenant.
@@ -61,7 +61,7 @@ export const updateConfig = async (key: keyof TenantConfig, value: any): Promise
     
     // UPSERT logic isn't easily done generically in Kysely without dialect specifics,
     // so we assume the row exists (it was seeded in the tenant creation).
-    const existing = await trx.selectFrom('security.tenant_config' as any)
+    const existing = await trx.selectFrom('security.tenant_config')
       .selectAll()
       .executeTakeFirst();
 
@@ -69,7 +69,7 @@ export const updateConfig = async (key: keyof TenantConfig, value: any): Promise
       throw new Error('Tenant config row missing');
     }
 
-    const updated = await trx.updateTable('security.tenant_config' as any)
+    const updated = await trx.updateTable('security.tenant_config')
       .set({ [key]: value, updated_at: new Date() })
       // WHERE tenant_id is implicitly handled by RLS, but we can be explicit
       .where('tenant_id', '=', existing.tenant_id)

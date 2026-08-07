@@ -6,8 +6,10 @@ import {
   parseDowntimeEventRequest,
   parseProductionCountRequest,
 } from '../platform/canonApiService';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const router = Router();
+router.use(rateLimitMiddleware(60, 60_000));
 
 function requireTenantHeader(value: string | string[] | undefined): string | null {
   if (typeof value === 'string' && value.trim()) return value.trim();

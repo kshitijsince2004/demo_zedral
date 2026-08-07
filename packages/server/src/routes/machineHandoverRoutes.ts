@@ -7,8 +7,11 @@ import {
 } from '../auth/machineAccessPolicy';
 import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { MachineHandoverService } from '../services/MachineHandoverService';
+import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const router = Router();
+router.use(rateLimitMiddleware(60, 60_000));
 router.use(requireAuth);
 
 /** Process lines use line ACL; CRM mills use machine ACL. */
@@ -18,9 +21,14 @@ function handoverRouteStatus(error: unknown): number {
   if (isMachineAccessForbidden(error)) return 403;
   const message = error instanceof Error ? error.message : '';
   if (/Forbidden/i.test(message)) return 403;
-  if (/ACTIVE_SESSION_CONFLICT/i.test(message)) return 409;
+  if (isVersionConflict(error) || /ACTIVE_SESSION_CONFLICT/i.test(message)) return 409;
   if (/not found/i.test(message)) return 404;
   return 400;
+}
+
+function handoverRoutePayload(error: unknown): Record<string, unknown> {
+  if (isVersionConflict(error)) return versionConflictBody(error);
+  return { error: handoverRouteMessage(error) };
 }
 
 function handoverRouteMessage(error: unknown): string {
@@ -56,7 +64,7 @@ router.get('/overview', async (req, res) => {
     const overview = await MachineHandoverService.getHandoverOverview(machineFilter);
     res.json(overview);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -66,7 +74,7 @@ router.get('/pending', async (req, res) => {
     const pending = await MachineHandoverService.listPendingForMachines(machines);
     res.json({ pending });
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -80,7 +88,7 @@ router.get('/:machineCode/preview', async (req, res) => {
     );
     res.json(preview);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -91,7 +99,7 @@ router.get('/:machineCode/pending', async (req, res) => {
     const pending = await MachineHandoverService.getPendingForMachine(machineCode);
     res.json({ pending: pending ?? null });
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -102,7 +110,7 @@ router.get('/:machineCode/draft', async (req, res) => {
     const draft = await MachineHandoverService.getDraftForMachine(machineCode, req.user!.id);
     res.json({ draft: draft ?? null });
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -113,7 +121,7 @@ router.post('/:machineCode/session', async (req, res) => {
     const result = await MachineHandoverService.ensureActiveSession(machineCode, req.user!.id);
     res.json(result);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -165,7 +173,7 @@ router.post('/:machineCode/draft', async (req, res) => {
     );
     res.status(201).json(draft);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -217,7 +225,7 @@ router.post('/:machineCode/outgoing', async (req, res) => {
     );
     res.status(201).json(handover);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -231,7 +239,7 @@ router.post('/accept/:handoverId', async (req, res) => {
     );
     res.json(handover);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 
@@ -247,7 +255,7 @@ router.post('/clarification/:handoverId', async (req, res) => {
     );
     res.json(handover);
   } catch (error: unknown) {
-    res.status(handoverRouteStatus(error)).json({ error: handoverRouteMessage(error) });
+    res.status(handoverRouteStatus(error)).json(handoverRoutePayload(error));
   }
 });
 

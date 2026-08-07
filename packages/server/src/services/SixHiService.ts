@@ -10,7 +10,8 @@ import type {
 } from '@m1/shared-validation';
 import { db, type Database } from '../db';
 import { loadOrderRejection } from './orderRejectionLoader';
-import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode, assertMachineForSubProcess } from '../utils/machineAllocation';
+import { parseCrmMillCode, ROLLING_MILLS, CrmMillCode, assertMachineForSubProcess, assertMachineClaimOrIdempotent } from '../utils/machineAllocation';
+import { throwVersionConflict } from '../utils/versionConflict';
 import { PPCImportService } from '../services/PPCImportService';
 import { ValidationConfigService } from './ValidationConfigService';
 import { computeEffectiveRuleset, evaluateRules } from '@m1/shared-validation';
@@ -30,7 +31,6 @@ import {
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
 import {
-  assertCanStartOrderStoppage,
   validateOrderStoppageInterval,
   validateOrderStoppageStart,
 } from '../validation/orderStoppageValidation';
@@ -326,6 +326,7 @@ export class SixHiService {
     ppc_reroll_flag: boolean | null;
     plan_date: Date | string;
     shift_code: string;
+    queue_seq?: number | null;
   };
 
   /** Columns used by mapQueueCard / queueBatchRowShape — not selectAll('pb'). */
@@ -349,6 +350,7 @@ export class SixHiService {
     'pb.ppc_reroll_flag',
     'pb.plan_date',
     'pb.shift_code',
+    'pb.queue_seq',
   ] as const;
 
   private static async prefetchQueueCardContext(
@@ -503,6 +505,8 @@ export class SixHiService {
     shiftCode: string,
     machineCode: string,
     shiftLogId?: string,
+    /** PERF-C2: optional assigned-queue page. Omit for full list (exports / legacy). */
+    paging?: { limit?: number; cursor?: string },
   ): Promise<{
     prodDate: string;
     shiftCode: string;
@@ -512,6 +516,7 @@ export class SixHiService {
     backlog: SixHiQueueCard[];
     completed: SixHiQueueCard[];
     rejected: SixHiQueueCard[];
+    queueNextCursor?: string | null;
   }> {
     /** Operational view date — drives backlog comparison only (see below). */
     const operationalViewDate = prodDate;
@@ -550,7 +555,7 @@ export class SixHiService {
       ]);
 
     // Operational assigned queue — machine sequence only (not planned date).
-    const batches = await db.selectFrom('planning.ppc_batch as pb')
+    let assignedQ = db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .select([...SixHiService.QUEUE_BATCH_COLS])
       .where('pb.machine_code', '=', machineCode)
@@ -558,8 +563,54 @@ export class SixHiService {
       .where('pb.machine_allocated', '=', true)
       .where(incompleteFilter)
       .orderBy('pb.queue_seq', 'asc')
-      .orderBy('pb.batch_number', 'asc')
-      .execute();
+      .orderBy('pb.batch_number', 'asc');
+
+    const pageLimit = paging?.limit != null && paging.limit > 0
+      ? Math.min(200, Math.max(1, Math.floor(paging.limit)))
+      : undefined;
+    if (pageLimit && paging?.cursor) {
+      const sep = paging.cursor.indexOf(':');
+      const curSeq = sep >= 0 ? Number(paging.cursor.slice(0, sep)) : NaN;
+      const curBn = sep >= 0 ? paging.cursor.slice(sep + 1) : paging.cursor;
+      if (Number.isFinite(curSeq) && curBn) {
+        assignedQ = assignedQ.where((eb) => eb.or([
+          eb('pb.queue_seq', '>', curSeq),
+          eb.and([eb('pb.queue_seq', '=', curSeq), eb('pb.batch_number', '>', curBn)]),
+        ]));
+      }
+    }
+    if (pageLimit) assignedQ = assignedQ.limit(pageLimit + 1);
+
+    const batchRowsRaw = await assignedQ.execute();
+    let queueNextCursor: string | null | undefined = pageLimit ? null : undefined;
+    let batches = batchRowsRaw;
+    if (pageLimit && batchRowsRaw.length > pageLimit) {
+      batches = batchRowsRaw.slice(0, pageLimit);
+      const last = batches[batches.length - 1] as { queue_seq?: number | null; batch_number: string };
+      queueNextCursor = `${Number(last.queue_seq ?? 0)}:${last.batch_number}`;
+    }
+
+    // Cursor pages only need the assigned slice — skip other buckets on load-more.
+    if (pageLimit && paging?.cursor) {
+      const cardCtx = await this.prefetchQueueCardContext(batches, subProcess);
+      const cards: SixHiQueueCard[] = [];
+      let pos = 0;
+      for (const b of batches) {
+        pos++;
+        cards.push(this.mapQueueCard(b, subProcess, pos, cardCtx));
+      }
+      return {
+        prodDate: operationalViewDate,
+        shiftCode,
+        machineCode,
+        queue: cards,
+        pendingAllocation: [],
+        backlog: [],
+        completed: [],
+        rejected: [],
+        queueNextCursor,
+      };
+    }
 
     // Operational pending pool — unallocated, excluding PPC backlog bucket.
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
@@ -647,6 +698,7 @@ export class SixHiService {
       backlog,
       completed,
       rejected,
+      ...(pageLimit ? { queueNextCursor } : {}),
     };
   }
 
@@ -712,7 +764,7 @@ export class SixHiService {
     batchNumber: string,
     machineCode: string,
     userId: number,
-    options?: { reason?: string; transferType?: 'SINGLE' | 'BULK' },
+    options?: { reason?: string; transferType?: 'SINGLE' | 'BULK'; allowReassign?: boolean },
   ): Promise<SixHiOrderDetail> {
     const batch = await db.selectFrom('planning.ppc_batch')
       .selectAll()
@@ -724,9 +776,13 @@ export class SixHiService {
     const machine = await MachineRegistryService.assertMachineForSubProcess(subProcess, machineCode);
 
     const sourceMachine = batch.machine_code;
-    const alreadyOnTarget = (batch.machine_allocated ?? true) && sourceMachine === machine;
-    if (alreadyOnTarget) {
-      // Idempotent: opening production on an already-assigned mill is a no-op.
+    // PERF-E3: same target = idempotent; other machine = 409 unless MH transfer.
+    const claim = assertMachineClaimOrIdempotent(
+      { batchNumber, machine_code: sourceMachine, machine_allocated: batch.machine_allocated },
+      machine,
+      options?.allowReassign === true,
+    );
+    if (claim === 'idempotent') {
       return this.getOrder(batchNumber, userId);
     }
 
@@ -750,14 +806,35 @@ export class SixHiService {
         .executeTakeFirst();
       const queueSeq = (Number(maxSeq?.max_seq) || 0) + 1;
 
-      await trx.updateTable('planning.ppc_batch')
+      // CAS: unallocated or already on target — lost race → 409 with current.
+      let upd = trx.updateTable('planning.ppc_batch')
         .set({
           machine_code: machine,
           machine_allocated: true,
           queue_seq: queueSeq,
         })
-        .where('batch_id', '=', batch.batch_id)
-        .execute();
+        .where('batch_id', '=', batch.batch_id);
+      if (!options?.allowReassign) {
+        upd = upd.where((eb) => eb.or([
+          eb('machine_allocated', '=', false),
+          eb('machine_code', '=', machine),
+        ]));
+      }
+      const result = await upd.executeTakeFirst();
+      if (!options?.allowReassign && Number(result.numUpdatedRows ?? 0) === 0) {
+        const cur = await trx.selectFrom('planning.ppc_batch')
+          .select(['batch_number', 'machine_code', 'machine_allocated'])
+          .where('batch_id', '=', batch.batch_id)
+          .executeTakeFirst();
+        if (cur?.machine_allocated && cur.machine_code === machine) {
+          return; // concurrent idempotent claim
+        }
+        throwVersionConflict({
+          batchNumber: cur?.batch_number ?? batchNumber,
+          machineCode: cur?.machine_code ?? null,
+          machineAllocated: cur?.machine_allocated ?? true,
+        });
+      }
 
       const journeyStep = await trx.selectFrom('planning.order_journey_step as ojs')
         .innerJoin('planning.order_journey as oj', 'oj.journey_id', 'ojs.journey_id')
@@ -819,7 +896,11 @@ export class SixHiService {
     const results: { batchNumber: string; ok: boolean; error?: string }[] = [];
     for (const batchNumber of batchNumbers) {
       try {
-        await this.allocateMachine(batchNumber, resolvedTarget, userId, { reason, transferType });
+        await this.allocateMachine(batchNumber, resolvedTarget, userId, {
+          reason,
+          transferType,
+          allowReassign: true,
+        });
         results.push({ batchNumber, ok: true });
       } catch (e: unknown) {
         results.push({
@@ -2252,19 +2333,22 @@ export class SixHiService {
 
     // Skip members that already have an open stoppage (idempotent for retries).
     const eligible: typeof targets = [];
-    for (const target of targets) {
-      const open = await db.selectFrom('txn.stoppage')
-        .select('stoppage_id')
-        .where('order_id', '=', target.order_id as any)
+    const targetIds = targets.map((t) => t.order_id);
+    const openRows = targetIds.length > 0
+      ? await db.selectFrom('txn.stoppage')
+        .select('order_id')
+        .where('order_id', 'in', targetIds as any[])
         .where('end_at', 'is', null)
-        .executeTakeFirst();
-      if (!open) {
-        if (target.status !== 'IN_PROGRESS' && target.status !== 'STOPPAGE') {
-          throw new Error(`Stoppage blocked — ${target.batch_number} is not running`);
-        }
-        await assertCanStartOrderStoppage(target.order_id);
-        eligible.push(target);
+        .execute()
+      : [];
+    const openSet = new Set(openRows.map((r) => String(r.order_id)));
+    for (const target of targets) {
+      if (openSet.has(String(target.order_id))) continue;
+      if (target.status !== 'IN_PROGRESS' && target.status !== 'STOPPAGE') {
+        throw new Error(`Stoppage blocked — ${target.batch_number} is not running`);
       }
+      // open-set already covers assertCanStartOrderStoppage
+      eligible.push(target);
     }
     if (eligible.length === 0) {
       return this.getOrder(batchNumber, userId);

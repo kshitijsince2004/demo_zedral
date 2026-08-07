@@ -117,7 +117,7 @@ export class ShiftLogValidationService {
     }
 
     const rows = await db
-      .selectFrom(table as any)
+      .selectFrom(table)
       .selectAll()
       .where('shift_log_id', '=', shiftLogId)
       .execute();
@@ -152,7 +152,7 @@ export class ShiftLogValidationService {
         const passes =
           entryIds.length > 0
             ? await db
-                .selectFrom('txn.crm_rolling_pass' as any)
+                .selectFrom('txn.crm_rolling_pass')
                 .selectAll()
                 .where('order_id', 'in', entryIds)
                 .execute()
@@ -161,7 +161,7 @@ export class ShiftLogValidationService {
           mapSkpEntry(
             row,
             shiftLogId,
-            passes.filter((p) => String(p.order_id) === String(row.entry_id) || String(p.entry_id) === String(row.entry_id))
+            passes.filter((p) => String(p.order_id) === String(row.entry_id)),
           )
         );
       }

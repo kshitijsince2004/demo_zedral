@@ -3,7 +3,34 @@
 **Repo:** ZedralV2 / M1 Digital Data Collection (Hero Steels) — npm workspaces (`@m1/client`, `@m1/server`, `@m1/shared-validation`, `@zedral/platform`, `@zedral/connectors`, `@zedral/m1-collection`).
 **Goal:** reduce operator/APK lag (cold-start + interaction), make the app resilient on high-ping factory Wi-Fi, and formalize the offline-first (local-first) model.
 **Date:** 2026-08-06
-**How to use:** each task has a stable ID, target files, the change, a snippet where useful, acceptance criteria, and a blast-radius note. Do them top-to-bottom within a workstream. Nothing here is applied yet — this is the plan.
+**How to use:** each task has a stable ID, target files, the change, a snippet where useful, acceptance criteria, and a blast-radius note. Do them top-to-bottom within a workstream.
+
+### Status (2026-08-07)
+
+| ID | Status |
+|---|---|
+| PERF-A1 | DONE |
+| PERF-A2 | DONE |
+| PERF-A3 | DONE |
+| PERF-B1 | DONE |
+| PERF-B2 | DONE |
+| PERF-B3 | DONE |
+| PERF-C1 | DONE |
+| PERF-C2 | DONE |
+| PERF-C3 | DONE |
+| PERF-C4 | DONE |
+| PERF-D1 | DONE |
+| PERF-D2 | DONE |
+| PERF-D3 | DONE |
+| PERF-D4 | DONE |
+| PERF-D5 | DONE |
+| PERF-E1 | DONE |
+| PERF-E2 | DONE |
+| PERF-E3 | DONE |
+| PERF-E4 | DONE |
+| PERF-F1 | DONE |
+| PERF-F2 | DONE |
+| PERF-F3 | DONE |
 
 ---
 

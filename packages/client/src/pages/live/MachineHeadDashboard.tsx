@@ -1,240 +1,47 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { LiveOrderRow, MachineHeadDashboardData } from '@m1/shared-validation';
+// PERF-B1/B2/B3 — memo rows + virtualize + thin container
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LiveOrderRow, MachineHeadDashboardData, MachineStatusCard } from '@m1/shared-validation';
 import { CommandMetric } from '../../components/command/CommandMetric';
-import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
 import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { MachineHeadOrderSidePanel } from '../../components/machinehead/MachineHeadOrderSidePanel';
 import { MachineHeadOrderDetailModal } from '../../components/machinehead/MachineHeadOrderDetailModal';
 import { ZPillTabs } from '../../components/ui/operator/ZPillTabs';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { liveService } from '../../lib/liveService';
-import { ZButton } from '../../components/primitives/ZButton';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 import { isPlantWideDeskRole, useEffectiveSessionRole } from '../../lib/sessionRole';
-import { Download, AlertTriangle } from 'lucide-react';
-import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { reportingService } from '../../lib/reportingService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
-import { currentPlantDate, formatPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
+import { currentPlantDate } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
 import { deleteOrder } from '../../lib/sync/sixHiWrites';
 import { postQueued } from '../../lib/sync/queuedApi';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { jsonFingerprint } from '../../lib/silentRefresh';
-import { formatOrderProcessLabel, formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
+import { formatProcessFilterLabel } from '../../lib/orderLabels';
 import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
-import type { MachineStatusCard } from '@m1/shared-validation';
 import {
   type ManualRerollSession,
   listManualRerollSessions,
 } from '../../services/manualRerollService';
-
-type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'completed' | 'handover';
-type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
-/** History tab pills — Rolling / Skin Pass / Manual Re-Rolling (+ All). */
-type HistoryProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL';
-
-const CRM_HISTORY_MILLS = ['6HI', '4HI', '2HI'] as const;
-
-const ORDER_TABS: DashboardTab[] = ['orders', 'production', 'stoppages', 'rejected', 'completed'];
-const PROCESS_FILTER_TABS: DashboardTab[] = [...ORDER_TABS, 'handover'];
-
-/** Active shopfloor statuses that belong on the Orders tab (includes stoppage). */
-const ACTIVE_ORDER_STATUSES = new Set(['PREPARING', 'IN_PROGRESS', 'RUNNING', 'STOPPAGE']);
-
-type HistoryRow = {
-  kind: 'CRM' | 'MANUAL_REROLL';
-  key: string;
-  batchNumber: string;
-  machineCode: string;
-  customer?: string;
-  grade?: string;
-  weightMt?: number;
-  prodEndAt?: string;
-  subProcess: string;
-  coilNo?: string;
-  motherCoil?: string;
-  slitId?: string;
-  operatorName?: string;
-};
-
-function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
-  if (filter === 'ALL') return true;
-  if (!subProcess) return allowUnknown;
-  return subProcess === filter;
-}
-
-function sessionPlantDate(s: ManualRerollSession): string {
-  return formatPlantDate(s.endTime ?? s.startTime);
-}
-
-function mapRerollSessionToHistory(s: ManualRerollSession): HistoryRow {
-  const batches = (s.batchNumbers?.length ? s.batchNumbers : s.batchNumber ? [s.batchNumber] : [])
-    .filter(Boolean) as string[];
-  const batchLabel = batches.length > 1 ? batches.join(' · ') : (batches[0] ?? s.sessionId);
-  return {
-    kind: 'MANUAL_REROLL',
-    key: `mr-${s.sessionId}`,
-    batchNumber: batchLabel,
-    machineCode: s.machineCode,
-    weightMt: s.rerollQuantity != null ? Number(s.rerollQuantity) : undefined,
-    prodEndAt: s.endTime ?? undefined,
-    subProcess: 'MANUAL_REROLL',
-  };
-}
-
-function mapCrmCompletedToHistory(o: {
-  batchNumber: string;
-  machineCode?: string;
-  customer?: string;
-  grade?: string;
-  weightMt?: number;
-  prodEndAt?: string;
-  subProcess?: string;
-  coilNo?: string;
-  motherCoil?: string;
-  slitId?: string;
-  operatorName?: string;
-}): HistoryRow {
-  return {
-    kind: 'CRM',
-    key: `crm-${o.batchNumber}`,
-    batchNumber: o.batchNumber,
-    machineCode: o.machineCode ?? '—',
-    customer: o.customer,
-    grade: o.grade,
-    weightMt: o.weightMt != null ? Number(o.weightMt) : undefined,
-    prodEndAt: o.prodEndAt,
-    subProcess: o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
-    coilNo: o.coilNo,
-    motherCoil: o.motherCoil,
-    slitId: o.slitId,
-    operatorName: o.operatorName,
-  };
-}
-
-function formatDuration(minutes?: number): string {
-  if (minutes == null || minutes < 0) return '—';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-/** Live HH:MM:SS for active stoppages; static minutes for ended ones. */
-function StoppageDurationCell({
-  startAt,
-  active,
-  durationMin,
-}: {
-  startAt?: string;
-  active: boolean;
-  durationMin?: number;
-}) {
-  const { formatted } = useLiveTimer(startAt, active && !!startAt);
-  if (active && startAt) return <>{formatted || '—'}</>;
-  return <>{formatDuration(durationMin)}</>;
-}
-
-function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={`z-card overflow-hidden flex flex-col min-h-0 ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function PanelHeader({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="px-4 py-3 border-b border-border/70 z-tint flex flex-wrap items-center justify-between gap-3 shrink-0">
-      <h3 className="z-eyebrow">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function PanelBody({ children, empty, emptyLabel = 'No data' }: { children: ReactNode; empty?: boolean; emptyLabel?: string }) {
-  if (empty) {
-    return <p className="text-sm text-muted-foreground py-10 text-center">{emptyLabel}</p>;
-  }
-  return <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>;
-}
-
-function StatCell({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) {
-  return (
-    <div className="px-4 py-3">
-      <dt className="z-eyebrow">{label}</dt>
-      <dd className={`mt-1 text-base font-bold text-foreground tabular-nums ${mono ? 'font-mono' : ''}`}>{value}</dd>
-    </div>
-  );
-}
-
-function liveRowFromQueue(o: MachineHeadDashboardData['orderQueue'][0]): LiveOrderRow {
-  return o;
-}
-
-function identityFromRow(r: {
-  batchNumber: string;
-  motherCoil?: string;
-  coilNo?: string;
-  slitId?: string;
-}) {
-  const coil = (r.motherCoil ?? r.coilNo ?? r.batchNumber).trim() || r.batchNumber;
-  return {
-    batchNumber: r.batchNumber,
-    motherCoil: r.motherCoil ?? r.coilNo ?? coil,
-    coilNo: r.coilNo ?? r.motherCoil ?? coil,
-    slitId: r.slitId,
-  };
-}
-
-function liveRowFromHistory(h: MachineHeadDashboardData['productionHistory'][0], dashboard: MachineHeadDashboardData): LiveOrderRow {
-  const match = dashboard.orderQueue.find((q) => q.batchNumber === h.batchNumber);
-  const id = identityFromRow(h);
-  return match ?? {
-    batchNumber: h.batchNumber,
-    customer: '—',
-    grade: '—',
-    machineCode: h.machineCode ?? '—',
-    machineName: h.machineCode ?? '—',
-    currentProcess: h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
-    status: 'COMPLETED',
-    weightMt: h.weightMt,
-    coilNo: id.coilNo,
-    motherCoil: id.motherCoil,
-    slitId: id.slitId,
-  };
-}
-
-function liveRowFromRejected(r: NonNullable<MachineHeadDashboardData['rejectedOrders']>[0] | import('@m1/shared-validation').RejectedOrderRow): LiveOrderRow {
-  const id = identityFromRow(r);
-  return {
-    batchNumber: r.batchNumber,
-    customer: '—',
-    grade: '—',
-    machineCode: r.machineCode,
-    machineName: r.machineCode,
-    currentProcess: r.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
-    status: 'REJECTED',
-    weightMt: r.weightMt,
-    coilNo: id.coilNo,
-    motherCoil: id.motherCoil,
-    slitId: id.slitId,
-    shiftCode: r.shiftCode,
-  };
-}
-
-const DASHBOARD_TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'orders', label: 'Orders' },
-  { id: 'stoppages', label: 'Stoppages' },
-  { id: 'completed', label: 'History' },
-  { id: 'production', label: 'Production' },
-  { id: 'rejected', label: 'Order Hold' },
-  { id: 'handover', label: 'Handover' },
-] as const;
+import {
+  ACTIVE_ORDER_STATUSES,
+  CRM_HISTORY_MILLS,
+  DASHBOARD_TABS,
+  ORDER_TABS,
+  PROCESS_FILTER_TABS,
+  type DashboardTab,
+  type HistoryProcessFilter,
+  type HistoryRow,
+  type ProcessFilter,
+  mapCrmCompletedToHistory,
+  mapRerollSessionToHistory,
+  matchesProcessFilter,
+  sessionPlantDate,
+} from './MachineHeadDashboardPanels';
+import { renderMachineHeadTabContent } from './MachineHeadDashboardTabs';
 
 export function MachineHeadDashboard() {
   const { role } = useEffectiveSessionRole();
@@ -264,6 +71,8 @@ export function MachineHeadDashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [machineModalCode, setMachineModalCode] = useState<string | null>(null);
   const [machineModalData, setMachineModalData] = useState<MachineStatusCard | undefined>();
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const historyLoadingMoreRef = useRef(false);
   const prevDashboardFpRef = useRef('');
 
   useEffect(() => {
@@ -428,17 +237,41 @@ export function MachineHeadDashboard() {
 
   const loadDashboard = useCallback(async () => {
     try {
-      const dash = await liveService.getMachineHeadDashboard(dashFilters);
+      // PERF-C2 — first page only; load-more appends via historyCursor
+      const dash = await liveService.getMachineHeadDashboard({ ...dashFilters, historyLimit: 50 });
       const fingerprint = jsonFingerprint(dash);
       if (fingerprint !== prevDashboardFpRef.current) {
         prevDashboardFpRef.current = fingerprint;
         setDashboard(dash);
+        setHistoryNextCursor(dash.productionHistoryNextCursor ?? null);
       }
       setDashError(null);
     } catch (err: unknown) {
       setDashError((err as Error)?.message ?? 'Unable to load machine dashboard');
     }
   }, [dashFilters]);
+
+  const loadMoreProductionHistory = useCallback(async () => {
+    if (!historyNextCursor || historyLoadingMoreRef.current) return;
+    historyLoadingMoreRef.current = true;
+    try {
+      const page = await liveService.getMachineHeadDashboard({
+        ...dashFilters,
+        historyLimit: 50,
+        historyCursor: historyNextCursor,
+      });
+      setDashboard((prev) =>
+        prev
+          ? { ...prev, productionHistory: [...prev.productionHistory, ...page.productionHistory] }
+          : page,
+      );
+      setHistoryNextCursor(page.productionHistoryNextCursor ?? null);
+    } catch {
+      /* keep cursor; next near-end retries */
+    } finally {
+      historyLoadingMoreRef.current = false;
+    }
+  }, [dashFilters, historyNextCursor]);
 
   useEffect(() => {
     void loadDashboard();
@@ -488,17 +321,6 @@ export function MachineHeadDashboard() {
       return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
     });
   }, [dashboard?.handoverOverview]);
-
-  function handoverCompletionLabel(h: {
-    status: string;
-    createdByBoundary?: boolean | null;
-  }): string {
-    if (h.status === 'PENDING') return 'Pending';
-    if (h.status === 'CLARIFICATION_REQUESTED') return 'Clarification';
-    if (h.status === 'AUTO_COMPLETED' || h.createdByBoundary) return 'Auto completed';
-    if (h.status === 'ACCEPTED') return 'Manual completed';
-    return h.status;
-  }
 
   const processFilterTabs = useMemo(() => (
     ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
@@ -571,12 +393,7 @@ export function MachineHeadDashboard() {
     }
   }, [selectedOrder, loadDashboard, refresh]);
 
-  const orderRowClass = (batchNumber: string) =>
-    [
-      'px-4 py-3 flex justify-between gap-2 items-center transition-colors cursor-pointer text-sm',
-      selectedOrder?.batchNumber === batchNumber ? 'bg-primary/10' : 'hover:bg-secondary',
-    ].join(' ');
-
+  const selectedBatch = selectedOrder?.batchNumber ?? null;
   const showOrderPanel = ORDER_TABS.includes(activeTab);
 
   if (loading && !snapshot) {
@@ -593,560 +410,32 @@ export function MachineHeadDashboard() {
 
   const kpis = snapshot?.kpis;
 
-  const renderTabContent = () => {
-    if (!dashboard && activeTab !== 'overview') {
-      return <p className="text-sm text-muted-foreground py-8 text-center">Loading dashboard data…</p>;
-    }
-
-    switch (activeTab) {
-      case 'overview':
-        return (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-            <Panel className="lg:col-span-2">
-              <PanelHeader title="Your Machines" />
-              <PanelBody empty={machines.length === 0} emptyLabel="No machines in scope">
-                <div className="p-4">
-                  <MachineStatusBoard machines={machines} onSelect={openMachineDetail} />
-                </div>
-              </PanelBody>
-            </Panel>
-
-            {dashboard && (
-              <>
-                <Panel>
-                  <PanelHeader title="Shift Summary" />
-                  <dl className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-border/70">
-                    <StatCell label="Prod Date" value={dashboard.shiftSummary.prodDate} mono />
-                    <StatCell label="Shift" value={dashboard.shiftSummary.shiftCode} />
-                    <StatCell label="Target MT" value={dashboard.shiftSummary.targetMt} mono />
-                    <StatCell label="Live Queue MT" value={dashboard.shiftSummary.queuedMt} mono />
-                    <StatCell
-                      label="Total MT"
-                      value={dashboard.shiftSummary.totalProdMt ?? 0}
-                      mono
-                    />
-                    <StatCell
-                      label="Completed MT"
-                      value={dashboard.shiftSummary.completedProdMt ?? 0}
-                      mono
-                    />
-                    <StatCell label="In Progress MT" value={dashboard.shiftSummary.inProgressMt ?? 0} mono />
-                    <StatCell
-                      label="Shift Orders"
-                      value={`${dashboard.shiftSummary.orderCount} · ${dashboard.shiftSummary.completedOrderCount} done`}
-                    />
-                  </dl>
-                </Panel>
-
-                <Panel>
-                  <PanelHeader title="Runtime Utilization (24h)" />
-                  <PanelBody empty={dashboard.runtimeUtilization.length === 0}>
-                    <div className="grid grid-cols-2 gap-3 p-4">
-                      {dashboard.runtimeUtilization.map((u) => {
-                        const pct = Math.max(0, Math.min(100, Number(u.runtimeUtilizationPct) || 0));
-                        return (
-                          <div key={u.machineCode} className="rounded-xl border border-border bg-secondary/40 p-3">
-                            <p className="z-eyebrow truncate">{u.machineName}</p>
-                            <p className="text-2xl font-mono font-bold text-primary mt-1 leading-none">{u.runtimeUtilizationPct}%</p>
-                            <div className="mt-2 h-1.5 w-full rounded-full bg-border/70 overflow-hidden">
-                              <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </PanelBody>
-                </Panel>
-              </>
-            )}
-          </div>
-        );
-
-      case 'orders':
-        return (
-          <Panel className="h-full flex flex-col">
-            <PanelHeader title="Running & Preparing Orders" />
-            <PanelBody empty={filteredQueue.length === 0} emptyLabel="No active orders found">
-              <div className="min-w-full inline-block align-middle">
-                <table className="min-w-full divide-y divide-border">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Process</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-transparent divide-y divide-border">
-                    {filteredQueue.map((o) => (
-                      <tr
-                        key={o.batchNumber}
-                        className="hover:bg-secondary/50 cursor-pointer transition-colors"
-                        onClick={() => selectOrder(liveRowFromQueue(o))}
-                        onKeyDown={(e) => e.key === 'Enter' && selectOrder(liveRowFromQueue(o))}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <td className="px-4 py-3 text-sm">
-                          <OrderIdentityDisplay order={o} size="sm" />
-                        </td>
-                        <td className="px-4 py-3 text-sm truncate max-w-[12rem] text-muted-foreground">{o.customer || '—'}</td>
-                        <td className="px-4 py-3 text-sm font-medium">
-                          {formatOrderProcessLabel(o.subProcess, o.currentProcess)}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-mono tabular-nums">{o.weightMt} MT</td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            o.status === 'RUNNING' || o.status === 'IN_PROGRESS' 
-                              ? 'bg-success/10 text-success' 
-                              : 'bg-primary/10 text-primary'
-                          }`}>
-                            {formatOrderStatusLabel(o.status)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </PanelBody>
-          </Panel>
-        );
-
-      case 'production':
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
-            <Panel>
-              <PanelHeader title="Production History · This Shift" />
-              <PanelBody empty={filteredProduction.length === 0}>
-                <ul className="divide-y divide-border text-xs">
-                  {filteredProduction.map((h) => (
-                    <li
-                      key={`${h.batchNumber}-${h.completedAt}`}
-                      className={orderRowClass(h.batchNumber)}
-                      onClick={() => dashboard && selectOrder(liveRowFromHistory(h, dashboard))}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <OrderIdentityDisplay order={identityFromRow(h)} size="sm" />
-                      </span>
-                      <span className="font-mono">{h.weightMt} MT</span>
-                      <span className="text-muted-foreground">{formatPlantDateTime(h.completedAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </PanelBody>
-            </Panel>
-            <Panel>
-              <PanelHeader title="Operator Activity" />
-              <PanelBody empty={filteredOperatorActivity.length === 0}>
-                <ul className="divide-y divide-border text-xs">
-                  {filteredOperatorActivity.map((a) => (
-                    <li
-                      key={`${a.batchNumber}-${a.operatorName}`}
-                      className={orderRowClass(a.batchNumber)}
-                      onClick={() => {
-                        if (!dashboard) return;
-                        const match = dashboard.orderQueue.find((q) => q.batchNumber === a.batchNumber);
-                        const id = identityFromRow(a);
-                        selectOrder(match ?? {
-                          batchNumber: a.batchNumber,
-                          customer: '—',
-                          grade: '—',
-                          machineCode: a.machineCode ?? '—',
-                          machineName: a.machineCode ?? '—',
-                          currentProcess: a.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Rolling',
-                          operatorName: a.operatorName,
-                          status: a.status as LiveOrderRow['status'],
-                          weightMt: 0,
-                          coilNo: id.coilNo,
-                          motherCoil: id.motherCoil,
-                          slitId: id.slitId,
-                        });
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <span className="font-semibold">{a.operatorName}</span>
-                      <span className="min-w-0 flex-1">
-                        <OrderIdentityDisplay order={identityFromRow(a)} size="sm" />
-                      </span>
-                      <span className="text-muted-foreground">{formatOrderStatusLabel(a.status)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </PanelBody>
-            </Panel>
-          </div>
-        );
-
-      case 'stoppages':
-        return (
-          <Panel className="h-full flex flex-col">
-            <PanelHeader title="Stoppage History · This Shift">
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                Reason
-                <select
-                  value={stoppageReason}
-                  onChange={(e) => setStoppageReason(e.target.value)}
-                  className="block rounded-lg border border-border bg-white px-2 py-1 text-sm text-foreground"
-                >
-                  <option value="ALL">All reasons</option>
-                  {stoppageCategories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </label>
-            </PanelHeader>
-            <PanelBody empty={filteredStoppages.length === 0} emptyLabel="No stoppages for this shift">
-              <div className="min-w-full inline-block align-middle">
-                <table className="min-w-full divide-y divide-border">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Machine</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Reason</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Start Time</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-transparent divide-y divide-border">
-                    {filteredStoppages.map((s) => {
-                      const isActive = s.status === 'ACTIVE';
-                      return (
-                        <tr
-                          key={`${s.batchNumber}-${s.startAt}`}
-                          className="hover:bg-secondary/50 cursor-pointer transition-colors"
-                          onClick={() => {
-                            if (!dashboard) return;
-                            const match = dashboard.orderQueue.find((q) => q.batchNumber === s.batchNumber);
-                            const id = identityFromRow(s);
-                            selectOrder(match ?? {
-                              batchNumber: s.batchNumber,
-                              customer: '—',
-                              grade: '—',
-                              machineCode: s.machineCode,
-                              machineName: s.machineCode,
-                              currentProcess: '—',
-                              status: 'STOPPAGE',
-                              weightMt: 0,
-                              coilNo: id.coilNo,
-                              motherCoil: id.motherCoil,
-                              slitId: id.slitId,
-                            });
-                          }}
-                        >
-                          <td className="px-4 py-3 text-sm font-mono font-bold">{s.machineCode}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <OrderIdentityDisplay order={identityFromRow(s)} size="sm" />
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className={`font-medium ${isActive ? 'text-destructive' : 'text-foreground'}`}>{s.category}</div>
-                            {s.remarks && <div className="text-xs text-muted-foreground">{s.remarks}</div>}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">
-                            {s.startAt ? formatPlantDateTime(s.startAt) : '—'}
-                          </td>
-                          <td className={`px-4 py-3 text-sm font-mono tabular-nums ${isActive ? 'text-warning' : 'text-muted-foreground'}`}>
-                            <StoppageDurationCell
-                              startAt={s.startAt}
-                              active={isActive}
-                              durationMin={s.durationMin}
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium">
-                            {isActive ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
-                                Active
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
-                                Ended{s.endAt ? ` · ${formatPlantDateTime(s.endAt)}` : ''}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </PanelBody>
-          </Panel>
-        );
-
-      case 'rejected':
-        return (
-          <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border/70 z-tint space-y-2 shrink-0">
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Filter date
-                  <input
-                    type="date"
-                    value={exportDate}
-                    onChange={(e) => setExportDate(e.target.value)}
-                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm"
-                  />
-                </label>
-                <label className="text-xs font-medium text-muted-foreground">
-                  Shift
-                  <select
-                    value={exportShift}
-                    onChange={(e) => setExportShift(e.target.value)}
-                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm"
-                  >
-                    <option value="">All shifts</option>
-                    {['A', 'B', 'C'].map((s) => (
-                      <option key={s} value={s}>Shift {s}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <ZButton variant="outline" size="sm" onClick={() => handleExportRejected('day')} className="gap-1">
-                  <Download className="w-3.5 h-3.5" /> Day
-                </ZButton>
-                <ZButton variant="outline" size="sm" onClick={() => handleExportRejected('shift')} className="gap-1">
-                  <Download className="w-3.5 h-3.5" /> Shift
-                </ZButton>
-              </div>
-            </div>
-            <PanelBody empty={!rejectedLoading && filteredRejected.length === 0} emptyLabel={rejectedLoading ? 'Loading held orders…' : 'No orders on hold'}>
-              <ul className="divide-y divide-border text-xs">
-                {filteredRejected.map((r) => (
-                  <li
-                    key={`${r.batchNumber}-${r.rejectionTime}`}
-                    className={`${orderRowClass(r.batchNumber)} flex-col items-stretch`}
-                    onClick={() => selectOrder(liveRowFromRejected(r))}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div className="flex justify-between w-full gap-2">
-                      <OrderIdentityDisplay order={identityFromRow(r)} size="sm" className="min-w-0" />
-                      <span className="font-mono font-bold text-destructive shrink-0">{r.weightMt} MT</span>
-                    </div>
-                    <div className="flex gap-2 items-start mt-1 w-full">
-                      <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
-                      <div>
-                        <p>{r.reason}</p>
-                        <p className="text-muted-foreground mt-0.5">
-                          Held by {r.rejectedBy} · {formatPlantDateTime(r.rejectionTime)}
-                        </p>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </PanelBody>
-          </Panel>
-        );
-
-      case 'completed':
-        return (
-          <Panel className="h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-border/70 z-tint space-y-2 shrink-0">
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Filter date
-                  <input
-                    type="date"
-                    value={exportDate}
-                    onChange={(e) => setExportDate(e.target.value)}
-                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm font-mono tabular-nums"
-                  />
-                </label>
-                <label className="text-xs font-medium text-muted-foreground">
-                  Shift
-                  <select
-                    value={exportShift}
-                    onChange={(e) => setExportShift(e.target.value)}
-                    className="mt-1 block rounded-lg border border-border bg-white px-2 py-1 text-sm"
-                  >
-                    <option value="">All shifts</option>
-                    {['A', 'B', 'C'].map((s) => (
-                      <option key={s} value={s}>Shift {s}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {dashboard && (
-                <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1">
-                  <div className="flex items-baseline gap-1.5">
-                    <dt className="text-xs font-medium text-muted-foreground">History rows</dt>
-                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">
-                      {completedLoading
-                        ? dashboard.shiftSummary.completedOrderCount
-                        : completedOrders.length}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <dt className="text-xs font-medium text-muted-foreground">Completed MT</dt>
-                    <dd className="text-sm font-bold font-mono tabular-nums text-foreground">
-                      {(completedLoading
-                        ? (dashboard.shiftSummary.completedProdMt ?? 0)
-                        : completedOrders.reduce((s, o) => s + (Number(o.weightMt) || 0), 0)
-                      ).toFixed(1)} MT
-                    </dd>
-                  </div>
-                </dl>
-              )}
-            </div>
-            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading history…' : 'No completed history'}>
-              <div className="min-w-full inline-block align-middle">
-                <table className="min-w-full divide-y divide-border">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Order / Coil</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Process</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Machine</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Weight</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Completed At</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-transparent divide-y divide-border">
-                    {completedOrders.map((o) => (
-                      <tr
-                        key={o.key}
-                        className={[
-                          'transition-colors',
-                          o.kind === 'CRM' ? 'hover:bg-secondary/50 cursor-pointer' : 'hover:bg-secondary/30',
-                        ].join(' ')}
-                        onClick={() => {
-                          if (o.kind !== 'CRM') return;
-                          const id = identityFromRow(o);
-                          selectOrder({
-                            batchNumber: o.batchNumber,
-                            customer: o.customer ?? '—',
-                            grade: o.grade ?? '—',
-                            machineCode: o.machineCode ?? '—',
-                            machineName: o.machineCode ?? '—',
-                            currentProcess: formatOrderProcessLabel(o.subProcess),
-                            operatorName: o.operatorName,
-                            status: 'COMPLETED',
-                            weightMt: o.weightMt ?? 0,
-                            coilNo: id.coilNo,
-                            motherCoil: id.motherCoil,
-                            slitId: id.slitId,
-                            subProcess: o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
-                          });
-                        }}
-                      >
-                        <td className="px-4 py-3 text-sm">
-                          {o.kind === 'CRM' ? (
-                            <OrderIdentityDisplay order={identityFromRow(o)} size="sm" />
-                          ) : (
-                            <span className="font-mono text-xs font-bold text-foreground">{o.batchNumber}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium">
-                          {o.subProcess === 'MANUAL_REROLL'
-                            ? formatProcessFilterLabel('MANUAL_REROLL')
-                            : formatOrderProcessLabel(o.subProcess)}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-mono font-bold">{o.machineCode ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-[12rem]">{o.customer ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm font-mono tabular-nums font-bold">
-                          {o.weightMt != null ? `${o.weightMt} MT` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-mono tabular-nums text-muted-foreground">{o.prodEndAt ? formatPlantDateTime(o.prodEndAt) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </PanelBody>
-          </Panel>
-        );
-
-      case 'handover':
-        return (
-          <Panel className="h-full">
-            <PanelHeader
-              title={
-                dashboard?.shiftSummary
-                  ? `Shift Handover · ${dashboard.shiftSummary.prodDate} · Shift ${dashboard.shiftSummary.shiftCode}`
-                  : 'Shift Handover Logs'
-              }
-            >
-              <span className="text-[10px] text-muted-foreground font-medium">
-                Pending · Manual completed · Auto completed
-              </span>
-            </PanelHeader>
-            <PanelBody empty={filteredHandover.length === 0}>
-              <ul className="divide-y divide-border text-xs">
-                {filteredHandover.map((h) => (
-                  <li key={h.handoverId} className="px-4 py-3 hover:bg-secondary/50">
-                    <div className="flex justify-between mb-1 gap-2">
-                      <span className="font-bold">{h.machineCode}</span>
-                      <span className="text-muted-foreground font-mono shrink-0">
-                        {h.prodDate ? `${h.prodDate} · ` : ''}Shift {h.outgoingShiftCode} → {h.incomingShiftCode}
-                        {' · '}
-                        <span
-                          className={
-                            h.status === 'PENDING'
-                              ? 'text-amber-700'
-                              : h.status === 'AUTO_COMPLETED' || h.createdByBoundary
-                                ? 'text-sky-700'
-                                : h.status === 'ACCEPTED'
-                                  ? 'text-emerald-700'
-                                  : undefined
-                          }
-                        >
-                          {handoverCompletionLabel(h)}
-                        </span>
-                      </span>
-                    </div>
-                    <p className="text-muted-foreground mb-1">
-                      Out: {h.outgoingUsername ?? '—'}
-                      {' · '}
-                      In: {h.incomingUsername
-                        ?? (h.status === 'AUTO_COMPLETED' || h.createdByBoundary
-                          ? 'SYSTEM'
-                          : h.status === 'PENDING'
-                            ? 'Awaiting accept'
-                            : '—')}
-                    </p>
-                    {h.batchNumber ? (
-                      <div className="mb-1">
-                        <OrderIdentityDisplay order={identityFromRow({
-                          batchNumber: h.batchNumber,
-                          motherCoil: h.motherCoil,
-                          coilNo: h.coilNo,
-                          slitId: h.slitId,
-                        })} size="sm" />
-                      </div>
-                    ) : (
-                      <p className="text-muted-foreground">Machine handover</p>
-                    )}
-                    {h.subProcess && (
-                      <p className="text-muted-foreground">
-                        {h.subProcess === 'SKIN_PASS' ? 'Skin Pass' : 'Cold Rolling'}
-                      </p>
-                    )}
-                    <p className="text-muted-foreground">
-                      Start {formatPlantDateTime(h.shiftStartAt ?? h.createdAt)}
-                      {h.shiftEndAt ? ` · End ${formatPlantDateTime(h.shiftEndAt)}` : ''}
-                      {h.shiftDurationMinutes != null ? ` · ${h.shiftDurationLabel ?? formatDuration(h.shiftDurationMinutes)}` : ''}
-                    </p>
-                    {h.remarks && (
-                      <p className="mt-1 text-foreground/80 whitespace-pre-wrap">{h.remarks}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </PanelBody>
-          </Panel>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const tabContent = renderMachineHeadTabContent({
+    activeTab,
+    dashboard,
+    machines,
+    openMachineDetail,
+    filteredQueue,
+    filteredProduction,
+    filteredOperatorActivity,
+    filteredStoppages,
+    stoppageCategories,
+    stoppageReason,
+    setStoppageReason,
+    filteredRejected,
+    rejectedLoading,
+    filteredHandover,
+    completedOrders,
+    completedLoading,
+    exportDate,
+    setExportDate,
+    exportShift,
+    setExportShift,
+    handleExportRejected,
+    selectedBatch,
+    selectOrder,
+    onLoadMoreProduction: historyNextCursor ? () => { void loadMoreProductionHistory(); } : undefined,
+  });
 
   return (
     <MachineHeadShell
@@ -1283,7 +572,7 @@ export function MachineHeadDashboard() {
           ].join(' ')}
         >
           <div className="min-h-0 overflow-y-auto pr-1">
-            {renderTabContent()}
+            {tabContent}
           </div>
 
           {showOrderPanel && (

@@ -198,11 +198,11 @@ export function PpcRollingImportPanel({
   }, [selected.size, importableRows]);
 
   return (
-    <div className="p-4 space-y-4">
-      <p className="text-xs text-muted-foreground">
+    <div className="space-y-4 p-4">
+      <p className="text-xs text-muted-foreground leading-relaxed max-w-prose">
         {line ? (
           <>
-            Upload the <span className="font-medium">{line}</span> plan file (single sheet).
+            Upload the <span className="font-medium text-foreground">{line}</span> plan file (single sheet).
             Wrong-line files are rejected by signature columns.
             Fail-safe import skips coils already in this line or advanced past it.
             Plan date comes from the sheet; shift is derived automatically during import.
