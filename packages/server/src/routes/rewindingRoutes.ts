@@ -121,7 +121,7 @@ router.get('/queue', async (req, res) => {
       respondError(res, 'rewinding.authorize', e);
       return;
     }
-    const result = await RewindingOrderService.getQueue(machine);
+    const result = await RewindingOrderService.getQueue(machine, { backfillUserId: req.user.id });
     res.json(result);
   } catch (e) {
     respondError(res, 'rewinding.queue', e);

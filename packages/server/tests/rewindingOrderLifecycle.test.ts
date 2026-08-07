@@ -13,6 +13,7 @@ import {
 } from '../src/utils/orderLifecycleHelpers';
 import {
   assertRewindingMachine,
+  isRewindingPpcBatch,
   parseRewindingMachineCode,
   REWINDING_MACHINES,
 } from '../src/utils/rewindingMachines';
@@ -119,6 +120,17 @@ describe('rewindingMachines', () => {
     expect(parseRewindingMachineCode('6HI')).toBeNull();
     expect(assertRewindingMachine('2HI')).toBe('2HI');
     expect(() => assertRewindingMachine('6HI')).toThrow(/Invalid rewinding machine/);
+  });
+});
+
+describe('isRewindingPpcBatch', () => {
+  it('accepts rewinding import/manual rows on RWD or 2HI only', () => {
+    expect(isRewindingPpcBatch({ machine_code: 'RWD', sub_process: 'RWD', destination: 'REWINDING' })).toBe(true);
+    expect(isRewindingPpcBatch({ machine_code: '2HI', sub_process: 'REWINDING' })).toBe(true);
+    expect(isRewindingPpcBatch({ machine_code: 'RWD', sub_process: 'RWD' })).toBe(true);
+    expect(isRewindingPpcBatch({ machine_code: '6HI', sub_process: 'ROLLING', destination: 'REWINDING' })).toBe(false);
+    expect(isRewindingPpcBatch({ machine_code: '6HI', sub_process: 'ROLLING', from_work_center: 'R' })).toBe(false);
+    expect(isRewindingPpcBatch({ machine_code: 'RWD', sub_process: 'ROLLING' })).toBe(false);
   });
 });
 

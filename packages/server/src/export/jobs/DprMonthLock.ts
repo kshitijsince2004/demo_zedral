@@ -6,7 +6,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 export async function isDprMonthFinalized(month: string): Promise<boolean> {
   if (!MONTH_RE.test(month)) return false;
   const row = await db
-    .selectFrom('audit.dpr_month_lock' as any)
+    .selectFrom('audit.dpr_month_lock')
     .select('month')
     .where('month', '=', month)
     .executeTakeFirst();
@@ -35,7 +35,7 @@ export async function finalizeDprMonth(
   const existing = await isDprMonthFinalized(month);
   if (existing) {
     await db
-      .updateTable('audit.dpr_month_lock' as any)
+      .updateTable('audit.dpr_month_lock')
       .set({
         finalized_at: new Date(),
         finalized_by: user.id,
@@ -47,7 +47,7 @@ export async function finalizeDprMonth(
   }
 
   await db
-    .insertInto('audit.dpr_month_lock' as any)
+    .insertInto('audit.dpr_month_lock')
     .values({
       month,
       finalized_by: user.id,

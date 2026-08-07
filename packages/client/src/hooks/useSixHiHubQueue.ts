@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import useSWR from 'swr';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { apiClient } from '../lib/apiClient';
+import { networkAwareRefreshInterval } from '../lib/networkAwareInterval';
 import { subscribeProductionSync } from '../lib/productionSync';
 import { jsonEqual } from '../lib/silentRefresh';
 
@@ -60,7 +61,7 @@ export function useSixHiHubQueue(input: {
   const queueUrl = buildQueueUrl(input);
 
   const { data, error, isLoading, isValidating, mutate } = useSWR(queueUrl, fetchHubQueue, {
-    refreshInterval: 15_000,
+    refreshInterval: networkAwareRefreshInterval(15_000),
     revalidateOnFocus: false,
     keepPreviousData: true,
     compare: (a, b) => jsonEqual(a, b),

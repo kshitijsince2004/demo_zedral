@@ -23,6 +23,7 @@ import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
 import { MachineStateEventService } from './MachineStateEventService';
+import { earlierShiftCodesOnSameDay } from './sixHi/shiftCycle';
 import {
   ensureOrderMachineTransferTable,
   loadRecentOrderMachineTransfersGlobal,
@@ -305,14 +306,6 @@ export class SixHiService {
     'STOPPAGE',
   ] as const;
 
-  /** Shift codes earlier in the same production day (A→B→C cycle). */
-  private static earlierShiftCodesOnSameDay(shiftCode: string): string[] {
-    const order = ['A', 'B', 'C'];
-    const idx = order.indexOf(shiftCode.toUpperCase());
-    if (idx <= 0) return [];
-    return order.slice(0, idx);
-  }
-
   private static readonly queueBatchRowShape = {} as {
     batch_id: string | number | bigint;
     batch_number: string;
@@ -335,6 +328,29 @@ export class SixHiService {
     shift_code: string;
   };
 
+  /** Columns used by mapQueueCard / queueBatchRowShape — not selectAll('pb'). */
+  private static readonly QUEUE_BATCH_COLS = [
+    'pb.batch_id',
+    'pb.batch_number',
+    'pb.coil_no',
+    'pb.slit_id',
+    'pb.customer_name',
+    'pb.grade_code',
+    'pb.width_mm',
+    'pb.input_thk_mm',
+    'pb.ppc_thk_mm',
+    'pb.finish_thk_mm',
+    'pb.machine_code',
+    'pb.machine_allocated',
+    'pb.active_rolling_pass_no',
+    'pb.ppc_weight_mt',
+    'pb.destination',
+    'pb.roll_finish',
+    'pb.ppc_reroll_flag',
+    'pb.plan_date',
+    'pb.shift_code',
+  ] as const;
+
   private static async prefetchQueueCardContext(
     batches: Array<typeof SixHiService.queueBatchRowShape>,
     subProcess: SixHiSubProcess,
@@ -351,7 +367,7 @@ export class SixHiService {
     }
 
     const orders = await db.selectFrom('txn.crm_order')
-      .selectAll()
+      .select(['order_id', 'batch_id', 'status', 'prod_duration_min'])
       .where('batch_id', 'in', batchIds)
       .execute();
     type OrderRow = (typeof orders)[number];
@@ -502,7 +518,7 @@ export class SixHiService {
     const operationalViewDateKey = postgresDateOnly(operationalViewDate);
     const incomplete = [...SixHiService.INCOMPLETE_ORDER_STATUSES];
 
-    const earlierSameDayShifts = this.earlierShiftCodesOnSameDay(shiftCode);
+    const earlierSameDayShifts = earlierShiftCodesOnSameDay(shiftCode);
     /**
      * Operator-level backlog (intentional vs plant-level):
      * - Includes prior calendar days (plan_date < operational view date), AND
@@ -536,7 +552,7 @@ export class SixHiService {
     // Operational assigned queue — machine sequence only (not planned date).
     const batches = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .selectAll('pb')
+      .select([...SixHiService.QUEUE_BATCH_COLS])
       .where('pb.machine_code', '=', machineCode)
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', true)
@@ -548,7 +564,7 @@ export class SixHiService {
     // Operational pending pool — unallocated, excluding PPC backlog bucket.
     const pendingBatches = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .selectAll('pb')
+      .select([...SixHiService.QUEUE_BATCH_COLS])
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
       .where(incompleteFilter)
@@ -560,7 +576,7 @@ export class SixHiService {
     // Planning backlog visibility — compare PPC plan_date to operational view (not shift input).
     const backlogBatches = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .selectAll('pb')
+      .select([...SixHiService.QUEUE_BATCH_COLS])
       .where('pb.sub_process', '=', subProcess)
       .where('pb.machine_allocated', '=', false)
       .where(backlogPlanFilter)
@@ -646,7 +662,7 @@ export class SixHiService {
       db
         .selectFrom('planning.ppc_batch as pb')
         .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-        .selectAll('pb')
+        .select([...SixHiService.QUEUE_BATCH_COLS])
         .select(['o.status'])
         .where('pb.machine_code', '=', machineCode)
         .where('pb.sub_process', '=', subProcess)
@@ -3430,6 +3446,21 @@ export class SixHiService {
       }
     };
 
+    const rollingOrderIds = shiftOrders
+      .filter((o) => o.sub_process === 'ROLLING')
+      .map((o) => o.order_id);
+    const rerollByOrderId = new Map<string, boolean>();
+    if (rollingOrderIds.length > 0) {
+      const rerollRows = await db
+        .selectFrom('txn.crm_rolling')
+        .select(['order_id', 'rerolling'])
+        .where('order_id', 'in', rollingOrderIds)
+        .execute();
+      for (const r of rerollRows) {
+        rerollByOrderId.set(String(r.order_id), !!r.rerolling);
+      }
+    }
+
     for (const o of shiftOrders) {
       const ppcWt = Number(o.ppc_weight_mt ?? o.batch_ppc_weight_mt ?? 0);
       const wt = await this.getOrderProductionWeight(
@@ -3453,16 +3484,14 @@ export class SixHiService {
         });
         targetCompletedMt += ppcWt;
         addWeight(o.sub_process, wt, 'completed');
-        if (o.sub_process === 'ROLLING' && wt > 0) {
-          const r = await db.selectFrom('txn.crm_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
-          if (r?.rerolling) completedReroll += wt;
+        if (o.sub_process === 'ROLLING' && wt > 0 && rerollByOrderId.get(String(o.order_id))) {
+          completedReroll += wt;
         }
       } else if (o.status === 'IN_PROGRESS' || o.status === 'STOPPAGE') {
         if (wt <= 0) continue;
         addWeight(o.sub_process, wt, 'inProgress');
-        if (o.sub_process === 'ROLLING') {
-          const r = await db.selectFrom('txn.crm_rolling').select('rerolling').where('order_id', '=', o.order_id).executeTakeFirst();
-          if (r?.rerolling) inProgressReroll += wt;
+        if (o.sub_process === 'ROLLING' && rerollByOrderId.get(String(o.order_id))) {
+          inProgressReroll += wt;
         }
       }
     }

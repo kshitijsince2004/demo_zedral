@@ -1671,247 +1671,361 @@ ewindingOrderLifecycle.test.ts
 - **Decisions / skipped:** Reused lucide `Trash2` + ghost `ZButton`.
 - **Follow-ups:** None.
 
-### 2026-08-05 — Manual Re-Roll mode (6HI/4HI/2HI)
+### 2026-08-05 ? Manual Re-Roll mode (6HI/4HI/2HI)
 
 - **Goal:** Isolated, flag-gated Manual Re-Roll overlay for CRM mills with operator/admin write and read-only summary.
 - **Touched:** `packages/server/migrations/19610000000000_manual_reroll_session.js`, `packages/server/src/db-types.ts`, `packages/server/src/middleware/tenantFlagMiddleware.ts`, `packages/server/src/services/ManualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/server/src/app.ts`, `packages/server/src/services/SixHiService.ts`, `packages/server/src/routes/sixHiRoutes.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/client/src/hooks/useTenantFlag.ts`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/services/manualRerollService.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, tests under `packages/server/tests/manualReroll*.test.ts` + `packages/client/tests/manualRerollUi.test.ts`
 - **Decisions / skipped:** Flag `mode.manual_reroll` default off; no machine_state_event; no getOrder/ensureOrder; reverse 409 only via startProduction hook; online-only; no admin flag UI. `arch:deps` clean; `arch:test` still fails on pre-existing `1946000000000_pkl_coil_chart_masters.js` / `maint`.
 - **Follow-ups:** Enable flag in `security.tenant_config.flags`; optional machine-state mirror later.
 
-### 2026-08-05 — Production-fix plan (HRS mass-balance + hygiene)
+### 2026-08-05 ? Production-fix plan (HRS mass-balance + hygiene)
 
 - **Goal:** Implement `PRODUCTION_FIX_IMPLEMENTATION_PLAN.md` without operator-flow regression.
 - **Touched:** `packages/shared-validation/src/utils/slitAllocation.ts`, `packages/shared-validation/src/utils/calculationEngine.ts`, `packages/server/src/modules/m1-collection/consumers/JourneyAdvanceConsumer.ts`, `packages/server/scripts/reconcile-hrs-child-weights.mjs`, `packages/server/scripts/repair-migration-history.mjs`, `packages/server/scripts/db-codegen.mjs`, migrations `1961000000000`/`1962000000000`/`1963000000000`, `packages/server/src/db-types.ts`, `packages/server/src/utils/logger.ts`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, deleted `lineageService.ts` / `auditedTables.ts` / `DprMappingAudit.ts` / `plantHeadValidators.ts` / `SixHiShiftSummaryPanel.tsx`, `doc/PRODUCTION_FIX_PHASE4_DESIGN.md`, `e2e/tests/line-hub-smoke.spec.ts`, `PROJECT_STRUCTURE.md`, `.github/workflows/ci.yml`
 - **Decisions / skipped:** Scrap denom = mother input wt (`mother_coil_weight_mt ?? weight_mt`). Full `kysely-codegen --verify` deferred (hand-maintained schema-qualified types); CI uses a stale-symbol guard. Phase 0.1/0.2 + fresh/existing migrate schema diff not run locally (Windows vitest/`node_modules` broken; no prod snapshot). `CoilTraceabilityService` already absent. Reconciliation script dry-run only until signed off.
-- **Follow-ups:** Linux CI green baseline; dry-run `reconcile:hrs-child-weights` on scratch DB then `--apply`; `repair:migrations` on existing envs before next migrate; LINE_E2E hub smokes + full capture→handover e2e per line; Phase 4 PRs from design note.
+- **Follow-ups:** Linux CI green baseline; dry-run `reconcile:hrs-child-weights` on scratch DB then `--apply`; `repair:migrations` on existing envs before next migrate; LINE_E2E hub smokes + full capture?handover e2e per line; Phase 4 PRs from design note.
 
-### 2026-08-05 — Manual Re-Roll enter button on CRM hubs
+### 2026-08-05 ? Manual Re-Roll enter button on CRM hubs
 
 - **Goal:** Add hub-header button to enter existing Manual Re-Roll overlay without changing rolling/skin-pass/transfer flows.
 - **Touched:** `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/tests/manualRerollUi.test.ts`
 - **Decisions / skipped:** Kept pill tab + `?tab=reroll` routing. Button only on 6HI/4HI Rolling and all 2HI hub tabs. Flag still default off. No StatusRail/capture/ProcessHub changes.
 - **Follow-ups:** Enable `mode.manual_reroll` in `security.tenant_config.flags` to show the button.
 
-### 2026-08-05 — Manual Re-Roll button always visible on CRM hubs
+### 2026-08-05 ? Manual Re-Roll button always visible on CRM hubs
 
 - **Goal:** Button was hidden because `mode.manual_reroll` defaulted false and UI was fail-closed.
 - **Touched:** `packages/server/src/platform/tenantConfig.ts`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/hooks/useTenantFlag.ts`, `packages/client/tests/manualRerollUi.test.ts`, `packages/server/migrations/1964000000000_enable_manual_reroll.js`
 - **Decisions / skipped:** Force flag on in tenant config; UI entry no longer waits on the flag; show on all CRM hub tabs. API still role/machine gated.
 - **Follow-ups:** Restart server/client if hot reload misses `tenantConfig.ts`; run migrate `1964000000000` on other envs.
 
-### 2026-08-05 — Manual Re-Roll hub full-bleed + pending list
+### 2026-08-05 ? Manual Re-Roll hub full-bleed + pending list
 
 - **Goal:** Full-width overlay, auto-list pending orders, drop weight input.
 - **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/services/manualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/server/src/services/ManualRerollService.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/server/tests/manualRerollRoutes.test.ts`
 - **Decisions / skipped:** Pending-only search (`status = PENDING`); qty taken from `ppc_weight_mt` when omitted. Table still requires migrate if missing.
 - **Follow-ups:** Run server migrate if `txn.manual_reroll_session` error remains.
 
-### 2026-08-05 — Re-roll table ensure + combine + single entry
+### 2026-08-05 ? Re-roll table ensure + combine + single entry
 
 - **Goal:** Fix missing `txn.manual_reroll_session`, add combine selection, drop pill entry.
 - **Touched:** `packages/server/src/services/ManualRerollService.ts`, `packages/server/src/routes/manualRerollRoutes.ts`, `packages/shared-validation/src/rules/manualRerollRules.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/lib/manualRerollUi.ts`, `packages/client/src/services/manualRerollService.ts`, tests
 - **Decisions / skipped:** Auto-CREATE TABLE on first use; combined batches stored in remarks tag; operator entry is header button only.
 - **Follow-ups:** Restart API so ensure-table runs; optional `npm run migrate` still good hygiene.
 
-### 2026-08-05 — HRS prod_hrs_slit child_coil FK on sync
+### 2026-08-05 ? HRS prod_hrs_slit child_coil FK on sync
 
 - **Goal:** Unblock parked `POST /production/hrs` for coil `1100038447` (`prod_hrs_slit_child_coil_no_fkey`).
 - **Touched:** `packages/server/src/modules/m1-collection/services/ProductionService.ts`, `packages/server/src/utils/childCoil.ts`, `packages/server/src/modules/m1-collection/consumers/JourneyAdvanceConsumer.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/tests/hrsChildCoil.test.ts`
 - **Decisions / skipped:** Mint derived `mother-slot` coils in the same txn before slit insert (HRS + CRS). Did not drop the FK. Local vitest still broken (`@vitest/utils` missing).
 - **Follow-ups:** Restart API; retry/approve the parked HRS sync for `1100038447`.
 
-### 2026-08-05 — HRS thickness decimals + End click no-op
+### 2026-08-05 ? HRS thickness decimals + End click no-op
 
 - **Goal:** Decimal thickness typing in HRS console; End must actually open when rail shows it.
 - **Touched:** `packages/client/src/lib/hrsThkMatrix.ts`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/ProcessLayout.tsx`, `packages/client/tests/hrsThkMatrix.test.ts`
 - **Decisions / skipped:** Store decimal strings while typing. Removed `captureStatus === 'stoppage'` early-return on End (rail already gates open stoppage). End failures also set `captureError`.
 - **Follow-ups:** Restart API+client; if Sync Attention remains for `1100038447`, retry after child-coil mint fix.
 
-### 2026-08-05 — HRS completed queue + stoppage code select
+### 2026-08-05 ? HRS completed queue + stoppage code select
 
 - **Goal:** Show today's completed HRS orders; keep stoppage codes selectable at start and after start.
 - **Touched:** `packages/server/src/services/HrsOrderService.ts`, `packages/server/src/services/PklOrderService.ts`, `packages/client/src/components/sixHi/StoppageCodeSelect.tsx`, `packages/client/src/components/sixHi/OrderStoppageModal.tsx`, `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/tests/processStoreHrsPklFixes.test.ts`
-- **Decisions / skipped:** Completed match uses prod_date / production_day / plant-local prod_end_at. Native `<select>` (custom menu was clipped). Manage-stoppage no longer falls back to SixHi catalogue. All tab still hides COMPLETED by design — use Completed pill.
+- **Decisions / skipped:** Completed match uses prod_date / production_day / plant-local prod_end_at. Native `<select>` (custom menu was clipped). Manage-stoppage no longer falls back to SixHi catalogue. All tab still hides COMPLETED by design ? use Completed pill.
 - **Follow-ups:** Restart API+client; open **Completed** filter after End.
 
-### 2026-08-05 — HRS completed view production inputs
+### 2026-08-05 ? HRS completed view production inputs
 
 - **Goal:** Let operators open a completed HRS order and see the saved width / thickness / taper inputs.
 - **Touched:** `packages/client/src/components/process/ProcessQueueDetailPanel.tsx`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/lib/hrsThkMatrix.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/client/tests/hrsThkMatrix.test.ts`
 - **Decisions / skipped:** Completed CTA is **View production** (same capture route, read-only). Prefill now attaches latest `prod_hrs` snapshot. Did not add a separate history page.
-- **Follow-ups:** Restart API+client; Completed pill → select coil → View production.
+- **Follow-ups:** Restart API+client; Completed pill ? select coil ? View production.
 
-### 2026-08-05 — HRS completed form scroll
+### 2026-08-05 ? HRS completed form scroll
 
 - **Goal:** Allow scrolling the filled HRS console on completed / view-production.
 - **Touched:** `packages/client/src/components/process/CaptureWorkspace.tsx`, `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`
 - **Decisions / skipped:** Dropped wrapper `pointer-events-none` (it ate wheel/touch scroll). Save/End still blocked.
 - **Follow-ups:** None.
 
-### 2026-08-05 — PKL queue 400 on HRS child coil
+### 2026-08-05 ? PKL queue 400 on HRS child coil
 
 - **Goal:** Stop `GET /pkl-order/queue` 400 `No PKL batch found for coil: 1100038447-A`.
 - **Touched:** `packages/server/src/services/PklOrderService.ts`, `packages/client/src/store/processStore.ts`
 - **Decisions / skipped:** Resolve plan batch via mother + slit; stamp child coil on `pkl_order`. Queue skips a bad journey row instead of failing the list.
 - **Follow-ups:** Restart API; refresh PKL hub.
 
-### 2026-08-05 — PKL completed view production read-only
+### 2026-08-05 ? PKL completed view production read-only
 
 - **Goal:** Completed PKL **View production** opens console with saved inputs visible and not editable.
 - **Touched:** `packages/server/src/services/ProcessStationService.ts`, `packages/client/src/components/process/bodies/PklCoilForm.tsx`
 - **Decisions / skipped:** Prefill attaches `pklCapture` from `txn.prod_pkl`. Form fieldset disabled when COMPLETED; Save hidden.
-- **Follow-ups:** Restart API+client; PKL Completed pill → View production.
+- **Follow-ups:** Restart API+client; PKL Completed pill ? View production.
 
-### 2026-08-05 — PKL chart reading popup
+### 2026-08-05 ? PKL chart reading popup
 
 - **Goal:** Open PKL process-chart Add Reading form in a popup, not inline.
 - **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
 - **Decisions / skipped:** Overlay modal over shift history; Cancel / backdrop close. Same save payload.
 - **Follow-ups:** None.
 
-### 2026-08-05 — PKL Save Reading button wider + dark green
+### 2026-08-05 ? PKL Save Reading button wider + dark green
 
 - **Goal:** Longer dark-green Save Reading button on the chart popup.
 - **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
 - **Decisions / skipped:** `variant="primary"` (plant dark green) + `min-w-[16rem]`.
 - **Follow-ups:** None.
 
-### 2026-08-05 — PKL Save Reading button right-aligned
+### 2026-08-05 ? PKL Save Reading button right-aligned
 
 - **Goal:** Place Save Reading on the right of the chart popup footer.
 - **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
 - **Decisions / skipped:** `justify-between` + `ml-auto`.
 - **Follow-ups:** None.
 
-### 2026-08-05 — ANN import missing from batching incoming
+### 2026-08-05 ? ANN import missing from batching incoming
 
 - **Goal:** Show imported ANN orders on MH batching incoming list.
 - **Touched:** `packages/server/src/services/ProcessStationService.ts`, `packages/client/src/pages/machinehead/ann/AnnMhBatchingPage.tsx`, `packages/client/src/components/process/bodies/AnnBatchesPanel.tsx`, `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** ACTIVE journey was mapped to IN_PROGRESS then filtered out. Remap waiting ANN coils to PENDING, union `ppc_batch` ANN rows, hide coils already on an open charge. Multi-batch-per-mother journey keying still deferred.
 - **Follow-ups:** Restart API+client; re-open Ann Batching after import.
 
-### 2026-08-05 — ANN spec Bases + WI limits edit/delete
+### 2026-08-05 ? ANN spec Bases + WI limits edit/delete
 
 - **Goal:** Edit and delete on ANN spec admin Bases and WI limits.
 - **Touched:** `packages/client/src/pages/admin/AnnSpecAdmin.tsx`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/routes/processStationRoutes.ts`
 - **Decisions / skipped:** Soft-delete via `is_active=false`. Bases POST upserts on `base_no`. Same pattern as PKL spec admin.
 - **Follow-ups:** Restart API+client; open Ann Specs.
 
-### 2026-08-05 — ANN spec seed Bases + WI limits
+### 2026-08-05 ? ANN spec seed Bases + WI limits
 
 - **Goal:** Populate Ann Specs with WI seed (16 bases + soak/cool/purge/clubbing limits).
 - **Touched:** `packages/server/migrations/1965000000000_reseed_ann_spec_masters.js`, `packages/server/scripts/seed-process-queues.mjs`
-- **Decisions / skipped:** Same values as 1947 / plan §5.1+§5.6. Upsert + reactivate. AB01/AB06 soak adj +1 hr.
+- **Decisions / skipped:** Same values as 1947 / plan ?5.1+?5.6. Upsert + reactivate. AB01/AB06 soak adj +1 hr.
 - **Follow-ups:** `npm run migrate`; refresh Ann Specs.
 
-### 2026-08-05 — ANN 10-stage cycle seed + invariants
+### 2026-08-05 ? ANN 10-stage cycle seed + invariants
 
-- **Goal:** Idempotent 10-stage ANN cycle (plan §4.3 / §5.8) with `default_active`.
+- **Goal:** Idempotent 10-stage ANN cycle (plan ?4.3 / ?5.8) with `default_active`.
 - **Touched:** `packages/server/migrations/1966000000000_ann_stage_cycle_reseed.js`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/db-types.ts`, `packages/server/scripts/seed-process-queues.mjs`, `packages/server/tests/annStageInvariant.unit.test.ts`, `packages/client/src/pages/process/AnnChargePage.tsx`
-- **Decisions / skipped:** RAPID_COOL + WATER_COOL skippable only. `seedAnnStages` reads master by seq, starts LOADING. Totals = Σ non-skipped duration; idle = gaps. Operator header shows Anneal time. Full flow already existed — tightened seed + column.
+- **Decisions / skipped:** RAPID_COOL + WATER_COOL skippable only. `seedAnnStages` reads master by seq, starts LOADING. Totals = ? non-skipped duration; idle = gaps. Operator header shows Anneal time. Full flow already existed ? tightened seed + column.
 - **Follow-ups:** Restart API+client; open an ANN charge.
 
-### 2026-08-06 — ANN preparing + assign/edit base
+### 2026-08-06 ? ANN preparing + assign/edit base
 
 - **Goal:** Unassigned ANN charges stay PREPARING until base is set and start is confirmed; MH can edit base.
 - **Touched:** `packages/server/migrations/1967000000000_ann_charge_preparing_status.js`, `packages/server/src/lib/annBaseAssignment.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/routes/processStationRoutes.ts`, `packages/client/src/components/process/bodies/AnnBaseAssignModal.tsx`, `AnnBatchesPanel.tsx`, `AnnChargePage.tsx`, `AnnMhChargeDetailPage.tsx`, `AnnMhBatchingPage.tsx`, `AnnBaseCard.tsx`, `packages/server/tests/annBaseAssignment.unit.test.ts`
 - **Decisions / skipped:** Existing `base_no` + new status value `PREPARING` only. Charges created with a base stay IN_PROCESS. Audit via `txn.shift_event_audit` `ANN_BASE_CHANGED`. REST aliases `/ann/batch/:id/assign-base` + `/base`.
 - **Follow-ups:** Run migration `196700`; restart API+client.
 
-### 2026-08-06 — Fix ANN PREPARING status check
+### 2026-08-06 ? Fix ANN PREPARING status check
 
 - **Goal:** Unblock create charge 400 `ann_charge_status_check`.
 - **Touched:** `packages/server/migrations/1967000000000_ann_charge_preparing_status.js`, local `txn.ann_charge` constraint
 - **Decisions / skipped:** Constraint now allows PREPARING. Migration drop-loop hardened for all status checks.
 - **Follow-ups:** Retry Create batch without a base.
 
-### 2026-08-06 — Manual Re-Roll console UX parity
+### 2026-08-06 ? Manual Re-Roll console UX parity
 
 - **Goal:** Rebuild Manual Re-Roll as rolling-console twin (queue filters, plan detail, action rail, live net timer, stoppage) on isolated session tables.
 - **Touched:** `packages/server/migrations/1968000000000_manual_reroll_console_parity.js`, `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `db-types.ts`, `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `manualRerollService.ts`, `manualRerollUi.ts`, `SixHiHub.tsx`, `TwoHiRewindingHub.tsx`, tests
-- **Decisions / skipped:** No CRM writes. Statuses `ON_HOLD`/`STOPPAGE`; `txn.manual_reroll_stoppage` isolated. Enter button hidden — pill tab via `withManualRerollTab` + `mode.manual_reroll` flag gate. Stoppage modal reuses `OrderStoppageModal`.
-- **Follow-ups:** Run migration `196800`; enable flag if needed; smoke Pending→Start→Stoppage→Hold→Resume→End.
+- **Decisions / skipped:** No CRM writes. Statuses `ON_HOLD`/`STOPPAGE`; `txn.manual_reroll_stoppage` isolated. Enter button hidden ? pill tab via `withManualRerollTab` + `mode.manual_reroll` flag gate. Stoppage modal reuses `OrderStoppageModal`.
+- **Follow-ups:** Run migration `196800`; enable flag if needed; smoke Pending?Start?Stoppage?Hold?Resume?End.
 
-### 2026-08-06 — Fix ManualRerollActionRail import paths
+### 2026-08-06 ? Fix ManualRerollActionRail import paths
 
 - **Goal:** Unblock Vite resolve for `manualReroll/` nested imports.
 - **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollActionRail.tsx`
-- **Decisions / skipped:** `../../` → `../../../` for lib/hooks/services (same depth as ManualRerollHub).
+- **Decisions / skipped:** `../../` ? `../../../` for lib/hooks/services (same depth as ManualRerollHub).
 - **Follow-ups:** None.
 
-### 2026-08-06 — Fix manual_reroll_session status CHECK for STOPPAGE
+### 2026-08-06 ? Fix manual_reroll_session status CHECK for STOPPAGE
 
 - **Goal:** Stoppage start 400: old CHECK blocked `STOPPAGE`/`ON_HOLD`.
 - **Touched:** `ManualRerollService.ts` (`ensureManualRerollTable` widens CHECK), `migrations/1968000000000_manual_reroll_console_parity.js`, `scripts/fix-manual-reroll-status-check.mjs`
 - **Decisions / skipped:** Drop-all status checks then re-add (ANN PREPARING pattern).
 - **Follow-ups:** Restart API after fix; retry Stoppage on an IN_PROGRESS session.
 
-### 2026-08-06 — Manual Re-Roll live status, combine, remove Cancel
+### 2026-08-06 ? Manual Re-Roll live status, combine, remove Cancel
 
 - **Goal:** MH/PH see re-roll machine status; harden overlay combine; drop session Cancel from action rail.
 - **Touched:** `ManualRerollService.ts`, `LiveService.ts`, `migrations/1969000000000_manual_reroll_batch_numbers.js`, `db-types.ts`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `sixHiStore.ts`, `StatusRail.tsx`, tests
 - **Decisions / skipped:** No CRM writes. Events + Live overlay for open sessions. `batch_numbers` column; combine validation via `assertCombineEligible`. Cancel Combined is selection-only; session cancel API kept, UI removed.
-- **Follow-ups:** Run migration `196900`; restart API; smoke Start→MH Running→Stoppage→Hold→End and multi-batch combine.
+- **Follow-ups:** Run migration `196900`; restart API; smoke Start?MH Running?Stoppage?Hold?End and multi-batch combine.
 
-### 2026-08-06 — Fix Manual Re-Roll combined-order reflection
+### 2026-08-06 ? Fix Manual Re-Roll combined-order reflection
 
 - **Goal:** Combine siblings not showing / not starting like SixHi.
 - **Touched:** `manualRerollRoutes.ts`, `manualRerollUi.ts`, `ManualRerollHub.tsx`, `ManualRerollService.ts` (batch_numbers insert), tests
 - **Decisions / skipped:** Queue includes PREPARING+PENDING; mother coil from `pb.coil_no`; combine key includes subProcess; stabilize pick effect.
-- **Follow-ups:** Restart API; select a preparing sibling set — checkboxes + Combined rail should appear.
+- **Follow-ups:** Restart API; select a preparing sibling set ? checkboxes + Combined rail should appear.
 
-### 2026-08-06 — Manual Re-Roll combine: sync select + skip allocation gate
+### 2026-08-06 ? Manual Re-Roll combine: sync select + skip allocation gate
 
 - **Goal:** Multi-batch start still single / 400 "Assign a production machine".
 - **Touched:** `ManualRerollHub.tsx` (applyCombineSelection on click; onStart pool fallback), `ManualRerollService.assertCompatibleBatches` (overlay skips `machine_allocated`)
 - **Decisions / skipped:** Overlay only needs same `machine_code` + coil/slit/finish/subprocess.
 - **Follow-ups:** Hard refresh client; pick a sibling pair; Start should send all `batchNumbers` and rail show Combined.
 
-### 2026-08-06 — Seed 5 combine-compatible 6HI rolling orders
+### 2026-08-06 ? Seed 5 combine-compatible 6HI rolling orders
 
 - **Goal:** Give operator data to smoke Manual Re-Roll / Rolling combine.
 - **Touched:** `packages/server/scripts/seed-combine-rolling.mjs`, `package.json` (`seed:combine-rolling`)
-- **Decisions / skipped:** Same mother `COMBINE-MOTHER-001`, slit `A`, finish `MATT`, ROLLING on 6HI; batches `COMBINE-6HI-01`…`05`, PENDING.
-- **Follow-ups:** Select `COMBINE-6HI-01` on 6HI Rolling or Manual Re-Roll — all 5 should auto-tick.
+- **Decisions / skipped:** Same mother `COMBINE-MOTHER-001`, slit `A`, finish `MATT`, ROLLING on 6HI; batches `COMBINE-6HI-01`?`05`, PENDING.
+- **Follow-ups:** Select `COMBINE-6HI-01` on 6HI Rolling or Manual Re-Roll ? all 5 should auto-tick.
 
-### 2026-08-06 — Manual Re-Roll hold: mandatory remark + Move to Pending
+### 2026-08-06 ? Manual Re-Roll hold: mandatory remark + Move to Pending
 
-- **Goal:** Hold → required remark → Hold queue; held card detail → Move to Pending to restart.
+- **Goal:** Hold ? required remark ? Hold queue; held card detail ? Move to Pending to restart.
 - **Touched:** `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `ManualRerollHoldModal.tsx`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `manualRerollService.ts` (client), `migrations/1970000000000_manual_reroll_hold_not_blocking.js`, tests
 - **Decisions / skipped:** Resume removed from rail. Release closes ON_HOLD as CANCELLED (CRM unchanged). ON_HOLD no longer blocks unique mill index / CRM start.
-- **Follow-ups:** Run migration `197000`; smoke Hold → Hold filter → Move to Pending → Start again.
+- **Follow-ups:** Run migration `197000`; smoke Hold ? Hold filter ? Move to Pending ? Start again.
 
-### 2026-08-06 � MH Dashboard show running process type (6HI/4HI/2HI)
+### 2026-08-06 ? MH Dashboard show running process type (6HI/4HI/2HI)
 
 - **Goal:** Live MH tiles + Orders Process column show Rolling / Skin Pass / Re-Rolling / Rewinding for CRM mills.
 - **Touched:** `packages/shared-validation/src/types/live.ts`, `LiveService.ts` (`activeProcessType`, RWD overlay), `MachineStatusBoard.tsx`, `orderLabels.ts`, `MachineHeadDashboard.tsx`, `liveService.test.ts`, `orderLabels.test.ts`
 - **Decisions / skipped:** Priority CRM ? Manual Re-Roll ? open `rwd_order`. RWD drives RUNNING like re-roll when CRM idle. No new Orders filters.
 - **Follow-ups:** Smoke MH 6HI/4HI/2HI tiles with CRM order, Manual Re-Roll, and 2HI rewinding.
 
-### 2026-08-06 � MH History tab with process pills (6HI/4HI/2HI)
+### 2026-08-06 ? MH History tab with process pills (6HI/4HI/2HI)
 
 - **Goal:** CRM MH History shows completed Rolling / Skin Pass / Manual Re-Rolling with pill filters.
 - **Touched:** `MachineHeadDashboard.tsx` (Completed?History, history pills + merge), `manualRerollService.ts` (`listManualRerollSessions`), `orderLabels.ts`, `orderLabels.test.ts`
 - **Decisions / skipped:** History-local pills (All/Rolling/Skin Pass/Manual Re-Rolling). Re-roll rows from `GET /manual-reroll/sessions` COMPLETED only; CRM detail click unchanged.
 - **Follow-ups:** Smoke History on 6HI/4HI/2HI MH with date/shift + Manual Re-Rolling pill.
 
-### 2026-08-06 � CRM operator side-nav History (6HI/4HI/2HI)
+### 2026-08-06 ? CRM operator side-nav History (6HI/4HI/2HI)
 
 - **Goal:** Add History to operator side navbar for CRM mills.
 - **Touched:** `OperatorNavRail.tsx`, `classifyOperatorNav.ts`, `CrmOperatorHistoryPage.tsx`, `ProcessOperatorHistoryPage.tsx`, `classifyOperatorNav.test.ts`
 - **Decisions / skipped:** Route `/:userScope/history`; pills Rolling / Skin Pass / Manual Re-Rolling. MH desk nav unchanged.
 - **Follow-ups:** Open History from CRM operator rail on 6HI/4HI/2HI.
 
-### 2026-08-06 � Fix Manual Re-Roll pending after complete
+### 2026-08-06 ? Fix Manual Re-Roll pending after complete
 
 - **Goal:** Completed re-roll orders no longer stay in Manual Re-Roll Pending (CRM overlay unchanged).
 - **Touched:** `ManualRerollService.ts` (`listClaimedBatchNumbers`, `buildClaimedBatchSet`), `manualRerollRoutes.ts` (/queue, /orders, start), tests
 - **Decisions / skipped:** Exclude IN_PROGRESS/STOPPAGE/ON_HOLD/COMPLETED batches; CANCELLED returns to pending. No CRM status writes.
-- **Follow-ups:** End a re-roll session � batch should leave Pending and remain in session/history.
+- **Follow-ups:** End a re-roll session ? batch should leave Pending and remain in session/history.
 
-### 2026-08-06 — Commit/push share-the-code (HRS/PKL import, manual re-roll, MH history)
+### 2026-08-06 ? Commit/push share-the-code (HRS/PKL import, manual re-roll, MH history)
 
 - **Goal:** Commit and push working tree to `zedral_test/share-the-code` so collaborators can pull.
 - **Touched:** HRS/PKL per-line import + slit/batch keying, Manual Re-Roll console, ANN base/charge work, MH process-type + History, CRM operator History; docs/migrations/tests
 - **Decisions / skipped:** Left `_inspect.cjs` untracked (local XLSX inspect scratch). Remote `zedral_test`.
 - **Follow-ups:** Collaborators pull `share-the-code`; run migrations through `197000`.
+
+### 2026-08-06 ? CRM Capture parity (6HI/4HI/2HI)
+
+- **Goal:** Capture tab shows shift summary + manual re-roll active state; operator build gets History route.
+- **Touched:** `SixHiCapturePage.tsx` (`ProcessShiftSummaryPanel`, manual re-roll card, process labels), `OperatorApp.tsx` (`history` route)
+- **Decisions / skipped:** Reuses existing `sixHiStore.loadShiftSummary`; manual re-roll links to `?tab=reroll` on Orders hub.
+- **Follow-ups:** Smoke Capture on 6HI/4HI/2HI with active re-roll + shift metrics; operator PWA History nav.
+
+### 2026-08-06 ? Fix rewinding import ? pending queue visibility
+
+- **Goal:** Imported rewinding orders show in RWD/2HI Pending after PPC commit.
+- **Touched:** `ProcessHub.tsx`, `TwoHiRewindingHub.tsx` (plan-date default All), `PPCImportService.ts` (ensureOrder on update; preserve 2HI from sheet), `rewindingMachines.ts` (`isRewindingPpcBatch`), `RewindingOrderService.ts`, tests
+- **Decisions / skipped:** Root cause = hub filtered to today while sheet plan dates differ; re-import updates skipped `rwd_order` ensure.
+- **Follow-ups:** Re-import rewinding plan ? Pending on RWD desk without changing date picker; 2HI column rows land on 2HI hub when imported via MH page.
+
+### 2026-08-06 ? Operator profile rewinding queue visibility
+
+- **Goal:** Already-imported rewinding plans visible on operator PWA (2HI tab + RWD desk).
+- **Touched:** `RewindingOrderService.getQueue` (2HI includes unallocated RWD pool; queue backfill `rwd_order`), `rewindingRoutes.ts`, `OperatorApp.tsx` (ScopeCapture/Handover/process capture), `TwoHiRewindingHub.tsx`
+- **Decisions / skipped:** Queue GET backfills missing `rwd_order` for legacy imports; 2HI operators see RWD-coded imports without RWD machine JWT.
+- **Follow-ups:** Hard refresh operator PWA; 2HI Rewinding tab or RWD line switcher; filters Pending/All + plan date All.
+
+### 2026-08-06 ? Rewinding import count = operator queue count
+
+- **Goal:** Fix import N vs visible M mismatch on operator rewinding hubs.
+- **Touched:** `RewindingOrderService.getQueue` (unified pool for RWD+2HI; no split by machine/allocated), `rewindingMachines.ts` (`destination` in `isRewindingPpcBatch`), `ProcessHub.tsx`, `TwoHiRewindingHub.tsx` (shown vs in-queue counts)
+- **Decisions / skipped:** Both desks now return same rewinding `ppc_batch` set; `machine` query param is allocate target only.
+- **Follow-ups:** Restart server; compare header ?X in queue? to import commit `loaded+updated+merged`; use All + plan date All if filters narrow list.
+
+### 2026-08-06 ? Rewinding queue: rewinding-line rows only
+
+- **Goal:** Operator queue shows only rewinding import/manual orders, not stray ppc_batch rows.
+- **Touched:** `rewindingMachines.ts` (`isRewindingPpcBatch`), `RewindingOrderService.getQueue`, tests
+- **Decisions / skipped:** Require `machine_code` RWD|2HI AND (`destination=REWINDING` OR `sub_process` RWD/REWINDING).
+- **Follow-ups:** Restart server; count should match rewinding import commit rows only.
+
+### 2026-08-06 ? Audit remediation (all findings)
+
+- **Goal:** Implement phased audit fixes H-1 through L-5 from `doc/AUDIT_REPORT (1).md`.
+- **Touched:** `carryForward.ts`, `envValidation.ts`, `app.ts`, `dbRoleAssertion.ts`, `index.ts`, `serviceAuth.ts`, `canonRoutes.ts`, `docker-compose.prod.yml`, `docker-entrypoint.sh`, `deploy/.env.production.example`, `1969000000000_order_journey_tenant_id.js`, `ProcessRouteService.ts`, `db-types.ts`, `tenantFlagsRoutes.ts`, `DprReport.ts`, `DprMonthLock.ts`, `ReportingService.ts`, `importRoutes.ts`, `exportRoutes.ts`, `reportRoutes.ts`, `sixHi/shiftCycle.ts`, `SixHiService.ts`, tests (`carryForward`, `serviceAuth`, `envValidation`, `kyselyTypeSafety`, `tenantIsolation`)
+- **Decisions / skipped:** SKP carry-forward uses `txn.crm_order` SKINPASS branch (no `prod_skp` table); kysely guard is vitest architecture test (not full-repo eslint yet).
+- **Follow-ups:** Run migration `1970000000000_order_journey_tenant_id` (renamed off collision with `1969000000000_manual_reroll_batch_numbers`); set `DB_APP_USER`/`DB_APP_PASSWORD` + non-empty `CORS_ORIGIN` in prod deploy; smoke shift boundary on PKL/HRS lines with open work.
+
+### 2026-08-06 ? Audit remediation verification
+
+- **Goal:** Confirm all plan phases present in tree; fix migration ID collision.
+- **Touched:** `migrations/1970000000000_order_journey_tenant_id.js` (renamed from `1969000000000_?`)
+- **Decisions / skipped:** Carry-forward coverage lives in `tests/carryForward.test.ts` (not expanded into `autoBoundaryHandover`/`shiftHandoverFlow`); tenantIsolation skips without live DB/`m1_app`.
+- **Follow-ups:** Deploy migrate + env; optional live RLS CI when `m1_app` credentials available.
+
+### 2026-08-06 ? Deploy env + migration + HRS/PKL carry-forward smoke
+
+- **Goal:** Apply `order_journey` tenant migration locally; set deploy/local env; smoke reparent HRS/PKL.
+- **Touched:** `.env`, `.env.example`, `deploy/.env` (gitignored), `scripts/apply-order-journey-tenant.mjs`, `scripts/smoke-carry-forward-hrs-pkl.mjs`
+- **Decisions / skipped:** Full `npm run migrate` blocked by legacy check-order collision (`1933000000000_reintroduce_supervisor_role`); applied `1970000000000_order_journey_tenant_id` via targeted script. Smoke used `m1_user` (superuser) for insert privilege; `m1_app` verified present `NOSUPERUSER NOBYPASSRLS`.
+- **Follow-ups:** Repair migration history before clean `npm run migrate` on fresh hosts; production still needs real secrets in `deploy/.env`.
+
+### 2026-08-06 � PERF-D1�D4 latency resilience
+
+- **Goal:** Phase 3 high-ping work: RTT quality probe, latency-aware polling, adaptive API timeouts, sync backoff.
+- **Touched:** `packages/client/src/lib/networkQuality.ts` (new), `networkAwareInterval.ts`, `apiClient.ts`, `sync/engine.ts`, `DeviceStatusIndicators.tsx`, `useProcessHubQueue.ts`, `useSixHiHubQueue.ts`, `operator/native/init.ts`
+- **Decisions / skipped:** Probe via existing `measurePingMs`; degraded poll = clamp(activeMs�2, 30�60s); timeout = max(3s, p95�3)=30s; jittered 5/15/45s backoff after transient `bumpAttempt`; outboxPolicy unchanged. Skipped PWA `networkTimeoutSeconds` (plan D3 vite note).
+- **Follow-ups:** Smoke APK status rail + throttled Wi-Fi; optional vite PWA timeout align.
+
+### 2026-08-06 � PERF Phase 2 server (C1/F2/F3)
+
+- **Goal:** Hot-read column narrowing, shift_log index, N+1 batching, master-data TTL cache.
+- **Touched:** LiveService.ts, SixHiService.ts, ProcessStationService.ts, MachineCrewService.ts, ShiftDetectionService.ts, MasterDataService.ts, masterDataRoutes.ts, migrations/1971000000000_shift_log_prod_date_process_index.js
+- **Decisions / skipped:** ProcessStation only Ann board/shift-review/PKL-review stoppages + CRS assign (not all 27 selectAlls). Master cache 60s like ValidationConfigService.
+- **Follow-ups:** Run migration 1971000000000; smoke live board + six-hi queue + master-data CRUD invalidation.
+
+### 2026-08-06 � PERF Phases 1�3 implementation
+
+- **Goal:** Ship performance plan Phases 1�3 (cold start, interaction/payload, high-ping); defer Phase 4.
+- **Touched:** `packages/client` (`App.tsx` lazy routes, `vite.manualChunks.ts`, `VirtualizedList.tsx`, `DataFreshnessBadge`, memo/virtual on live/shift-review/ANN/SixHi, `networkQuality`/`networkAwareInterval`/`apiClient`/`sync/engine`, operator `pull.prefetchOperatorCaches`), `packages/server` (`compression`, `syncBatchRoutes`, Live/SixHi/ProcessStation selects, `1971000000000_shift_log_�` index, MasterData 60s cache), `deploy/nginx.prod.conf`
+- **Decisions / skipped:** Batch sync on by default (`VITE_SYNC_BATCH=false` / `SYNC_BATCH_ENABLED=false` to disable); sequential fallback on 404/errors; nginx brotli left commented (alpine lacks module). Phase 4 E*/B3/C2 deferred.
+- **Follow-ups:** Apply migration `1971000000000`; smoke MH live + shift review + offline outbox drain with batch on; optional enable nginx brotli module image.
+
+### 2026-08-06 � PERF verify: migration + smoke
+
+- **Goal:** Apply `1971000000000_shift_log_prod_date_process_index`; smoke MH live, shift review, `/sync/batch` drain.
+- **Touched:** `scripts/apply-shift-log-index.mjs`, `scripts/smoke-perf-verify.mjs`, `syncBatchRoutes.ts` (loopback fetch instead of `app.handle` � prior path crashed API), `tests/syncBatch.test.ts`
+- **Decisions / skipped:** Full `npm run migrate` still blocked by legacy check-order; targeted apply + `pgmigrations` insert. Batch smoke uses intentional 400s on `/crew` to prove aggregate skip without mutating production rows.
+- **Follow-ups:** Optional UI browser smoke on Vite :3000; rotate inconsistent local MH PIN (4000/5678 vs op 3000/1234) if undesired.
+
+### 2026-08-07 — MH nav line-capability registry (CRS/CTL gate)
+
+- **Goal:** Task 1 — stop `ALL_NAV_ITEMS` fallback leaking specs/assignments; CRS/CTL get gated union only.
+- **Touched:** `packages/client/src/lib/mhLineCapabilities.ts`, `packages/client/src/components/layout/machinehead/MachineHeadNav.tsx`, `packages/client/src/components/layout/machinehead/MachineHeadShell.tsx`, `packages/client/tests/mhLineCapabilities.test.ts`
+- **Decisions / skipped:** Specialized ANN/RWD/HRS/PKL desks unchanged; no CRS/CTL desks; ImportableLine not widened. Shell switcher always lands `/live` for non-ANN/PKL/HRS/RWD.
+- **Follow-ups:** Task 2 PLANNER when scheduled.
+
+### 2026-08-07 — Planning-Lite PLANNER + Task 3 delta audit
+
+- **Goal:** Tasks 2–3 — import-only `PLANNER` role, CTL line scope, hub route, seed; scoped auth/nav audit.
+- **Touched:** `packages/shared-validation/src/types/roles.ts`, `packages/server/migrations/1972000000000_add_planner_role.js`, `packages/server/src/auth/planImportPolicy.ts`, `sixHiRoutes.ts`, `importRoutes.ts`, `PPCImportService.ts`, `previewSessionStore.ts`, `UserService.ts`, `scripts/seed-planner.mjs`, `seed-pilot-users.mjs`, `packages/client/src/pages/planning/PlanningImportHub.tsx`, `roleHome.ts`, `App.tsx`, `PpcRollingImportPanel.tsx`, `adminService.ts`, `tests/auth/planImportPolicy.test.ts`, `plannerRole.test.ts`, `doc/ZEDRAL_MH_AND_PLANNING_LITE_PLAN.md`
+- **Decisions / skipped:** Option A `assertPlanImportAccess` (no WRITE widen on `assertLineOperation`); `/planning/import` gated `minRole=ADMIN` + `allow=[PLANNER]`; live HTTP 403 / full migrate / workspace build / audit-log smoke left as follow-ups.
+- **Follow-ups:** `npm run seed:planner` + migrate `197200…`; optional live import smoke for CTL fail-safe + audit trail.
+
+
+### 2026-08-07 � Fix parked 6hi reject (machine param)
+
+- **Goal:** Unpark outbox POST /6hi/orders/:batchNo/reject failing with machine param required.
+- **Touched:** packages/server/src/routes/sixHiRoutes.ts, packages/client/src/lib/sync/sixHiWrites.ts
+- **Decisions / skipped:** equireCrmMill derives mill from order batch when ?machine= omitted (outbox replay); client stamps active mill on enqueue URL. No change to reinstate/delete patterns beyond shared middleware.
+- **Follow-ups:** Redeploy/restart server; reopen Sync Attention and retry � parked reject for 2005638206 should sync.
+
+### 2026-08-07 — Commit + push worktree to origin/update
+
+- **Goal:** Commit local MH/planning-lite, perf, and related changes; push to `hsl_zedral` `update`.
+- **Touched:** broad client/server/deploy/docs + `dist-operator` rebuild (see commit)
+- **Decisions / skipped:** Excluded `_inspect.cjs` and `doc/AUDIT_REPORT (1).md` (local/junk).
+- **Follow-ups:** None for push; migrate/seed planner + perf index still env-specific.
+

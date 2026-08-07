@@ -9,7 +9,14 @@ import {
   WifiLow,
   WifiOff,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAndroidDeviceStatus } from '../../../hooks/useAndroidDeviceStatus';
+import {
+  getNetworkQuality,
+  startNetworkQualityProbe,
+  subscribeNetworkQuality,
+  type NetworkQuality,
+} from '../../../lib/networkQuality';
 import { isAndroidApk } from '../../../operator/native/deviceStatus';
 
 function batteryIcon(level: number, charging: boolean) {
@@ -46,14 +53,26 @@ function wifiLabel(bars: number, connected: boolean, rssi: number): string {
   return `Wi‑Fi signal ${bars}/4 (${rssi} dBm)`;
 }
 
-function pingLabel(connected: boolean, pingMs: number | null): string {
-  if (!connected) return 'Offline';
-  if (pingMs == null) return '— ms';
-  return `${pingMs} ms`;
+function qualityTone(level: NetworkQuality['level']): string {
+  if (level === 'good') return 'text-success';
+  if (level === 'degraded') return 'text-warning';
+  return 'text-destructive';
+}
+
+function pingLabel(connected: boolean, pingMs: number | null, quality: NetworkQuality): string {
+  if (!connected || !quality.online) return 'bad';
+  if (pingMs == null) return quality.level;
+  return `${quality.level} · ${pingMs} ms`;
 }
 
 export function DeviceStatusIndicators() {
   const status = useAndroidDeviceStatus();
+  const [quality, setQuality] = useState(getNetworkQuality);
+
+  useEffect(() => {
+    startNetworkQualityProbe();
+    return subscribeNetworkQuality(setQuality);
+  }, []);
 
   if (!isAndroidApk()) return null;
 
@@ -68,7 +87,7 @@ export function DeviceStatusIndicators() {
   const BatteryIcon = batteryIcon(batteryLevel, isCharging);
   const WifiIcon = wifiIcon(wifiBars, wifiConnected);
   const batteryPct = batteryLevel >= 0 ? `${batteryLevel}%` : '…';
-  const pingText = pingLabel(networkOnline, pingMs);
+  const pingText = pingLabel(networkOnline, pingMs, quality);
 
   return (
     <div className="flex items-center gap-3 pr-3 border-r border-border mr-1 shrink-0">
@@ -83,10 +102,14 @@ export function DeviceStatusIndicators() {
       </div>
 
       <div
-        className={`flex items-center gap-1.5 shrink-0 ${wifiTone(wifiBars, wifiConnected)}`}
+        className={`flex items-center gap-1.5 shrink-0 ${
+          networkOnline ? qualityTone(quality.level) : wifiTone(wifiBars, wifiConnected)
+        }`}
         title={
-          networkOnline && pingMs != null
-            ? `${wifiLabel(wifiBars, wifiConnected, wifiRssi)} · ${pingMs} ms latency`
+          networkOnline
+            ? `${wifiLabel(wifiBars, wifiConnected, wifiRssi)} · link ${quality.level}${
+                pingMs != null ? ` · ${pingMs} ms` : ''
+              }${quality.p95RttMs != null ? ` · p95 ${quality.p95RttMs} ms` : ''}`
             : wifiLabel(wifiBars, wifiConnected, wifiRssi)
         }
       >

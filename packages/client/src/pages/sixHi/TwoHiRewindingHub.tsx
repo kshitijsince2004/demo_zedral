@@ -7,7 +7,6 @@ import { hubTabsForMill } from '../../lib/millConfig';
 import { useManualRerollEntry } from '../../hooks/useTenantFlag';
 import { showManualRerollEnterButton, withManualRerollTab } from '../../lib/manualRerollUi';
 import { apiClient } from '../../lib/apiClient';
-import { currentPlantDate } from '../../lib/dateFormat';
 import { notifyProductionChanged, subscribeProductionSync } from '../../lib/productionSync';
 import { jsonEqual } from '../../lib/silentRefresh';
 import {
@@ -104,7 +103,8 @@ export function TwoHiRewindingHub() {
     : 'ALL';
 
   const [search, setSearch] = useState('');
-  const [viewDate, setViewDate] = useState(currentPlantDate());
+  /** Empty = show all plan dates (imported rows often differ from today). */
+  const [viewDate, setViewDate] = useState('');
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [allocOpen, setAllocOpen] = useState(false);
@@ -284,20 +284,24 @@ export function TwoHiRewindingHub() {
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-3 overflow-hidden">
       <ZPageHeader
         title="Machine"
-        subtitle={`${machineCode} · Rewinding`}
+        subtitle={`${machineCode} · Rewinding · ${filtered.length}${filtered.length !== queue.length ? ` shown · ${queue.length} in queue` : ` orders`}`}
         actions={
           <div className="flex gap-2 sm:gap-3 items-center flex-wrap justify-end w-full lg:w-auto">
             <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Date
+              Plan date
               <input
                 type="date"
                 value={viewDate}
                 onChange={(e) => {
-                  setViewDate(e.target.value || currentPlantDate());
+                  setViewDate(e.target.value);
                   setSelectedBatch(null);
                 }}
+                title={viewDate ? undefined : 'All plan dates — pick a date to narrow'}
                 className="min-h-9 rounded-md border border-border bg-white px-3 text-sm font-mono text-foreground normal-case tracking-normal"
               />
+              {!viewDate && (
+                <span className="normal-case tracking-normal font-medium text-muted-foreground">All</span>
+              )}
             </label>
             {productionOrders.length > 1 && (
               <ZButton
@@ -384,7 +388,7 @@ export function TwoHiRewindingHub() {
             {!isLoading && filtered.length === 0 && (
               <p className="text-center text-muted-foreground py-12 text-base">
                 {queue.length === 0
-                  ? 'No rewinding orders on 2HI — assign from RWD desk or import with Machine=2HI'
+                  ? 'No rewinding orders — import a plan or check Pending / All filters'
                   : 'No orders match this filter'}
               </p>
             )}

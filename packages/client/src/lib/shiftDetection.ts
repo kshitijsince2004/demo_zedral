@@ -25,5 +25,9 @@ export async function bootstrapShiftContext(machineCode?: string): Promise<Detec
   const q = machineCode ? `?machine=${encodeURIComponent(machineCode)}` : '';
   const shift = await apiClient.get<DetectedShift>(`/shifts/current${q}`);
   useShiftStore.getState().applyDetectedShift(shift);
+  // PERF-C4 — warm operator plan/masters when a shift pins (no-op if pull module unused on desk).
+  void import('../operator/sync/pull')
+    .then((m) => m.prefetchOperatorCaches())
+    .catch(() => undefined);
   return shift;
 }

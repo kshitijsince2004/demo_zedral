@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import supertokens from 'supertokens-node';
 import Session from 'supertokens-node/recipe/session';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
@@ -37,12 +38,14 @@ import productionRoutes from './modules/m1-collection/routes/productionRoutes';
 import processStationRoutes from './routes/processStationRoutes';
 import tenantFlagsRoutes from './routes/tenantFlagsRoutes';
 import manualRerollRoutes from './routes/manualRerollRoutes';
+import { createSyncBatchRouter } from './routes/syncBatchRoutes';
 import { db } from './db';
 import { contextMiddleware } from './middleware/contextMiddleware';
 import { tenantScopeMiddleware } from './middleware/tenantScopeMiddleware';
 import { idempotencyMiddleware } from './middleware/idempotencyMiddleware';
 import { rfc7807ErrorHandler } from './middleware/errorMiddleware';
 import { getTenantModuleConfig } from './platform/tenantConfig';
+import { getConfiguredCorsOrigins } from './config/envValidation';
 import { sql } from 'kysely';
 import { ModuleRegistry, requireModule } from '@zedral/platform';
 import { m1ManifestMeta } from '@zedral/m1-collection';
@@ -54,9 +57,7 @@ export interface ComposedApp {
 export function buildApp(registry: ModuleRegistry): ComposedApp {
   const app = express();
 
-  const configured = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-    : [];
+  const configured = getConfiguredCorsOrigins();
   // Capacitor operator APK WebView origin (always allow when CORS is restricted).
   const capacitorOrigins = ['https://localhost', 'capacitor://localhost', 'ionic://localhost', 'http://localhost'];
   const corsOrigins =
@@ -136,6 +137,8 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
     exposedHeaders: ['Date', 'X-App-Version', 'X-Idempotency-Key', 'X-Server-Date'],
     optionsSuccessStatus: 204
   }));
+  // PERF-F1: gzip/deflate when nginx brotli is absent (direct Node / local)
+  app.use(compression({ threshold: 1024 }));
   app.use(express.json());
 
   app.use(contextMiddleware);
@@ -200,6 +203,9 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   app.use('/audit', m1Guard, auditRoutes);
   app.use('/production', m1Guard, productionRoutes);
   app.use('/stations', m1Guard, processStationRoutes);
+
+  // After domain routes so internal app.handle can reach them (PERF-C3).
+  app.use('/sync', m1Guard, createSyncBatchRouter(app));
 
   app.get('/health', async (_req, res) => {
     const payload: Record<string, unknown> = {

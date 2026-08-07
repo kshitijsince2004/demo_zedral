@@ -108,6 +108,11 @@ export async function pullPlan(): Promise<void> {
   }
 }
 
+/** PERF-C4 — warm plan + masters at login / shift-start so the first screen paints from cache. */
+export async function prefetchOperatorCaches(): Promise<void> {
+  await Promise.allSettled([pullMasters(), pullPlan()]);
+}
+
 export async function cachedGet<T>(url: string, cacheKey: string): Promise<T> {
   try {
     return await apiClient.get<T>(url);

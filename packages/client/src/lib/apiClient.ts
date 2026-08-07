@@ -13,6 +13,7 @@
 
 import { useAuthStore } from './authStore';
 import { getActiveCrmMill } from './crmMillContext';
+import { getNetworkQuality, startNetworkQualityProbe } from './networkQuality';
 
 let serverOffset = 0;
 
@@ -35,9 +36,18 @@ export function getServerTime(): number {
   return Date.now() + serverOffset;
 }
 
+/** Fallback before RTT samples; live default is max(3s, p95×3) capped at 30s. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 400;
+
+function resolveTimeoutMs(override?: number): number {
+  if (override != null) return override;
+  startNetworkQualityProbe();
+  const p95 = getNetworkQuality().p95RttMs;
+  if (p95 == null || p95 <= 0) return DEFAULT_TIMEOUT_MS;
+  return Math.min(30_000, Math.max(3_000, Math.round(p95 * 3)));
+}
 
 /** Web: `/api` via nginx. APK/native: `VITE_API_URL` host + `/api` (see M1-10). */
 function resolveApiBase(): string {
@@ -190,7 +200,8 @@ function isPublicAuthPath(path: string): boolean {
 export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
   const generationAtStart = authGeneration;
   const tokenAtStart = getAuthToken();
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, skipAuthLogout = false, ...fetchOpts } = options;
+  const { timeoutMs: timeoutOverride, signal: callerSignal, skipAuthLogout = false, ...fetchOpts } = options;
+  const timeoutMs = resolveTimeoutMs(timeoutOverride);
   const headers = new Headers(fetchOpts.headers);
 
   if (!headers.has('Content-Type') && fetchOpts.body !== undefined) {

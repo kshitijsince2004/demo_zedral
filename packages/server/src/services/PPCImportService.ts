@@ -76,11 +76,12 @@ export const LINE_IMPORT_SCOPE: Record<ImportLineScope, {
   PKL: { routeCode: 'P', processCode: 'PKL', defaultSheet: 'PKL', machineCode: 'PKL' },
   RWD: { routeCode: 'R', processCode: 'RWD', defaultSheet: 'REWINDING', machineCode: 'RWD' },
   ANN: { routeCode: 'F', processCode: 'ANN', defaultSheet: 'ANNEALING', machineCode: 'ANN' },
+  CTL: { routeCode: 'LE', processCode: 'CTL', defaultSheet: 'CTL', machineCode: 'CTL' },
 };
 
 export function parseImportLineScope(raw: unknown): ImportLineScope | undefined {
   const v = String(raw ?? '').trim().toUpperCase();
-  if (v === 'HRS' || v === 'PKL' || v === 'RWD' || v === 'ANN') return v;
+  if (v === 'HRS' || v === 'PKL' || v === 'RWD' || v === 'ANN' || v === 'CTL') return v;
   return undefined;
 }
 
@@ -1036,11 +1037,15 @@ export class PPCImportService {
     if (scopeMeta) {
       workingRows = parsed.rows
         .filter((r) => routeHasToken(r.processRouteCanonical ?? r.processRouteRaw, scopeMeta.routeCode))
-        .map((r) => ({
-          ...r,
-          machineCode: scopeMeta.machineCode as ParsedRollingPlanRow['machineCode'],
-          subProcess: scopeMeta.processCode as ParsedRollingPlanRow['subProcess'],
-        }));
+        .map((r) => {
+          // Preserve parser 2HI rewinding target; line scope otherwise forces RWD desk.
+          const onTwoHi = r.machineCode === '2HI' || r.subProcess === 'REWINDING';
+          return {
+            ...r,
+            machineCode: (onTwoHi ? '2HI' : scopeMeta.machineCode) as ParsedRollingPlanRow['machineCode'],
+            subProcess: (onTwoHi ? 'REWINDING' : scopeMeta.processCode) as ParsedRollingPlanRow['subProcess'],
+          };
+        });
     }
 
     const sessionId = randomUUID();
@@ -1317,22 +1322,19 @@ export class PPCImportService {
           }
           return upserted;
         });
+        const willCallCrmEnsure = session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
+          && row.machineCode !== 'RWD' && row.machineCode !== 'CTL'
+          && row.machineCode !== 'HRS' && row.machineCode !== 'PKL' && row.machineCode !== 'ANN';
+        const willCallRwdEnsure = session.sheetType === 'REWINDING'
+          || row.machineCode === 'RWD'
+          || (row.machineCode === '2HI' && row.fromWorkCenter === 'R')
+          || lineScope === 'RWD';
+
         if (result.action === 'inserted') {
           // CRM mill orders only — RWD/CTL/HRS/PKL plan rows join their queues via journey link.
-          const willCallCrmEnsure = session.sheetType !== 'REWINDING' && session.sheetType !== 'CTL'
-            && row.machineCode !== 'RWD' && row.machineCode !== 'CTL'
-            && row.machineCode !== 'HRS' && row.machineCode !== 'PKL' && row.machineCode !== 'ANN';
-          const willCallRwdEnsure = session.sheetType === 'REWINDING'
-            || row.machineCode === 'RWD'
-            || (row.machineCode === '2HI' && row.fromWorkCenter === 'R')
-            || lineScope === 'RWD';
           if (willCallCrmEnsure) {
             const { SixHiConfigService } = await import('./sixHi');
             await SixHiConfigService.ensureOrder(row.batchNumber, userId);
-          }
-          if (willCallRwdEnsure) {
-            const { RewindingOrderService } = await import('./RewindingOrderService');
-            await RewindingOrderService.ensureOrder(row.batchNumber, userId);
           }
           if (lineScope === 'HRS' || row.machineCode === 'HRS') {
             const { HrsOrderService } = await import('./HrsOrderService');
@@ -1346,6 +1348,12 @@ export class PPCImportService {
         } else {
           if (!existedByBatchNumber) merged++;
           else updated++;
+        }
+
+        // RWD queue row — insert or safe update (re-import must still create rwd_order).
+        if (willCallRwdEnsure) {
+          const { RewindingOrderService } = await import('./RewindingOrderService');
+          await RewindingOrderService.ensureOrder(row.batchNumber, userId);
         }
       } catch (e: unknown) {
         errors.push({ row: row.rowNum, message: e instanceof Error ? e.message : 'Insert failed' });

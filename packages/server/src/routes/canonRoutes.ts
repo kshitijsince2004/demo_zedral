@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { validateServiceToken } from '@zedral/platform';
+import { resolveServiceTokenTenant } from '@zedral/platform';
 import {
   createDowntimeEvent,
   createProductionCount,
@@ -16,16 +16,17 @@ function requireTenantHeader(value: string | string[] | undefined): string | nul
 }
 
 router.use((req, res, next) => {
-  if (!validateServiceToken(req.headers.authorization)) {
-    return res.status(401).json({ error: 'Invalid service token' });
-  }
-
   const tenantId = requireTenantHeader(req.headers['x-tenant-id']);
   if (!tenantId) {
     return res.status(400).json({ error: 'x-tenant-id header is required' });
   }
 
-  res.locals.tenantId = tenantId;
+  const boundTenant = resolveServiceTokenTenant(req.headers.authorization, tenantId);
+  if (!boundTenant) {
+    return res.status(401).json({ error: 'Invalid service token or tenant scope' });
+  }
+
+  res.locals.tenantId = boundTenant;
   return next();
 });
 

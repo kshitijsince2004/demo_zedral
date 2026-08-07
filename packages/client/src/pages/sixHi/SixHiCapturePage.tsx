@@ -19,10 +19,12 @@ import { canRecordStoppage } from '../../lib/sixHiRuntime';
 import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
 import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
 import { jsonEqual } from '../../lib/silentRefresh';
+import { ProcessShiftSummaryPanel } from '../../components/process/ProcessShiftSummaryPanel';
+import { formatOrderProcessLabel, formatActiveProcessType } from '../../lib/orderLabels';
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 
 function orderProductLabel(order: SixHiOrderDetail) {
-  const processLabel = order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass';
+  const processLabel = formatOrderProcessLabel(order.subProcess) ?? 'Rolling';
   return `${order.grade} · ${processLabel}`;
 }
 
@@ -55,6 +57,9 @@ export function SixHiCapturePage() {
   const refreshMachineState = useSixHiStore((s) => s.refreshMachineState);
   const openStoppageDialog = useSixHiStore((s) => s.openStoppageDialog);
   const hydrateCombinedRunFromQueue = useSixHiStore((s) => s.hydrateCombinedRunFromQueue);
+
+  const loadShiftSummary = useSixHiStore((s) => s.loadShiftSummary);
+  const shiftSummary = useSixHiStore((s) => s.shiftSummary);
 
   const [stoppageError, setStoppageError] = useState<string | null>(null);
   const [combinedOrders, setCombinedOrders] = useState<SixHiOrderDetail[]>([]);
@@ -127,7 +132,28 @@ export function SixHiCapturePage() {
     }
   }, [effectiveBatch, panelOrder, loadPanelOrder]);
 
+  useEffect(() => {
+    if (shiftLogId) void loadShiftSummary(shiftLogId);
+  }, [shiftLogId, loadShiftSummary]);
+
+  const shiftSummaryItems = useMemo(() => {
+    if (!shiftSummary) return [];
+    return [
+      { label: 'Total Prod MT', value: shiftSummary.totalProdMt.toFixed(2) },
+      { label: 'Completed MT', value: (shiftSummary.completedProdMt ?? 0).toFixed(2) },
+      { label: 'Rolling MT', value: shiftSummary.totalRollingMt.toFixed(2) },
+      { label: 'Skin Pass MT', value: shiftSummary.totalSkinpassMt.toFixed(2) },
+      { label: 'Re-Roll MT', value: shiftSummary.totalRerollMt.toFixed(2) },
+      { label: 'Stoppage', value: `${shiftSummary.totalStoppageMinutes ?? 0} min` },
+    ];
+  }, [shiftSummary]);
+
   const order = effectiveBatch && panelOrder?.batchNumber === effectiveBatch ? panelOrder : null;
+  const manualRerollActive = !!machineActive?.batchNumber
+    && !order
+    && (machineActive.status === 'IN_PROGRESS'
+      || machineActive.status === 'STOPPAGE'
+      || machineActive.status === 'ON_HOLD');
   const preparingOrder = allQueueItems.find(
     (q) => q.status === 'PREPARING' && q.batchNumber !== effectiveBatch,
   );
@@ -177,8 +203,9 @@ export function SixHiCapturePage() {
       void mutateShiftStoppages();
       void mutateQueue();
       void refreshMachineState();
+      if (shiftLogId) void loadShiftSummary(shiftLogId);
     });
-  }, [mutateShiftStoppages, mutateQueue, refreshMachineState]);
+  }, [mutateShiftStoppages, mutateQueue, refreshMachineState, shiftLogId, loadShiftSummary]);
 
   // Manual stoppages don't always fire production-changed — refresh history when active flips.
   useEffect(() => {
@@ -326,6 +353,12 @@ export function SixHiCapturePage() {
       )}
 
       <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-auto">
+          <ProcessShiftSummaryPanel
+            items={shiftSummaryItems}
+            loading={!!shiftLogId && !shiftSummary}
+            footnote={!shiftLogId ? 'Shift log not ready yet.' : undefined}
+          />
+
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
               <div className="bg-primary text-white px-5 py-3 flex items-center justify-between">
@@ -336,7 +369,27 @@ export function SixHiCapturePage() {
               </div>
               {!order ? (
                 <div className="p-6 text-center space-y-4">
-                  {preparingOrder ? (
+                  {manualRerollActive && machineActive ? (
+                    <>
+                      <p className="text-sm font-semibold text-foreground">Manual Re-Roll in progress</p>
+                      <dl className="grid grid-cols-2 gap-3 text-sm text-left">
+                        {[
+                          ['Batch', machineActive.batchNumber],
+                          ['Process', formatActiveProcessType('MANUAL_REROLL') ?? 'Manual Re-Rolling'],
+                          ['Status', machineActive.status.replace(/_/g, ' ')],
+                        ].map(([label, value]) => (
+                          <div key={label} className="bg-secondary rounded-xl px-3 py-3 min-h-[64px]">
+                            <dt className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</dt>
+                            <dd className="font-mono text-sm font-semibold text-foreground mt-1 break-all">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <ZButton variant="accent" onClick={() => navigate(`${basePath}?tab=reroll`)}>
+                        <ArrowRight className="h-4 w-4" />
+                        Open Manual Re-Roll
+                      </ZButton>
+                    </>
+                  ) : preparingOrder ? (
                     <>
                       <p className="text-sm font-semibold text-foreground">Order preparing — not started</p>
                       <p className="text-sm text-muted-foreground">
@@ -367,7 +420,7 @@ export function SixHiCapturePage() {
                         ['Run type', `Combined · ${combinedRun!.batchNumbers.length} orders`],
                         ['Linked orders', combinedRun!.orders.map((o) => displayMotherCoilId(o)).join(', ')],
                         ['Product', orderProductLabel(order)],
-                        ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
+                        ['Process', formatOrderProcessLabel(order.subProcess) ?? 'Rolling'],
                         ['Combined Target', `${targetMt.toFixed(3)} MT`],
                         ['Combined Produced', `${produced.toFixed(3)} MT`],
                         ['Balance', `${balance.toFixed(3)} MT`],
@@ -379,7 +432,7 @@ export function SixHiCapturePage() {
                         ['Mother Coil', displayMotherCoilId(order)],
                         ['Product', orderProductLabel(order)],
                         ['Customer', order.customer],
-                        ['Process', order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'],
+                        ['Process', formatOrderProcessLabel(order.subProcess) ?? 'Rolling'],
                         ['Target Quantity', `${targetMt.toFixed(3)} MT`],
                         ['Produced Quantity', `${produced.toFixed(3)} MT`],
                         ['Balance Quantity', `${balance.toFixed(3)} MT`],
@@ -437,7 +490,7 @@ export function SixHiCapturePage() {
                     {[
                       ['Order', displayMotherCoilId(nextOrder)],
                       ['Slit ID', selectIdOf(nextOrder)],
-                      ['Product', `${nextOrder.grade} · ${nextOrder.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}`],
+                      ['Product', `${nextOrder.grade} · ${formatOrderProcessLabel(nextOrder.subProcess) ?? 'Rolling'}`],
                       ['Customer', nextOrder.customer],
                       ['Planned Quantity', `${nextOrder.weightMt} MT`],
                       ['Queue Position', String(nextOrder.queuePosition)],

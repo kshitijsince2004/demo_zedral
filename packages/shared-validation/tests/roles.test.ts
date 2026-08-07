@@ -5,6 +5,7 @@ describe('canonical role source', () => {
   it('ROLE_RANK orders roles ascending by privilege', () => {
     expect(ROLE_RANK[UserRole.OPERATOR]).toBe(0);
     expect(ROLE_RANK[UserRole.SUPERVISOR]).toBe(0);
+    expect(ROLE_RANK[UserRole.PLANNER]).toBe(0);
     expect(ROLE_RANK[UserRole.MACHINE_HEAD]).toBe(1);
     expect(ROLE_RANK[UserRole.QUALITY]).toBe(2);
     expect(ROLE_RANK[UserRole.PLANT_HEAD]).toBe(3);
@@ -19,11 +20,14 @@ describe('canonical role source', () => {
     expect(ROLE_LABELS[UserRole.QUALITY]).toBe('Quality');
     expect(ROLE_LABELS[UserRole.OPERATOR]).toBe('Operator');
     expect(ROLE_LABELS[UserRole.SUPERVISOR]).toBe('Supervisor');
+    expect(ROLE_LABELS[UserRole.PLANNER]).toBe('Planning');
     expect(ROLE_LABELS[UserRole.ADMIN]).toBe('Admin');
   });
 
-  it('normalizeRoleName preserves SUPERVISOR (no legacy fold to MACHINE_HEAD)', () => {
+  it('normalizeRoleName preserves PLANNER and SUPERVISOR', () => {
     expect(normalizeRoleName('supervisor')).toBe('SUPERVISOR');
     expect(normalizeRoleName('SUPERVISOR')).toBe('SUPERVISOR');
+    expect(normalizeRoleName('planner')).toBe('PLANNER');
+    expect(normalizeRoleName('PLANNER')).toBe('PLANNER');
   });
 });

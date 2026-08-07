@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import {
   Area,
   AreaChart,
@@ -48,6 +48,45 @@ import {
   type Stoppage,
   type MetricKey,
 } from '../../../lib/annReportUtils';
+import { DataFreshnessBadge } from '../../../components/DataFreshnessBadge';
+
+type AnnReportTableRow = {
+  rowId: string;
+  taken_at: string;
+  parameter: string;
+  current: number | string | null;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  status: string;
+  statusTone: Tone;
+  remarks: string;
+};
+
+const AnnReportDetailRow = memo(function AnnReportDetailRow({ r }: { r: AnnReportTableRow }) {
+  return (
+    <tr
+      className={[
+        'border-t border-border font-mono tabular-nums text-foreground',
+        'odd:bg-muted/10 even:bg-background hover:bg-muted/30 transition-colors',
+      ].join(' ')}
+    >
+      <td className="p-2 whitespace-nowrap">{new Date(r.taken_at).toLocaleString('en-IN')}</td>
+      <td className="p-2">{r.parameter}</td>
+      <td className="p-2">{r.current != null ? (typeof r.current === 'number' ? r.current.toFixed(2) : String(r.current)) : '—'}</td>
+      <td className="p-2">{r.min != null ? r.min.toFixed(2) : '—'}</td>
+      <td className="p-2">{r.max != null ? r.max.toFixed(2) : '—'}</td>
+      <td className="p-2">{r.avg != null ? r.avg.toFixed(2) : '—'}</td>
+      <td className="p-2">
+        <span className={`inline-flex items-center gap-2 ${toneRail[r.statusTone]} px-2 py-1 rounded-md`} style={{ background: 'transparent' }}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+          {r.status}
+        </span>
+      </td>
+      <td className="p-2 text-muted-foreground">{r.remarks}</td>
+    </tr>
+  );
+});
 
 type ChargeDetail = {
   charge: Record<string, unknown>;
@@ -541,7 +580,7 @@ export function AnnMhReportPage() {
       title="REPORT"
       subtitle="Generate detailed production reports"
       fillViewport
-      headerActions={undefined}
+      headerActions={<DataFreshnessBadge />}
       onRefresh={undefined}
     >
       <div className="space-y-4 min-h-0 flex-1 overflow-hidden flex flex-col">
@@ -1213,27 +1252,7 @@ export function AnnMhReportPage() {
                         </tr>
                       ) : (
                         pageRows.map((r) => (
-                          <tr
-                            key={r.rowId}
-                            className={[
-                              'border-t border-border font-mono tabular-nums text-foreground',
-                              'odd:bg-muted/10 even:bg-background hover:bg-muted/30 transition-colors',
-                            ].join(' ')}
-                          >
-                            <td className="p-2 whitespace-nowrap">{new Date(r.taken_at).toLocaleString('en-IN')}</td>
-                            <td className="p-2">{r.parameter}</td>
-                            <td className="p-2">{r.current != null ? (typeof r.current === 'number' ? r.current.toFixed(2) : String(r.current)) : '—'}</td>
-                            <td className="p-2">{r.min != null ? r.min.toFixed(2) : '—'}</td>
-                            <td className="p-2">{r.max != null ? r.max.toFixed(2) : '—'}</td>
-                            <td className="p-2">{r.avg != null ? r.avg.toFixed(2) : '—'}</td>
-                            <td className="p-2">
-                              <span className={`inline-flex items-center gap-2 ${toneRail[r.statusTone]} px-2 py-1 rounded-md`} style={{ background: 'transparent' }}>
-                                <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
-                                {r.status}
-                              </span>
-                            </td>
-                            <td className="p-2 text-muted-foreground">{r.remarks}</td>
-                          </tr>
+                          <AnnReportDetailRow key={r.rowId} r={r as AnnReportTableRow} />
                         ))
                       )}
                     </tbody>

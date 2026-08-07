@@ -559,6 +559,7 @@ export interface PlanningOrderJourney {
   journey_id: Generated<Int8>;
   route_raw: string;
   status: Generated<string>;
+  tenant_id: Generated<string>;
   updated_at: Generated<Timestamp>;
 }
 

@@ -3,6 +3,7 @@ import { filterRunsByAreaAccess, getScopedDprAreaCodes } from '../auth/exportAut
 import { DprAggregator } from '../aggregation/DprAggregator';
 import { bindDprWorkbook } from '../layouts/TemplateBinder';
 import { injectDprTemplate } from '../dpr/DprTemplateInjector';
+import { catalogSummary } from '../dpr/dprFieldCatalog';
 import {
   ExportReadRepository,
   scopeFromMonth,
@@ -67,6 +68,12 @@ export const DprReport: ReportDefinition = {
     const month = parseMonth(scope);
     const input = await loadMonthData(month, user);
     const rdm = DprAggregator.aggregate(input);
+    const fieldCatalog = catalogSummary();
+    if (fieldCatalog.byStatus.missing > 0) {
+      console.warn(
+        `[DPR export] ${fieldCatalog.byStatus.missing} catalog fields still marked missing`,
+      );
+    }
     const sourceRecordCount = input.runs.length + input.stoppages.length + input.dispositions.length;
     const scopedAreas = getScopedDprAreaCodes(user);
 

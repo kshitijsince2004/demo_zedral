@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { finalizeDprMonth } from '../export/jobs/DprMonthLock';
 import { ExportJobService, parseExportRequest, parseQueryParams } from '../export/jobs/ExportJobService';
 import type { ExportType } from '../export/types';
@@ -9,6 +10,7 @@ const router = Router();
 router.use(require('express').json());
 router.use(requireAuth);
 router.use(requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]));
+router.use(rateLimitMiddleware(20, 60_000));
 
 function httpStatusForJob(status: string): number {
   if (status === 'FAILED') return 500;

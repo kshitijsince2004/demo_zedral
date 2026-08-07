@@ -85,7 +85,8 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
                             else if (v === 'PKL') window.location.assign('/machine-head/pkl/live');
                             else if (v === 'HRS') window.location.assign('/live');
                             else if (v === 'RWD') window.location.assign('/machine-head/rwd/live');
-                            else if (annDesk || deskLine || rwdDesk) window.location.assign('/live');
+                            // CRS/CTL/CRM/2HI (and leaving a specialized desk): land on generic /live
+                            else window.location.assign('/live');
                           }}
                           aria-label="Desk line focus"
                         >

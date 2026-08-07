@@ -44,6 +44,8 @@ import {
   displayMotherCoilId,
 } from '../../lib/sixHiOrderIdentity';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
+import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
+import { VirtualizedList } from '../../components/VirtualizedList';
 
 function applyOptimisticEndOverlay(
   data: {
@@ -681,6 +683,7 @@ function SixHiCrmHub() {
             >
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin text-primary' : ''}`} />
             </button>
+            <DataFreshnessBadge />
 
             <div className="hidden sm:block h-6 w-px bg-border mx-1" />
 
@@ -785,7 +788,17 @@ function SixHiCrmHub() {
                 </p>
               </div>
             )}
-            {showOperationalSections && sortedAssigned.map((card) => renderQueueRow(card))}
+            {showOperationalSections && sortedAssigned.length > 12 ? (
+              <VirtualizedList
+                items={sortedAssigned}
+                estimateSize={88}
+                className="min-h-[240px] max-h-[min(60vh,720px)]"
+                getKey={(card) => card.batchNumber}
+                renderItem={(card) => renderQueueRow(card)}
+              />
+            ) : (
+              showOperationalSections && sortedAssigned.map((card) => renderQueueRow(card))
+            )}
             {showCompletedSection && filteredCompleted.length > 0 && (
               <>
                 <div className="px-5 py-2 bg-secondary/60 border-b border-border">

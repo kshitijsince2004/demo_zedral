@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '../lib/apiClient';
+import { networkAwareRefreshInterval } from '../lib/networkAwareInterval';
 import { subscribeProductionSync } from '../lib/productionSync';
 import { jsonEqual } from '../lib/silentRefresh';
 import type { ProcessStationCode } from '../lib/processConfig';
@@ -22,7 +23,7 @@ export function useProcessHubQueue(
     queueUrl,
     (url) => fetchProcessQueue(url, processCode),
     {
-      refreshInterval: 15_000,
+      refreshInterval: networkAwareRefreshInterval(15_000),
       revalidateOnFocus: false,
       keepPreviousData: true,
       compare: (a, b) => jsonEqual(a, b),
@@ -42,5 +43,5 @@ export function useProcessHubQueue(
     useProcessStore.setState({ queue: data, processCode });
   }, [data, processCode]);
 
-  return { data, error, isLoading, isValidating, mutate };
+  return { data, error, isLoading, isValidating, mutate, dataUpdatedAt: Date.now() };
 }

@@ -463,7 +463,7 @@ export const adminService = {
   async previewPpcRolling(
     file: File,
     sheetType: PpcXlsxSheetType = 'ROLLING',
-    line?: 'HRS' | 'PKL' | 'RWD' | 'ANN',
+    line?: 'HRS' | 'PKL' | 'RWD' | 'ANN' | 'CTL',
   ): Promise<PpcRollingPreviewResult> {
     const formData = new FormData();
     formData.append('file', file);

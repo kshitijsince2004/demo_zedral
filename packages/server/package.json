@@ -24,6 +24,7 @@
     "smoke:supervisor": "node scripts/smoke-supervisor.mjs",
     "seed:machines": "node scripts/seed-machines.mjs",
     "seed:supervisor": "node scripts/seed-supervisor.mjs",
+    "seed:planner": "node scripts/seed-planner.mjs",
     "ensure:crew-table": "node scripts/ensure-crew-table.mjs",
     "repair:migrations": "node scripts/repair-migration-history.mjs",
     "reconcile:hrs-child-weights": "node scripts/reconcile-hrs-child-weights.mjs",
@@ -49,6 +50,7 @@
     "@types/cors": "^2.8.19",
     "@zedral/m1-collection": "*",
     "@zedral/platform": "*",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
@@ -70,6 +72,7 @@
     "puppeteer": "^24.0.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/express-rate-limit": "^5.1.3",
     "@types/jsonwebtoken": "^9.0.6",

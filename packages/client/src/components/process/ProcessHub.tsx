@@ -10,7 +10,6 @@ import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessHubQueue } from '../../hooks/useProcessHubQueue';
 import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from '../../lib/processConfig';
 import { useShiftStore } from '../../store/shiftStore';
-import { currentPlantDate } from '../../lib/dateFormat';
 import { AnnBatchesPanel } from './bodies/AnnBatchesPanel';
 import { findPklSiblingCoils, pklGroupWeightMt } from '../../lib/siblingSelect';
 import {
@@ -110,7 +109,8 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   } = useProcessHubQueue(stationCode, queueRefreshToken);
 
   const [search, setSearch] = useState('');
-  const [viewDate, setViewDate] = useState(currentPlantDate());
+  /** Empty = show all plan dates (imported rows often differ from today). */
+  const [viewDate, setViewDate] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCoil, setManualCoil] = useState({
@@ -457,12 +457,15 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
 
   const subtitle = `Shift · ${producedMt ?? 0} / ${targetMt ?? '—'} MT`;
   const queueTitle = processCode === 'HRS' ? 'HRS Queue' : processCode === 'PKL' ? 'Pickling Queue' : config.label;
+  const queueCountLabel = isRwd && filtered.length !== queue.length
+    ? `${filtered.length} shown · ${queue.length} in queue`
+    : `${filtered.length} orders`;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <ZPageHeader
         title={isQueueDesk ? queueTitle : config.label}
-        subtitle={isQueueDesk ? `${filtered.length} orders · ${subtitle}` : subtitle}
+        subtitle={isQueueDesk ? `${queueCountLabel} · ${subtitle}` : subtitle}
       />
 
       {queueError && (
@@ -523,16 +526,20 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
           <div className="px-4 py-3 flex flex-wrap gap-3 items-center border-b border-border">
             {isRwd && (
               <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground shrink-0">
-                Date
+                Plan date
                 <input
                   type="date"
                   value={viewDate}
                   onChange={(e) => {
-                    setViewDate(e.target.value || currentPlantDate());
+                    setViewDate(e.target.value);
                     setSelectedKey(null);
                   }}
+                  title={viewDate ? undefined : 'All plan dates — pick a date to narrow'}
                   className="min-h-9 rounded-md border border-border bg-background px-3 text-sm font-mono text-foreground normal-case tracking-normal"
                 />
+                {!viewDate && (
+                  <span className="normal-case tracking-normal font-medium text-muted-foreground">All</span>
+                )}
               </label>
             )}
             <div className="flex-1 min-w-[14rem] relative">

@@ -352,6 +352,48 @@ export class ShiftDetectionService {
    * Without machineCode, returns clock/override only (used by shift-change watcher).
    * Set requireCallerSession for production writes (no borrow of another operator's pin).
    */
+  /**
+   * Batch SESSION shift codes for live boards — one query instead of per-machine getCurrentShift.
+   * Only returns machines with a live ACTIVE session (clock/override omitted; callers fall back).
+   */
+  static async getSessionShiftCodesForMachines(
+    machineCodes: string[],
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (machineCodes.length === 0) return out;
+
+    const rows = await db
+      .selectFrom('txn.machine_shift_session as s')
+      .innerJoin('master.shift as w', 'w.shift_code', 's.shift_code')
+      .select([
+        's.machine_code',
+        's.shift_code',
+        's.prod_date',
+        'w.start_time',
+        'w.end_time',
+        's.started_at',
+      ])
+      .where('s.machine_code', 'in', machineCodes)
+      .where('s.status', '=', 'ACTIVE')
+      .where('s.prod_date', '>=', postgresDateOnly(addPlantDays(currentPlantDate(), -1)) as any)
+      .orderBy('s.started_at', 'desc')
+      .execute();
+
+    for (const row of rows) {
+      if (out.has(row.machine_code)) continue;
+      if (
+        isSessionLive({
+          prod_date: row.prod_date,
+          start_time: String(row.start_time).slice(0, 5),
+          end_time: String(row.end_time).slice(0, 5),
+        })
+      ) {
+        out.set(row.machine_code, String(row.shift_code).toUpperCase());
+      }
+    }
+    return out;
+  }
+
   static async getCurrentShift(opts?: {
     userId?: number;
     machineCode?: string;

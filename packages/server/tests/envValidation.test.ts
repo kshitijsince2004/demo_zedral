@@ -43,6 +43,16 @@ describe('envValidation', () => {
     expect(() => validateEnvironmentAtStartup()).toThrow(/TENANT_ID/);
   });
 
+  it('blocks production startup when CORS_ORIGIN is empty', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.AUTH_STRICT = 'true';
+    process.env.JWT_SECRET = 'a'.repeat(32);
+    process.env.DATABASE_URL = 'postgres://u:p@localhost/db';
+    process.env.TENANT_ID = '00000000-0000-0000-0000-000000000001';
+    process.env.CORS_ORIGIN = '';
+    expect(() => validateEnvironmentAtStartup()).toThrow(/CORS_ORIGIN/);
+  });
+
   it('allows dev startup with relaxed config', () => {
     process.env.NODE_ENV = 'development';
     process.env.AUTH_STRICT = 'false';

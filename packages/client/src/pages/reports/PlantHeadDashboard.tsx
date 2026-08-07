@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveKpis, LiveOrderRow } from '@m1/shared-validation';
 import {
@@ -14,6 +15,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { Download } from 'lucide-react';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
+import { RouteSpinner } from '../../components/RouteSpinner';
 
 function formatDuration(minutes?: number): string {
   if (minutes == null || minutes < 0) return '—';
@@ -28,12 +30,19 @@ import { RejectedOrdersDrawer } from '../../components/plant-head/RejectedOrders
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
 import type { LiveOrderDetail } from '@m1/shared-validation';
-import { PlantMainOpsArea } from '../../components/plant-head/PlantMainOpsArea';
-import { PlantDowntimeCard, PlantQualityCard } from '../../components/plant-head/PlantQualityDowntimeArea';
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
 import { AlertTriangle, Factory, RefreshCw } from 'lucide-react';
 import { jsonFingerprint } from '../../lib/silentRefresh';
+
+const PlantMainOpsArea = lazy(() =>
+  import('../../components/plant-head/PlantMainOpsArea').then((m) => ({ default: m.PlantMainOpsArea })),
+);
+const PlantQualityDowntimeCards = lazy(() =>
+  import('../../components/plant-head/PlantQualityDowntimeCards').then((m) => ({
+    default: m.PlantQualityDowntimeCards,
+  })),
+);
 
 export function PlantHeadDashboard() {
   const [windowDays, setWindowDays] = useState<1 | 7 | 30 | 90>(7);
@@ -311,13 +320,16 @@ export function PlantHeadDashboard() {
 
         {/* 3–4. Production Performance + Executive Insights */}
         <section>
-          <PlantMainOpsArea data={displayData} liveKpis={liveKpis} />
+          <Suspense fallback={<RouteSpinner />}>
+            <PlantMainOpsArea data={displayData} liveKpis={liveKpis} />
+          </Suspense>
         </section>
 
         {/* 5–6. Downtime Analytics + Additional Production Insights (Quality) */}
         <section className="lg:grid lg:grid-cols-2 gap-4 flex flex-col">
-          <PlantDowntimeCard data={displayData} />
-          <PlantQualityCard data={displayData} />
+          <Suspense fallback={<RouteSpinner />}>
+            <PlantQualityDowntimeCards data={displayData} />
+          </Suspense>
         </section>
 
         <section>

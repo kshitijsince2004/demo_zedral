@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { formatPlantClock } from '../../lib/dateFormat';
 import { formatActiveProcessType } from '../../lib/orderLabels';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
@@ -250,6 +251,49 @@ interface MachineStatusBoardProps {
   onSelect?: (machineCode: string) => void;
 }
 
+const MachineStatusCardView = memo(function MachineStatusCardView({
+  m,
+  onSelect,
+}: {
+  m: MachineStatusCard;
+  onSelect?: (machineCode: string) => void;
+}) {
+  const cfg = STATUS_CFG[m.status] ?? STATUS_CFG.IDLE;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(m.machineCode)}
+      className="border border-border rounded-lg bg-card shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/30 overflow-hidden"
+    >
+      <div className={`px-4 py-3 flex items-center justify-between ${cfg.headerBg}`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${cfg.dotClass}`} />
+          <span className={`font-bold text-sm tracking-wide ${cfg.headerText}`}>{m.machineName}</span>
+        </div>
+        <span className={`text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${cfg.badgeBg} ${cfg.badgeText}`}>
+          {cfg.label}
+        </span>
+      </div>
+
+      <div className="p-4 flex-1 flex flex-col">
+        {m.status === 'RUNNING' && <RunningStateInfo m={m} />}
+        {m.status === 'IDLE' && <IdleStateInfo m={m} />}
+        {m.status === 'STOPPAGE' && <StoppageStateInfo m={m} isDefect={false} />}
+        {m.status === 'BREAKDOWN' && <StoppageStateInfo m={m} isDefect={true} />}
+        {m.status === 'MAINTENANCE' && <MaintenanceStateInfo m={m} />}
+      </div>
+
+      <div className="px-4 py-2.5 border-t border-border/50 flex items-center justify-between bg-muted/40">
+        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{m.machineCode}</span>
+        <span className="text-[10px] text-muted-foreground">
+          Updated {formatUpdatedAt(m.lastUpdateAt ?? m.stateSinceAt)}
+        </span>
+      </div>
+    </button>
+  );
+});
+
 export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardProps) {
   if (machines.length === 0) {
     return (
@@ -262,46 +306,9 @@ export function MachineStatusBoard({ machines, onSelect }: MachineStatusBoardPro
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {machines.map((m) => {
-        const cfg = STATUS_CFG[m.status] ?? STATUS_CFG.IDLE;
-
-        return (
-          <button
-            key={m.machineCode}
-            type="button"
-            onClick={() => onSelect?.(m.machineCode)}
-            className="border border-border rounded-lg bg-card shadow-sm flex flex-col text-left transition-all hover:shadow-md hover:border-primary/30 overflow-hidden"
-          >
-            {/* Header */}
-            <div className={`px-4 py-3 flex items-center justify-between ${cfg.headerBg}`}>
-              <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${cfg.dotClass}`} />
-                <span className={`font-bold text-sm tracking-wide ${cfg.headerText}`}>{m.machineName}</span>
-              </div>
-              <span className={`text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${cfg.badgeBg} ${cfg.badgeText}`}>
-                {cfg.label}
-              </span>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 flex-1 flex flex-col">
-              {m.status === 'RUNNING' && <RunningStateInfo m={m} />}
-              {m.status === 'IDLE' && <IdleStateInfo m={m} />}
-              {m.status === 'STOPPAGE' && <StoppageStateInfo m={m} isDefect={false} />}
-              {m.status === 'BREAKDOWN' && <StoppageStateInfo m={m} isDefect={true} />}
-              {m.status === 'MAINTENANCE' && <MaintenanceStateInfo m={m} />}
-            </div>
-
-            {/* Footer */}
-            <div className="px-4 py-2.5 border-t border-border/50 flex items-center justify-between bg-muted/40">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{m.machineCode}</span>
-              <span className="text-[10px] text-muted-foreground">
-                Updated {formatUpdatedAt(m.lastUpdateAt ?? m.stateSinceAt)}
-              </span>
-            </div>
-          </button>
-        );
-      })}
+      {machines.map((m) => (
+        <MachineStatusCardView key={m.machineCode} m={m} onSelect={onSelect} />
+      ))}
     </div>
   );
 }

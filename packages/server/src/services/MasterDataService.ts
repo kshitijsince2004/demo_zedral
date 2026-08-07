@@ -1,5 +1,8 @@
 import { db } from '../db';
 import { serializeMachineClassification } from '@m1/shared-validation';
+import { getAppCache } from '../cache';
+import { getTenantId } from '../context';
+import { tenantCacheKey } from '../cache/types';
 
 function normalizeAppliesTo(raw: unknown, fallback?: string | null): string | null {
   if (Array.isArray(raw)) {
@@ -15,11 +18,29 @@ function normalizeAppliesTo(raw: unknown, fallback?: string | null): string | nu
   return fallback ?? null;
 }
 
+const MASTER_CACHE_TTL_SEC = 60;
+
 export class MasterDataService {
+  private static cacheKey(tableName: string, includeInactive: boolean): string {
+    return tenantCacheKey(getTenantId(), 'master', tableName, `inactive_${includeInactive}`);
+  }
+
+  /** Invalidate all cached master reads for this tenant (or one table). */
+  static async invalidateCache(tableName?: string): Promise<void> {
+    const prefix = tableName
+      ? tenantCacheKey(getTenantId(), 'master', tableName)
+      : tenantCacheKey(getTenantId(), 'master');
+    await getAppCache().del(prefix);
+  }
+
   /**
    * Retrieves all master data for a given table, filtering by is_active by default.
    */
   static async getAll(tableName: string, includeInactive: boolean = false) {
+    const key = this.cacheKey(tableName, includeInactive);
+    const cached = await getAppCache().get<Record<string, unknown>[]>(key);
+    if (cached) return cached;
+
     let query = db.selectFrom(tableName as any).selectAll();
     
     // Not all tables have is_active, but for the ones that do (customer, grade, defect_code, stoppage_code, operator)
@@ -28,7 +49,9 @@ export class MasterDataService {
         query = query.where('is_active', '=', true);
       }
     }
-    return await query.execute();
+    const rows = await query.execute() as Record<string, unknown>[];
+    await getAppCache().set(key, rows, MASTER_CACHE_TTL_SEC);
+    return rows;
   }
 
   /**

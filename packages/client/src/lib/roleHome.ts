@@ -21,6 +21,8 @@ export function getRoleHomePath(
   switch (role) {
     case 'SUPERVISOR':
       return '/live';
+    case 'PLANNER':
+      return '/planning/import';
     case 'MACHINE_HEAD':
       return '/machine-head-dashboard';
     case 'OPERATOR': {

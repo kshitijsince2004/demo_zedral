@@ -25,6 +25,7 @@ import { postQueued } from '../../lib/sync/queuedApi';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 import { formatOrderProcessLabel, formatOrderStatusLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
+import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 import type { MachineStatusCard } from '@m1/shared-validation';
 import {
   type ManualRerollSession,
@@ -1159,6 +1160,7 @@ export function MachineHeadDashboard() {
       }
       onRefresh={() => { void refresh(); void loadDashboard(); }}
       fillViewport
+      headerActions={<DataFreshnessBadge />}
     >
       <div className="flex flex-col flex-1 min-h-0 gap-3">
         {(error || dashError) && (

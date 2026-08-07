@@ -23,6 +23,16 @@ function hasDatabaseConfig(): boolean {
   );
 }
 
+/** Parse comma-separated browser origins for CORS allow-list. */
+export function getConfiguredCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGIN?.trim();
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 /**
  * Fail fast when production deployment is misconfigured.
  * Dev/test environments keep relaxed defaults.
@@ -61,6 +71,12 @@ export function validateEnvironmentAtStartup(): void {
     if (process.env.VALIDATION_STRICT === 'false') {
       console.warn(
         '[env] WARNING: VALIDATION_STRICT=false in production — validation gates are bypassed',
+      );
+    }
+
+    if (getConfiguredCorsOrigins().length === 0) {
+      throw new Error(
+        'Production startup blocked: CORS_ORIGIN must list at least one allowed browser origin',
       );
     }
   }

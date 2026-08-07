@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { KeepAwake } from '@capacitor-community/keep-awake';
+import { startNetworkQualityProbe } from '../../lib/networkQuality';
 import { initDb } from '../db/sqlite';
 import { startSyncEngine } from '../sync/engine';
 
@@ -12,6 +13,7 @@ export async function initNative(): Promise<void> {
     console.warn('[Operator] SQLite unavailable — offline queue disabled', err);
   }
 
+  startNetworkQualityProbe();
   startSyncEngine();
 
   if (isNative()) {

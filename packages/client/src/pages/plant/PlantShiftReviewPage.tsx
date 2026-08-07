@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { putQueued } from '../../lib/sync/queuedApi';
@@ -12,6 +12,8 @@ import { isAnnMhDesk, useMhDeskFocus } from '../../lib/annMhDesk';
 import { isPklMhDesk } from '../../lib/pklMhDesk';
 import { AnnShiftReviewPanel } from '../../components/process/AnnShiftReviewPanel';
 import { PklShiftReviewPanel } from '../../components/process/PklShiftReviewPanel';
+import { VirtualizedList } from '../../components/VirtualizedList';
+import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 
 interface ShiftLogRow {
   id: string;
@@ -84,6 +86,34 @@ const COMPLETED_STATES = new Set(['SUBMITTED', 'APPROVED']);
 const VISIBLE_STATES = new Set([...ACTIVE_STATES, ...COMPLETED_STATES]);
 
 const SHIFT_ORDER: Record<string, number> = { A: 0, B: 1, C: 2 };
+
+const CompletedOrderRow = memo(function CompletedOrderRow({
+  o,
+}: {
+  o: { batchNumber: string; customer?: string; weightMt: number };
+}) {
+  return (
+    <li className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+      <span className="font-mono font-semibold">{o.batchNumber}</span>
+      <span className="text-muted-foreground truncate flex-1">{o.customer ?? '—'}</span>
+      <span className="font-mono">{o.weightMt} MT</span>
+    </li>
+  );
+});
+
+const InProgressOrderRow = memo(function InProgressOrderRow({
+  o,
+}: {
+  o: { batchNumber: string; status: string; machineCode?: string };
+}) {
+  return (
+    <li className="flex justify-between gap-2 px-3 py-2 bg-white/40">
+      <span className="font-mono font-semibold">{o.batchNumber}</span>
+      <span className="text-muted-foreground">{o.machineCode ?? '—'}</span>
+      <span>{o.status.replace(/_/g, ' ')}</span>
+    </li>
+  );
+});
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'COMPLETED';
 
@@ -352,15 +382,27 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
           Completed Orders ({review.completedOrders.length})
         </h4>
         {review.completedOrders.length > 0 ? (
-          <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
-            {review.completedOrders.map((o) => (
-              <li key={o.batchNumber} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
-                <span className="font-mono font-semibold">{o.batchNumber}</span>
-                <span className="text-muted-foreground truncate flex-1">{o.customer ?? '—'}</span>
-                <span className="font-mono">{o.weightMt} MT</span>
-              </li>
-            ))}
-          </ul>
+          review.completedOrders.length > 20 ? (
+            <div className="rounded-lg border border-border/60 overflow-hidden">
+              <VirtualizedList
+                items={review.completedOrders}
+                estimateSize={36}
+                className="max-h-64"
+                getKey={(o) => o.batchNumber}
+                renderItem={(o) => (
+                  <ul className="divide-y divide-border/60 text-xs">
+                    <CompletedOrderRow o={o} />
+                  </ul>
+                )}
+              />
+            </div>
+          ) : (
+            <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
+              {review.completedOrders.map((o) => (
+                <CompletedOrderRow key={o.batchNumber} o={o} />
+              ))}
+            </ul>
+          )
         ) : (
           <p className="text-xs text-muted-foreground">No completed orders.</p>
         )}
@@ -373,11 +415,7 @@ function ShiftReviewPanel({ review }: { review: ShiftReviewData }) {
         {review.ordersInProgress.length > 0 ? (
           <ul className="divide-y divide-border/60 text-xs rounded-lg border border-border/60 overflow-hidden">
             {review.ordersInProgress.map((o) => (
-              <li key={o.batchNumber} className="flex justify-between gap-2 px-3 py-2 bg-white/40">
-                <span className="font-mono font-semibold">{o.batchNumber}</span>
-                <span className="text-muted-foreground">{o.machineCode ?? '—'}</span>
-                <span>{o.status.replace(/_/g, ' ')}</span>
-              </li>
+              <InProgressOrderRow key={o.batchNumber} o={o} />
             ))}
           </ul>
         ) : (
@@ -704,6 +742,7 @@ export function PlantShiftReviewPage() {
       <MachineHeadShell
         title="PKL Shift Review"
         subtitle={currentShiftLabel ? `Active: ${currentShiftLabel}` : 'Pickling shift review'}
+        headerActions={<DataFreshnessBadge />}
       >
         <div className="flex flex-col gap-4 max-w-5xl">
           <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -754,6 +793,7 @@ export function PlantShiftReviewPage() {
             : 'ANN process, stoppages, and production'
         }
         onRefresh={() => void load()}
+        headerActions={<DataFreshnessBadge />}
       >
         <div className="flex flex-col gap-4 max-w-5xl">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-2xl border border-border bg-white p-4">
@@ -841,6 +881,7 @@ export function PlantShiftReviewPage() {
           ? `Active: ${currentShiftLabel} — also lists previous production days`
           : 'Active and previous-date shifts — open a row for production summary'
       }
+      headerActions={<DataFreshnessBadge />}
     >
       <div className="flex flex-col gap-6 max-w-5xl">
         {currentShiftLabel && (

@@ -51,6 +51,15 @@ const USERS = [
   { username: 'machinehead.ann', emp_code: '4001', full_name: 'ANN Machine Head', role_id: 5, lines: ['ANN'], machines: ['ANN'], staff: true },
   { username: 'operator.ann', emp_code: '3010', full_name: 'ANN Operator', role_id: 1, lines: ['ANN'], machines: ['ANN'] },
   { username: 'supervisor', emp_code: '4500', full_name: 'Supervisor', role_id: 2, lines: [], machines: [], staff: true },
+  {
+    username: 'planning',
+    emp_code: '4600',
+    full_name: 'Planning Lite',
+    role_name: 'PLANNER',
+    lines: ['HRS', 'PKL', 'ANN', 'RWD', 'CTL'],
+    machines: [],
+    staff: true,
+  },
   { username: 'planthead', emp_code: '5000', full_name: 'Plant Head', role_id: 3, lines: ['HRS', 'PKL', 'CRM', 'ROLLING'], machines: [], staff: true },
   { username: 'quality', emp_code: '7000', full_name: 'Quality Engineer', role_id: 6, lines: [], machines: [], staff: true },
 ];
@@ -88,7 +97,8 @@ async function seedRoles(client) {
       (3, 'PLANT_HEAD', 'Plant Head: View all reports'),
       (4, 'ADMIN', 'System Administrator: Manage master data'),
       (5, 'MACHINE_HEAD', 'Machine Head: Manages assigned machines'),
-      (6, 'QUALITY', 'Quality: Authors and publishes material specification sheets')
+      (6, 'QUALITY', 'Quality: Authors and publishes material specification sheets'),
+      (7, 'PLANNER', 'Planning-Lite: plan import only')
     ON CONFLICT (role_id) DO UPDATE
       SET role_name = EXCLUDED.role_name,
           description = EXCLUDED.description;

@@ -7,6 +7,7 @@ import {
 } from '../services/reporting';
 import { ReportingService } from '../services/ReportingService';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { getScopedLineCodes } from '../auth/lineAccessPolicy';
 import { UserRole } from '@m1/shared-validation';
 import { parsePlantHeadWindow } from '../reporting/plantHeadWindow';
@@ -20,6 +21,7 @@ import { MachineRegistryService } from '../services/MachineRegistryService';
 const router = Router();
 router.use(require('express').json());
 router.use(requireAuth);
+router.use(rateLimitMiddleware(60, 60_000));
 
 router.get('/machine-head', requireRole([UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {

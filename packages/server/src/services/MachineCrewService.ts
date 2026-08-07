@@ -18,21 +18,49 @@ export class MachineCrewService {
    * placeholder; callers decide the final blank-safe value.
    */
   static async getOperatorName(machineCode: string): Promise<string | undefined> {
-    const cached = this.operatorCache.get(machineCode);
-    if (cached && Date.now() - cached.at < 60_000) return cached.name;
+    const map = await this.getOperatorNames([machineCode]);
+    return map.get(machineCode);
+  }
+
+  /** Batch crew-register operator names — avoids N+1 on live order lists. */
+  static async getOperatorNames(machineCodes: string[]): Promise<Map<string, string | undefined>> {
+    const out = new Map<string, string | undefined>();
+    const need: string[] = [];
+    for (const code of machineCodes) {
+      if (!code) continue;
+      const cached = this.operatorCache.get(code);
+      if (cached && Date.now() - cached.at < 60_000) {
+        out.set(code, cached.name);
+      } else if (!need.includes(code)) {
+        need.push(code);
+      }
+    }
+    if (need.length === 0) return out;
 
     const rows = await db
       .selectFrom('master.machine_crew_roster')
-      .select(['member_name', 'role_label'])
-      .where('machine_code', '=', machineCode)
+      .select(['machine_code', 'member_name', 'role_label'])
+      .where('machine_code', 'in', need)
       .where('is_active', '=', true)
       .orderBy('member_name', 'asc')
       .execute();
 
-    const operator = rows.find((r) => /operator/i.test(r.role_label ?? '')) ?? rows[0];
-    const name = operator?.member_name?.trim() || undefined;
-    this.operatorCache.set(machineCode, { name, at: Date.now() });
-    return name;
+    const byMachine = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const bucket = byMachine.get(row.machine_code) ?? [];
+      bucket.push(row);
+      byMachine.set(row.machine_code, bucket);
+    }
+
+    const now = Date.now();
+    for (const code of need) {
+      const members = byMachine.get(code) ?? [];
+      const operator = members.find((r) => /operator/i.test(r.role_label ?? '')) ?? members[0];
+      const name = operator?.member_name?.trim() || undefined;
+      this.operatorCache.set(code, { name, at: now });
+      out.set(code, name);
+    }
+    return out;
   }
 
   static async list(machineCode: string): Promise<MachineCrewMember[]> {

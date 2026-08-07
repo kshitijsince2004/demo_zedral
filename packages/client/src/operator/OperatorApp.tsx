@@ -7,6 +7,7 @@ import { Login } from '../pages/Login';
 import { RoleHomeRedirect } from '../components/RoleHomeRedirect';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { UserScopeShell } from '../components/UserScopeShell';
+import { RouteSpinner } from '../components/RouteSpinner';
 
 const MachineComingSoon = lazy(() =>
   import('../pages/MachineComingSoon').then((m) => ({ default: m.MachineComingSoon })),
@@ -17,14 +18,8 @@ const GenericCapturePage = lazy(() =>
 const UserScopeIndex = lazy(() =>
   import('../pages/UserScopeIndex').then((m) => ({ default: m.UserScopeIndex })),
 );
-const SixHiCapturePage = lazy(() =>
-  import('../pages/sixHi/SixHiCapturePage').then((m) => ({ default: m.SixHiCapturePage })),
-);
 const TwoHiRewindingCapturePage = lazy(() =>
   import('../pages/sixHi/TwoHiRewindingCapturePage').then((m) => ({ default: m.TwoHiRewindingCapturePage })),
-);
-const CrmOutgoingHandoverPage = lazy(() =>
-  import('../pages/sixHi/CrmOutgoingHandoverPage').then((m) => ({ default: m.CrmOutgoingHandoverPage })),
 );
 const SixHiQueuePage = lazy(() =>
   import('../pages/sixHi/SixHiQueuePage').then((m) => ({ default: m.SixHiQueuePage })),
@@ -32,9 +27,24 @@ const SixHiQueuePage = lazy(() =>
 const SixHiOrderPage = lazy(() =>
   import('../pages/sixHi/SixHiOrderPage').then((m) => ({ default: m.SixHiOrderPage })),
 );
+const ProcessOperatorHistoryPage = lazy(() =>
+  import('../pages/process/ProcessOperatorHistoryPage').then((m) => ({ default: m.ProcessOperatorHistoryPage })),
+);
+const ScopeCaptureRoute = lazy(() =>
+  import('../components/ScopeCaptureRoute').then((m) => ({ default: m.ScopeCaptureRoute })),
+);
+const ProcessCapturePage = lazy(() =>
+  import('../pages/process/ProcessCapturePage').then((m) => ({ default: m.ProcessCapturePage })),
+);
+const ScopeHandoverRoute = lazy(() =>
+  import('../components/ScopeHandoverRoute').then((m) => ({ default: m.ScopeHandoverRoute })),
+);
+const PklChartPage = lazy(() =>
+  import('../pages/process/PklChartPage').then((m) => ({ default: m.PklChartPage })),
+);
 
 function OperatorRouteFallback() {
-  return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>;
+  return <RouteSpinner />;
 }
 
 function SuperTokensSync() {
@@ -63,6 +73,7 @@ function SuperTokensSync() {
         store.username === (username ?? null);
       if (!same) {
         login('st-session', role, lines, undefined, machines, username);
+        void import('./sync/pull').then((m) => m.prefetchOperatorCaches()).catch(() => undefined);
       }
     } else {
       const existingLegacy = sessionStorage.getItem('mock_jwt');
@@ -90,8 +101,11 @@ function OperatorApp() {
 
           <Route path="/:userScope" element={<ProtectedRoute><UserScopeShell /></ProtectedRoute>}>
             <Route index element={<UserScopeIndex />} />
-            <Route path="capture" element={<SixHiCapturePage />} />
-            <Route path="handover" element={<CrmOutgoingHandoverPage />} />
+            <Route path="capture" element={<ScopeCaptureRoute />} />
+            <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
+            <Route path="chart" element={<PklChartPage />} />
+            <Route path="history" element={<ProcessOperatorHistoryPage />} />
+            <Route path="handover" element={<ScopeHandoverRoute />} />
             <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
             <Route path="rolling" element={<SixHiQueuePage />} />
             <Route path="skinpass" element={<SixHiQueuePage />} />

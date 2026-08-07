@@ -70,8 +70,8 @@ export function PpcRollingImportPanel({
   line,
 }: {
   lockedSheetType?: PpcXlsxSheetType;
-  /** MH line-scoped fail-safe import (HRS|PKL|RWD|ANN). */
-  line?: 'HRS' | 'PKL' | 'RWD' | 'ANN';
+  /** MH / Planning line-scoped fail-safe import (HRS|PKL|RWD|ANN|CTL). */
+  line?: 'HRS' | 'PKL' | 'RWD' | 'ANN' | 'CTL';
 } = {}) {
   const [file, setFile] = useState<File | null>(null);
   const [sheetType, setSheetType] = useState<PpcXlsxSheetType>(lockedSheetType ?? 'ROLLING');

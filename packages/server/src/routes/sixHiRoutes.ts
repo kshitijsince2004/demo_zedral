@@ -13,7 +13,7 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { denyPlantHeadPpc } from '../auth/ppcAuthorization';
-import { assertLineOperation } from '../auth/lineAccessPolicy';
+import { assertPlanImportAccess } from '../auth/planImportPolicy';
 import { AuthError } from '../services/authService';
 import type { LineAccessLevel } from '../services/authService';
 import { db } from '../db';
@@ -115,9 +115,21 @@ async function authorizeOrderBatchMill(
 
 // operation kept in the signature so the 42 call sites (requireSixHi('READ'|'WRITE')) don't change.
 function requireCrmMill(operation: LineAccessLevel) {
-  return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+  return async (
+    req: import('express').Request,
+    res: import('express').Response,
+    next: import('express').NextFunction,
+  ) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
+      const raw = req.body?.machine ?? req.query?.machine;
+      const hasExplicit = raw != null && String(raw).trim() !== '';
+      // Outbox replay often omits ?machine=; derive mill from the order batch when present.
+      if (!hasExplicit && typeof req.params.batchNo === 'string' && req.params.batchNo) {
+        const derived = await authorizeOrderBatchMill(req, res, req.params.batchNo);
+        if (res.headersSent) return;
+        if (derived) return next();
+      }
       const machine = resolveRequiredCrmMill(req, res);
       if (!machine) return;
       // Machine-wise scope: security.machine_access holds 6HI/4HI/2HI; ADMIN/PLANT_HEAD bypass inside.
@@ -177,12 +189,12 @@ router.post('/import/ppc', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), u
   }
 });
 
-router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), upload.single('file'), async (req, res) => {
+router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR, UserRole.PLANNER]), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'XLSX file required' });
     const lineScope = parseImportLineScope(req.query.line ?? req.body?.line);
     if (lineScope) {
-      assertLineOperation(req.user!, lineScope, 'WRITE');
+      assertPlanImportAccess(req.user!, lineScope);
     }
     const sheetTypeRaw = String(req.body?.sheetType ?? 'ROLLING').toUpperCase();
     const sheetType =
@@ -208,7 +220,7 @@ router.post('/import/ppc/preview', denyPlantHeadPpc('PPC_PREVIEW'), requireRole(
   }
 });
 
-router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREVIEW_MACHINES'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
+router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREVIEW_MACHINES'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR, UserRole.PLANNER]), async (req, res) => {
   try {
     const assignments = req.body?.assignments as { batchNumber: string; machineCode: string }[] | undefined;
     if (!Array.isArray(assignments) || assignments.length === 0) {
@@ -230,12 +242,12 @@ router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREV
   }
 });
 
-router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVIEW_COMMIT'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR]), async (req, res) => {
+router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVIEW_COMMIT'), requireRole([UserRole.ADMIN, UserRole.MACHINE_HEAD, UserRole.SUPERVISOR, UserRole.PLANNER]), async (req, res) => {
   try {
     const { getLiveSession } = await import('../services/previewSessionStore');
     const session = getLiveSession(req.params.sessionId);
     if (session.lineScope) {
-      assertLineOperation(req.user!, session.lineScope, 'WRITE');
+      assertPlanImportAccess(req.user!, session.lineScope);
     }
     const batchNumbers = Array.isArray(req.body?.batchNumbers)
       ? (req.body.batchNumbers as unknown[]).map((b) => String(b).trim()).filter(Boolean)

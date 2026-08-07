@@ -3,6 +3,7 @@
 export enum UserRole {
   OPERATOR = 'OPERATOR',
   SUPERVISOR = 'SUPERVISOR',
+  PLANNER = 'PLANNER',
   MACHINE_HEAD = 'MACHINE_HEAD',
   QUALITY = 'QUALITY',
   PLANT_HEAD = 'PLANT_HEAD',
@@ -12,6 +13,7 @@ export enum UserRole {
 export const ROLE_RANK: Record<UserRole, number> = {
   [UserRole.OPERATOR]: 0,
   [UserRole.SUPERVISOR]: 0,
+  [UserRole.PLANNER]: 0,
   [UserRole.MACHINE_HEAD]: 1,
   [UserRole.QUALITY]: 2,
   [UserRole.PLANT_HEAD]: 3,
@@ -21,6 +23,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.OPERATOR]: 'Operator',
   [UserRole.SUPERVISOR]: 'Supervisor',
+  [UserRole.PLANNER]: 'Planning',
   [UserRole.MACHINE_HEAD]: 'Machine head',
   [UserRole.QUALITY]: 'Quality',
   [UserRole.PLANT_HEAD]: 'Plant head',

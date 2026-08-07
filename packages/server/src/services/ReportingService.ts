@@ -221,8 +221,9 @@ async function resolveShiftIdsByProductionFilters(filters: {
       )})`
     : sql``;
 
-  for (const table of ['txn.prod_hrs', 'txn.prod_crs', 'txn.prod_ctl', 'txn.prod_pkl', 'txn.prod_rwd']) {
-    const rows = await sql<{ shift_log_id: string | number }>`
+  const prodTables = ['txn.prod_hrs', 'txn.prod_crs', 'txn.prod_ctl', 'txn.prod_pkl', 'txn.prod_rwd'];
+  const unionBranches = prodTables.map(
+    (table) => sql`
       SELECT pr.shift_log_id
       FROM ${sql.raw(table)} pr
       LEFT JOIN coil.coil c ON c.coil_no = pr.coil_no
@@ -231,10 +232,13 @@ async function resolveShiftIdsByProductionFilters(filters: {
       ${coilPred}
       ${gradeList}
       ${customerPred}
-    `.execute(reportingDb);
-    for (const r of rows.rows) {
-      ids.add(String(r.shift_log_id));
-    }
+    `,
+  );
+  const batched = await sql<{ shift_log_id: string | number }>`
+    ${sql.join(unionBranches, sql` UNION ALL `)}
+  `.execute(reportingDb);
+  for (const r of batched.rows) {
+    ids.add(String(r.shift_log_id));
   }
 
   return [...ids];

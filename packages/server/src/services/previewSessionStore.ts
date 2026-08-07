@@ -1,6 +1,6 @@
 import type { ParsedRollingPlanRow, PpcXlsxSheetType } from '../utils/rollingPlanXlsxParser';
 
-export type ImportLineScope = 'HRS' | 'PKL' | 'RWD' | 'ANN';
+export type ImportLineScope = 'HRS' | 'PKL' | 'RWD' | 'ANN' | 'CTL';
 
 export interface PreviewSession {
   sessionId: string;

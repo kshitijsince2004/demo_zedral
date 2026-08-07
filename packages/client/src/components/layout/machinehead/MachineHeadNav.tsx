@@ -27,6 +27,7 @@ import {
   type ImportableLine,
 } from '../../../lib/pklMhDesk';
 import { isRwdMhDesk, resolveRwdLiveLine, rwdAssigned } from '../../../lib/rwdMhDesk';
+import { navItemsForMachines } from '../../../lib/mhLineCapabilities';
 
 const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'crs-assignment', 'import', 'traceability']);
 
@@ -405,8 +406,8 @@ export function MachineHeadNav() {
       : isSupervisor
         ? ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id))
         : role
-          // Mixed-assignment MH: keep ALL_NAV but point Import at line-scoped pages.
-          ? withLineScopedImports(ALL_NAV_ITEMS, machines)
+          // CRS/CTL/CRM/mixed fallback — union of assigned lines only (no specs leak).
+          ? withLineScopedImports(navItemsForMachines(machines), machines)
           : ALL_NAV_ITEMS.filter((item) => SUPERVISOR_NAV_IDS.has(item.id));
 
   const brandLabel = isSupervisor

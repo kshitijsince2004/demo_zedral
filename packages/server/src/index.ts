@@ -9,6 +9,7 @@ import { initAppCache } from './cache';
 import { checkRedisHealth } from './cache/health';
 import { db } from './db';
 import { validateAuthConfigAtStartup } from './config/authConfig';
+import { assertDatabaseRoleAtStartup } from './dbRoleAssertion';
 import { DefaultRuleSeeder } from './services/DefaultRuleSeeder';
 import { buildApp } from './app';
 import { buildModuleRegistry } from './modules/registerModules';
@@ -22,52 +23,68 @@ const port = Number(process.env.PORT || 3005);
 const host = process.env.HOST?.trim() || '0.0.0.0';
 process.env.CANONICAL_WRITEBACK_URL ??= `http://127.0.0.1:${port}/v1/canon`;
 
-initEventBus();
-registerJourneyAdvanceConsumer();
-const registry = buildModuleRegistry();
-const { app } = buildApp(registry);
-
 let server: Server;
 let moduleRuntime: ModuleRuntime | null = null;
 
-server = app.listen(port, host, async () => {
-  logger.info(`Server listening on ${host}:${port}`);
+async function startServer(): Promise<void> {
+  await assertDatabaseRoleAtStartup();
 
-  moduleRuntime = await startModuleRuntime(registry);
+  initEventBus();
+  registerJourneyAdvanceConsumer();
+  const registry = buildModuleRegistry();
+  const { app } = buildApp(registry);
 
-  // Seed validation rules
-  const seeder = new DefaultRuleSeeder(db);
-  await seeder.seed().catch(err => {
-    console.error('Failed to seed validation rules:', err);
+  server = app.listen(port, host, async () => {
+    logger.info(`Server listening on ${host}:${port}`);
+
+    moduleRuntime = await startModuleRuntime(registry);
+
+    const seeder = new DefaultRuleSeeder(db);
+    await seeder.seed().catch((err) => {
+      console.error('Failed to seed validation rules:', err);
+    });
+
+    ExportWorker.start();
+    ExportScheduler.start();
+    ShiftBoundaryScheduler.start();
+
+    void initAppCache().catch((err) => {
+      console.error('[cache] Failed to initialize cache layer:', err);
+    });
+
+    checkRedisHealth()
+      .then((ok) => {
+        if (ok) console.info('[cache] Redis health check passed');
+        else if (process.env.REDIS_URL)
+          console.warn('[cache] Redis health check failed; using memory fallback');
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
+
+    checkElasticHealth()
+      .then(async (ok) => {
+        if (ok) await ensureIndex();
+      })
+      .catch(() => {
+        /* already logged in checkElasticHealth */
+      });
   });
-  
-  ExportWorker.start();
-  ExportScheduler.start();
-  ShiftBoundaryScheduler.start();
 
-  // Elasticsearch — non-fatal; traceability falls back to PostgreSQL if unavailable
-  void initAppCache().catch((err) => {
-    console.error('[cache] Failed to initialize cache layer:', err);
-  });
-
-  checkRedisHealth().then((ok) => {
-    if (ok) console.info('[cache] Redis health check passed');
-    else if (process.env.REDIS_URL) console.warn('[cache] Redis health check failed; using memory fallback');
-  }).catch(() => { /* non-fatal */ });
-
-  checkElasticHealth().then(async (ok) => {
-    if (ok) await ensureIndex();
-  }).catch(() => { /* already logged in checkElasticHealth */ });
-});
-
-server.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(
-      `[startup] Port ${port} is already in use. Stop the other process (often another Zedral checkout) and retry.`,
-    );
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `[startup] Port ${port} is already in use. Stop the other process (often another Zedral checkout) and retry.`,
+      );
+      process.exit(1);
+    }
+    console.error('[startup] HTTP server error', err);
     process.exit(1);
-  }
-  console.error('[startup] HTTP server error', err);
+  });
+}
+
+void startServer().catch((err) => {
+  console.error('[startup]', err instanceof Error ? err.message : err);
   process.exit(1);
 });
 

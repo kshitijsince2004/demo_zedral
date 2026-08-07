@@ -2,9 +2,16 @@ import type { OrderJourneyView, ProcessRouteStepView } from '@m1/shared-validati
 import type { Kysely } from 'kysely';
 import { db } from '../db';
 import type { Database } from '../db';
+import { getTenantId } from '../context';
 import { parseRouteForJourney } from '../utils/PpcRouteTranslator';
 
 type DbConn = Kysely<Database>;
+
+const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+
+function resolveTenantId(): string {
+  return getTenantId() || DEFAULT_TENANT_ID;
+}
 
 export interface ParsedRouteStep {
   routeCode: string;
@@ -123,11 +130,18 @@ export class ProcessRouteService {
     subProcess?: string,
     conn: DbConn = db,
   ): Promise<number> {
-    // Race-safe: partial unique on (coil_no) WHERE status='ACTIVE' + upsert.
+    const tenantId = resolveTenantId();
+    // Race-safe: partial unique on (tenant_id, coil_no) WHERE status='ACTIVE' + upsert.
     const inserted = await conn.insertInto('planning.order_journey')
-      .values({ coil_no: coilNo, route_raw: routeRaw.toUpperCase(), current_step_no: 1, status: 'ACTIVE' })
+      .values({
+        coil_no: coilNo,
+        route_raw: routeRaw.toUpperCase(),
+        current_step_no: 1,
+        status: 'ACTIVE',
+        tenant_id: tenantId,
+      })
       .onConflict((oc) => oc
-        .column('coil_no')
+        .columns(['tenant_id', 'coil_no'])
         .where('status', '=', 'ACTIVE')
         .doNothing())
       .returning('journey_id')
@@ -136,6 +150,7 @@ export class ProcessRouteService {
     if (!inserted) {
       const existing = await conn.selectFrom('planning.order_journey')
         .select('journey_id')
+        .where('tenant_id', '=', tenantId)
         .where('coil_no', '=', coilNo)
         .where('status', '=', 'ACTIVE')
         .executeTakeFirstOrThrow();

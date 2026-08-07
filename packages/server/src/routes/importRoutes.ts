@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
+import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { ImportService } from '../services/ImportService';
 
 function respondImportServerError(res: import('express').Response, error: unknown) {
@@ -11,8 +12,10 @@ function respondImportServerError(res: import('express').Response, error: unknow
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const importRateLimit = rateLimitMiddleware(30, 60_000);
 
 router.use(requireAuth);
+router.use(importRateLimit);
 
 /**
  * Accepts either:
@@ -21,7 +24,7 @@ router.use(requireAuth);
  */
 router.post(
   '/',
-  requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]),
+  requireRole([UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.PLANNER]),
   upload.single('file'),
   async (req, res) => {
     try {
@@ -73,7 +76,7 @@ router.get('/plans/:processId/:date', async (req, res) => {
   }
 });
 
-router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), async (req, res) => {
+router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.PLANNER]), async (req, res) => {
   try {
     const csv = await ImportService.getErrorRowsCsv(req.params.batchId);
     if (!csv) {
@@ -90,7 +93,7 @@ router.get('/:batchId/error-rows', requireRole([UserRole.ADMIN, UserRole.SUPERVI
   }
 });
 
-router.get('/:batchId', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR]), async (req, res) => {
+router.get('/:batchId', requireRole([UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.PLANNER]), async (req, res) => {
   try {
     const batch = await ImportService.getBatch(req.params.batchId);
     if (!batch) {

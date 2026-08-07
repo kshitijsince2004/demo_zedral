@@ -19,6 +19,7 @@ import {
 } from '../utils/orderLifecycleHelpers';
 import {
   assertRewindingMachine,
+  isRewindingPpcBatch,
   parseRewindingMachineCode,
   REWINDING_MACHINES,
   type RewindingMachineCode,
@@ -147,7 +148,7 @@ export class RewindingOrderService {
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
-    if (batch.from_work_center !== 'R' && batch.machine_code !== 'RWD') {
+    if (!isRewindingPpcBatch(batch)) {
       throw new Error(`Batch ${batchNumber} is not a rewinding order`);
     }
 
@@ -232,7 +233,7 @@ export class RewindingOrderService {
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     if (!pb) return null;
-    if (pb.from_work_center !== 'R' && pb.machine_code !== 'RWD') return null;
+    if (!isRewindingPpcBatch(pb)) return null;
     const machine = String(pb.machine_code ?? 'RWD').toUpperCase();
     const thk = Number(pb.input_thk_mm ?? pb.ppc_thk_mm ?? 0);
     return {
@@ -384,7 +385,10 @@ export class RewindingOrderService {
     };
   }
 
-  static async getQueue(machineCode: string): Promise<{ machineCode: string; queue: RwdQueueCard[] }> {
+  static async getQueue(
+    machineCode: string,
+    opts?: { backfillUserId?: number },
+  ): Promise<{ machineCode: string; queue: RwdQueueCard[] }> {
     const machine = assertRewindingMachine(machineCode);
     // RWD desk: imported/seeds on machine RWD. 2HI rewinding desk: already on 2HI, OR
     // unallocated rewinding-line plans (from_work_center=R still coded RWD until MTP assigns 2HI).
@@ -406,32 +410,39 @@ export class RewindingOrderService {
         'pb.shift_code',
         'pb.machine_code',
         'pb.machine_allocated',
+        'o.order_id',
         'o.status',
         'o.combined_group_id',
       ]);
 
-    if (machine === 'RWD') {
-      query = query
-        .where('pb.machine_code', '=', 'RWD')
-        .where((eb) =>
-          eb.or([
-            eb('pb.from_work_center', '=', 'R'),
-            eb('pb.from_work_center', 'is', null),
-            eb('pb.from_work_center', '=', ''),
-          ]),
-        );
-    } else {
-      // 2HI desk: only rows already on 2HI (allocated or coded). Unallocated RWD-coded
-      // plans stay on the RWD desk until MTP assigns 2HI — avoids dual-desk claim races.
-      query = query
-        .where('pb.from_work_center', '=', 'R')
-        .where('pb.machine_code', '=', '2HI');
-    }
+    // Rewinding line only — destination REWINDING or sub_process RWD/REWINDING on RWD|2HI.
+    query = query
+      .where('pb.machine_code', 'in', ['RWD', '2HI'])
+      .where((eb) =>
+        eb.or([
+          eb('pb.destination', '=', 'REWINDING'),
+          eb('pb.sub_process', 'in', ['RWD', 'REWINDING']),
+        ]),
+      );
 
     const rows = await query
       .orderBy('pb.queue_seq', 'asc')
       .orderBy('pb.batch_number', 'asc')
       .execute();
+
+    if (opts?.backfillUserId) {
+      const missing = rows.filter((r) => r.order_id == null).map((r) => r.batch_number);
+      if (missing.length > 0) {
+        for (const batchNumber of missing) {
+          try {
+            await this.ensureOrder(batchNumber, opts.backfillUserId);
+          } catch (err) {
+            console.warn(`rewinding.ensureMissingQueueOrder ${batchNumber}:`, err);
+          }
+        }
+        return this.getQueue(machineCode);
+      }
+    }
 
     return {
       machineCode: machine,
@@ -471,7 +482,7 @@ export class RewindingOrderService {
       .where('batch_number', '=', batchNumber)
       .executeTakeFirst();
     if (!batch) throw new Error(`Batch not found: ${batchNumber}`);
-    if (batch.from_work_center !== 'R' && batch.machine_code !== 'RWD') {
+    if (!isRewindingPpcBatch(batch)) {
       throw new Error(`Batch ${batchNumber} is not a rewinding order`);
     }
 

@@ -377,7 +377,7 @@ export class ProcessStationService {
     const code = machineCode.toUpperCase();
     if (!/^CRS[1-6]$/.test(code)) throw new Error('machineCode must be CRS1–CRS6');
     const batch = await db.selectFrom('planning.ppc_batch')
-      .selectAll()
+      .select(['width_mm', 'ppc_thk_mm', 'ppc_weight_mt', 'machine_code'])
       .where('batch_id', '=', batchId)
       .executeTakeFirst();
     if (!batch) throw new Error('Batch not found');
@@ -891,7 +891,16 @@ export class ProcessStationService {
     let stoppages: Array<Record<string, unknown>> = [];
     try {
       stoppages = await db.selectFrom('txn.stoppage')
-        .selectAll()
+        .select([
+          'stoppage_id',
+          'category_code',
+          'breakdown_code',
+          'start_at',
+          'end_at',
+          'duration_min',
+          'remarks',
+          'machine_code',
+        ])
         .where('shift_log_id', '=', shiftLogId)
         .orderBy('start_at', 'asc')
         .execute() as never;
@@ -1404,7 +1413,25 @@ export class ProcessStationService {
   static async getAnnShiftReview(shiftLogId: string) {
     const { aggregateAnnDelayBuckets, mapAnnCrewRoles } = await import('../lib/annShiftReviewAgg');
     const charges = await db.selectFrom('txn.ann_charge')
-      .selectAll()
+      .select([
+        'charge_no',
+        'base_no',
+        'annealing_batch_no',
+        'grade_code',
+        'no_of_coils',
+        'charge_wt_mt',
+        'status',
+        'exp_unloading_time',
+        'unloading_wt_mt',
+        'temperature_degc',
+        'furnace_id',
+        'dew_point_n2',
+        'dew_point_h2',
+        'loading_mt',
+        'unloading_mt',
+        'cumm_loading_mt',
+        'cumm_unloading_mt',
+      ])
       .where('shift_log_id', '=', shiftLogId)
       .orderBy('charge_no', 'asc')
       .execute();
@@ -1415,7 +1442,7 @@ export class ProcessStationService {
 
     if (chargeNos.length > 0) {
       const readings = await db.selectFrom('txn.ann_charge_reading')
-        .selectAll()
+        .select(['charge_no', 'taken_at', 'charge_temp', 'fc_temp'])
         .where('charge_no', 'in', chargeNos)
         .orderBy('taken_at', 'desc')
         .execute();
@@ -1513,7 +1540,19 @@ export class ProcessStationService {
   static async getAnnBoard() {
     const bases = await this.listAnnBases();
     const charges = await db.selectFrom('txn.ann_charge')
-      .selectAll()
+      .select([
+        'charge_no',
+        'base_no',
+        'annealing_batch_no',
+        'status',
+        'current_stage_code',
+        'no_of_coils',
+        'charge_wt_mt',
+        'soak_temp_degc',
+        'soak_time_hr',
+        'total_active_min',
+        'grade_code',
+      ])
       .where('base_no', 'is not', null)
       .orderBy('charge_no', 'desc')
       .execute();
@@ -1551,7 +1590,7 @@ export class ProcessStationService {
       }
 
       const readings = await db.selectFrom('txn.ann_charge_reading')
-        .selectAll()
+        .select(['charge_no', 'taken_at', 'charge_temp', 'base_press', 'base_fan_rpm'])
         .where('charge_no', 'in', chargeNos)
         .orderBy('taken_at', 'desc')
         .execute();

@@ -365,6 +365,16 @@ export class LiveService {
     const coilNos = filtered.map((r) => r.coil_no);
     const journeysByCoil = await ProcessRouteService.getJourneysByCoils(coilNos);
 
+    // Batch crew fallbacks for rows without logged-in operator (avoid await-in-loop).
+    const crewFallbackCodes = [
+      ...new Set(
+        filtered
+          .filter((r) => !r.operator_name && r.machine_code)
+          .map((r) => r.machine_code as string),
+      ),
+    ];
+    const crewNames = await MachineCrewService.getOperatorNames(crewFallbackCodes);
+
     const orders: LiveOrderRow[] = [];
     for (const r of filtered) {
       const prepReady = (r.status === 'PENDING' || r.status === 'PREPARING') && (
@@ -381,9 +391,8 @@ export class LiveService {
       const journey = journeysByCoil.get(r.coil_no) ?? journeysByCoil.get(coilNo) ?? null;
       const progress = journeyProgress(journey);
       // No logged-in user → fall back to the machine's crew-register operator.
-      const operatorName = r.operator_name ?? (r.machine_code
-        ? await MachineCrewService.getOperatorName(r.machine_code)
-        : undefined);
+      const operatorName = r.operator_name
+        ?? (r.machine_code ? crewNames.get(r.machine_code) : undefined);
       orders.push({
         batchNumber: r.batch_number,
         customer: r.customer_name,
@@ -412,7 +421,7 @@ export class LiveService {
   ): Promise<MachineStatusCard[]> {
     let machinesQ = db
       .selectFrom('master.machine')
-      .selectAll()
+      .select(['machine_code', 'name', 'machine_status', 'process_code'])
       .where('machine_status', '!=', 'OFFLINE')
       .orderBy('machine_code', 'asc');
     if (machineFilter !== null) {
@@ -535,15 +544,8 @@ export class LiveService {
 
     // 3b. ACTIVE session shift per machine (prefer over event PPC shift)
     const { ShiftDetectionService } = await import('./ShiftDetectionService');
-    const sessionShiftByMachine = new Map<string, string>();
-    await Promise.all(
-      machineCodes.map(async (code) => {
-        const detected = await ShiftDetectionService.getCurrentShift({ machineCode: code });
-        if (detected.source === 'SESSION') {
-          sessionShiftByMachine.set(code, detected.shiftCode);
-        }
-      }),
-    );
+    const sessionShiftByMachine =
+      await ShiftDetectionService.getSessionShiftCodesForMachines(machineCodes);
 
     // 3c. Open Manual Re-Roll overlays (CRM mills) — fill live status when no CRM order
     const openRerolls = machineCodes.length > 0
@@ -733,7 +735,7 @@ export class LiveService {
   /** Full Machine Command Center payload for a specific machine */
   static async getMachineCommandCenterData(machineCode: string): Promise<MachineCommandCenterData | null> {
     const machine = await db.selectFrom('master.machine')
-      .selectAll()
+      .select(['machine_code', 'name', 'machine_status', 'process_code'])
       .where('machine_code', '=', machineCode)
       .executeTakeFirst();
     if (!machine) return null;
@@ -1036,7 +1038,15 @@ export class LiveService {
 
     const stoppages = batch.order_id
       ? await db.selectFrom('txn.stoppage')
-        .selectAll()
+        .select([
+          'stoppage_id',
+          'category_code',
+          'breakdown_code',
+          'start_at',
+          'end_at',
+          'duration_min',
+          'remarks',
+        ])
         .where('order_id', '=', batch.order_id)
         .orderBy('start_at', 'desc')
         .execute()

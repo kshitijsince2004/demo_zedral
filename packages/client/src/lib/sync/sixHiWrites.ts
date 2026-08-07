@@ -1,8 +1,17 @@
 import { deleteQueued, patchQueued, postQueued } from './queuedApi';
 import { apiClient } from '../apiClient';
+import { getActiveCrmMill } from '../crmMillContext';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 
 const enc = encodeURIComponent;
+
+/** Stamp mill on outbox URLs so replay works off the mill page (apiFetch pathname inject may miss). */
+function withMillQuery(path: string): string {
+  if (path.includes('machine=')) return path;
+  const mill = getActiveCrmMill();
+  if (!mill) return path;
+  return path.includes('?') ? `${path}&machine=${enc(mill)}` : `${path}?machine=${enc(mill)}`;
+}
 
 /** Production PATCH must hit the server immediately — outbox queue causes end-before-sync failures. */
 export function patchOrderImmediate(batchNumber: string, suffix: string, payload: unknown) {
@@ -41,15 +50,23 @@ export function machineAggregateKey(machineCode: string): string {
 }
 
 export function postOrder(batchNumber: string, suffix: string, payload: unknown = {}) {
-  return postQueued(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload, orderAggregateKey(batchNumber));
+  return postQueued(
+    withMillQuery(`/6hi/orders/${enc(batchNumber)}/${suffix}`),
+    payload,
+    orderAggregateKey(batchNumber),
+  );
 }
 
 export function patchOrder(batchNumber: string, suffix: string, payload: unknown) {
-  return patchQueued(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload, orderAggregateKey(batchNumber));
+  return patchQueued(
+    withMillQuery(`/6hi/orders/${enc(batchNumber)}/${suffix}`),
+    payload,
+    orderAggregateKey(batchNumber),
+  );
 }
 
 export function deleteOrder(batchNumber: string) {
-  return deleteQueued(`/6hi/orders/${enc(batchNumber)}`, orderAggregateKey(batchNumber));
+  return deleteQueued(withMillQuery(`/6hi/orders/${enc(batchNumber)}`), orderAggregateKey(batchNumber));
 }
 
 export function startOrder(batchNumber: string) {

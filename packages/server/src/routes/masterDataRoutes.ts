@@ -53,6 +53,7 @@ router.get('/delta', async (_req, res) => {
 router.post('/grade-specs', requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const id = await MasterDataService.createGradeSpec(req.body);
+    await MasterDataService.invalidateCache('master.grade');
     res.status(201).json({ id });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -86,6 +87,7 @@ router.get('/:entityType', validateTable, async (req: any, res) => {
 router.post('/:entityType', requireRole([UserRole.ADMIN]), validateTable, async (req: any, res) => {
   try {
     const id = await MasterDataService.create(req.tableName, req.pkColumn, req.body);
+    await MasterDataService.invalidateCache(req.tableName);
     res.status(201).json({ id });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -95,6 +97,7 @@ router.post('/:entityType', requireRole([UserRole.ADMIN]), validateTable, async 
 router.put('/:entityType/:id', requireRole([UserRole.ADMIN]), validateTable, async (req: any, res) => {
   try {
     await MasterDataService.update(req.tableName, req.pkColumn, req.params.id, req.body);
+    await MasterDataService.invalidateCache(req.tableName);
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -104,6 +107,7 @@ router.put('/:entityType/:id', requireRole([UserRole.ADMIN]), validateTable, asy
 router.delete('/:entityType/:id', requireRole([UserRole.ADMIN]), validateTable, async (req: any, res) => {
   try {
     await MasterDataService.deactivate(req.tableName, req.pkColumn, req.params.id);
+    await MasterDataService.invalidateCache(req.tableName);
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
