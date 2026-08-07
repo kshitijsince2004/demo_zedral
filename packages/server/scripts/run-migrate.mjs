@@ -26,9 +26,9 @@ function run(args) {
 }
 
 if (direction === 'down') {
-  run(['--migrations-dir', 'migrations/modules/m1', '--migrations-table', 'pgmigrations_m1', 'down']);
-  run(['--migrations-dir', 'migrations', 'down']);
+  run(['--migrations-dir', 'migrations/modules/m1', '--migrations-table', 'pgmigrations_m1', '--no-check-order', 'down']);
+  run(['--migrations-dir', 'migrations', '--no-check-order', 'down']);
 } else {
-  run(['--migrations-dir', 'migrations', 'up']);
-  run(['--migrations-dir', 'migrations/modules/m1', '--migrations-table', 'pgmigrations_m1', 'up']);
+  run(['--migrations-dir', 'migrations', '--no-check-order', 'up']);
+  run(['--migrations-dir', 'migrations/modules/m1', '--migrations-table', 'pgmigrations_m1', '--no-check-order', 'up']);
 }

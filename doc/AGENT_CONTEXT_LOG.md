@@ -2190,6 +2190,13 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** Root cause: old image entrypoint migrated via app `DATABASE_URL` (`m1_app`). New entrypoint prefers `MIGRATE_DATABASE_URL`, URL-encodes creds, refuses migrate-as-app-role. Ops must confirm `deploy/.env` `DB_USER` is bootstrap (`m1_user`), not `m1_app`; GHCR login for pull.
 - **Follow-ups:** Commit/push; on box verify `.env` + pull new SHA + recreate backend; restore nginx if needed.
 
+### 2026-08-07 ? QA migrate check-order: 193301 before already-run 193400
+
+- **Goal:** Unblock deploy after migrate-as-m1_user worked ? `checkOrder` rejects mid-timeline `193301_quality_spec_sheet`.
+- **Touched:** `deploy/docker-entrypoint.sh`, `packages/server/scripts/run-migrate.mjs`
+- **Decisions / skipped:** `--no-check-order` on entrypoint + `run-migrate.mjs` (DDL is IF NOT EXISTS). Did not renumber migration files (would need history renames on DBs that already stamped 193301).
+- **Follow-ups:** Commit/push; re-run Deploy AWS QA.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.

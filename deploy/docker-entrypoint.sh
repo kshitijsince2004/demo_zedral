@@ -50,8 +50,11 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
     export DATABASE_URL="${MIGRATE_URL}"
     echo "[entrypoint] Running database migrations as ${MIGRATE_AS}…"
     MIGRATE_BIN="/app/node_modules/node-pg-migrate/bin/node-pg-migrate.js"
-    node "${MIGRATE_BIN}" --migrations-dir migrations up
-    node "${MIGRATE_BIN}" --migrations-dir migrations/modules/m1 --migrations-table pgmigrations_m1 up
+    # --no-check-order: QA/prod DBs that ran past a later timestamp before mid-timeline
+    # files existed (e.g. 193301 quality_spec_sheet vs already-run 193400) otherwise crash-loop.
+    # Migrations use IF NOT EXISTS / idempotent DDL.
+    node "${MIGRATE_BIN}" --migrations-dir migrations --no-check-order up
+    node "${MIGRATE_BIN}" --migrations-dir migrations/modules/m1 --migrations-table pgmigrations_m1 --no-check-order up
     echo "[entrypoint] Migrations complete."
 
     if [ -n "${DB_APP_USER:-}" ] && [ -n "${DB_APP_PASSWORD:-}" ]; then
