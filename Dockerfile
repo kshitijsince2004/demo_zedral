@@ -53,6 +53,7 @@ COPY packages/shared-validation/package.json packages/shared-validation/
 # (not used at runtime; entrypoint runs node directly).
 RUN npm install -g npm@11.4.2 \
   && npm ci --omit=dev --workspace=packages/server --include-workspace-root --ignore-scripts \
+  && node -e "require('zod'); require('pg'); require('express'); console.log('runtime deps ok')" \
   && rm -rf node_modules/esbuild node_modules/@esbuild \
   && npm cache clean --force \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx

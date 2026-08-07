@@ -31,6 +31,7 @@
     "reconcile:hrs-child-weights": "node scripts/reconcile-hrs-child-weights.mjs",
     "db:codegen": "node scripts/db-codegen.mjs",
     "db:codegen:check": "node scripts/db-codegen.mjs --check",
+    "audit:runtime-deps": "node scripts/audit-runtime-deps.mjs",
     "reset:pins": "node scripts/reset-pilot-pins.mjs",
     "seed:data": "node scripts/seed-pilot-data.mjs",
     "seed:process-queues": "node scripts/seed-process-queues.mjs",
@@ -64,7 +65,8 @@
     "pg": "^8.11.5",
     "supertokens-node": "^24.0.2",
     "uuid": "^14.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
   },
   "optionalDependencies": {
     "@aws-sdk/client-s3": "^3.750.0",

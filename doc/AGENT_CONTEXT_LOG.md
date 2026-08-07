@@ -2197,6 +2197,13 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** `--no-check-order` on entrypoint + `run-migrate.mjs` (DDL is IF NOT EXISTS). Did not renumber migration files (would need history renames on DBs that already stamped 193301).
 - **Follow-ups:** Commit/push; re-run Deploy AWS QA.
 
+### 2026-08-07 ? Fix missing zod in backend Docker image
+
+- **Goal:** QA backend crash after migrate: `Cannot find module 'zod'` from ProcessStationService.
+- **Touched:** `packages/server/package.json`, `package-lock.json`, `Dockerfile`, `packages/server/scripts/audit-runtime-deps.mjs`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** `zod` was only on `@m1/shared-validation`; server imports it directly; prod `npm ci --workspace=packages/server` did not expose it for Node resolution from server dist. Declared direct dep; Dockerfile smoke-requires zod/pg/express after ci.
+- **Follow-ups:** Commit/push; Deploy AWS QA.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.
