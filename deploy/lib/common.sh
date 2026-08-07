@@ -193,13 +193,12 @@ wait_for_container_healthy() {
     return 0
   fi
   local attempt
-  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  # ~3 min: allow start_period + a few health probes (do not abort on first unhealthy —
+  # restart: unless-stopped can recover from a single bad boot).
+  for attempt in $(seq 1 30); do
     status="$(docker inspect -f '{{.State.Health.Status}}' "${name}" 2>/dev/null || echo missing)"
     if [ "${status}" = "healthy" ]; then
       return 0
-    fi
-    if [ "${status}" = "unhealthy" ]; then
-      die "Container ${name} reported unhealthy."
     fi
     sleep 6
   done
@@ -230,7 +229,10 @@ run_stack_deploy() {
   log "  backend: ${BACKEND_IMAGE}"
   log "  nginx:   ${NGINX_IMAGE}"
   compose pull backend nginx
-  compose up -d --remove-orphans --no-build --force-recreate
+  # Do NOT --force-recreate the whole stack: recreating db/redis/ST every deploy
+  # races backend health (ST is only service_started) and flakes QA. Compose
+  # recreates backend/nginx when BACKEND_IMAGE / NGINX_IMAGE change.
+  compose up -d --remove-orphans --no-build
 }
 
 # Free unused Docker layers before pull. Keeps images still used by running containers.

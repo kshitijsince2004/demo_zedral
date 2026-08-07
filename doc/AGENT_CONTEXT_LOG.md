@@ -2169,6 +2169,13 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** CRM cleanup scoped to mill artifacts (no global wipe of `shift_log`/`coil`/`ANN` ? shared-suite FK noise). `classifyJourneyForLine` / `checkCoilSafetyForLine` take optional `batchNumber` so sibling batches of the same mother coil are not treated as already-in-line. Full journey batch-keying deferred.
 - **Follow-ups:** Commit/push when asked; confirm CI green.
 
+### 2026-08-07 ? QA deploy flake: stop force-recreate of full stack
+
+- **Goal:** Diagnose AWS QA unhealthy backend on `6f3b400`; harden deploy so next push sticks.
+- **Touched:** `deploy/lib/common.sh`, `deploy/docker-compose.prod.yml`
+- **Decisions / skipped:** Public QA still green after auto-rollback (`/health`+`/login` 200). Removed `compose --force-recreate` (was bouncing db/redis/ST every deploy). Backend health `start_period` 120s; wait loop no longer aborts on first `unhealthy`. No GH token locally ? cannot pull Actions artifact logs.
+- **Follow-ups:** Commit/push + re-run Deploy AWS QA for `6f3b400` (or follow-up SHA).
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.
