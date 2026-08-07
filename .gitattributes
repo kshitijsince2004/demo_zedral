@@ -1,12 +1,28 @@
-# Shell scripts and deploy tooling must use LF (bash on Linux/EC2 breaks on CRLF).
-*.sh text eol=lf
-deploy/** text eol=lf
+# Normalize everything to LF in the repo; Git handles checkout on Windows.
+* text=auto eol=lf
 
-# Source/text files — normalize to LF to avoid CRLF phantom diffs on Windows.
-*.ts   text eol=lf
-*.tsx  text eol=lf
-*.js   text eol=lf
-*.jsx  text eol=lf
-*.json text eol=lf
-*.css  text eol=lf
-*.md   text eol=lf
+# Binary types must never be touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.apk binary
+*.keystore binary
+*.jar binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.7z binary
+*.mp4 binary
+*.webm binary
+*.sqlite binary
+*.db binary

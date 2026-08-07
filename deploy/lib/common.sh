@@ -107,6 +107,12 @@ validate_env_file() {
     die "deploy/.env is missing required variables: ${missing[*]}"
   fi
 
+  # DB_USER in deploy/.env must be bootstrap owner, not the RLS app role.
+  local app_role="${DB_APP_USER:-m1_app}"
+  if [ "${DB_USER}" = "${app_role}" ]; then
+    die "DB_USER=${DB_USER} is the app/RLS role — set DB_USER to the bootstrap owner (e.g. m1_user) and DB_APP_USER=${app_role}"
+  fi
+
   case "${JWT_SECRET}" in
     CHANGE_ME*|change_me*) die "JWT_SECRET is still a placeholder in deploy/.env" ;;
   esac
@@ -123,7 +129,7 @@ validate_env_file() {
     CHANGE_ME*|change_me*) die "SUPERTOKENS_API_KEY is still a placeholder in deploy/.env" ;;
   esac
 
-  log "Environment validation passed."
+  log "Environment validation passed (bootstrap DB_USER=${DB_USER})."
 }
 
 upsert_env_var() {
@@ -216,11 +222,6 @@ wait_for_container_healthy() {
 run_stack_deploy() {
   cd "${REPO_ROOT}"
 
-  if [ "${SKIP_MIGRATE:-false}" = "true" ]; then
-    export RUN_MIGRATIONS=false
-    log "SKIP_MIGRATE=true — migrations disabled for this deploy"
-  fi
-
   [ -n "${BACKEND_IMAGE:-}" ] || die "BACKEND_IMAGE is required (GHCR pull-only deploy — never build on host)"
   [ -n "${NGINX_IMAGE:-}" ] || die "NGINX_IMAGE is required (GHCR pull-only deploy — never build on host)"
 
@@ -241,6 +242,21 @@ run_stack_deploy() {
   # races backend health (ST is only service_started) and flakes QA. Compose
   # recreates backend/nginx when BACKEND_IMAGE / NGINX_IMAGE change.
   compose up -d --remove-orphans --no-build db redis supertokens
+  wait_for_container_healthy zedral-db || die "db did not become healthy before migrate"
+
+  # Discrete migrate before backend boot (failed migrate ≠ health crash-loop).
+  if [ "${SKIP_MIGRATE:-false}" = "true" ]; then
+    log "SKIP_MIGRATE=true — migrations disabled for this deploy"
+    export RUN_MIGRATIONS=false
+  else
+    log "Running database migrations as discrete pre-start step…"
+    if ! RUN_MIGRATIONS=true compose run --rm --no-deps -e RUN_MIGRATIONS=true backend true; then
+      compose logs --tail 200 || true
+      die "Migration step failed — backend will not start (see logs above)"
+    fi
+    export RUN_MIGRATIONS=false
+  fi
+
   compose up -d --no-build --no-deps backend
   if ! wait_for_container_healthy zedral-backend; then
     log "Backend failed health — last logs:"

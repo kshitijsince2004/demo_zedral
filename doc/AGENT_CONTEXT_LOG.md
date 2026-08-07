@@ -2218,9 +2218,39 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** Assert `prod-deps` + full package COPY paths (dist included via prune tree).
 - **Follow-ups:** Commit/push.
 
+### 2026-08-07 — CI mirror + prod-deps prune ignore-scripts
+
+- **Goal:** Run full CI quality + backend image locally; fix real Docker fail (`npm prune` esbuild install mismatch).
+- **Touched:** `Dockerfile` (`npm prune --omit=dev --ignore-scripts`), `scripts/run-ci-quality-local.sh`
+- **Decisions / skipped:** Not a smoke-check dodge — prune must not re-run install scripts; builder already has natives. Script mirrors CI quality job in node:20 container.
+- **Follow-ups:** Re-run local CI mirror + backend build; commit/push prune fix.
+
+### 2026-08-07 — Local CI/QA test results (no product patches)
+
+- **Goal:** Exercise CI quality + AWS QA smoke without papering over failures.
+- **Touched:** `scripts/run-ci-quality-local.sh` (cygpath mount + exclude `*.tsbuildinfo`), `scripts/diag-server-build.sh`, `Dockerfile` (already had `--ignore-scripts`)
+- **Decisions / skipped:** Prior prune-without-ignore-scripts Docker build failed (esbuild 0.28 vs 0.21.5). Re-build with ignore-scripts: `zedral-backend:local-ci-test` OK (`runtime image ok`). Quality mirror failed at server `tsc` (TS6305 missing package `dist` outputs) after lint; diag retry hit `npm ci` ECONNRESET. QA public `https://qa.zedral.com/health` + `/login` = 200. No `gh` auth for Actions. No test/assertion patches.
+- **Follow-ups:** Re-run `scripts/run-ci-quality-local.sh`; commit/push Dockerfile prune fix so CI/AWS QA pick it up.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.
 - **Touched:** `packages/client/dist-operator` (via `android:sync`), Capacitor android assets, `Zedral-Operator-QA-1.2.9-vc12.apk` (from `app-release.apk`)
 - **Decisions / skipped:** No version bump needed (already 1.2.9 / vc12); API via existing `.env.operator` ? qa.zedral.com; debug-signed (no `ZEDRAL_KEYSTORE_*`); no fleet upload.
 - **Follow-ups:** Sideload APK; smoke CRM Manual Re-Roll, HRS/PKL/ANN operator routes against QA.
+
+### 2026-08-07 — Pipeline reliability plan (Phases 0–5)
+
+- **Goal:** Implement `PIPELINE_RELIABILITY_PLAN.md` end-to-end in-repo.
+- **Touched:** `.gitattributes`, `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `runner-health.yml`, `dependabot.yml`, `.github/actions/setup-node-npm`, `deploy/lib/common.sh`, `deploy/docker-compose.prod.yml`, `deploy/scripts/drill-rollback.sh`, `doc/MIGRATION_RUNBOOK.md`, `doc/BRANCH_PROTECTION.md`, `package.json` (overrides undici/uuid/xlsx CDN), `package-lock.json`, `vendor/xlsx-0.20.3.tgz`, `packages/server/scripts/{run-migrate,check-migration-order}.mjs`, `e2e/playwright.config.ts`, deploy workflows (Playwright cache/retries)
+- **Decisions / skipped:** xlsx Path A2 (CDN 0.20.3 + vendored tarball), not exceljs rewrite; off-OneDrive / WSL move and long-lived branch collapse left to humans; `gh` absent so branch protection only documented; full Linux lockfile regen aborted (OneDrive docker hangs) — surgical lock patches for undici/xlsx/uuid instead; `--no-check-order` kept for deploy DBs, `MIGRATE_STRICT_ORDER=1` on CI.
+- **Follow-ups:** Move checkout off OneDrive; apply `doc/BRANCH_PROTECTION.md`; run `bash scripts/run-ci-quality-local.sh`; commit/push; watch first PR matrix + migrate down-all; optional Dependabot/gitleaks license for private repos. Fixed `exceljs>uuid` override → nested `exceljs.uuid` (npm rejected `>` key).
+
+
+
+### 2026-08-07 — Local CI/QA green; commit pipeline reliability
+
+- **Goal:** Run CI quality + Docker + QA health; commit/push pipeline plan work if green.
+- **Touched:** pipeline reliability set (workflows, deploy migrate-before-boot, deps overrides, vendor xlsx, CONTRIBUTING, scripts/run-ci-quality-local.sh)
+- **Decisions / skipped:** Full local mirror PASSED (lint/build/client/unit/integration/arch/migrate up-down-up/docker require smoke). QA curl /health+/login+/api/health 200. Playwright login skipped locally (no SMOKE_* secrets; health request test passed). Excluded dist-operator/capacitor APK churn and AUDIT_REPORT from commit.
+- **Follow-ups:** Watch Actions CI + Deploy AWS QA Playwright (uses repo secrets); apply branch protection; collapse long-lived branches.

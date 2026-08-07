@@ -9,11 +9,15 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'doc/**'
+      - 'CONTRIBUTING.md'
   push:
     branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'doc/**'
+      - 'CONTRIBUTING.md'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,12 +27,54 @@ env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
+# Shared env for DB-backed jobs
+# (duplicated per job — GHA does not inherit job.env into services)
+
 jobs:
-  quality:
-    name: Lint · Build · Test · Arch · Security
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
+      - run: npm run lint
+
+  build:
+    name: Build · typecheck · client
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
+      - run: npm run build
+      - run: npm run test -w @m1/client
+      - run: npm run check:operator-bundle -w @m1/client
 
+  unit:
+    name: Server unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
+      - run: npm run build -w @m1/shared-validation
+      - run: npm run build -w @zedral/platform
+      - run: npm run build -w @zedral/connectors
+      - run: npm run build -w @zedral/m1-collection
+      - run: npm run build -w @m1/server
+      - run: npm run test:unit -w @m1/server
+
+  integration:
+    name: Migrate · integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:15-alpine
@@ -43,7 +89,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       NODE_ENV: test
       DB_HOST: localhost
@@ -53,70 +98,76 @@ jobs:
       DB_NAME: m1_db
       DB_APP_USER: m1_app
       DB_APP_PASSWORD: m1_app_password
-      # Migrate + most integration tests as bootstrap; tenantIsolation connects as m1_app
       DATABASE_URL: postgres://m1_user:m1_password@localhost:5432/m1_db
       MIGRATE_DATABASE_URL: postgres://m1_user:m1_password@localhost:5432/m1_db
       TEST_DATABASE_URL: postgres://m1_user:m1_password@localhost:5432/m1_db
       JWT_SECRET: ci-test-secret-at-least-16-chars-long
       AUTH_STRICT: 'true'
-
+      MIGRATE_STRICT_ORDER: '1'
+      VITEST_DB_AVAILABLE: '1'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      # npm <11.3 skips cross-platform optional natives in the lockfile (rolldown/vite 8).
-      - name: Upgrade npm (optional-deps fix)
-        run: npm install -g npm@11.4.2
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Windows lockfiles omit Linux optional natives (rolldown, rollup, lightningcss, oxide).
-      - name: Ensure native bindings for this OS
-        run: node scripts/ensure-native-bindings.mjs
-
-      - name: ESLint
-        run: npm run lint
-
-      - name: Typecheck / build all workspaces
-        run: npm run build
-
-      - name: Client unit tests
-        run: npm run test -w @m1/client
-
-      - name: Operator APK bundle check
-        run: npm run check:operator-bundle -w @m1/client
-
-      - name: Database migrations
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
+      - name: Migration filename order
+        run: node packages/server/scripts/check-migration-order.mjs
+      - name: Database migrations (strict order)
         working-directory: packages/server
         run: npm run migrate
-
+      - name: Migrations up → down-all → up
+        working-directory: packages/server
+        run: |
+          npm run migrate:down:all
+          npm run migrate
       - name: db-types drift check
         working-directory: packages/server
         run: npm run db:codegen:check
-
-      - name: Server unit tests
-        run: npm run test:unit -w @m1/server
-
       - name: Server integration tests
         run: npm run test:integration -w @m1/server
 
-      - name: Architecture check
-        run: npm run arch:check
+  arch:
+    name: Architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
+      - run: npm run build -w @m1/shared-validation
+      - run: npm run build -w @zedral/platform
+      - run: npm run build -w @zedral/connectors
+      - run: npm run build -w @zedral/m1-collection
+      - run: npm run build -w @m1/server
+      - run: npm run arch:check
 
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    name: npm audit (report)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
       - name: npm audit (prod critical — report, non-blocking)
         run: |
           npm audit --omit=dev --audit-level=critical 2>&1 | tee audit-critical.txt || true
-          if grep -q 'critical' audit-critical.txt; then
+          if grep -qi 'critical' audit-critical.txt; then
             echo "::warning::Prod-critical advisory present — review audit-critical.txt (not blocking the build)."
           fi
-
       - name: npm audit (high+ report)
         run: |
           npm audit --audit-level=high 2>&1 | tee audit-high.txt || true
@@ -126,15 +177,38 @@ jobs:
             echo '```'
             tail -n 40 audit-high.txt
             echo '```'
-            echo ""
-            echo "Audit steps are **report-only** (xlsx/high have no clean fix yet)."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # PR-time prod image build (no push) — catches zod/prune class before merge.
+  docker-pr:
+    name: Docker build (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: backend
+          push: false
+          load: true
+          tags: zedral-backend:pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Runtime require smoke
+        run: |
+          docker run --rm --entrypoint node zedral-backend:pr -e \
+            "process.chdir('packages/server'); require('zod'); require('pg'); require('express'); console.log('pr image ok')"
 
   docker-build-push:
     name: Docker build · Trivy · Push GHCR
     runs-on: ubuntu-latest
-    needs: quality
-    # PRs stay on the quality gate; images are only built/scanned/pushed on main.
+    needs: [lint, build, unit, integration, arch, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 40
     permissions:
@@ -146,8 +220,7 @@ jobs:
       image_tag: ${{ steps.meta.outputs.tag }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Image tags
         id: meta
@@ -157,8 +230,7 @@ jobs:
           echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
           echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build backend (local, for scan)
         uses: docker/build-push-action@v6
@@ -188,15 +260,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Worker target does not exist in Dockerfile — skipped.
-
       - name: Trivy scan backend image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: zedral-backend:ci
           format: table
           exit-code: '1'
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           ignore-unfixed: true
           trivyignores: .trivyignore
           skip-files: '**/node_modules/esbuild/bin/esbuild,**/node_modules/@esbuild/**/esbuild'
@@ -211,7 +281,6 @@ jobs:
           ignore-unfixed: true
           trivyignores: .trivyignore
 
-      # Prefer GITHUB_TOKEN + packages:write so a stale/read-only GHCR_TOKEN PAT cannot 401.
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:

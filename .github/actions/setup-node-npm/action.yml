@@ -1,0 +1,20 @@
+name: Setup Node + npm pin
+description: Node 20 with npm@11.4.2 (cross-OS optionalDeps fix). Single documented pin.
+inputs:
+  cache-dependency-path:
+    description: package-lock path for cache
+    required: false
+    default: package-lock.json
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+    # Keep in sync with root package.json "packageManager" and Dockerfile.
+    - name: Upgrade npm (optional-deps fix)
+      shell: bash
+      run: npm install -g npm@11.4.2

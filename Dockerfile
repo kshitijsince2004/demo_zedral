@@ -16,7 +16,8 @@ COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 
-# npm <11.3 can skip cross-OS optional natives from a Windows-generated lockfile.
+# npm pin: keep in sync with root package.json "packageManager" and
+# .github/actions/setup-node-npm (npm <11.3 skips cross-OS optional natives).
 RUN npm install -g npm@11.4.2 \
   && npm ci \
   && node scripts/ensure-native-bindings.mjs
@@ -37,7 +38,9 @@ RUN npm run build
 # drops require('zod') entirely (chromium-bidi may keep a private copy Node cannot see).
 FROM builder AS prod-deps
 WORKDIR /app
-RUN npm prune --omit=dev \
+# --ignore-scripts: prune must not re-run nested esbuild installers (tsx wants 0.28,
+# root optionalDeps pin 0.21.5) — binaries already present from builder npm ci.
+RUN npm prune --omit=dev --ignore-scripts \
   && rm -rf packages/client \
   && node -e "process.chdir('packages/server'); \
        ['zod','pg','express'].forEach((m) => require.resolve(m)); \

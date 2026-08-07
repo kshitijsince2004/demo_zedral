@@ -19,6 +19,8 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
 
   MIGRATE_URL=""
   # Prefer DB_MIGRATE_* (percent-encoded) over raw MIGRATE_DATABASE_URL (special chars in passwords).
+  # Deploy path: remote-ghcr-deploy runs a discrete `compose run … migrate` before backend
+  # starts with RUN_MIGRATIONS=false. This entrypoint path remains for one-shot / legacy boots.
   if [ -n "${DB_HOST:-}" ] && [ -n "${MIGRATE_USER}" ] && [ -n "${MIGRATE_PASSWORD}" ] && [ -n "${DB_NAME:-}" ]; then
     MIGRATE_URL="$(pg_url "${MIGRATE_USER}" "${MIGRATE_PASSWORD}" "${DB_HOST}" "${DB_PORT:-5432}" "${DB_NAME}")"
   elif [ -n "${MIGRATE_DATABASE_URL:-}" ]; then

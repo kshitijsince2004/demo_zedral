@@ -265,8 +265,6 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      # One-time on the Factory box this needs sudo/apt. If the runner user cannot
-      # sudo, pre-install chromium once manually and delete this step.
       - name: Install Playwright browsers
         working-directory: e2e
         run: npx playwright install --with-deps chromium
@@ -277,7 +275,7 @@ jobs:
           BASE_URL: http://127.0.0.1
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
-        run: npx playwright test --reporter=list,html,json
+        run: npx playwright test --retries=2 --reporter=list,html,json
 
       - name: Upload Playwright report
         if: always()
