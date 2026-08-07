@@ -123,6 +123,11 @@ jobs:
       - name: db-types drift check
         working-directory: packages/server
         run: npm run db:codegen:check
+      - run: npm run build -w @m1/shared-validation
+      - run: npm run build -w @zedral/platform
+      - run: npm run build -w @zedral/connectors
+      - run: npm run build -w @zedral/m1-collection
+      - run: npm run build -w @m1/server
       - name: Server integration tests
         run: npm run test:integration -w @m1/server
 
@@ -146,6 +151,9 @@ jobs:
     name: Secrets (gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -203,7 +211,7 @@ jobs:
       - name: Runtime require smoke
         run: |
           docker run --rm --entrypoint node zedral-backend:pr -e \
-            "process.chdir('packages/server'); require('zod'); require('pg'); require('express'); console.log('pr image ok')"
+            "process.chdir('/app/packages/server'); require('zod'); require('pg'); require('express'); console.log('pr image ok')"
 
   docker-build-push:
     name: Docker build · Trivy · Push GHCR

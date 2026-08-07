@@ -2254,3 +2254,10 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Touched:** pipeline reliability set (workflows, deploy migrate-before-boot, deps overrides, vendor xlsx, CONTRIBUTING, scripts/run-ci-quality-local.sh)
 - **Decisions / skipped:** Full local mirror PASSED (lint/build/client/unit/integration/arch/migrate up-down-up/docker require smoke). QA curl /health+/login+/api/health 200. Playwright login skipped locally (no SMOKE_* secrets; health request test passed). Excluded dist-operator/capacitor APK churn and AUDIT_REPORT from commit.
 - **Follow-ups:** Watch Actions CI + Deploy AWS QA Playwright (uses repo secrets); apply branch protection; collapse long-lived branches.
+
+### 2026-08-07 — CI_FIX_PLAN: four CI blockers
+
+- **Goal:** Fix integration missing workspace builds, unit DB leak, gitleaks 403, docker-pr chdir ENOENT.
+- **Touched:** .github/workflows/ci.yml, packages/server/tests/handoverDraftJsonb.integration.test.ts (renamed from .test.ts)
+- **Decisions / skipped:** Recommended options only (A/A/A/B absolute chdir). No vite-tsconfig-paths. Verified: unit 539 pass without handoverDraftJsonb; renamed integration test pass; docker absolute chdir pr image ok (relative still ENOENT). Gitleaks permissions only verifiable on GitHub PR.
+- **Follow-ups:** Push/re-run PR CI for secrets job confirmation.
