@@ -25,7 +25,6 @@ import {
   formatReadingTime,
   humanizeStage,
   type Reading,
-  type ReadingKey,
   type RosterRow,
   type Stage,
   type Stoppage,
@@ -314,14 +313,14 @@ export function AnnChargePage() {
                 <MetaInline onPrimary label="Start" value={stageStart} />
                 <MetaInline onPrimary label="Elapsed" value={stageElapsed} />
                 <MetaInline onPrimary label="Anneal time" value={formatDurationMin(charge?.total_active_min as number | string | null)} />
-                <MetaInline onPrimary label="Temp" value={`${currentTemp}${currentTemp !== '?' ? ' °C' : ''}`} />
+                <MetaInline onPrimary label="Temp" value={`${currentTemp}${currentTemp !== '?' ? ' Â°C' : ''}`} />
                 <MetaInline onPrimary label="Shift" value={shiftCode ? String(shiftCode) : '?'} />
               </div>
               <div className="flex w-full shrink-0 flex-col gap-1.5 lg:w-44">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[9px] font-bold uppercase leading-none tracking-[0.12em] text-primary-foreground/70">Progress</span>
                   <span className="font-mono text-xs font-bold tabular-nums text-primary-foreground">
-                    {progressPct}% · {stagesDone}/{stagesTotal}
+                    {progressPct}% ? {stagesDone}/{stagesTotal}
                   </span>
                 </div>
                 <div className="h-2.5 overflow-hidden rounded-full bg-white/20" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
@@ -454,10 +453,10 @@ export function AnnChargePage() {
                   </div>
                   <p className="text-sm font-semibold text-foreground">
                     {openStoppage.category_code}
-                    {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
+                    {openStoppage.reason ? ` ? ${openStoppage.reason}` : ''}
                   </p>
                   <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                    Started {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
+                    Started {formatReadingTime(openStoppage.start_at)} ? {formatElapsed(openStoppage.start_at, nowMs)}
                   </p>
                   <ZButton
                     type="button"
@@ -516,10 +515,10 @@ export function AnnChargePage() {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-status-stopped">Active stoppage</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">
                   {openStoppage.category_code}
-                  {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
+                  {openStoppage.reason ? ` ? ${openStoppage.reason}` : ''}
                 </p>
                 <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                  Since {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
+                  Since {formatReadingTime(openStoppage.start_at)} ? {formatElapsed(openStoppage.start_at, nowMs)}
                 </p>
               </div>
               <ZButton
@@ -589,7 +588,7 @@ export function AnnChargePage() {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm"
                   >
                     <span className="font-mono tabular-nums">
-                      {r.coil_no} · {r.grade_code ?? ''} · {Number(r.weight_mt ?? 0).toFixed(2)} MT
+                      {r.coil_no} ? {r.grade_code ?? ''} ? {Number(r.weight_mt ?? 0).toFixed(2)} MT
                     </span>
                     <div className="flex items-center gap-2">
                       {r.disposition === 'HOLD' && <ZBadge tone="accent" label="HOLD" />}
@@ -648,11 +647,11 @@ export function AnnChargePage() {
               <p className="font-sans text-sm font-medium text-foreground">{formatReadingTime(r.taken_at)}</p>
               <p className="mt-1 text-muted-foreground">
                 Stage {r.stage_code ?? '?'}
-                {' · '}C {r.charge_temp ?? '?'}
-                {' · '}G {r.gas_temp ?? '?'}
-                {' · '}FC {r.fc_temp ?? '?'}
-                {' · '}P {r.base_press ?? '?'}
-                {' · '}Fan {r.base_fan_rpm ?? '?'}
+                {' ? '}C {r.charge_temp ?? '?'}
+                {' ? '}G {r.gas_temp ?? '?'}
+                {' ? '}FC {r.fc_temp ?? '?'}
+                {' ? '}P {r.base_press ?? '?'}
+                {' ? '}Fan {r.base_fan_rpm ?? '?'}
               </p>
             </li>
           ))}

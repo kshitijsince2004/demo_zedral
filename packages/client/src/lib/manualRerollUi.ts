@@ -31,7 +31,8 @@ export function withManualRerollTab<T extends { id: string; label: string }>(
 }
 
 /** Prefer pill tab over enter button once entry is allowed. */
-export function showManualRerollEnterButton(_showEntry: boolean, _machine?: string, _activeTab?: string): boolean {
+export function showManualRerollEnterButton(...args: unknown[]): boolean {
+  void args;
   return false;
 }
 

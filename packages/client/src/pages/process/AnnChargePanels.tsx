@@ -1,4 +1,4 @@
-// PERF-B3 — presentational widgets extracted from AnnChargePage
+// PERF-B3 - presentational widgets extracted from AnnChargePage
 import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   ArrowDownToLine,

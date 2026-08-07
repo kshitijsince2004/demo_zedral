@@ -30,7 +30,8 @@ describe('D12 schema ownership governance', () => {
     for (const migration of readMigrationFiles()) {
       for (const schema of forbiddenModuleSchemas) {
         const schemaReference = new RegExp(`\\b(?:CREATE\\s+SCHEMA|ALTER\\s+TABLE|CREATE\\s+TABLE|DROP\\s+TABLE)\\s+(?:IF\\s+(?:NOT\\s+)?EXISTS\\s+)?${schema}\\b`, 'i');
-        const qualifiedReference = new RegExp(`\\b${schema}\\.`, 'i');
+        // Require schema.table (e.g. maint.work_order), not prose like "Preventive Maint."
+        const qualifiedReference = new RegExp(`\\b${schema}\\.[a-z_][a-z0-9_]*`, 'i');
         expect(
           schemaReference.test(migration.content) || qualifiedReference.test(migration.content),
           `${migration.file} must not touch foreign schema ${schema}`,

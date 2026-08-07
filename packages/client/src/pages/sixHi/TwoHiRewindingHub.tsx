@@ -150,7 +150,7 @@ export function TwoHiRewindingHub() {
     setSearchParams(next, { replace: true });
   };
 
-  const queue = data ?? [];
+  const queue = useMemo(() => data ?? [], [data]);
   const filtered = useMemo(
     () => queue.filter((c) => {
       if (!matchesStatus(c, statusFilter)) return false;

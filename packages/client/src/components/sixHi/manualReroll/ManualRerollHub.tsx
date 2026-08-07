@@ -87,7 +87,7 @@ export function ManualRerollHub() {
     if (!active || active.status === 'ON_HOLD') return;
     const id = window.setInterval(() => setNow(getServerTime()), 1000);
     return () => window.clearInterval(id);
-  }, [active?.sessionId, active?.status]);
+  }, [active?.sessionId, active?.status, active]);
 
   const setTab = (id: string) => {
     const next = new URLSearchParams(searchParams);
@@ -104,8 +104,8 @@ export function ManualRerollHub() {
     setSearchParams(next);
   };
 
-  const pending = queue?.pending ?? [];
-  const sessions = queue?.sessions ?? [];
+  const pending = useMemo(() => queue?.pending ?? [], [queue?.pending]);
+  const sessions = useMemo(() => queue?.sessions ?? [], [queue?.sessions]);
 
   const allRows: QueueRow[] = useMemo(() => [
     ...pending.map((p) => ({ kind: 'pending' as const, data: p })),
@@ -152,7 +152,7 @@ export function ManualRerollHub() {
       return;
     }
     applyCombineSelection(selectedPending, combineManualRef.current);
-  }, [selectedPending?.orderId, pendingCombineKey, applyCombineSelection]);
+  }, [selectedPending, selectedPending?.orderId, pendingCombineKey, applyCombineSelection]);
 
   const picked = pending.filter((hit) => pickedIds.has(hit.orderId));
   const showCombine = compatibleIds.size > 1;
@@ -188,9 +188,9 @@ export function ManualRerollHub() {
   const detailSession = selectedSession
     ?? (active ? sessions.find((s) => s.sessionId === active.sessionId) ?? null : null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     await Promise.all([mutateQueue(), mutateSummary()]);
-  };
+  }, [mutateQueue, mutateSummary]);
 
   const selectPending = (hit: ManualRerollOrderHit) => {
     combineManualRef.current = false;
@@ -247,7 +247,7 @@ export function ManualRerollHub() {
     } finally {
       setBusy(false);
     }
-  }, [machineCode, mutateQueue, mutateSummary, refreshMachineState]);
+  }, [refresh, refreshMachineState]);
 
   const onStart = () => {
     if (!selectedPending) return;

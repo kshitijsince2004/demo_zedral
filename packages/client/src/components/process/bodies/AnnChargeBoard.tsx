@@ -6,13 +6,12 @@ import { ZInput } from '../../primitives/ZInput';
 import { ZFilterPills } from '../../ui/operator/ZFilterPills';
 import { apiClient } from '../../../lib/apiClient';
 import { useProcessWorkspaceBase } from '../../../hooks/useProcessWorkspaceBase';
-import type { BodyProps } from '../../../lib/processConfig';
 import { AnnBaseCard, boardCardStatus, type AnnBoardCardStatus, type AnnBoardRow } from './AnnBaseCard';
 
 type StatusFilter = 'ALL' | AnnBoardCardStatus;
 
 /** ANN Base Cards grid — create lives on MH Ann Batching. */
-export function AnnChargeBoard(_props: BodyProps) {
+export function AnnChargeBoard() {
   const navigate = useNavigate();
   const { basePath } = useProcessWorkspaceBase();
   const [board, setBoard] = useState<AnnBoardRow[]>([]);

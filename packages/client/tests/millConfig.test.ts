@@ -13,10 +13,11 @@ describe('millConfig', () => {
     }
   });
 
-  it('2HI is skin pass only', () => {
+  it('2HI is skin pass + rewinding (no rolling)', () => {
     expect(millSupportsRolling('2HI')).toBe(false);
-    expect(hubTabsForMill('2HI').map((t) => t.id)).toEqual(['skinpass']);
+    expect(hubTabsForMill('2HI').map((t) => t.id)).toEqual(['skinpass', 'rewinding']);
     expect(normalizeMillTab('2HI', 'rolling')).toBe('skinpass');
     expect(normalizeMillTab('2HI', 'skinpass')).toBe('skinpass');
+    expect(normalizeMillTab('2HI', 'rewinding')).toBe('rewinding');
   });
 });

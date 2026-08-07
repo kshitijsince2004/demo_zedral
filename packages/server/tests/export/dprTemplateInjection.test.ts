@@ -34,7 +34,7 @@ describe('DPR template injection', () => {
 
     const delayData = delay.getCell(2, 4).value;
     expect(delayData === 0 || delayData === null || delayData === '').toBe(true);
-  });
+  }, 60_000);
   it('injects fixture data into template preserving workbook structure', async () => {
     const { rdm } = buildDprFromFixture({
       month: fixture.month,

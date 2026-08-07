@@ -16,7 +16,6 @@ interface ProcessQueueDetailPanelProps {
 /** CRM-style detail pane — HRS fields + Move to Production CTA. */
 export function ProcessQueueDetailPanel({
   card,
-  processLabel: _processLabel,
   stationCode,
   onMoveToProduction,
   moveLabel,

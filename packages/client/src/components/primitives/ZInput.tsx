@@ -17,7 +17,7 @@ function openKeyboardOnTap(e: React.PointerEvent<HTMLInputElement>) {
       try {
         const len = el.value.length;
         el.setSelectionRange(len, len);
-      } catch (err) {
+      } catch {
         // Ignored. setSelectionRange is not supported on some input types (like email).
       }
     }

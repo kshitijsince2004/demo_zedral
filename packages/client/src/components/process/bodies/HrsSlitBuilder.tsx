@@ -196,6 +196,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       return;
     }
     setLines([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- stable keys derived from orderLines + hrsCapture
   }, [coilNo, orderLinesKey, rmThk, captureKey]);
 
   useEffect(() => {
@@ -220,6 +221,7 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       (hrsCapture.slitSlots ?? []).map((s) => ({ slot: s.slot, readings: s.thicknessReadings ?? [] })),
     );
     if (passes.length) setThkPasses(passes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- captureKey tracks hrsCapture identity
   }, [coilNo, captureKey]);
 
   const latestMotherWidth = latestByTime(

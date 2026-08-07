@@ -11,7 +11,10 @@ export function MachineDprExport() {
   const machineAccess = useOperationalMachineAccess();
   const focus = useMhDeskFocus((s) => s.focus);
   const annDesk = isAnnMhDesk(machineAccess, focus);
-  const scopedMachines = annDesk ? ['ANN'] : machineAccess;
+  const scopedMachines = useMemo(
+    () => (annDesk ? ['ANN'] : machineAccess),
+    [annDesk, machineAccess],
+  );
   const [tab, setTab] = useState<ExportTab>('dpr');
 
   const scopeHint = useMemo(() => {

@@ -223,6 +223,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     return () => { cancelled = true; };
   }, [
     processCode,
+    running,
     running?.batchNumber,
     running?.coilNo,
     captureStatus,

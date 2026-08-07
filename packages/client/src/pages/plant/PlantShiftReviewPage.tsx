@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
-import { putQueued } from '../../lib/sync/queuedApi';
 import { currentPlantDate, formatPlantDateTime, formatShiftDate } from '../../lib/dateFormat';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useAuthStore } from '../../lib/authStore';
@@ -14,7 +13,6 @@ import { AnnShiftReviewPanel } from '../../components/process/AnnShiftReviewPane
 import { PklShiftReviewPanel } from '../../components/process/PklShiftReviewPanel';
 import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 import {
-  ACTIVE_STATES,
   COMPLETED_STATES,
   SHIFT_ORDER,
   VISIBLE_STATES,

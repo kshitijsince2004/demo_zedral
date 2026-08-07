@@ -59,7 +59,6 @@ export function MachineHeadDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [rejectedOrders, setRejectedOrders] = useState<NonNullable<MachineHeadDashboardData['rejectedOrders']>>([]);
   const [rejectedLoading, setRejectedLoading] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [completedOrders, setCompletedOrders] = useState<HistoryRow[]>([]);
   const [completedLoading, setCompletedLoading] = useState(false);
   const [historyProcessFilter, setHistoryProcessFilter] = useState<HistoryProcessFilter>('ALL');

@@ -33,7 +33,8 @@ export interface SyncEngineOptions {
 async function hasSession(): Promise<boolean> {
   try {
     const Session = (await import('supertokens-auth-react/recipe/session')).default;
-    return Session.doesSessionExist();
+    // await so rejected doesSessionExist (uninit ST) hits catch — not an unhandled rejection
+    return await Session.doesSessionExist();
   } catch {
     return false;
   }

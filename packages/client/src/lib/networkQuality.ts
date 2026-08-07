@@ -19,7 +19,6 @@ const samples: number[] = [];
 const listeners = new Set<(q: NetworkQuality) => void>();
 
 let started = false;
-let probeTimer: ReturnType<typeof setInterval> | null = null;
 let online = typeof navigator === 'undefined' ? true : navigator.onLine;
 let level: NetworkQualityLevel = online ? 'good' : 'bad';
 let p95RttMs: number | null = null;
@@ -131,5 +130,5 @@ export function startNetworkQualityProbe(): void {
   });
 
   void probeOnce();
-  probeTimer = setInterval(() => void probeOnce(), PROBE_MS);
+  setInterval(() => void probeOnce(), PROBE_MS);
 }

@@ -58,7 +58,7 @@ export function RwdMhLiveDashboard() {
     { refreshInterval: 15_000 },
   );
 
-  const queue = data ?? [];
+  const queue = useMemo(() => data ?? [], [data]);
   const counts = useMemo(() => {
     const c: Record<StatusFilter, number> = { ALL: 0, PENDING: 0, IN_PROGRESS: 0, HOLD: 0, COMPLETED: 0 };
     for (const card of queue) {

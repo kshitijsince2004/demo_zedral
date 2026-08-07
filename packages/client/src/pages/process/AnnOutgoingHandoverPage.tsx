@@ -9,7 +9,7 @@ import {
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { useHandoverPreview } from '../../hooks/useHandoverState';
 import { useShiftStore } from '../../store/shiftStore';
-import type { PendingHandover, HandoverPreview } from '../../services/machineHandoverService';
+import type { PendingHandover } from '../../services/machineHandoverService';
 
 /** ANN outgoing handover — shift summary + AnnShiftReviewPanel inside shared shell. */
 export function AnnOutgoingHandoverPage() {
@@ -17,7 +17,7 @@ export function AnnOutgoingHandoverPage() {
   const { data: preview } = useHandoverPreview('ANN');
   const [annRemarks, setAnnRemarks] = useState('');
 
-  const hydrateExtra = useCallback((draft: PendingHandover | null | undefined, _preview: HandoverPreview | null | undefined) => {
+  const hydrateExtra = useCallback((draft: PendingHandover | null | undefined) => {
     if (!draft) return;
     const ps = draft.production_snapshot as Record<string, unknown>;
     const sm = ps?.shiftManualFields as Record<string, unknown> | null;

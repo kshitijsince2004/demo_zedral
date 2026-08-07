@@ -29,6 +29,12 @@ vi.mock('@capacitor/network', () => ({
   Network: { addListener: vi.fn() },
 }));
 
+vi.mock('supertokens-auth-react/recipe/session', () => ({
+  default: {
+    doesSessionExist: vi.fn(async () => true),
+  },
+}));
+
 import { apiFetch } from '../../../src/lib/apiClient';
 import * as outbox from '../../../src/lib/sync/outboxRepo';
 import { syncNow } from '../../../src/lib/sync/engine';
@@ -37,6 +43,8 @@ import { notifyProductionChanged } from '../../../src/lib/productionSync';
 describe('sync engine replay', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Tests assert sequential apiFetch replay; batch path is covered elsewhere.
+    vi.stubEnv('VITE_SYNC_BATCH', 'false');
   });
 
   it('replays queued writes and invalidates caches on success', async () => {

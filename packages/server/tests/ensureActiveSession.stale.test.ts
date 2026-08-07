@@ -66,7 +66,7 @@ describe('MachineHandoverService.ensureActiveSession stale session', () => {
 
     const selectChains = [
       () => ({
-        selectAll: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
         orderBy: vi.fn().mockReturnThis(),
         executeTakeFirst: vi.fn().mockResolvedValue(existing),
@@ -128,7 +128,7 @@ describe('MachineHandoverService.ensureActiveSession stale session', () => {
 
     const selectChains = [
       () => ({
-        selectAll: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
         orderBy: vi.fn().mockReturnThis(),
         executeTakeFirst: vi.fn().mockResolvedValue(null),
@@ -182,7 +182,7 @@ describe('MachineHandoverService.ensureActiveSession stale session', () => {
     // 1) existing ACTIVE session  2) session_crew check (empty -> needsCrew)
     const selectChains = [
       () => ({
-        selectAll: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
         orderBy: vi.fn().mockReturnThis(),
         executeTakeFirst: vi.fn().mockResolvedValue(existing),

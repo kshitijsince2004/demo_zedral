@@ -1,4 +1,4 @@
-// PERF-B3 ù tab panels for MachineHeadDashboard
+// PERF-B3 - tab panels for MachineHeadDashboard
 import type { LiveOrderRow, MachineHeadDashboardData, MachineStatusCard } from '@m1/shared-validation';
 import { Download } from 'lucide-react';
 import { MachineStatusBoard } from '../../components/live/MachineStatusBoard';
@@ -59,7 +59,7 @@ export function renderMachineHeadTabContent(p: {
     selectedBatch, selectOrder,
   } = p;
     if (!dashboard && activeTab !== 'overview') {
-      return <p className="text-sm text-muted-foreground py-8 text-center">Loading dashboard dataù</p>;
+      return <p className="text-sm text-muted-foreground py-8 text-center">Loading dashboard data-</p>;
     }
 
     switch (activeTab) {
@@ -97,7 +97,7 @@ export function renderMachineHeadTabContent(p: {
                     <StatCell label="In Progress MT" value={dashboard.shiftSummary.inProgressMt ?? 0} mono />
                     <StatCell
                       label="Shift Orders"
-                      value={`${dashboard.shiftSummary.orderCount} ù ${dashboard.shiftSummary.completedOrderCount} done`}
+                      value={`${dashboard.shiftSummary.orderCount} - ${dashboard.shiftSummary.completedOrderCount} done`}
                     />
                   </dl>
                 </Panel>
@@ -131,7 +131,7 @@ export function renderMachineHeadTabContent(p: {
           <Panel className="h-full flex flex-col">
             <PanelHeader title="Running & Preparing Orders" />
             <PanelBody empty={filteredQueue.length === 0} emptyLabel="No active orders found">
-              {/* PERF-B2 ù sticky thead outside VirtualizedList scroll */}
+              {/* PERF-B2 - sticky thead outside VirtualizedList scroll */}
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
                   <thead className="bg-muted/50 sticky top-0 z-10">
@@ -174,7 +174,7 @@ export function renderMachineHeadTabContent(p: {
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
             <Panel>
-              <PanelHeader title="Production History ù This Shift" />
+              <PanelHeader title="Production History - This Shift" />
               <PanelBody empty={filteredProduction.length === 0}>
                 {dashboard && filteredProduction.length > VIRTUALIZE_THRESHOLD ? (
                   <VirtualizedList
@@ -250,7 +250,7 @@ export function renderMachineHeadTabContent(p: {
       case 'stoppages':
         return (
           <Panel className="h-full flex flex-col">
-            <PanelHeader title="Stoppage History ù This Shift">
+            <PanelHeader title="Stoppage History - This Shift">
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 Reason
                 <select
@@ -347,7 +347,7 @@ export function renderMachineHeadTabContent(p: {
                 </ZButton>
               </div>
             </div>
-            <PanelBody empty={!rejectedLoading && filteredRejected.length === 0} emptyLabel={rejectedLoading ? 'Loading held ordersù' : 'No orders on hold'}>
+            <PanelBody empty={!rejectedLoading && filteredRejected.length === 0} emptyLabel={rejectedLoading ? 'Loading held orders-' : 'No orders on hold'}>
               {filteredRejected.length > VIRTUALIZE_THRESHOLD ? (
                 <VirtualizedList
                   items={filteredRejected}
@@ -426,7 +426,7 @@ export function renderMachineHeadTabContent(p: {
                 </dl>
               )}
             </div>
-            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading historyù' : 'No completed history'}>
+            <PanelBody empty={!completedLoading && completedOrders.length === 0} emptyLabel={completedLoading ? 'Loading history-' : 'No completed history'}>
               <div className="min-w-full inline-block align-middle">
                 <table className="min-w-full divide-y divide-border">
                   <thead className="bg-muted/50 sticky top-0 z-10">
@@ -472,12 +472,12 @@ export function renderMachineHeadTabContent(p: {
             <PanelHeader
               title={
                 dashboard?.shiftSummary
-                  ? `Shift Handover ù ${dashboard.shiftSummary.prodDate} ù Shift ${dashboard.shiftSummary.shiftCode}`
+                  ? `Shift Handover - ${dashboard.shiftSummary.prodDate} - Shift ${dashboard.shiftSummary.shiftCode}`
                   : 'Shift Handover Logs'
               }
             >
               <span className="text-[10px] text-muted-foreground font-medium">
-                Pending ù Manual completed ù Auto completed
+                Pending - Manual completed - Auto completed
               </span>
             </PanelHeader>
             <PanelBody empty={filteredHandover.length === 0}>

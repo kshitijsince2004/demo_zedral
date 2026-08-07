@@ -190,6 +190,7 @@ export function TwoHiRewindingCapturePage() {
 
     void resolveAndRefresh().catch(() => undefined);
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/coil resolve; refreshOrder is intentionally unstable
   }, [coilNo, seeded?.batchNumber, machineCode]);
 
   // When hub passes a new batch via location.state while staying on same coil route.
@@ -198,6 +199,7 @@ export function TwoHiRewindingCapturePage() {
     setBatchNumber(seeded.batchNumber);
     if (seeded.orderStatus) setOrderStatus(String(seeded.orderStatus).toUpperCase());
     void refreshOrder(seeded.batchNumber).catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- react to hub batch handoff only
   }, [seeded?.batchNumber, seeded?.orderStatus]);
 
   const ppc = useMemo(() => {

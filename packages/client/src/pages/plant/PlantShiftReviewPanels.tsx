@@ -1,4 +1,4 @@
-// PERF-B3 — review panels extracted from PlantShiftReviewPage
+// PERF-B3 - review panels extracted from PlantShiftReviewPage
 import { useState } from 'react';
 import { apiClient } from '../../lib/apiClient';
 import { formatShiftDate } from '../../lib/dateFormat';
@@ -18,7 +18,7 @@ export interface ShiftLogRow {
   entryCount: number;
   overrideCount: number;
   millType?: string | null;
-  /** Canonical machine for this card (server: one machine · one shift · one card). */
+  /** Canonical machine for this card (server: one machine ? one shift ? one card). */
   machine?: string;
   machines?: string[];
   /** When set, this row is a per-machine view of a shared shift log. */
