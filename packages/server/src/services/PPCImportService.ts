@@ -158,6 +158,8 @@ export async function classifyJourneyForLine(
   conn: DbConn,
   coilNo: string,
   processCode: string,
+  /** When set, only that batch is "already in line" — sibling batches of the same coil stay importable. */
+  batchNumber?: string,
 ): Promise<JourneyImportClass> {
   const journey = await conn.selectFrom('planning.order_journey')
     .select(['journey_id', 'current_step_no'])
@@ -189,6 +191,16 @@ export async function classifyJourneyForLine(
     (target.status === 'PENDING' || target.status === 'ACTIVE')
     && target.queue_batch_id != null
   ) {
+    if (batchNumber) {
+      const linked = await conn.selectFrom('planning.ppc_batch')
+        .select('batch_number')
+        .where('batch_id', '=', String(target.queue_batch_id))
+        .executeTakeFirst();
+      // Different plan batch, same mother coil → separate work unit (batch-keyed import).
+      if (linked && linked.batch_number !== batchNumber) {
+        return { kind: 'new' };
+      }
+    }
     return {
       kind: 'already-in-line',
       reason: `Coil already queued on ${processCode} — cannot re-import`,
@@ -506,6 +518,7 @@ export class PPCImportService {
     trx: DbConn,
     coilNo: string,
     processCode: string,
+    batchNumber?: string,
   ): Promise<{ isDangerous: boolean; skipReason: string | null; orderStatus: string | null }> {
     // ponytail: join only the target line — ANN import must not depend on hrs/pkl/rwd tables
     let orderStatus: string | null = null;
@@ -553,7 +566,7 @@ export class PPCImportService {
         || (row?.prod_rwd_weight != null && Number(row.prod_rwd_weight) > 0);
     }
 
-    const journeyClass = await classifyJourneyForLine(trx, coilNo, processCode);
+    const journeyClass = await classifyJourneyForLine(trx, coilNo, processCode, batchNumber);
     if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
       return { isDangerous: true, skipReason: journeyClass.reason, orderStatus };
     }
@@ -746,11 +759,11 @@ export class PPCImportService {
   ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; batchNumber: string; reason?: string }> {
     const processCode = processCodeFromBatchMachine(row.machine_code, row.sub_process);
     if (processCode) {
-      const journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode);
+      const journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode, row.batch_number);
       if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
         throw new ProductionSafetyError(journeyClass.reason);
       }
-      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coil_no, processCode);
+      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coil_no, processCode, row.batch_number);
       if (coilSafety.isDangerous) {
         throw new ProductionSafetyError(coilSafety.skipReason!);
       }
@@ -1109,7 +1122,7 @@ export class PPCImportService {
 
         // Same path as commit: journey + coil-level safety (works with or without ppc_batch).
         if (processCode && row.coilNo) {
-          const journeyClass = await classifyJourneyForLine(db, row.coilNo, processCode);
+          const journeyClass = await classifyJourneyForLine(db, row.coilNo, processCode, row.batchNumber);
           if (journeyClass.kind === 'already-advanced') {
             previewStatus = 'advanced-skipped';
             skipReason = journeyClass.reason;
@@ -1117,7 +1130,7 @@ export class PPCImportService {
             previewStatus = 'already-in-line';
             skipReason = journeyClass.reason;
           } else {
-            const coilSafety = await this.checkCoilSafetyForLine(db, row.coilNo, processCode);
+            const coilSafety = await this.checkCoilSafetyForLine(db, row.coilNo, processCode, row.batchNumber);
             if (coilSafety.isDangerous) {
               const st = coilSafety.orderStatus;
               if (st === 'COMPLETED' || coilSafety.skipReason?.toLowerCase().includes('production')) {
@@ -1505,11 +1518,11 @@ export class PPCImportService {
   ): Promise<{ action: 'inserted' | 'updated'; batchId: number }> {
     const processCode = processCodeFromBatchMachine(row.machineCode, row.subProcess ?? '');
     if (processCode) {
-      const journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode);
+      const journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode, row.batchNumber);
       if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
         throw new ProductionSafetyError(journeyClass.reason);
       }
-      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coilNo, processCode);
+      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coilNo, processCode, row.batchNumber);
       if (coilSafety.isDangerous) {
         throw new ProductionSafetyError(coilSafety.skipReason!);
       }

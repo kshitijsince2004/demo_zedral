@@ -87,23 +87,26 @@ describe('CRM Mills End-to-End Workflow Tests', () => {
   });
 
   beforeEach(async () => {
-    // Clear out data to keep tests isolated (children before parents).
+    // Clear CRM mill artifacts only — do not wipe shared shift_log / coil / ANN
+    // (other suite rows FK those tables; CI failed on coil_plan → coil).
     await db.deleteFrom('txn.crm_rolling_pass').execute();
     await db.deleteFrom('txn.crm_rolling').execute();
     await db.deleteFrom('txn.crm_skinpass').execute();
     await db.deleteFrom('txn.crm_shift_summary').execute();
     await db.deleteFrom('txn.stoppage').execute();
     await db.deleteFrom('txn.crm_order').execute();
-    await db.deleteFrom('txn.machine_shift_session').execute();
-    await db.deleteFrom('txn.machine_handover').execute();
-    // Local/QA DBs may retain annealing rows that FK to shift_log.
-    await db.deleteFrom('txn.ann_charge').execute();
-    await db.deleteFrom('txn.shift_log').execute();
+    await db.deleteFrom('txn.machine_shift_session')
+      .where('machine_code', 'in', ['4HI', '2HI'])
+      .execute();
+    await db.deleteFrom('txn.machine_handover')
+      .where('machine_code', 'in', ['4HI', '2HI'])
+      .execute();
     await db.deleteFrom('planning.queue_handoff').execute();
     await db.deleteFrom('planning.order_journey_step').execute();
     await db.deleteFrom('planning.order_journey').execute();
-    await db.deleteFrom('planning.ppc_batch').execute();
-    await db.deleteFrom('coil.coil').execute();
+    await db.deleteFrom('planning.ppc_batch')
+      .where('batch_number', 'in', ['4HI-BATCH-001', '2HI-BATCH-001'])
+      .execute();
   });
 
   /** Seed a live ACTIVE session for the caller (production writes require it). */

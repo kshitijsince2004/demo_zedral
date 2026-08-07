@@ -95,6 +95,50 @@ describe('classifyJourneyForLine', () => {
     expect(result.kind).toBe('already-in-line');
   });
 
+  it('returns new for sibling batch when another batch already queues the step', async () => {
+    let call = 0;
+    const conn = {
+      selectFrom: vi.fn((table: string) => {
+        call += 1;
+        if (call === 1) {
+          return {
+            select: () => ({
+              where: () => ({
+                where: () => ({
+                  executeTakeFirst: async () => ({ journey_id: 1, current_step_no: 2 }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === 'planning.order_journey_step' || call === 2) {
+          return {
+            select: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  execute: async () => [
+                    { step_no: 1, status: 'COMPLETED', queue_batch_id: 10, process_code: 'HRS', display_label: 'HR Slitting' },
+                    { step_no: 2, status: 'PENDING', queue_batch_id: 99, process_code: 'PKL', display_label: 'Pickling' },
+                  ],
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            where: () => ({
+              executeTakeFirst: async () => ({ batch_number: 'BN-QUEUED' }),
+            }),
+          }),
+        };
+      }),
+    };
+    const { classifyJourneyForLine } = await import('../src/services/PPCImportService');
+    const result = await classifyJourneyForLine(conn as never, 'COIL-1', 'PKL', 'BN-SIBLING');
+    expect(result).toEqual({ kind: 'new' });
+  });
+
   it('returns new for PENDING target with no queue (fail-safe inject)', async () => {
     let call = 0;
     const conn = {

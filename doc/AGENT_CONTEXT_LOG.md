@@ -2161,3 +2161,17 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Touched:** client lint/eslint, UTF-8 fixes (AnnCharge*), `engine.ts` await Session, engineReplay/millConfig/PlantHeadDashboard tests, server ensureActiveSession/schemaOwnership/coilTraceability/PDF HTML unit, dprTemplateInjection timeout, `dist-operator` rebuild
 - **Decisions / skipped:** No `gh` CLI (install blocked); Playwright Chromium download failed locally ? QA `/health`+`/login`+`/api/health` 200 only. Puppeteer `renderPdf` asserts dropped (HTML contract kept). Remote GH Actions + AWS deploy follow this push.
 - **Follow-ups:** Confirm Actions CI + Deploy AWS QA smoke on `main`; install `gh` for run monitoring.
+
+### 2026-08-07 ? Fix server integration test failures
+
+- **Goal:** Unblock CI `test:integration` (crmMillWorkflows FK wipe + multi-batch same-coil import).
+- **Touched:** `packages/server/tests/integration/crmMillWorkflows.integration.test.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/tests/importFailsafeDedup.test.ts`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** CRM cleanup scoped to mill artifacts (no global wipe of `shift_log`/`coil`/`ANN` ? shared-suite FK noise). `classifyJourneyForLine` / `checkCoilSafetyForLine` take optional `batchNumber` so sibling batches of the same mother coil are not treated as already-in-line. Full journey batch-keying deferred.
+- **Follow-ups:** Commit/push when asked; confirm CI green.
+
+### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
+
+- **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.
+- **Touched:** `packages/client/dist-operator` (via `android:sync`), Capacitor android assets, `Zedral-Operator-QA-1.2.9-vc12.apk` (from `app-release.apk`)
+- **Decisions / skipped:** No version bump needed (already 1.2.9 / vc12); API via existing `.env.operator` ? qa.zedral.com; debug-signed (no `ZEDRAL_KEYSTORE_*`); no fleet upload.
+- **Follow-ups:** Sideload APK; smoke CRM Manual Re-Roll, HRS/PKL/ANN operator routes against QA.
