@@ -63,14 +63,16 @@ services:
       PORT: 3005
       DB_HOST: db
       DB_PORT: 5432
-      # Runtime app role — subject to RLS (see migration 1797000000000_app_rls_role)
+      # Runtime app role — subject to RLS (see migration 1797000000000_app_rls_role).
+      # Note: container DB_USER is the *app* role; bootstrap owner stays in host .env as DB_USER
+      # and is injected only via DB_MIGRATE_* / MIGRATE_DATABASE_URL below.
       DB_USER: ${DB_APP_USER:-m1_app}
       DB_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
       DB_APP_USER: ${DB_APP_USER:-m1_app}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
       DB_NAME: ${DB_NAME}
       DATABASE_URL: postgres://${DB_APP_USER:-m1_app}:${DB_APP_PASSWORD:-m1_app_password}@db:5432/${DB_NAME}
-      # Bootstrap owner runs migrations; app connects as DB_APP_USER above
+      # Host deploy/.env DB_USER/DB_PASSWORD = Postgres bootstrap (e.g. m1_user), NOT m1_app.
       DB_MIGRATE_USER: ${DB_USER}
       DB_MIGRATE_PASSWORD: ${DB_PASSWORD}
       MIGRATE_DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
@@ -115,7 +117,9 @@ services:
       - "${DOCKER_HTTP_BIND:-0.0.0.0:80}:80"
     depends_on:
       backend:
-        condition: service_healthy
+        # service_started — do not block compose up on health. Migrations / cold
+        # boot can exceed Compose's dependency wait; verify_deployment_health waits.
+        condition: service_started
     restart: unless-stopped
     networks:
       - zedral

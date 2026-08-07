@@ -2176,6 +2176,20 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** Public QA still green after auto-rollback (`/health`+`/login` 200). Removed `compose --force-recreate` (was bouncing db/redis/ST every deploy). Backend health `start_period` 120s; wait loop no longer aborts on first `unhealthy`. No GH token locally ? cannot pull Actions artifact logs.
 - **Follow-ups:** Commit/push + re-run Deploy AWS QA for `6f3b400` (or follow-up SHA).
 
+### 2026-08-07 ? QA backend crash: surface logs, decouple nginx wait
+
+- **Goal:** `ebdf8d4` still unhealthy in ~14s with db/ST left running ? process exit (likely migrate), not health grace.
+- **Touched:** `deploy/lib/common.sh`, `deploy/docker-compose.prod.yml`
+- **Decisions / skipped:** nginx `depends_on: service_started`; bring up backend first, wait ~5m, dump `compose logs` on fail. Need host `docker logs zedral-backend` for root cause (QA DB may be far behind last-good `9c5aa926`).
+- **Follow-ups:** User paste backend logs from recreate; then fix migrate/startup; commit/push.
+
+### 2026-08-07 ? QA migrate as m1_app: permission denied for schema public
+
+- **Goal:** Fix backend crash loop ? `CREATE pgmigrations` denied on `public`.
+- **Touched:** `deploy/docker-entrypoint.sh`, `deploy/docker-compose.prod.yml`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** Root cause: old image entrypoint migrated via app `DATABASE_URL` (`m1_app`). New entrypoint prefers `MIGRATE_DATABASE_URL`, URL-encodes creds, refuses migrate-as-app-role. Ops must confirm `deploy/.env` `DB_USER` is bootstrap (`m1_user`), not `m1_app`; GHCR login for pull.
+- **Follow-ups:** Commit/push; on box verify `.env` + pull new SHA + recreate backend; restore nginx if needed.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.

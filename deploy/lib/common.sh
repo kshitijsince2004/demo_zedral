@@ -193,16 +193,24 @@ wait_for_container_healthy() {
     return 0
   fi
   local attempt
-  # ~3 min: allow start_period + a few health probes (do not abort on first unhealthy —
-  # restart: unless-stopped can recover from a single bad boot).
-  for attempt in $(seq 1 30); do
+  # ~5 min: migrations on a long-behind QA DB can take several minutes before Node listens.
+  for attempt in $(seq 1 50); do
     status="$(docker inspect -f '{{.State.Health.Status}}' "${name}" 2>/dev/null || echo missing)"
     if [ "${status}" = "healthy" ]; then
       return 0
     fi
+    # Crash loop: surface quickly with exit code for caller to dump logs.
+    local running
+    running="$(docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null || echo false)"
+    if [ "${running}" != "true" ] && [ "${attempt}" -ge 3 ]; then
+      return 1
+    fi
+    if [ $((attempt % 5)) -eq 0 ]; then
+      log "Waiting for ${name} health (attempt ${attempt}/50, status=${status})…"
+    fi
     sleep 6
   done
-  die "Container ${name} did not become healthy in time (last status: ${status})."
+  return 1
 }
 
 run_stack_deploy() {
@@ -232,7 +240,14 @@ run_stack_deploy() {
   # Do NOT --force-recreate the whole stack: recreating db/redis/ST every deploy
   # races backend health (ST is only service_started) and flakes QA. Compose
   # recreates backend/nginx when BACKEND_IMAGE / NGINX_IMAGE change.
-  compose up -d --remove-orphans --no-build
+  compose up -d --remove-orphans --no-build db redis supertokens
+  compose up -d --no-build --no-deps backend
+  if ! wait_for_container_healthy zedral-backend; then
+    log "Backend failed health — last logs:"
+    compose logs --tail 200 backend || true
+    die "Backend did not become healthy after image switch"
+  fi
+  compose up -d --no-build --no-deps nginx
 }
 
 # Free unused Docker layers before pull. Keeps images still used by running containers.
@@ -259,8 +274,11 @@ verify_deployment_health() {
     wait_for_container_running "${c}"
   done
 
-  wait_for_container_healthy zedral-db
-  wait_for_container_healthy zedral-backend
+  wait_for_container_healthy zedral-db || die "db did not become healthy"
+  if ! wait_for_container_healthy zedral-backend; then
+    compose logs --tail 200 backend || true
+    die "Container zedral-backend did not become healthy — see logs above"
+  fi
 
   log "HTTP health check via nginx (port ${http_port})…"
   local attempt
@@ -274,6 +292,7 @@ verify_deployment_health() {
     sleep 10
   done
 
+  compose logs --tail 100 backend nginx || true
   die "Health check failed at http://127.0.0.1:${http_port}/health — inspect: compose logs backend nginx"
 }
 
