@@ -34,8 +34,12 @@
     "dependency-cruiser": "^17.4.3",
     "typescript": "^5.5.0"
   },
+  "dependencies": {
+    "zod": "3.25.76"
+  },
   "overrides": {
-    "tar": "7.5.19"
+    "tar": "7.5.19",
+    "zod": "3.25.76"
   },
   "optionalDependencies": {
     "@esbuild/linux-x64": "0.21.5",

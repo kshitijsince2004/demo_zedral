@@ -2204,6 +2204,13 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** `zod` was only on `@m1/shared-validation`; server imports it directly; prod `npm ci --workspace=packages/server` did not expose it for Node resolution from server dist. Declared direct dep; Dockerfile smoke-requires zod/pg/express after ci.
 - **Follow-ups:** Commit/push; Deploy AWS QA.
 
+### 2026-08-07 — Fix Docker prod zod: lockfile + prune-from-builder
+
+- **Goal:** CI Docker build failed `require('zod')` after prior direct-dep patch; QA crash `MODULE_NOT_FOUND`.
+- **Touched:** `Dockerfile`, `package.json`, `package-lock.json`, `packages/server/package.json`, `packages/shared-validation/package.json`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** Root cause: lockfile had root `zod@4` as `dev:true` (kysely-codegen/eslint); `npm ci --omit=dev --workspace=server` installed neither root nor `packages/server` zod (only deep puppeteer nest). Fix: root prod dep + override pin `zod@3.25.76`; backend image copies `npm prune --omit=dev` from builder (no second workspace ci). Verified clean temp prod-ci resolves zod 3.25.76. Local full test suite blocked by Windows EBUSY/OneDrive locks on node_modules.
+- **Follow-ups:** CI quality + Docker + Deploy AWS QA on push.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.

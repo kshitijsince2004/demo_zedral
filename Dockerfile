@@ -31,6 +31,18 @@ COPY doc doc
 
 RUN npm run build
 
+# ── Production node_modules (prune the full workspace install) ────────────────
+# Do NOT run a second `npm ci --omit=dev --workspace=…` here: the lockfile can mark
+# a conflicting zod@4 at the root as "dev" while zod@3 is nested; omit=dev then
+# drops require('zod') entirely (chromium-bidi may keep a private copy Node cannot see).
+FROM builder AS prod-deps
+WORKDIR /app
+RUN npm prune --omit=dev \
+  && rm -rf packages/client \
+  && node -e "process.chdir('packages/server'); \
+       ['zod','pg','express'].forEach((m) => require.resolve(m)); \
+       console.log('prod-deps ok', require('zod/package.json').version, require.resolve('zod'));"
+
 # ── Backend runtime ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS backend
 
@@ -42,33 +54,20 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3005
 
-COPY package.json package-lock.json ./
-COPY packages/platform/package.json packages/platform/
-COPY packages/connectors/package.json packages/connectors/
-COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
-COPY packages/server/package.json packages/server/
-COPY packages/shared-validation/package.json packages/shared-validation/
-
-# Install prod deps then remove npm — Trivy flags CVE-2026-59873 in npm's bundled tar
-# (not used at runtime; entrypoint runs node directly).
-RUN npm install -g npm@11.4.2 \
-  && npm ci --omit=dev --workspace=packages/server --include-workspace-root --ignore-scripts \
-  && node -e "require('zod'); require('pg'); require('express'); console.log('runtime deps ok')" \
-  && rm -rf node_modules/esbuild node_modules/@esbuild \
-  && npm cache clean --force \
-  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
-
-COPY --from=builder /app/packages/server/dist packages/server/dist
-COPY --from=builder /app/packages/shared-validation/dist packages/shared-validation/dist
-COPY --from=builder /app/packages/platform/dist packages/platform/dist
-COPY --from=builder /app/packages/modules/m1-collection/dist packages/modules/m1-collection/dist
-COPY packages/server/migrations packages/server/migrations
-COPY packages/server/scripts packages/server/scripts
-COPY packages/server/assets packages/server/assets
+COPY --from=prod-deps /app/package.json /app/package-lock.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/packages/platform ./packages/platform
+COPY --from=prod-deps /app/packages/connectors ./packages/connectors
+COPY --from=prod-deps /app/packages/modules/m1-collection ./packages/modules/m1-collection
+COPY --from=prod-deps /app/packages/shared-validation ./packages/shared-validation
+COPY --from=prod-deps /app/packages/server ./packages/server
 COPY doc doc
 COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN chmod +x /docker-entrypoint.sh
+# Trivy flags CVE-2026-59873 in npm's bundled tar (entrypoint runs node directly).
+RUN chmod +x /docker-entrypoint.sh \
+  && node -e "process.chdir('packages/server'); require('zod'); require('pg'); require('express'); console.log('runtime image ok')" \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app/packages/server
 
