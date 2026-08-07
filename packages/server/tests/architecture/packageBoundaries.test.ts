@@ -56,8 +56,14 @@ describe('D12 package boundary governance', () => {
     expect(dockerfile).toContain('packages/platform/package.json');
     expect(dockerfile).toContain('packages/connectors/package.json');
     expect(dockerfile).toContain('packages/modules/m1-collection/package.json');
-    expect(dockerfile).toContain('/app/packages/platform/dist');
-    expect(dockerfile).toContain('/app/packages/modules/m1-collection/dist');
+    // Backend copies pruned workspace trees (includes dist/) from prod-deps — not
+    // per-path COPY …/dist from builder (that pattern broke prod zod resolution).
+    expect(dockerfile).toContain('FROM builder AS prod-deps');
+    expect(dockerfile).toContain('COPY --from=prod-deps /app/packages/platform ./packages/platform');
+    expect(dockerfile).toContain(
+      'COPY --from=prod-deps /app/packages/modules/m1-collection ./packages/modules/m1-collection',
+    );
+    expect(dockerfile).toContain('COPY --from=prod-deps /app/packages/server ./packages/server');
   });
 
   it('does not introduce static imports from M1 server modules into other module packages', () => {

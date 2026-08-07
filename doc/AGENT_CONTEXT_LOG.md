@@ -2211,6 +2211,13 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** Root cause: lockfile had root `zod@4` as `dev:true` (kysely-codegen/eslint); `npm ci --omit=dev --workspace=server` installed neither root nor `packages/server` zod (only deep puppeteer nest). Fix: root prod dep + override pin `zod@3.25.76`; backend image copies `npm prune --omit=dev` from builder (no second workspace ci). Verified clean temp prod-ci resolves zod 3.25.76. Local full test suite blocked by Windows EBUSY/OneDrive locks on node_modules.
 - **Follow-ups:** CI quality + Docker + Deploy AWS QA on push.
 
+### 2026-08-07 — Align D12 Docker boundary test with prod-deps stage
+
+- **Goal:** Fix `packageBoundaries` unit assert still expecting `COPY …/platform/dist` from builder.
+- **Touched:** `packages/server/tests/architecture/packageBoundaries.test.ts`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** Assert `prod-deps` + full package COPY paths (dist included via prune tree).
+- **Follow-ups:** Commit/push.
+
 ### 2026-08-07 ? Operator APK 1.2.9 (QA) with profile updates
 
 - **Goal:** Verify operator profile work (Manual Re-Roll, HRS, PKL, ANN + related) on main and rebuild QA APK.
