@@ -44,12 +44,13 @@ curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null || {
 echo "==> Seeding (${SEED_MODE})…"
 case "${SEED_MODE}" in
   admin)
+    # Prod image has no npm — node scripts map 1:1 to package.json seed:* entries.
     docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" exec -T \
-      -e SEED_PIN="${SEED_PIN}" backend npm run seed:admin
+      -e SEED_PIN="${SEED_PIN}" backend node scripts/seed-admin.mjs
     ;;
   profiles)
     docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" exec -T \
-      -e SEED_PIN="${SEED_PIN}" backend npm run seed:profiles
+      -e SEED_PIN="${SEED_PIN}" backend node scripts/seed-login-profiles.mjs
     ;;
   *)
     echo "Unknown SEED_MODE=${SEED_MODE} (use profiles or admin)" >&2

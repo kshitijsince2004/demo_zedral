@@ -245,18 +245,48 @@ sync_public_origin() {
 }
 
 # Ensure seeded pilot login profiles exist (badge 3000 etc.). Gated — QA only.
+# Non-fatal: seed failure must not fail deploy or trigger rollback of a healthy stack.
+# Prod image has no npm — call node scripts directly (WORKDIR /app/packages/server).
 ensure_login_profiles() {
   if [ "${ENSURE_SMOKE_USERS:-false}" != "true" ]; then
     return 0
   fi
   local pin="${SEED_PIN:-${SMOKE_PIN:-1234}}"
-  log "Ensuring pilot login profiles (SEED_PIN set, seed:profiles)…"
-  if ! compose exec -T -e SEED_PIN="${pin}" backend npm run seed:profiles; then
-    # Fresh containers may not accept exec yet — fall back to one-shot run (needs db).
-    compose run --rm -e SEED_PIN="${pin}" backend npm run seed:profiles \
-      || die "seed:profiles failed — smoke badge login will fail"
+  log "Ensuring pilot login profiles (SEED_PIN set, node scripts/seed-login-profiles.mjs)…"
+  if compose exec -T -e SEED_PIN="${pin}" backend node scripts/seed-login-profiles.mjs; then
+    log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
+    return 0
   fi
-  log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
+  # Fresh containers may not accept exec yet — fall back to one-shot run (needs db).
+  if compose run --rm -e SEED_PIN="${pin}" backend node scripts/seed-login-profiles.mjs; then
+    log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
+    return 0
+  fi
+  echo "::warning::seed:profiles failed — smoke login may fail, stack left running"
+  log "WARNING: seed:profiles failed — smoke login may fail, stack left running (no rollback)"
+  return 0
+}
+
+# Non-fatal: public /auth must reach container nginx. 404 through AWS_PUBLIC_URL ⇒ edge ingress.
+warn_if_public_auth_404() {
+  local base="${AWS_PUBLIC_URL:-${PUBLIC_BASE_URL:-}}"
+  base="${base%"${base##*[![:space:]]}"}"
+  base="${base#"${base%%[![:space:]]*}"}"
+  base="${base%/}"
+  [ -n "${base}" ] || return 0
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' \
+    --data '{}' \
+    --max-time 15 \
+    "${base}/auth/badge-pin" 2>/dev/null || echo "000")"
+  if [ "${code}" = "404" ]; then
+    echo "::warning::/auth reachable on container but 404 through the public URL — fix the qa.zedral.com edge ingress"
+    log "WARNING: POST ${base}/auth/badge-pin → 404 (edge ingress; container nginx already proxies /auth/)"
+  else
+    log "Public auth edge check: POST ${base}/auth/badge-pin → HTTP ${code}"
+  fi
+  return 0
 }
 
 # Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose

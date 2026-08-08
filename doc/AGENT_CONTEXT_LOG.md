@@ -2333,3 +2333,10 @@ egen helper scripts deleted after use.
 - **Touched:** deploy/lib/common.sh (sync_public_origin, ensure_login_profiles), deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/deploy-aws.yml (pass AWS_PUBLIC_URL/ENSURE_SMOKE_USERS; report no exit 1), e2e/tests/smoke.spec.ts (surface UI error), deploy/.env.production.example
 - **Decisions / skipped:** Seed gated to QA only via ENSURE_SMOKE_USERS=true. Report job stays green when smoke already failed.
 - **Follow-ups:** Staging secrets AWS_PUBLIC_URL=https://qa.zedral.com, SMOKE_BADGE_ID=3000, SMOKE_PIN matching seed; re-run Deploy AWS QA.
+
+### 2026-08-08 — QA seed via node + non-fatal edge/auth checks
+
+- **Goal:** Fix npm-not-found seed abort/rollback; document QA host edge; warn on public /auth 404.
+- **Touched:** deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, deploy/scripts/post-deploy-setup.sh, deploy/bootstrap-aws-vm.sh, deploy/nginx/host-qa.zedral.com.conf
+- **Decisions / skipped:** Seed + edge check always return 0 / || true under set -e; no Dockerfile/nginx.prod changes.
+- **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com → nginx:80.

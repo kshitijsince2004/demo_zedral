@@ -59,6 +59,8 @@ fi
 export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE
 run_stack_deploy
 verify_deployment_health
-ensure_login_profiles
+# Seed / edge checks are non-fatal (set -e: ignore non-zero; functions also return 0).
+ensure_login_profiles || true
+warn_if_public_auth_404 || true
 record_successful_deploy
 log "remote-ghcr-deploy finished OK"
