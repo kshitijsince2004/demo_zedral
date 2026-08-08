@@ -219,6 +219,57 @@ wait_for_container_healthy() {
   return 1
 }
 
+# Pull one compose service with retry/backoff. Docker resumes partial layers, so
+# a stalled GHCR transfer recovers on the next attempt instead of aborting deploy.
+pull_compose_service_with_retry() {
+  local service="$1"
+  local max_attempts="${PULL_MAX_ATTEMPTS:-5}"
+  local attempt=1
+  local delay start end
+  export COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-300}"
+
+  while [ "${attempt}" -le "${max_attempts}" ]; do
+    start="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+    log "Pull ${service} attempt ${attempt}/${max_attempts} start=${start} (COMPOSE_HTTP_TIMEOUT=${COMPOSE_HTTP_TIMEOUT})"
+    if compose pull "${service}"; then
+      end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+      log "Pull ${service} OK end=${end}"
+      return 0
+    fi
+    end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+    log "Pull ${service} failed attempt ${attempt}/${max_attempts} end=${end}"
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      break
+    fi
+    case "${attempt}" in
+      1) delay=10 ;;
+      2) delay=30 ;;
+      *) delay=60 ;;
+    esac
+    log "Retrying ${service} pull in ${delay}s…"
+    sleep "${delay}"
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+probe_ghcr_connectivity() {
+  log "Pre-deploy GHCR reachability probe…"
+  if curl -fsS --max-time 15 -o /dev/null "https://ghcr.io/v2/"; then
+    log "GHCR reachable (HTTP OK)"
+    return 0
+  fi
+  # Registry often returns 401 without auth — still proves TCP/TLS path works.
+  local code
+  code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "https://ghcr.io/v2/" || true)"
+  if [ "${code}" = "401" ] || [ "${code}" = "403" ]; then
+    log "GHCR reachable (HTTP ${code})"
+    return 0
+  fi
+  log "WARNING: GHCR probe unexpected (HTTP ${code:-none}) — pull may still succeed after login"
+  return 0
+}
+
 run_stack_deploy() {
   cd "${REPO_ROOT}"
 
@@ -234,10 +285,16 @@ run_stack_deploy() {
   # Self-hosted QA/Factory boxes accumulate old GHCR SHA tags until overlayfs fills up.
   prune_docker_disk_before_pull
 
+  probe_ghcr_connectivity
+
   log "Pulling pre-built images (Build Once → Deploy Many)…"
   log "  backend: ${BACKEND_IMAGE}"
   log "  nginx:   ${NGINX_IMAGE}"
-  compose pull backend nginx
+  # Pull separately so a successful nginx pull is kept if backend retries.
+  pull_compose_service_with_retry nginx \
+    || die "Failed to pull nginx image after retries: ${NGINX_IMAGE}"
+  pull_compose_service_with_retry backend \
+    || die "Failed to pull backend image after retries: ${BACKEND_IMAGE}"
   # Do NOT --force-recreate the whole stack: recreating db/redis/ST every deploy
   # races backend health (ST is only service_started) and flakes QA. Compose
   # recreates backend/nginx when BACKEND_IMAGE / NGINX_IMAGE change.

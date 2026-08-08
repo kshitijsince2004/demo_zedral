@@ -20,6 +20,11 @@ COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 # Drop nested nodemailer <9 (supertokens / prune can reintroduce 8.x; Trivy HIGH).
 COPY scripts/purge-nodemailer-lt9.mjs scripts/purge-nodemailer-lt9.mjs
 
+# Puppeteer is optionalDependencies for PDF export; PdfRenderer falls back to HTML
+# when Chromium is absent. Skip the ~150–300MB download to keep GHCR pulls small.
+ENV PUPPETEER_SKIP_DOWNLOAD=1 \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # npm pin: keep in sync with root package.json "packageManager" and
 # .github/actions/setup-node-npm (npm <11.3 skips cross-OS optional natives).
 RUN npm install -g npm@11.4.2 \

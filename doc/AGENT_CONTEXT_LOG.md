@@ -2291,3 +2291,10 @@ egen helper scripts deleted after use.
 - **Touched:** `.github/workflows/ci.yml` (rewritten; runners job removed), `deploy-aws.yml`/`deploy-production.yml` (top-level `permissions: contents: read`), `.github/dependabot.yml` (1 npm + 1 actions group), `.github/actionlint.yaml`
 - **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (prompt’s 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
 - **Follow-ups:** Push and confirm CI parses on GitHub; close stale Dependabot PRs.
+
+### 2026-08-08 — QA deploy pull resilience (QA_DEPLOY_FIX_PLAN)
+
+- **Goal:** Stop GHCR pull stalls from aborting AWS QA deploy; shrink backend image pull window.
+- **Touched:** `deploy/lib/common.sh` (per-service pull retry/backoff + GHCR probe), `Dockerfile` (`PUPPETEER_SKIP_DOWNLOAD`), `deploy/scripts/test-pull-retry.sh`
+- **Decisions / skipped:** Option 1+2 only; ECR mirror deferred. PdfRenderer already falls back to HTML without Chromium.
+- **Follow-ups:** Push → CI image rebuild → workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
