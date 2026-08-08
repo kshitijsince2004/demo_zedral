@@ -2276,3 +2276,10 @@ pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@
 - **Touched:** package-lock.json, package.json (overrides), packages/server/package.json (kysely 0.28.17, nodemailer), packages/server/src/repositories/BaseRepository.ts, .github/workflows/ci.yml (lockfile job), .github/dependabot.yml (exclude kysely from groups), Dockerfile (drop nested nodemailer 8.x), CI_FINAL_FIX_PLAN.md
 - **Decisions / skipped:** Primary kysely path (not trivyignore). BaseRepository uses (trx as any) for generic table .where under 0.28. Nested ST nodemailer removed at image build. Hygiene lint/Node22 deferred.
 - **Follow-ups:** Watch Trivy on main; close/rebase Dependabot #173/#175 after lock lands.
+
+### 2026-08-08 — Durable CI: 3 workflows, lock/xlsx vendor, Trivy clear
+
+- **Goal:** Collapse Actions to CI + Deploy AWS + Deploy Production; stop Dependabot/runner-health noise; fix Lockfile sync (xlsx) and Trivy HIGH (glob/nodemailer).
+- **Touched:** `.github/workflows/ci.yml` (schedule runners job; delete runner-health), `.github/workflows/runner-health.yml` (deleted), `.github/dependabot.yml`, `package.json`/`packages/server/package.json`/`package-lock.json` (xlsx file:vendor, glob 11.1.0), `Dockerfile` + `scripts/purge-nodemailer-lt9.mjs`, `CONTRIBUTING.md`, `doc/BRANCH_PROTECTION.md`, `vendor/README.md`
+- **Decisions / skipped:** Quality jobs skip on schedule; docker-pr skips dependabot; server xlsx pin `0.20.3` + root `file:vendor` (workspace `file:../../vendor` broke npm path). Local quality mirror PASSED; image has glob@11.1.0 + nodemailer@9.0.5; Trivy CRITICAL/HIGH clean. Did not commit `.github/an` / AUDIT_REPORT.
+- **Follow-ups:** Apply branch protection contexts including Lockfile sync; close stale Dependabot PRs; confirm Actions shows only CI (no runner-health) and QA auto-deploy after main green.

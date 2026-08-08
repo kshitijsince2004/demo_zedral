@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY tsconfig.base.json ./
+COPY vendor/xlsx-0.20.3.tgz vendor/
 COPY packages/platform/package.json packages/platform/
 COPY packages/connectors/package.json packages/connectors/
 COPY packages/modules/m1-collection/package.json packages/modules/m1-collection/
@@ -16,12 +17,15 @@ COPY packages/client/package.json packages/client/
 COPY packages/shared-validation/package.json packages/shared-validation/
 COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 
+# Drop nested nodemailer <9 (supertokens / prune can reintroduce 8.x; Trivy HIGH).
+COPY scripts/purge-nodemailer-lt9.mjs scripts/purge-nodemailer-lt9.mjs
+
 # npm pin: keep in sync with root package.json "packageManager" and
 # .github/actions/setup-node-npm (npm <11.3 skips cross-OS optional natives).
 RUN npm install -g npm@11.4.2 \
   && npm ci \
   && node scripts/ensure-native-bindings.mjs \
-  && rm -rf node_modules/supertokens-node/node_modules/nodemailer
+  && node scripts/purge-nodemailer-lt9.mjs
 
 COPY packages/shared-validation packages/shared-validation
 COPY packages/platform packages/platform
@@ -42,6 +46,7 @@ WORKDIR /app
 # --ignore-scripts: prune must not re-run nested esbuild installers (tsx wants 0.28,
 # root optionalDeps pin 0.21.5) — binaries already present from builder npm ci.
 RUN npm prune --omit=dev --ignore-scripts \
+  && node scripts/purge-nodemailer-lt9.mjs \
   && rm -rf packages/client \
   && node -e "process.chdir('packages/server'); \
        ['zod','pg','express'].forEach((m) => require.resolve(m)); \
@@ -70,7 +75,10 @@ COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 
 # Trivy flags CVE-2026-59873 in npm's bundled tar (entrypoint runs node directly).
 RUN chmod +x /docker-entrypoint.sh \
-  && node -e "process.chdir('packages/server'); require('zod'); require('pg'); require('express'); console.log('runtime image ok')" \
+  && node -e "process.chdir('packages/server'); require('zod'); require('pg'); require('express'); \
+       const v=require('nodemailer/package.json').version; \
+       if(!String(v).startsWith('9.')) { console.error('nodemailer must be 9.x, got', v); process.exit(1); } \
+       console.log('runtime image ok', 'nodemailer', v);" \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app/packages/server

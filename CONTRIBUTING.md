@@ -20,4 +20,4 @@ This repo requires **npm ≥ 11.3** so cross-OS optional natives stay in the loc
 
 ## Lockfile
 
-Regenerate `package-lock.json` on **Linux** (WSL2 or `node:20` container), not on Windows, so Linux optional bindings are native to the lockfile.
+Regenerate `package-lock.json` on **Linux** (WSL2, `node:20` container, or `bash scripts/run-ci-quality-local.sh`), **never on Windows alone**, so Linux optional bindings are native to the lockfile. After editing `package.json` / overrides, run `npm install --package-lock-only` on Linux and commit the lock — CI **Lockfile sync** fails if they drift. SheetJS stays on `file:vendor/xlsx-0.20.3.tgz` (do not switch back to a CDN URL; Dependabot drops those entries).

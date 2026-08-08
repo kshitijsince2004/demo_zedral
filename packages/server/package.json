@@ -67,7 +67,7 @@
     "pg": "^8.11.5",
     "supertokens-node": "^24.0.2",
     "uuid": "^14.0.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xlsx": "0.20.3",
     "zod": "3.25.76"
   },
   "optionalDependencies": {

@@ -5,21 +5,23 @@ Required after Pipeline Reliability Phase 5:
 1. Settings → Branches → `main` → Protect
 2. Require a pull request before merging (linear history / rebase merge preferred)
 3. Require status checks to pass:
+   - `Lockfile sync`
    - `Lint`
    - `Build · typecheck · client`
    - `Server unit`
    - `Migrate · integration`
    - `Architecture`
-   - `Docker build (PR)` (or the main `Docker build · Trivy · Push GHCR` when applicable)
+   - `Docker build (PR)` (skipped for Dependabot; required for human PRs)
    - `Secrets (gitleaks)`
 4. Do not allow bypass for admins in normal flow
+5. Do **not** require any check named `Runner health` / `Self-hosted runners` (schedule-only inside `ci.yml`)
 
 Apply via `gh` (needs admin):
 
 ```bash
 gh api -X PUT "repos/{owner}/{repo}/branches/main/protection" \
   -H "Accept: application/vnd.github+json" \
-  -f required_status_checks='{"strict":true,"contexts":["Lint","Build · typecheck · client","Server unit","Migrate · integration","Architecture","Docker build (PR)","Secrets (gitleaks)"]}' \
+  -f required_status_checks='{"strict":true,"contexts":["Lockfile sync","Lint","Build · typecheck · client","Server unit","Migrate · integration","Architecture","Docker build (PR)","Secrets (gitleaks)"]}' \
   -F enforce_admins=true \
   -F required_pull_request_reviews='{"required_approving_review_count":1}' \
   -F restrictions=null

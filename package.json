@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "nodemailer": "9.0.5",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
     "zod": "3.25.76"
   },
   "overrides": {
@@ -45,14 +46,18 @@
     "undici": "7.29.0",
     "esbuild": "0.28.0",
     "nodemailer": "9.0.5",
+    "glob": "11.1.0",
     "kysely": "0.28.17",
     "supertokens-node": {
       "nodemailer": "9.0.5"
     },
+    "node-pg-migrate": {
+      "glob": "11.1.0"
+    },
     "exceljs": {
       "uuid": "11.1.1"
     },
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   },
   "optionalDependencies": {
     "@esbuild/linux-x64": "0.28.0",

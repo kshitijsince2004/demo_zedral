@@ -18,6 +18,9 @@ on:
       - 'docs/**'
       - 'doc/**'
       - 'CONTRIBUTING.md'
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,8 +34,58 @@ env:
 # (duplicated per job — GHA does not inherit job.env into services)
 
 jobs:
+  # Schedule-only (also runs on manual dispatch). Never on PR/push — keeps Actions to one workflow file.
+  runners:
+    name: Self-hosted runners
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      administration: read
+    steps:
+      - name: Checkout (notify script)
+        uses: actions/checkout@v5
+      - name: List runners · alert if offline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          NEEDLE_QA='zedral-aws-qa'
+          NEEDLE_FACTORY='hslsmed'
+          JSON="$(gh api "repos/${{ github.repository }}/actions/runners" --paginate)"
+          echo "$JSON" | jq -r '.runners[] | "\(.name)\t\(.status)\t\(.busy)\t\(.labels|map(.name)|join(","))"' || true
+
+          offline=()
+          for label in "$NEEDLE_QA" "$NEEDLE_FACTORY"; do
+            hit="$(echo "$JSON" | jq -r --arg l "$label" '
+              [.runners[] | select(.labels[]?.name == $l) | {name, status, busy}] | first // empty
+            ')"
+            if [ -z "$hit" ] || [ "$hit" = "null" ]; then
+              echo "::warning::No runner with label ${label}"
+              offline+=("missing:${label}")
+              continue
+            fi
+            status="$(echo "$hit" | jq -r '.status')"
+            name="$(echo "$hit" | jq -r '.name')"
+            echo "Runner label=${label} name=${name} status=${status}"
+            if [ "$status" != "online" ]; then
+              offline+=("${label}:${name}:${status}")
+            fi
+          done
+
+          if [ "${#offline[@]}" -gt 0 ]; then
+            msg="Self-hosted runners offline or missing: ${offline[*]}"
+            echo "::error::${msg}"
+            bash deploy/scripts/notify-deploy.sh failed "${msg}"
+            exit 1
+          fi
+          echo "All expected runners online."
+
   lockfile:
     name: Lockfile sync
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,6 +99,7 @@ jobs:
 
   lint:
     name: Lint
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -58,6 +112,7 @@ jobs:
 
   build:
     name: Build · typecheck · client
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -72,6 +127,7 @@ jobs:
 
   unit:
     name: Server unit
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -89,6 +145,7 @@ jobs:
 
   integration:
     name: Migrate · integration
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -150,6 +207,7 @@ jobs:
 
   arch:
     name: Architecture
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -167,6 +225,7 @@ jobs:
 
   secrets:
     name: Secrets (gitleaks)
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -183,6 +242,7 @@ jobs:
 
   audit:
     name: npm audit (report)
+    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -211,7 +271,7 @@ jobs:
   docker-pr:
     name: Docker build (PR)
     needs: [lockfile]
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
