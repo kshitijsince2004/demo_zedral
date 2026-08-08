@@ -2347,3 +2347,10 @@ egen helper scripts deleted after use.
 - **Touched:** deploy/nginx.prod.conf, deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/ci.yml, e2e/tests/smoke.spec.ts
 - **Decisions / skipped:** /api/ unchanged (intentional strip). Auth 404 fails local+public deploy checks. No auth app code changes.
 - **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh → 401 not 404.
+
+### 2026-08-08 — Fix nginx /api strip under variable proxy_pass
+
+- **Goal:** Stop Cannot GET / on /api/* (variable proxy_pass …/; replaced entire URI with /).
+- **Touched:** deploy/nginx.prod.conf (rewrite + proxy_pass), deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, e2e/tests/smoke.spec.ts
+- **Decisions / skipped:** Kept variable upstream for Docker DNS; did not use static upstream. /auth/ unchanged.
+- **Follow-ups:** CI push nginx SHA → Deploy AWS QA recreate zedral-nginx; expect GET /api/shifts/current → 401 not 404.

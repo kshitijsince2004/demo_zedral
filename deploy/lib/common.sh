@@ -267,31 +267,41 @@ ensure_login_profiles() {
   return 0
 }
 
-# Fail if nginx /auth proxy is broken (variable …/auth/ rewrite → Express only sees /auth/ → 404).
-# 401/400/422 are fine without a session or credentials; 404 is a routing regression.
-assert_auth_route_not_404() {
-  local url="$1"
-  local label="${2:-${url}}"
+# Fail if nginx /auth or /api proxy is broken (variable URI rewrite → Express 404 / Cannot GET /).
+# 401/400/403/422 are fine without a session; 404 is a routing regression.
+assert_http_not_404() {
+  local method="$1"
+  local url="$2"
+  local label="${3:-${method} ${url}}"
   local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-    -H 'Content-Type: application/json' \
-    --data '{}' \
-    --max-time 15 \
-    "${url}" 2>/dev/null || echo "000")"
+  if [ "${method}" = "GET" ] || [ "${method}" = "HEAD" ]; then
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -X "${method}" \
+      --max-time 15 \
+      "${url}" 2>/dev/null || echo "000")"
+  else
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -X "${method}" \
+      -H 'Content-Type: application/json' \
+      --data '{}' \
+      --max-time 15 \
+      "${url}" 2>/dev/null || echo "000")"
+  fi
   if [ "${code}" = "404" ]; then
-    die "POST ${label} → 404 (nginx must preserve /auth URI; see deploy/nginx.prod.conf location /auth/)"
+    die "${label} → 404 (nginx proxy routing regression; see deploy/nginx.prod.conf)"
   fi
   if [ "${code}" = "000" ]; then
-    die "POST ${label} failed (no HTTP response)"
+    die "${label} failed (no HTTP response)"
   fi
-  log "Auth route OK: POST ${label} → HTTP ${code} (404 would be a proxy bug)"
+  log "Route OK: ${label} → HTTP ${code} (404 would be a proxy bug)"
 }
 
 assert_local_auth_routes() {
   local http_port="${HTTP_PORT:-80}"
   local base="http://127.0.0.1:${http_port}"
-  assert_auth_route_not_404 "${base}/auth/session/refresh" "${base}/auth/session/refresh"
-  assert_auth_route_not_404 "${base}/auth/badge-pin" "${base}/auth/badge-pin"
+  assert_http_not_404 POST "${base}/auth/session/refresh"
+  assert_http_not_404 POST "${base}/auth/badge-pin"
+  assert_http_not_404 GET "${base}/api/shifts/current"
+  assert_http_not_404 GET "${base}/api/6hi/queue"
+  assert_http_not_404 GET "${base}/api/tenant-flags"
 }
 
 # Public URL check (Cloudflare → origin nginx). Fatal on 404 when URL is set.
@@ -301,8 +311,11 @@ assert_public_auth_routes() {
   base="${base#"${base%%[![:space:]]*}"}"
   base="${base%/}"
   [ -n "${base}" ] || return 0
-  assert_auth_route_not_404 "${base}/auth/session/refresh" "${base}/auth/session/refresh"
-  assert_auth_route_not_404 "${base}/auth/badge-pin" "${base}/auth/badge-pin"
+  assert_http_not_404 POST "${base}/auth/session/refresh"
+  assert_http_not_404 POST "${base}/auth/badge-pin"
+  assert_http_not_404 GET "${base}/api/shifts/current"
+  assert_http_not_404 GET "${base}/api/6hi/queue"
+  assert_http_not_404 GET "${base}/api/tenant-flags"
 }
 
 # Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose

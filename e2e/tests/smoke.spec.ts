@@ -107,8 +107,8 @@ test.describe('Staging smoke', () => {
     expect(body.status).toBe('ok');
   });
 
-  // Nginx must preserve /auth URI (variable proxy_pass …/auth/ rewrote path → Express 404).
-  test('auth routes are reachable (not routing 404)', async ({ request }) => {
+  // Nginx must preserve /auth URI and strip /api for Express (variable proxy_pass bugs → 404).
+  test('auth and api routes are reachable (not routing 404)', async ({ request }) => {
     const refresh = await request.post('/auth/session/refresh', {
       data: {},
       headers: { 'Content-Type': 'application/json' },
@@ -126,6 +126,14 @@ test.describe('Staging smoke', () => {
       badgePin.status(),
       `POST /auth/badge-pin must not be 404 (got ${badgePin.status()}).${cdnHint(badgePin.status())}`,
     ).not.toBe(404);
+
+    for (const path of ['/api/shifts/current', '/api/6hi/queue', '/api/tenant-flags']) {
+      const res = await request.get(path);
+      expect(
+        res.status(),
+        `GET ${path} must not be routing 404 (got ${res.status()}; 401/403 OK without session).${cdnHint(res.status())}`,
+      ).not.toBe(404);
+    }
   });
 
   test('login → dashboard → orders → create order UI → shift summary → reports → logout', async ({
