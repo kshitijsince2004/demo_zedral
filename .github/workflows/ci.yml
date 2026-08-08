@@ -55,6 +55,8 @@ jobs:
       - run: npm ci
       - run: node scripts/ensure-native-bindings.mjs
       - run: npm run lint
+      - name: Validate nginx /auth proxy (source)
+        run: bash deploy/scripts/validate-nginx-auth-proxy.sh
 
   build:
     name: Build · typecheck · client
@@ -295,6 +297,9 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Validate nginx /auth proxy (source + image)
+        run: bash deploy/scripts/validate-nginx-auth-proxy.sh zedral-nginx:ci
 
       - name: Trivy scan backend image
         uses: aquasecurity/trivy-action@v0.36.0

@@ -59,8 +59,8 @@ fi
 export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE
 run_stack_deploy
 verify_deployment_health
-# Seed / edge checks are non-fatal (set -e: ignore non-zero; functions also return 0).
+# Seed is non-fatal; public /auth 404 fails deploy (routing regression through CDN→nginx).
 ensure_login_profiles || true
-warn_if_public_auth_404 || true
+assert_public_auth_routes
 record_successful_deploy
 log "remote-ghcr-deploy finished OK"

@@ -107,6 +107,27 @@ test.describe('Staging smoke', () => {
     expect(body.status).toBe('ok');
   });
 
+  // Nginx must preserve /auth URI (variable proxy_pass …/auth/ rewrote path → Express 404).
+  test('auth routes are reachable (not routing 404)', async ({ request }) => {
+    const refresh = await request.post('/auth/session/refresh', {
+      data: {},
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(
+      refresh.status(),
+      `POST /auth/session/refresh must not be 404 (got ${refresh.status()}).${cdnHint(refresh.status())}`,
+    ).not.toBe(404);
+
+    const badgePin = await request.post('/auth/badge-pin', {
+      data: {},
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(
+      badgePin.status(),
+      `POST /auth/badge-pin must not be 404 (got ${badgePin.status()}).${cdnHint(badgePin.status())}`,
+    ).not.toBe(404);
+  });
+
   test('login → dashboard → orders → create order UI → shift summary → reports → logout', async ({
     page,
   }) => {

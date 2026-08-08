@@ -2340,3 +2340,10 @@ egen helper scripts deleted after use.
 - **Touched:** deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, deploy/scripts/post-deploy-setup.sh, deploy/bootstrap-aws-vm.sh, deploy/nginx/host-qa.zedral.com.conf
 - **Decisions / skipped:** Seed + edge check always return 0 / || true under set -e; no Dockerfile/nginx.prod changes.
 - **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com → nginx:80.
+
+### 2026-08-08 — Fix nginx /auth URI preserve (variable proxy_pass)
+
+- **Goal:** Stop Express 404 on /auth/* caused by variable proxy_pass …/auth/ replacing entire URI.
+- **Touched:** deploy/nginx.prod.conf, deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/ci.yml, e2e/tests/smoke.spec.ts
+- **Decisions / skipped:** /api/ unchanged (intentional strip). Auth 404 fails local+public deploy checks. No auth app code changes.
+- **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh → 401 not 404.

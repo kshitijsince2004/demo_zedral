@@ -267,26 +267,42 @@ ensure_login_profiles() {
   return 0
 }
 
-# Non-fatal: public /auth must reach container nginx. 404 through AWS_PUBLIC_URL ⇒ edge ingress.
-warn_if_public_auth_404() {
-  local base="${AWS_PUBLIC_URL:-${PUBLIC_BASE_URL:-}}"
-  base="${base%"${base##*[![:space:]]}"}"
-  base="${base#"${base%%[![:space:]]*}"}"
-  base="${base%/}"
-  [ -n "${base}" ] || return 0
+# Fail if nginx /auth proxy is broken (variable …/auth/ rewrite → Express only sees /auth/ → 404).
+# 401/400/422 are fine without a session or credentials; 404 is a routing regression.
+assert_auth_route_not_404() {
+  local url="$1"
+  local label="${2:-${url}}"
   local code
   code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
     -H 'Content-Type: application/json' \
     --data '{}' \
     --max-time 15 \
-    "${base}/auth/badge-pin" 2>/dev/null || echo "000")"
+    "${url}" 2>/dev/null || echo "000")"
   if [ "${code}" = "404" ]; then
-    echo "::warning::/auth reachable on container but 404 through the public URL — fix the qa.zedral.com edge ingress"
-    log "WARNING: POST ${base}/auth/badge-pin → 404 (edge ingress; container nginx already proxies /auth/)"
-  else
-    log "Public auth edge check: POST ${base}/auth/badge-pin → HTTP ${code}"
+    die "POST ${label} → 404 (nginx must preserve /auth URI; see deploy/nginx.prod.conf location /auth/)"
   fi
-  return 0
+  if [ "${code}" = "000" ]; then
+    die "POST ${label} failed (no HTTP response)"
+  fi
+  log "Auth route OK: POST ${label} → HTTP ${code} (404 would be a proxy bug)"
+}
+
+assert_local_auth_routes() {
+  local http_port="${HTTP_PORT:-80}"
+  local base="http://127.0.0.1:${http_port}"
+  assert_auth_route_not_404 "${base}/auth/session/refresh" "${base}/auth/session/refresh"
+  assert_auth_route_not_404 "${base}/auth/badge-pin" "${base}/auth/badge-pin"
+}
+
+# Public URL check (Cloudflare → origin nginx). Fatal on 404 when URL is set.
+assert_public_auth_routes() {
+  local base="${AWS_PUBLIC_URL:-${PUBLIC_BASE_URL:-}}"
+  base="${base%"${base##*[![:space:]]}"}"
+  base="${base#"${base%%[![:space:]]*}"}"
+  base="${base%/}"
+  [ -n "${base}" ] || return 0
+  assert_auth_route_not_404 "${base}/auth/session/refresh" "${base}/auth/session/refresh"
+  assert_auth_route_not_404 "${base}/auth/badge-pin" "${base}/auth/badge-pin"
 }
 
 # Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose
@@ -567,6 +583,7 @@ verify_deployment_health() {
     if curl -fsS "http://127.0.0.1:${http_port}/health" | head -c 200; then
       echo ""
       log "Health check passed"
+      assert_local_auth_routes
       return 0
     fi
     echo "Health attempt ${attempt}/6 failed — retrying in 10s…"
