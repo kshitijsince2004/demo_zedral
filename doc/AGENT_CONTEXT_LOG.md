@@ -2267,7 +2267,8 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Goal:** Implement CI_FIX_PLAN_2.md (A/B/C + hygiene).
 - **Touched:** .github/workflows/runner-health.yml (contents+administration), .npmrc (fetch retries), scripts/ensure-native-bindings.mjs (esbuild 0.28 + dir present check + install retries), package.json (esbuild/tar/nodemailer overrides, optionalDeps 0.28), package-lock.json (Linux regen), workflows checkout@v5/setup-node@v5/cache@v5, endor/README.md
 - **Decisions / skipped:** A1+A2 landed — ensure-native OK no-op after 
-pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11→all would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept egen helper scripts deleted after use.
+pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11→all would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept 
+egen helper scripts deleted after use.
 - **Follow-ups:** Confirm runner-health via workflow_dispatch; staged kysely upgrade PR; clear remaining audit (vitest nested esbuild, kysely, ST/nodemailer hoist).
 
 ### 2026-08-08 — CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
@@ -2283,3 +2284,10 @@ pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@
 - **Touched:** `.github/workflows/ci.yml` (schedule runners job; delete runner-health), `.github/workflows/runner-health.yml` (deleted), `.github/dependabot.yml`, `package.json`/`packages/server/package.json`/`package-lock.json` (xlsx file:vendor, glob 11.1.0), `Dockerfile` + `scripts/purge-nodemailer-lt9.mjs`, `CONTRIBUTING.md`, `doc/BRANCH_PROTECTION.md`, `vendor/README.md`
 - **Decisions / skipped:** Quality jobs skip on schedule; docker-pr skips dependabot; server xlsx pin `0.20.3` + root `file:vendor` (workspace `file:../../vendor` broke npm path). Local quality mirror PASSED; image has glob@11.1.0 + nodemailer@9.0.5; Trivy CRITICAL/HIGH clean. Did not commit `.github/an` / AUDIT_REPORT.
 - **Follow-ups:** Apply branch protection contexts including Lockfile sync; close stale Dependabot PRs; confirm Actions shows only CI (no runner-health) and QA auto-deploy after main green.
+
+### 2026-08-08 — Rebuild CI from CURSOR_PROMPT_rebuild_ci.md
+
+- **Goal:** Fix invalid `administration` permission; rewrite CI/CD workflows cleanly; cut Dependabot noise.
+- **Touched:** `.github/workflows/ci.yml` (rewritten; runners job removed), `deploy-aws.yml`/`deploy-production.yml` (top-level `permissions: contents: read`), `.github/dependabot.yml` (1 npm + 1 actions group), `.github/actionlint.yaml`
+- **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (prompt’s 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
+- **Follow-ups:** Push and confirm CI parses on GitHub; close stale Dependabot PRs.

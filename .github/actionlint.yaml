@@ -1,0 +1,6 @@
+# Custom self-hosted runner labels used by deploy workflows.
+self-hosted-runner:
+  labels:
+    - zedral-aws-qa
+    - hslsmed
+    - linux

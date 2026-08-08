@@ -35,6 +35,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
@@ -107,10 +110,12 @@ jobs:
             fi
           fi
 
-          echo "tag=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
-          echo "checkout=${CHECKOUT}" >> "$GITHUB_OUTPUT"
-          echo "backend=${IMAGE_PREFIX}/backend:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
-          echo "nginx=${IMAGE_PREFIX}/nginx:${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${DEPLOY_TAG}"
+            echo "checkout=${CHECKOUT}"
+            echo "backend=${IMAGE_PREFIX}/backend:${DEPLOY_TAG}"
+            echo "nginx=${IMAGE_PREFIX}/nginx:${DEPLOY_TAG}"
+          } >> "$GITHUB_OUTPUT"
           echo "Factory will pull tag=${DEPLOY_TAG} (checkout ${CHECKOUT})"
 
       - name: Notify started

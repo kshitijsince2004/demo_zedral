@@ -1,7 +1,6 @@
 name: CI
 
-# Build Once: quality gates + (on main) push immutable images to GHCR.
-# Deploy Many: deploy-aws.yml (QA) and deploy-production.yml (Factory) only pull these tags.
+# Build once (quality + GHCR images). Deploy many: deploy-aws.yml / deploy-production.yml.
 
 on:
   pull_request:
@@ -10,87 +9,35 @@ on:
       - '**.md'
       - 'docs/**'
       - 'doc/**'
-      - 'CONTRIBUTING.md'
   push:
     branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'doc/**'
-      - 'CONTRIBUTING.md'
-  schedule:
-    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
-# Shared env for DB-backed jobs
-# (duplicated per job — GHA does not inherit job.env into services)
-
 jobs:
-  # Schedule-only (also runs on manual dispatch). Never on PR/push — keeps Actions to one workflow file.
-  runners:
-    name: Self-hosted runners
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      administration: read
-    steps:
-      - name: Checkout (notify script)
-        uses: actions/checkout@v5
-      - name: List runners · alert if offline
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
-        run: |
-          set -euo pipefail
-          NEEDLE_QA='zedral-aws-qa'
-          NEEDLE_FACTORY='hslsmed'
-          JSON="$(gh api "repos/${{ github.repository }}/actions/runners" --paginate)"
-          echo "$JSON" | jq -r '.runners[] | "\(.name)\t\(.status)\t\(.busy)\t\(.labels|map(.name)|join(","))"' || true
-
-          offline=()
-          for label in "$NEEDLE_QA" "$NEEDLE_FACTORY"; do
-            hit="$(echo "$JSON" | jq -r --arg l "$label" '
-              [.runners[] | select(.labels[]?.name == $l) | {name, status, busy}] | first // empty
-            ')"
-            if [ -z "$hit" ] || [ "$hit" = "null" ]; then
-              echo "::warning::No runner with label ${label}"
-              offline+=("missing:${label}")
-              continue
-            fi
-            status="$(echo "$hit" | jq -r '.status')"
-            name="$(echo "$hit" | jq -r '.name')"
-            echo "Runner label=${label} name=${name} status=${status}"
-            if [ "$status" != "online" ]; then
-              offline+=("${label}:${name}:${status}")
-            fi
-          done
-
-          if [ "${#offline[@]}" -gt 0 ]; then
-            msg="Self-hosted runners offline or missing: ${offline[*]}"
-            echo "::error::${msg}"
-            bash deploy/scripts/notify-deploy.sh failed "${msg}"
-            exit 1
-          fi
-          echo "All expected runners online."
-
   lockfile:
     name: Lockfile sync
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node-npm
+      - run: npm ci
+      - run: node scripts/ensure-native-bindings.mjs
       - name: Fail if package-lock.json drifts from package.json
         run: |
           npm install --package-lock-only --ignore-scripts
@@ -99,7 +46,6 @@ jobs:
 
   lint:
     name: Lint
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -112,7 +58,6 @@ jobs:
 
   build:
     name: Build · typecheck · client
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -127,7 +72,6 @@ jobs:
 
   unit:
     name: Server unit
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -145,7 +89,6 @@ jobs:
 
   integration:
     name: Migrate · integration
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -184,6 +127,11 @@ jobs:
       - uses: ./.github/actions/setup-node-npm
       - run: npm ci
       - run: node scripts/ensure-native-bindings.mjs
+      - run: npm run build -w @m1/shared-validation
+      - run: npm run build -w @zedral/platform
+      - run: npm run build -w @zedral/connectors
+      - run: npm run build -w @zedral/m1-collection
+      - run: npm run build -w @m1/server
       - name: Migration filename order
         run: node packages/server/scripts/check-migration-order.mjs
       - name: Database migrations (strict order)
@@ -197,17 +145,11 @@ jobs:
       - name: db-types drift check
         working-directory: packages/server
         run: npm run db:codegen:check
-      - run: npm run build -w @m1/shared-validation
-      - run: npm run build -w @zedral/platform
-      - run: npm run build -w @zedral/connectors
-      - run: npm run build -w @zedral/m1-collection
-      - run: npm run build -w @m1/server
       - name: Server integration tests
         run: npm run test:integration -w @m1/server
 
   arch:
     name: Architecture
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -225,7 +167,6 @@ jobs:
 
   secrets:
     name: Secrets (gitleaks)
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -242,7 +183,6 @@ jobs:
 
   audit:
     name: npm audit (report)
-    if: github.event_name != 'schedule'
     needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -256,6 +196,13 @@ jobs:
           if grep -qi 'critical' audit-critical.txt; then
             echo "::warning::Prod-critical advisory present — review audit-critical.txt (not blocking the build)."
           fi
+          {
+            echo "## npm audit (prod critical)"
+            echo ""
+            echo '```'
+            tail -n 40 audit-critical.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: npm audit (high+ report)
         run: |
           npm audit --audit-level=high 2>&1 | tee audit-high.txt || true
@@ -267,11 +214,10 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # PR-time prod image build (no push) — catches zod/prune class before merge.
   docker-pr:
     name: Docker build (PR)
     needs: [lockfile]
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -296,9 +242,9 @@ jobs:
 
   docker-build-push:
     name: Docker build · Trivy · Push GHCR
-    runs-on: ubuntu-latest
-    needs: [lint, build, unit, integration, arch, secrets]
+    needs: [lockfile, lint, build, unit, integration, arch, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
       contents: read
@@ -307,7 +253,6 @@ jobs:
       backend_image: ${{ steps.meta.outputs.backend }}
       nginx_image: ${{ steps.meta.outputs.nginx }}
       image_tag: ${{ steps.meta.outputs.tag }}
-
     steps:
       - uses: actions/checkout@v5
 
@@ -315,9 +260,11 @@ jobs:
         id: meta
         run: |
           TAG="${GITHUB_SHA}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${TAG}"
+            echo "backend=${IMAGE_PREFIX}/backend:${TAG}"
+            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -400,5 +347,5 @@ jobs:
             echo "| backend | \`${IMAGE_PREFIX}/backend:${TAG}\` · \`latest-main\` |"
             echo "| nginx | \`${IMAGE_PREFIX}/nginx:${TAG}\` · \`latest-main\` |"
             echo ""
-            echo "AWS QA auto-deploys the **SHA** tag. Promote to Factory manually via **Deploy Production** → Run workflow (\`latest-main\`, SHA, or \`vX.Y.Z\`)."
+            echo "AWS QA auto-deploys the **SHA** tag after CI succeeds. Promote to Factory via **Deploy Production** (\`latest-main\`, SHA, or \`vX.Y.Z\`)."
           } >> "$GITHUB_STEP_SUMMARY"

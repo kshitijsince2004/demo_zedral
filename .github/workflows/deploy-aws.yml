@@ -3,6 +3,7 @@ name: Deploy AWS QA
 # Self-hosted runner model: the runner lives ON the AWS QA server.
 # Deploy runs docker/compose LOCALLY on that box — no SSH, ssh-agent, keyscan, or rsync-over-SSH.
 # Still pull-only: uses the SAME commit SHA images CI pushed to GHCR. Never builds source.
+# Triggered after CI succeeds on main (workflow_run), not bare push — avoids racing GHCR push.
 
 on:
   workflow_run:
@@ -32,6 +33,9 @@ on:
 concurrency:
   group: deploy-aws-qa
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
@@ -93,10 +97,12 @@ jobs:
               SHA="${{ github.sha }}"
             fi
           fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "backend=${IMAGE_PREFIX}/backend:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${TAG}"
+            echo "sha=${SHA}"
+            echo "backend=${IMAGE_PREFIX}/backend:${TAG}"
+            echo "nginx=${IMAGE_PREFIX}/nginx:${TAG}"
+          } >> "$GITHUB_OUTPUT"
           echo "Deploying backend=${IMAGE_PREFIX}/backend:${TAG} (checkout ${SHA})"
 
   # ── Deploy runs ON the AWS QA box (self-hosted runner, label: aws-qa) ─────────
