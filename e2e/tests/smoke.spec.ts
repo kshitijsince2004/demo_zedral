@@ -1,7 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const badge = process.env.SMOKE_BADGE_ID || '1001';
-const pin = process.env.SMOKE_PIN || '1234';
+// Seeded pilot operator is emp_code 3000 / PIN 1234 (seed-pilot-users.mjs).
+// CI must set SMOKE_BADGE_ID + SMOKE_PIN explicitly (workflow fail-fast); no bogus 1001.
+const isCi = Boolean(process.env.CI);
+const badge = process.env.SMOKE_BADGE_ID || (isCi ? '' : '3000');
+const pin = process.env.SMOKE_PIN || (isCi ? '' : '1234');
+
+if (!badge.trim() || !pin.trim()) {
+  throw new Error(
+    'SMOKE_BADGE_ID and SMOKE_PIN are required (seeded badge e.g. 3000 / PIN 1234). ' +
+      'Empty secrets used to fall back to 1001 which is not a seeded user.',
+  );
+}
 
 function cdnHint(status: number): string {
   if (status >= 521 && status <= 524) {

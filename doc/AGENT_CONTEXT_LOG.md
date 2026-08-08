@@ -2319,3 +2319,10 @@ egen helper scripts deleted after use.
 - **Touched:** `deploy/lib/common.sh` (auto_heal), `deploy/.env.production.example`
 - **Decisions / skipped:** Heal only when no non-empty CORS origins; still die if both empty.
 - **Follow-ups:** Re-run Deploy AWS QA.
+
+### 2026-08-08 — Fix Playwright smoke secrets + rollback gate
+
+- **Goal:** Stop silent 1001 login fails; do not image-rollback on secrets/CDN/UI smoke failures.
+- **Touched:** `e2e/tests/smoke.spec.ts` (seed default 3000; CI requires secrets), `.github/workflows/deploy-aws.yml` (preflight secrets + wait-public-health; rollback only if failure_kind=app)
+- **Decisions / skipped:** Rollback only when public /health fails as app/origin issue, not login flake.
+- **Follow-ups:** Set staging secrets SMOKE_BADGE_ID=3000 and SMOKE_PIN=1234 (or real PIN); re-run Deploy AWS QA.

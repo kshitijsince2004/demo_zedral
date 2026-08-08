@@ -224,12 +224,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
+    outputs:
+      rollback_safe: ${{ steps.gate.outputs.rollback_safe }}
+      failure_kind: ${{ steps.gate.outputs.failure_kind }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve.outputs.commit_sha }}
+
+      - name: Smoke preflight (secrets + public /health)
+        id: gate
+        env:
+          BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
+          SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
+          SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
+        run: |
+          set -euo pipefail
+          # Default: config/CDN issues must NOT roll back a healthy local deploy.
+          {
+            echo "rollback_safe=false"
+            echo "failure_kind=config"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::AWS_PUBLIC_URL secret required for Playwright smoke (e.g. https://qa.zedral.com)"
+            exit 1
+          fi
+          if [ -z "${SMOKE_BADGE_ID:-}" ] || [ -z "${SMOKE_PIN:-}" ]; then
+            echo "::error::SMOKE_BADGE_ID and SMOKE_PIN staging secrets are required."
+            echo "::error::Use a seeded pilot badge (e.g. 3000) and PIN (default seed PIN 1234). Do not leave empty — there is no safe 1001 default."
+            exit 1
+          fi
+
+          host="$(printf '%s' "${BASE_URL}" | sed -E 's#^https?://##; s#/.*##')"
+          echo "Smoke target: ${host} (badge=${SMOKE_BADGE_ID})"
+          # Overwrites rollback_safe / failure_kind (cdn → false; app /health fail → true+app).
+          bash deploy/scripts/wait-public-health.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -262,15 +294,11 @@ jobs:
       - name: Run smoke suite
         working-directory: e2e
         env:
+          CI: true
           BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
-        run: |
-          if [ -z "${BASE_URL}" ]; then
-            echo "::error::AWS_PUBLIC_URL secret required for Playwright smoke"
-            exit 1
-          fi
-          npx playwright test --retries=2 --reporter=list,html,json
+        run: npx playwright test --retries=2 --reporter=list,html,json
 
       - name: Upload Playwright report
         if: always()
@@ -280,11 +308,11 @@ jobs:
           path: e2e/playwright-report/
           if-no-files-found: ignore
 
-  # ── Rollback on smoke failure runs ON the box (self-hosted; no SSH needed) ────
+  # ── Rollback only when public /health shows an app/origin failure (not CDN/secrets/UI) ─
   rollback-on-smoke-failure:
     name: Rollback QA on smoke failure
     needs: [resolve, deploy, smoke]
-    if: ${{ failure() && needs.deploy.result == 'success' }}
+    if: ${{ failure() && needs.deploy.result == 'success' && needs.smoke.outputs.failure_kind == 'app' }}
     runs-on: [self-hosted, linux, zedral-aws-qa]
     environment: staging
     steps:
@@ -303,7 +331,7 @@ jobs:
           export APP_BASE="${APP_DIR}"
           bash "${APP_DIR}/deploy/scripts/rollback-images.sh" || true
           bash deploy/scripts/notify-deploy.sh rollback \
-            "AWS QA rolled back after smoke failure (${{ needs.resolve.outputs.image_tag }})"
+            "AWS QA rolled back after public /health app failure (${{ needs.resolve.outputs.image_tag }})"
 
   # ── Report (GitHub-hosted) ───────────────────────────────────────────────────
   report:
