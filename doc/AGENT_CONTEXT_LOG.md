@@ -2298,3 +2298,10 @@ egen helper scripts deleted after use.
 - **Touched:** `deploy/lib/common.sh` (per-service pull retry/backoff + GHCR probe), `Dockerfile` (`PUPPETEER_SKIP_DOWNLOAD`), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Option 1+2 only; ECR mirror deferred. PdfRenderer already falls back to HTML without Chromium.
 - **Follow-ups:** Push → CI image rebuild → workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
+
+### 2026-08-08 — QA #177: image tag split-brain + nginx sticky upstream
+
+- **Goal:** Fix deploy logging SHA A while running SHA B; nginx unrecreated/unhealthy after backend recreate.
+- **Touched:** `deploy/lib/common.sh` (dedupe upsert, assert_compose_images, docker pull by ref, force-recreate backend+nginx, running-tag assert, nginx health gate), `deploy/nginx.prod.conf` (Docker DNS + variable proxy_pass), `deploy/scripts/test-pull-retry.sh`
+- **Decisions / skipped:** Root cause was Compose env-file/soft-recreate split-brain + static upstream DNS, not pull stalls. ECR mirror still deferred.
+- **Follow-ups:** Re-run Deploy AWS QA after CI builds nginx with new conf; confirm running images == intended SHA and nginx healthy.

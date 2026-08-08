@@ -132,17 +132,44 @@ validate_env_file() {
   log "Environment validation passed (bootstrap DB_USER=${DB_USER})."
 }
 
+# Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose
+# interpolation is ambiguous when the same key appears twice).
 upsert_env_var() {
   local key="$1"
   local value="$2"
   local tmp
   tmp="$(mktemp)"
-  if [ -f "${ENV_FILE}" ] && grep -q "^${key}=" "${ENV_FILE}"; then
-    sed "s|^${key}=.*|${key}=${value}|" "${ENV_FILE}" > "${tmp}"
-    mv "${tmp}" "${ENV_FILE}"
+  if [ -f "${ENV_FILE}" ]; then
+    grep -v "^${key}=" "${ENV_FILE}" > "${tmp}" || true
   else
-    printf '\n%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+    : > "${tmp}"
   fi
+  printf '%s=%s\n' "${key}" "${value}" >> "${tmp}"
+  mv "${tmp}" "${ENV_FILE}"
+}
+
+# Fail fast if Compose would deploy a different image than the shell/CI intended.
+# Root cause of QA #177: logs showed SHA A while containers ran SHA B from stale .env.
+assert_compose_images() {
+  local images
+  export BACKEND_IMAGE NGINX_IMAGE
+  images="$(compose config --images)" || die "compose config --images failed — cannot verify image tags"
+  printf '%s\n' "${images}" | grep -qxF "${BACKEND_IMAGE}" \
+    || die "Compose config missing intended backend image: ${BACKEND_IMAGE} (config --images: ${images})"
+  printf '%s\n' "${images}" | grep -qxF "${NGINX_IMAGE}" \
+    || die "Compose config missing intended nginx image: ${NGINX_IMAGE} (config --images: ${images})"
+  grep -qxF "BACKEND_IMAGE=${BACKEND_IMAGE}" "${ENV_FILE}" \
+    || die "deploy/.env missing exact BACKEND_IMAGE=${BACKEND_IMAGE}"
+  grep -qxF "NGINX_IMAGE=${NGINX_IMAGE}" "${ENV_FILE}" \
+    || die "deploy/.env missing exact NGINX_IMAGE=${NGINX_IMAGE}"
+  # Duplicate keys are the classic split-brain source — refuse to continue.
+  if [ "$(grep -c "^BACKEND_IMAGE=" "${ENV_FILE}" || true)" -ne 1 ]; then
+    die "deploy/.env has duplicate BACKEND_IMAGE= lines"
+  fi
+  if [ "$(grep -c "^NGINX_IMAGE=" "${ENV_FILE}" || true)" -ne 1 ]; then
+    die "deploy/.env has duplicate NGINX_IMAGE= lines"
+  fi
+  log "Compose image assert OK (backend + nginx match intended tags)"
 }
 
 save_image_checkpoint() {
@@ -219,25 +246,25 @@ wait_for_container_healthy() {
   return 1
 }
 
-# Pull one compose service with retry/backoff. Docker resumes partial layers, so
-# a stalled GHCR transfer recovers on the next attempt instead of aborting deploy.
-pull_compose_service_with_retry() {
-  local service="$1"
+# Pull an exact image ref with retry/backoff (not `compose pull <service>` —
+# that interpolates via env-file and can also pull sibling deps under a stale tag).
+pull_image_ref_with_retry() {
+  local ref="$1"
+  local label="${2:-image}"
   local max_attempts="${PULL_MAX_ATTEMPTS:-5}"
   local attempt=1
   local delay start end
-  export COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-300}"
 
   while [ "${attempt}" -le "${max_attempts}" ]; do
     start="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
-    log "Pull ${service} attempt ${attempt}/${max_attempts} start=${start} (COMPOSE_HTTP_TIMEOUT=${COMPOSE_HTTP_TIMEOUT})"
-    if compose pull "${service}"; then
+    log "Pull ${label} attempt ${attempt}/${max_attempts} start=${start} ref=${ref}"
+    if docker pull "${ref}"; then
       end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
-      log "Pull ${service} OK end=${end}"
+      log "Pull ${label} OK end=${end}"
       return 0
     fi
     end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
-    log "Pull ${service} failed attempt ${attempt}/${max_attempts} end=${end}"
+    log "Pull ${label} failed attempt ${attempt}/${max_attempts} end=${end}"
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       break
     fi
@@ -246,7 +273,7 @@ pull_compose_service_with_retry() {
       2) delay=30 ;;
       *) delay=60 ;;
     esac
-    log "Retrying ${service} pull in ${delay}s…"
+    log "Retrying ${label} pull in ${delay}s…"
     sleep "${delay}"
     attempt=$((attempt + 1))
   done
@@ -276,8 +303,12 @@ run_stack_deploy() {
   [ -n "${BACKEND_IMAGE:-}" ] || die "BACKEND_IMAGE is required (GHCR pull-only deploy — never build on host)"
   [ -n "${NGINX_IMAGE:-}" ] || die "NGINX_IMAGE is required (GHCR pull-only deploy — never build on host)"
 
+  # Shell + .env must agree before Compose interpolates anything.
+  export BACKEND_IMAGE NGINX_IMAGE
   upsert_env_var BACKEND_IMAGE "${BACKEND_IMAGE}"
   upsert_env_var NGINX_IMAGE "${NGINX_IMAGE}"
+  assert_compose_images
+
   if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
     echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
   fi
@@ -290,14 +321,12 @@ run_stack_deploy() {
   log "Pulling pre-built images (Build Once → Deploy Many)…"
   log "  backend: ${BACKEND_IMAGE}"
   log "  nginx:   ${NGINX_IMAGE}"
-  # Pull separately so a successful nginx pull is kept if backend retries.
-  pull_compose_service_with_retry nginx \
+  pull_image_ref_with_retry "${NGINX_IMAGE}" nginx \
     || die "Failed to pull nginx image after retries: ${NGINX_IMAGE}"
-  pull_compose_service_with_retry backend \
+  pull_image_ref_with_retry "${BACKEND_IMAGE}" backend \
     || die "Failed to pull backend image after retries: ${BACKEND_IMAGE}"
-  # Do NOT --force-recreate the whole stack: recreating db/redis/ST every deploy
-  # races backend health (ST is only service_started) and flakes QA. Compose
-  # recreates backend/nginx when BACKEND_IMAGE / NGINX_IMAGE change.
+
+  # Do NOT --force-recreate db/redis/ST — races backend health and flakes QA.
   compose up -d --remove-orphans --no-build db redis supertokens
   wait_for_container_healthy zedral-db || die "db did not become healthy before migrate"
 
@@ -314,13 +343,31 @@ run_stack_deploy() {
     export RUN_MIGRATIONS=false
   fi
 
-  compose up -d --no-build --no-deps backend
+  # Always recreate app pair together. Soft recreate left nginx on a stale
+  # container (QA #177: nginx Up 21h) while backend moved — sticky upstream IP.
+  log "Recreating backend + nginx on intended tags…"
+  compose up -d --no-build --no-deps --force-recreate backend
   if ! wait_for_container_healthy zedral-backend; then
     log "Backend failed health — last logs:"
     compose logs --tail 200 backend || true
     die "Backend did not become healthy after image switch"
   fi
-  compose up -d --no-build --no-deps nginx
+  compose up -d --no-build --no-deps --force-recreate nginx
+  if ! wait_for_container_healthy zedral-nginx; then
+    log "Nginx failed health — last logs:"
+    compose logs --tail 200 nginx || true
+    die "Nginx did not become healthy after image switch"
+  fi
+
+  # Prove running containers match intended tags (not just compose config).
+  local running_backend running_nginx
+  running_backend="$(docker inspect -f '{{.Config.Image}}' zedral-backend)"
+  running_nginx="$(docker inspect -f '{{.Config.Image}}' zedral-nginx)"
+  [ "${running_backend}" = "${BACKEND_IMAGE}" ] \
+    || die "Running backend image mismatch: intended=${BACKEND_IMAGE} running=${running_backend}"
+  [ "${running_nginx}" = "${NGINX_IMAGE}" ] \
+    || die "Running nginx image mismatch: intended=${NGINX_IMAGE} running=${running_nginx}"
+  log "Running containers match intended tags"
 }
 
 # Free unused Docker layers before pull. Keeps images still used by running containers.
@@ -351,6 +398,10 @@ verify_deployment_health() {
   if ! wait_for_container_healthy zedral-backend; then
     compose logs --tail 200 backend || true
     die "Container zedral-backend did not become healthy — see logs above"
+  fi
+  if ! wait_for_container_healthy zedral-nginx; then
+    compose logs --tail 200 nginx || true
+    die "Container zedral-nginx did not become healthy — see logs above"
   fi
 
   log "HTTP health check via nginx (port ${http_port})…"
