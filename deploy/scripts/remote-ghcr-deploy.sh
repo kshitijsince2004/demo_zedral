@@ -2,6 +2,7 @@
 # Remote GHCR deploy entrypoint (invoked over SSH from GitHub Actions).
 # Required env: BACKEND_IMAGE, NGINX_IMAGE
 # Optional: APP_BASE, SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true, VERIFY_BACKUP=true
+# Optional QA: PUBLIC_BASE_URL / AWS_PUBLIC_URL (sync SuperTokens+CORS), ENSURE_SMOKE_USERS=true, SMOKE_PIN
 set -euo pipefail
 
 # Empty string must not win over the default (secret may be set but blank).
@@ -13,6 +14,7 @@ fi
 : "${SKIP_MIGRATE:=false}"
 : "${RUN_BACKUP:=false}"
 : "${VERIFY_BACKUP:=false}"
+: "${ENSURE_SMOKE_USERS:=false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANDIDATE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -34,6 +36,10 @@ ENV_FILE="${REPO_ROOT}/deploy/.env"
 export APP_BASE REPO_ROOT COMPOSE_FILE ENV_FILE
 
 require_docker
+# Ensure ENV_FILE exists before domain sync (validate also heals/loads it).
+[ -f "${ENV_FILE}" ] || die "Missing ${ENV_FILE}. On the server: cp deploy/.env.production.example deploy/.env && edit secrets."
+# Prefer browser public URL over stale EIP / example.com in deploy/.env (SuperTokens cookie host).
+sync_public_origin
 validate_env_file
 
 if [ "${RUN_BACKUP}" = "true" ]; then
@@ -53,5 +59,6 @@ fi
 export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE
 run_stack_deploy
 verify_deployment_health
+ensure_login_profiles
 record_successful_deploy
 log "remote-ghcr-deploy finished OK"

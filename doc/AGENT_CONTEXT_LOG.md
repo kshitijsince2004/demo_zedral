@@ -2326,3 +2326,10 @@ egen helper scripts deleted after use.
 - **Touched:** `e2e/tests/smoke.spec.ts` (seed default 3000; CI requires secrets), `.github/workflows/deploy-aws.yml` (preflight secrets + wait-public-health; rollback only if failure_kind=app)
 - **Decisions / skipped:** Rollback only when public /health fails as app/origin issue, not login flake.
 - **Follow-ups:** Set staging secrets SMOKE_BADGE_ID=3000 and SMOKE_PIN=1234 (or real PIN); re-run Deploy AWS QA.
+
+### 2026-08-08 — QA smoke login: domain sync + seed profiles
+
+- **Goal:** Fix Deploy AWS smoke stuck on /login (wrong SuperTokens host and/or missing badge 3000).
+- **Touched:** deploy/lib/common.sh (sync_public_origin, ensure_login_profiles), deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/deploy-aws.yml (pass AWS_PUBLIC_URL/ENSURE_SMOKE_USERS; report no exit 1), e2e/tests/smoke.spec.ts (surface UI error), deploy/.env.production.example
+- **Decisions / skipped:** Seed gated to QA only via ENSURE_SMOKE_USERS=true. Report job stays green when smoke already failed.
+- **Follow-ups:** Staging secrets AWS_PUBLIC_URL=https://qa.zedral.com, SMOKE_BADGE_ID=3000, SMOKE_PIN matching seed; re-run Deploy AWS QA.

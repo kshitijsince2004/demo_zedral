@@ -222,6 +222,43 @@ resolve_repo_root() {
   return 0
 }
 
+# Sync SuperTokens / CORS hosts from the public browser origin (e.g. https://qa.zedral.com).
+# Fixes smoke login when .env still has EIP or example.com while Cloudflare serves the real host.
+sync_public_origin() {
+  local origin="${PUBLIC_BASE_URL:-${AWS_PUBLIC_URL:-}}"
+  origin="${origin%"${origin##*[![:space:]]}"}"
+  origin="${origin#"${origin%%[![:space:]]*}"}"
+  origin="${origin%/}"
+  [ -n "${origin}" ] || return 0
+  case "${origin}" in
+    http://*|https://*) ;;
+    *)
+      log "WARNING: PUBLIC_BASE_URL='${origin}' is not http(s) — skipping domain sync"
+      return 0
+      ;;
+  esac
+  upsert_env_var API_DOMAIN "${origin}"
+  upsert_env_var WEBSITE_DOMAIN "${origin}"
+  upsert_env_var CORS_ORIGIN "${origin}"
+  export API_DOMAIN="${origin}" WEBSITE_DOMAIN="${origin}" CORS_ORIGIN="${origin}"
+  log "Synced API_DOMAIN/WEBSITE_DOMAIN/CORS_ORIGIN → ${origin}"
+}
+
+# Ensure seeded pilot login profiles exist (badge 3000 etc.). Gated — QA only.
+ensure_login_profiles() {
+  if [ "${ENSURE_SMOKE_USERS:-false}" != "true" ]; then
+    return 0
+  fi
+  local pin="${SEED_PIN:-${SMOKE_PIN:-1234}}"
+  log "Ensuring pilot login profiles (SEED_PIN set, seed:profiles)…"
+  if ! compose exec -T -e SEED_PIN="${pin}" backend npm run seed:profiles; then
+    # Fresh containers may not accept exec yet — fall back to one-shot run (needs db).
+    compose run --rm -e SEED_PIN="${pin}" backend npm run seed:profiles \
+      || die "seed:profiles failed — smoke badge login will fail"
+  fi
+  log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
+}
+
 # Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose
 # interpolation is ambiguous when the same key appears twice).
 upsert_env_var() {

@@ -35,7 +35,21 @@ async function login(page: Page) {
   await page.getByPlaceholder(/badge/i).fill(badge);
   await page.locator('input[type="password"]').fill(pin);
   await page.getByRole('button', { name: /unlock terminal/i }).click();
-  await expect(page).not.toHaveURL(/\/login\/?$/, { timeout: 30_000 });
+  try {
+    await expect(page).not.toHaveURL(/\/login\/?$/, { timeout: 30_000 });
+  } catch {
+    const uiError = await page
+      .locator('.text-destructive, [role="alert"]')
+      .first()
+      .textContent()
+      .catch(() => null);
+    const snippet = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 280);
+    throw new Error(
+      `Login stayed on /login after Unlock (badge=${badge}).` +
+        (uiError?.trim() ? ` UI error: ${uiError.trim()}.` : '') +
+        ` Page: ${snippet}`,
+    );
+  }
 }
 
 async function dismissBlockingOverlays(page: Page) {

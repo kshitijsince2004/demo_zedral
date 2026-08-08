@@ -164,10 +164,16 @@ jobs:
           BACKEND_IMAGE: ${{ needs.resolve.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.resolve.outputs.nginx_image }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
+          # Sync SuperTokens/CORS to the public QA host; seed badge 3000 for smoke.
+          AWS_PUBLIC_URL: ${{ secrets.AWS_PUBLIC_URL }}
+          PUBLIC_BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
+          ENSURE_SMOKE_USERS: 'true'
+          SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
         run: |
           set -euo pipefail
           export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE \
-                 APP_BASE="${APP_DIR}" RUN_BACKUP=false
+                 APP_BASE="${APP_DIR}" RUN_BACKUP=false \
+                 AWS_PUBLIC_URL PUBLIC_BASE_URL ENSURE_SMOKE_USERS SMOKE_PIN
           bash "${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh"
 
       - name: Local health check (curl /health)
@@ -366,7 +372,7 @@ jobs:
             bash deploy/scripts/notify-deploy.sh success "AWS QA OK ${{ needs.resolve.outputs.image_tag }}"
           else
             bash deploy/scripts/notify-deploy.sh failed "AWS QA FAILED tag=${{ needs.resolve.outputs.image_tag }} deploy=${{ needs.deploy.result }} smoke=${{ needs.smoke.result }}"
-            exit 1
+            # Do not exit 1 here: smoke/deploy already failed the workflow. Keep report green so the artifact uploads.
           fi
 
       - name: Upload report
