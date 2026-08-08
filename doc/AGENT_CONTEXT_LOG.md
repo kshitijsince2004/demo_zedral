@@ -2312,3 +2312,10 @@ egen helper scripts deleted after use.
 - **Touched:** `deploy/lib/common.sh`
 - **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root — no edit needed. remote-ghcr left as-is.
 - **Follow-ups:** Set CORS_ORIGIN=https://qa.zedral.com on QA box /opt/zedral/deploy/.env (ops).
+
+### 2026-08-08 — Auto-heal CORS_ORIGIN from WEBSITE_DOMAIN
+
+- **Goal:** Unblock QA #179 fail-fast when CORS_ORIGIN empty but WEBSITE_DOMAIN is set.
+- **Touched:** `deploy/lib/common.sh` (auto_heal), `deploy/.env.production.example`
+- **Decisions / skipped:** Heal only when no non-empty CORS origins; still die if both empty.
+- **Follow-ups:** Re-run Deploy AWS QA.

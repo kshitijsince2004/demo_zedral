@@ -65,6 +65,43 @@ auto_heal_env_file() {
       log "Could not determine any IP address for API_DOMAIN/WEBSITE_DOMAIN auto-fill."
     fi
   fi
+
+  # CORS_ORIGIN empty/missing → copy WEBSITE_DOMAIN (browsers hit that host).
+  # Avoids backend crash-loop / preflight die when domains were set but CORS was forgotten (QA #179).
+  local website_domain cors_raw origin cors_found=0 tmp_cors
+  website_domain="$(grep -E '^WEBSITE_DOMAIN=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
+  website_domain="${website_domain#\"}"
+  website_domain="${website_domain%\"}"
+  website_domain="${website_domain#\'}"
+  website_domain="${website_domain%\'}"
+  website_domain="${website_domain#"${website_domain%%[![:space:]]*}"}"
+  website_domain="${website_domain%"${website_domain##*[![:space:]]}"}"
+  if [ -n "${website_domain}" ]; then
+    cors_raw=""
+    if grep -q '^CORS_ORIGIN=' "${ENV_FILE}"; then
+      cors_raw="$(grep -E '^CORS_ORIGIN=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
+      cors_raw="${cors_raw#\"}"
+      cors_raw="${cors_raw%\"}"
+      cors_raw="${cors_raw#\'}"
+      cors_raw="${cors_raw%\'}"
+      cors_raw="${cors_raw#"${cors_raw%%[![:space:]]*}"}"
+      cors_raw="${cors_raw%"${cors_raw##*[![:space:]]}"}"
+      if [ -n "${cors_raw}" ]; then
+        while IFS= read -r origin; do
+          origin="${origin#"${origin%%[![:space:]]*}"}"
+          origin="${origin%"${origin##*[![:space:]]}"}"
+          [ -n "${origin}" ] && cors_found=1 && break
+        done < <(printf '%s\n' "${cors_raw}" | tr ',' '\n')
+      fi
+    fi
+    if [ "${cors_found}" -eq 0 ]; then
+      tmp_cors="$(mktemp)"
+      grep -v '^CORS_ORIGIN=' "${ENV_FILE}" > "${tmp_cors}" || true
+      printf 'CORS_ORIGIN=%s\n' "${website_domain}" >> "${tmp_cors}"
+      mv "${tmp_cors}" "${ENV_FILE}"
+      log "Auto-filled CORS_ORIGIN=${website_domain} from WEBSITE_DOMAIN"
+    fi
+  fi
 }
 
 validate_env_file() {
