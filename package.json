@@ -39,17 +39,19 @@
     "zod": "3.25.76"
   },
   "overrides": {
-    "tar": "7.5.19",
+    "tar": "7.5.22",
     "zod": "3.25.76",
     "undici": "7.29.0",
+    "esbuild": "0.28.0",
+    "nodemailer": "9.0.5",
     "exceljs": {
       "uuid": "11.1.1"
     },
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "optionalDependencies": {
-    "@esbuild/linux-x64": "0.21.5",
-    "@esbuild/win32-x64": "0.21.5",
+    "@esbuild/linux-x64": "0.28.0",
+    "@esbuild/win32-x64": "0.28.0",
     "@rolldown/binding-linux-x64-gnu": "1.0.2",
     "@rolldown/binding-linux-x64-musl": "1.0.2",
     "@rolldown/binding-win32-x64-msvc": "1.0.2",

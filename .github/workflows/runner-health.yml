@@ -12,10 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      actions: read
+      contents: read        # actions/checkout
+      administration: read  # GET /repos/{}/actions/runners
     steps:
       - name: Checkout (notify script)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: List runners · alert if offline
         env:

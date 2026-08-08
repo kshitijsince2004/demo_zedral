@@ -11,8 +11,11 @@
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function isMusl() {
   if (process.platform !== 'linux') return false;
@@ -34,21 +37,21 @@ const BY_PLATFORM = {
   'win32': [
     '@rolldown/binding-win32-x64-msvc@1.0.2',
     '@rollup/rollup-win32-x64-msvc@4.60.4',
-    '@esbuild/win32-x64@0.21.5',
+    '@esbuild/win32-x64@0.28.0',
     'lightningcss-win32-x64-msvc@1.32.0',
     '@tailwindcss/oxide-win32-x64-msvc@4.3.0',
   ],
   'linux-gnu': [
     '@rolldown/binding-linux-x64-gnu@1.0.2',
     '@rollup/rollup-linux-x64-gnu@4.60.4',
-    '@esbuild/linux-x64@0.21.5',
+    '@esbuild/linux-x64@0.28.0',
     'lightningcss-linux-x64-gnu@1.32.0',
     '@tailwindcss/oxide-linux-x64-gnu@4.3.0',
   ],
   'linux-musl': [
     '@rolldown/binding-linux-x64-musl@1.0.2',
     '@rollup/rollup-linux-x64-musl@4.60.4',
-    '@esbuild/linux-x64@0.21.5',
+    '@esbuild/linux-x64@0.28.0',
     'lightningcss-linux-x64-musl@1.32.0',
     '@tailwindcss/oxide-linux-x64-musl@4.3.0',
   ],
@@ -70,7 +73,8 @@ function present(name) {
     require.resolve(name);
     return true;
   } catch {
-    return false;
+    // Platform optional packages sometimes lack a resolvable "main"; dir is enough.
+    return existsSync(join(ROOT, 'node_modules', ...name.split('/')));
   }
 }
 
@@ -87,9 +91,23 @@ if (missing.length === 0) {
 }
 
 console.log(`[ensure-native-bindings] installing for ${key}: ${missing.join(', ')}`);
-const result = spawnSync(
-  'npm',
-  ['install', '--no-save', '--no-package-lock', ...missing],
-  { stdio: 'inherit', shell: process.platform === 'win32' },
-);
-process.exit(result.status ?? 1);
+const maxAttempts = 4;
+let status = 1;
+for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const result = spawnSync(
+    'npm',
+    ['install', '--no-save', '--no-package-lock', '--prefer-offline', ...missing],
+    { stdio: 'inherit', shell: process.platform === 'win32' },
+  );
+  status = result.status ?? 1;
+  if (status === 0) break;
+  console.warn(
+    `[ensure-native-bindings] install failed (attempt ${attempt}/${maxAttempts}, code ${status})`,
+  );
+  if (attempt < maxAttempts) {
+    const waitMs = attempt * 5000;
+    // ponytail: sync sleep without extra deps
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+  }
+}
+process.exit(status);

@@ -2261,3 +2261,11 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Touched:** .github/workflows/ci.yml, packages/server/tests/handoverDraftJsonb.integration.test.ts (renamed from .test.ts)
 - **Decisions / skipped:** Recommended options only (A/A/A/B absolute chdir). No vite-tsconfig-paths. Verified: unit 539 pass without handoverDraftJsonb; renamed integration test pass; docker absolute chdir pr image ok (relative still ENOENT). Gitleaks permissions only verifiable on GitHub PR.
 - **Follow-ups:** Push/re-run PR CI for secrets job confirmation.
+
+### 2026-08-08 — CI_FIX_PLAN_2: natives, runner-health, audit hygiene
+
+- **Goal:** Implement CI_FIX_PLAN_2.md (A/B/C + hygiene).
+- **Touched:** .github/workflows/runner-health.yml (contents+administration), .npmrc (fetch retries), scripts/ensure-native-bindings.mjs (esbuild 0.28 + dir present check + install retries), package.json (esbuild/tar/nodemailer overrides, optionalDeps 0.28), package-lock.json (Linux regen), workflows checkout@v5/setup-node@v5/cache@v5, endor/README.md
+- **Decisions / skipped:** A1+A2 landed — ensure-native OK no-op after 
+pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11→all would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept egen helper scripts deleted after use.
+- **Follow-ups:** Confirm runner-health via workflow_dispatch; staged kysely upgrade PR; clear remaining audit (vitest nested esbuild, kysely, ST/nodemailer hoist).
