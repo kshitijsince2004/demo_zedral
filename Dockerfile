@@ -20,7 +20,8 @@ COPY scripts/ensure-native-bindings.mjs scripts/ensure-native-bindings.mjs
 # .github/actions/setup-node-npm (npm <11.3 skips cross-OS optional natives).
 RUN npm install -g npm@11.4.2 \
   && npm ci \
-  && node scripts/ensure-native-bindings.mjs
+  && node scripts/ensure-native-bindings.mjs \
+  && rm -rf node_modules/supertokens-node/node_modules/nodemailer
 
 COPY packages/shared-validation packages/shared-validation
 COPY packages/platform packages/platform

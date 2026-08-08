@@ -10,9 +10,13 @@ updates:
       production-patch:
         dependency-type: production
         update-types: [patch]
+        exclude-patterns:
+          - "kysely"
       production-minor:
         dependency-type: production
         update-types: [minor]
+        exclude-patterns:
+          - "kysely"
 
   - package-ecosystem: npm
     directory: /e2e

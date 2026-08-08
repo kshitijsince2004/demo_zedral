@@ -31,8 +31,22 @@ env:
 # (duplicated per job — GHA does not inherit job.env into services)
 
 jobs:
+  lockfile:
+    name: Lockfile sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node-npm
+      - name: Fail if package-lock.json drifts from package.json
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          git diff --exit-code -- package-lock.json \
+            || { echo "::error::package-lock.json out of sync with package.json — run npm install on Linux (npm@11.4.2) and commit the lock"; exit 1; }
+
   lint:
     name: Lint
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -44,6 +58,7 @@ jobs:
 
   build:
     name: Build · typecheck · client
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -57,6 +72,7 @@ jobs:
 
   unit:
     name: Server unit
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -73,6 +89,7 @@ jobs:
 
   integration:
     name: Migrate · integration
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -133,6 +150,7 @@ jobs:
 
   arch:
     name: Architecture
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -149,6 +167,7 @@ jobs:
 
   secrets:
     name: Secrets (gitleaks)
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -164,6 +183,7 @@ jobs:
 
   audit:
     name: npm audit (report)
+    needs: [lockfile]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -190,6 +210,7 @@ jobs:
   # PR-time prod image build (no push) — catches zod/prune class before merge.
   docker-pr:
     name: Docker build (PR)
+    needs: [lockfile]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40

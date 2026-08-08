@@ -2269,3 +2269,10 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** A1+A2 landed — ensure-native OK no-op after 
 pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11→all would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept egen helper scripts deleted after use.
 - **Follow-ups:** Confirm runner-health via workflow_dispatch; staged kysely upgrade PR; clear remaining audit (vitest nested esbuild, kysely, ST/nodemailer hoist).
+
+### 2026-08-08 — CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
+
+- **Goal:** Implement CI_FINAL_FIX_PLAN.md — fix lock desync, kysely CVE migration, Dependabot policy, drift guard.
+- **Touched:** package-lock.json, package.json (overrides), packages/server/package.json (kysely 0.28.17, nodemailer), packages/server/src/repositories/BaseRepository.ts, .github/workflows/ci.yml (lockfile job), .github/dependabot.yml (exclude kysely from groups), Dockerfile (drop nested nodemailer 8.x), CI_FINAL_FIX_PLAN.md
+- **Decisions / skipped:** Primary kysely path (not trivyignore). BaseRepository uses (trx as any) for generic table .where under 0.28. Nested ST nodemailer removed at image build. Hygiene lint/Node22 deferred.
+- **Follow-ups:** Watch Trivy on main; close/rebase Dependabot #173/#175 after lock lands.

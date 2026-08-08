@@ -23,11 +23,12 @@ export class BaseRepository<TableName extends keyof Database> {
 
   async findById(idColumn: string, id: any): Promise<any> {
     return withTenantContext(async (trx) => {
-      return await trx.selectFrom(this.tableName)
+      // ponytail: kysely 0.28 loses callable .where when TableName is a generic keyof
+      return await (trx as any)
+        .selectFrom(this.tableName)
         .selectAll()
-        // Type casting any because Kysely typings for generic table names require complex inference
-        .where(idColumn as any, '=', id)
-        .where('tenant_id' as any, '=', this.tenantId)
+        .where(idColumn, '=', id)
+        .where('tenant_id', '=', this.tenantId)
         .executeTakeFirst();
     });
   }
@@ -39,7 +40,8 @@ export class BaseRepository<TableName extends keyof Database> {
         tenant_id: this.tenantId,
       };
 
-      return await trx.insertInto(this.tableName)
+      return await (trx as any)
+        .insertInto(this.tableName)
         .values(dataWithTenant)
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -48,10 +50,11 @@ export class BaseRepository<TableName extends keyof Database> {
 
   async update(idColumn: string, id: any, data: any): Promise<any> {
     return withTenantContext(async (trx) => {
-      return await trx.updateTable(this.tableName)
+      return await (trx as any)
+        .updateTable(this.tableName)
         .set(data)
-        .where(idColumn as any, '=', id)
-        .where('tenant_id' as any, '=', this.tenantId)
+        .where(idColumn, '=', id)
+        .where('tenant_id', '=', this.tenantId)
         .returningAll()
         .executeTakeFirstOrThrow();
     });
@@ -59,9 +62,10 @@ export class BaseRepository<TableName extends keyof Database> {
 
   async delete(idColumn: string, id: any): Promise<any> {
     return withTenantContext(async (trx) => {
-      return await trx.deleteFrom(this.tableName)
-        .where(idColumn as any, '=', id)
-        .where('tenant_id' as any, '=', this.tenantId)
+      return await (trx as any)
+        .deleteFrom(this.tableName)
+        .where(idColumn, '=', id)
+        .where('tenant_id', '=', this.tenantId)
         .returningAll()
         .executeTakeFirstOrThrow();
     });
