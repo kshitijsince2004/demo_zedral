@@ -2305,3 +2305,10 @@ egen helper scripts deleted after use.
 - **Touched:** `deploy/lib/common.sh` (dedupe upsert, assert_compose_images, docker pull by ref, force-recreate backend+nginx, running-tag assert, nginx health gate), `deploy/nginx.prod.conf` (Docker DNS + variable proxy_pass), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Root cause was Compose env-file/soft-recreate split-brain + static upstream DNS, not pull stalls. ECR mirror still deferred.
 - **Follow-ups:** Re-run Deploy AWS QA after CI builds nginx with new conf; confirm running images == intended SHA and nginx healthy.
+
+### 2026-08-08 — Deploy preflight: CORS_ORIGIN + resolve_repo_root
+
+- **Goal:** Fail fast when CORS_ORIGIN missing/empty; define missing resolve_repo_root used by rollback-images.sh.
+- **Touched:** `deploy/lib/common.sh`
+- **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root — no edit needed. remote-ghcr left as-is.
+- **Follow-ups:** Set CORS_ORIGIN=https://qa.zedral.com on QA box /opt/zedral/deploy/.env (ops).

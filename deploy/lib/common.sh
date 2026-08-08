@@ -129,7 +129,60 @@ validate_env_file() {
     CHANGE_ME*|change_me*) die "SUPERTOKENS_API_KEY is still a placeholder in deploy/.env" ;;
   esac
 
+  # Match packages/server getConfiguredCorsOrigins(): comma-separated, ≥1 non-empty after trim.
+  local cors_raw origin cors_found=0
+  cors_raw="${CORS_ORIGIN:-}"
+  cors_raw="${cors_raw#"${cors_raw%%[![:space:]]*}"}"
+  cors_raw="${cors_raw%"${cors_raw##*[![:space:]]}"}"
+  if [ -z "${cors_raw}" ]; then
+    die "deploy/.env is missing CORS_ORIGIN — set at least one browser origin, e.g. CORS_ORIGIN=https://qa.zedral.com"
+  fi
+  while IFS= read -r origin; do
+    origin="${origin#"${origin%%[![:space:]]*}"}"
+    origin="${origin%"${origin##*[![:space:]]}"}"
+    [ -z "${origin}" ] && continue
+    cors_found=1
+    case "${origin}" in
+      http://*|https://*) ;;
+      *)
+        log "WARNING: CORS_ORIGIN entry '${origin}' does not start with http:// or https:// — likely misconfigured"
+        ;;
+    esac
+  done < <(printf '%s\n' "${cors_raw}" | tr ',' '\n')
+  if [ "${cors_found}" -eq 0 ]; then
+    die "deploy/.env is missing CORS_ORIGIN — set at least one browser origin, e.g. CORS_ORIGIN=https://qa.zedral.com"
+  fi
+
   log "Environment validation passed (bootstrap DB_USER=${DB_USER})."
+}
+
+# Resolve deploy checkout root (ops APP_BASE preferred). Sets REPO_ROOT / COMPOSE_FILE / ENV_FILE.
+# Mirrors deploy/scripts/remote-ghcr-deploy.sh candidate selection.
+resolve_repo_root() {
+  local caller_dir candidate=""
+  if [ -n "${APP_BASE:-}" ] && [ -f "${APP_BASE}/deploy/lib/common.sh" ]; then
+    candidate="${APP_BASE}"
+  else
+    if [ "${#BASH_SOURCE[@]}" -ge 2 ]; then
+      caller_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)" || return 1
+      candidate="$(cd "${caller_dir}/../.." && pwd)" || return 1
+    elif [ -n "${REPO_ROOT:-}" ]; then
+      candidate="${REPO_ROOT}"
+    else
+      return 1
+    fi
+    if [ -n "${APP_BASE:-}" ] && [ -f "${APP_BASE}/$(basename "${candidate}")/deploy/lib/common.sh" ]; then
+      candidate="${APP_BASE}/$(basename "${candidate}")"
+    fi
+  fi
+  [ -n "${candidate}" ] || return 1
+  [ -f "${candidate}/deploy/lib/common.sh" ] || return 1
+  [ -f "${candidate}/deploy/docker-compose.prod.yml" ] || return 1
+  REPO_ROOT="${candidate}"
+  COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.prod.yml"
+  ENV_FILE="${REPO_ROOT}/deploy/.env"
+  export REPO_ROOT COMPOSE_FILE ENV_FILE
+  return 0
 }
 
 # Rewrite KEY=… so deploy/.env never accumulates duplicate keys (Compose
