@@ -253,7 +253,7 @@ ensure_login_profiles() {
   fi
   # Trim CR/LF/spaces — GitHub secrets often include a trailing newline.
   local pin
-  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-1234}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-5678}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   if ! printf '%s' "${pin}" | grep -Eq '^[0-9]{4}$'; then
     echo "::error::SMOKE_PIN/SEED_PIN must be exactly 4 digits after trim (got length=${#pin})"
     return 1
@@ -280,7 +280,7 @@ assert_smoke_badge_login() {
   fi
   local badge pin http_port base code body
   badge="$(printf '%s' "${SMOKE_BADGE_ID:-3000}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-1234}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-5678}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   http_port="${HTTP_PORT:-80}"
   base="http://127.0.0.1:${http_port}"
   body="$(mktemp)"

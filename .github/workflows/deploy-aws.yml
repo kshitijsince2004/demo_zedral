@@ -261,7 +261,7 @@ jobs:
           fi
           if [ -z "${SMOKE_BADGE_ID:-}" ] || [ -z "${SMOKE_PIN:-}" ]; then
             echo "::error::SMOKE_BADGE_ID and SMOKE_PIN staging secrets are required."
-            echo "::error::Use a seeded pilot badge (e.g. 3000) and PIN (default seed PIN 1234). Do not leave empty — there is no safe 1001 default."
+            echo "::error::Use a seeded pilot badge (e.g. 3000) and PIN (default seed PIN 5678). Do not leave empty — there is no safe 1001 default."
             exit 1
           fi
           # GitHub secret UI often appends a newline — strip before Playwright + length check.

@@ -10,7 +10,7 @@ import { App } from '@capacitor/app';
 
 /** Pilot dev credentials — match `npm run seed:users` / `seed:profiles`. */
 const DEV_OPERATOR_BADGE = '3000';
-const DEV_OPERATOR_PIN = '1234';
+const DEV_OPERATOR_PIN = '5678';
 const DEV_STAFF_PASSWORD = 'Password123!';
 const DEV_STAFF = {
   admin: 'admin@zedral.local',

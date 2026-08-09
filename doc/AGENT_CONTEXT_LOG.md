@@ -2536,3 +2536,10 @@ egen helper scripts deleted after use.
 - **Touched:** `seed-pilot-users.mjs`, `authService.ts`, `Login.tsx`, `e2e/tests/smoke.spec.ts`, `deploy/lib/common.sh`, `remote-ghcr-deploy.sh`, `deploy-aws.yml`
 - **Decisions / skipped:** Trim PIN/badge everywhere (secret newlines); fatal QA seed + post-seed/public badge-pin assert; keep rollback semantics for config failures.
 - **Follow-ups:** Confirm staging `SMOKE_BADGE_ID=3000` and `SMOKE_PIN` is exactly 4 digits (no quotes/newline).
+
+### 2026-08-09 — Fix QA seed dotenv + PIN 5678
+
+- **Goal:** Deploy seed failed `Cannot find package 'dotenv'`; set pilot PIN default to 5678.
+- **Touched:** `seed-pilot-users.mjs`, `deploy/lib/common.sh`, `e2e/tests/smoke.spec.ts`, `Login.tsx`, `deploy-aws.yml`
+- **Decisions / skipped:** Drop dotenv (compose injects env); default PIN 5678.
+- **Follow-ups:** Set staging secret `SMOKE_PIN=5678` (exact 4 digits).

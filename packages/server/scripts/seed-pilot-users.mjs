@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Seeds pilot dev users for local E2E testing.
- * All users use PIN 1234. Idempotent (ON CONFLICT / IF NOT EXISTS).
+ * Seeds pilot users (badge/PIN/roles) + machines.
+ * Default PIN 5678 (override with SEED_PIN). Idempotent.
+ *
+ * Prod image has no dotenv — rely on compose-injected env (DATABASE_URL / DB_*).
  */
 import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
@@ -9,10 +11,6 @@ import supertokens from 'supertokens-node';
 import EmailPassword from 'supertokens-node/recipe/emailpassword/index.js';
 import { resolveDatabaseUrl } from './lib/database-url.mjs';
 import { seedMachines } from './seed-machines.mjs';
-import dotenv from 'dotenv';
-import path from 'path';
-
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 const DATABASE_URL = resolveDatabaseUrl();
 
@@ -65,7 +63,7 @@ const USERS = [
 ];
 
 // Trim — GitHub Actions secrets often include a trailing newline.
-const PIN = String(process.env.SEED_PIN || '1234').trim();
+const PIN = String(process.env.SEED_PIN || '5678').trim();
 
 function staffEmail(username) {
   return `${username}@zedral.local`;
