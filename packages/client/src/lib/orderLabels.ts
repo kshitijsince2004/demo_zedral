@@ -4,10 +4,12 @@ export const HOLD_ACTION_LABEL = 'Hold';
 export const ORDER_HOLD_STATUS_LABEL = 'Order Hold';
 
 export function formatOrderStatusLabel(status: string): string {
-  switch (status) {
+  switch ((status ?? '').toUpperCase()) {
     case 'REJECTED':
+    case 'HOLD':
       return ORDER_HOLD_STATUS_LABEL;
     case 'IN_PROGRESS':
+    case 'RUNNING':
       return 'In Progress';
     case 'STOPPAGE':
       return 'Stoppage';
@@ -18,7 +20,7 @@ export function formatOrderStatusLabel(status: string): string {
     case 'PENDING':
       return 'Pending';
     default:
-      return status.replace(/_/g, ' ');
+      return (status ?? '').replace(/_/g, ' ') || '—';
   }
 }
 

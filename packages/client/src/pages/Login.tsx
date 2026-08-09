@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound } from 'lucide-react';
 import EmailPassword from 'supertokens-auth-react/recipe/emailpassword';
+import Session from 'supertokens-auth-react/recipe/session';
+import { pickPrimaryRole, UserRole } from '@m1/shared-validation';
 import { ZButton } from '../components/primitives/ZButton';
 import { ZInput } from '../components/primitives/ZInput';
 import { isNative } from '../operator/native/init';
@@ -27,7 +29,9 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
   const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.supervisor : '');
   const [password, setPassword] = useState(import.meta.env.DEV ? DEV_STAFF_PASSWORD : '');
   const [error, setError] = useState('');
-  const sessionExpired = new URLSearchParams(window.location.search).get('session') === 'expired';
+  const loginParams = new URLSearchParams(window.location.search);
+  const sessionExpired = loginParams.get('session') === 'expired';
+  const roleDenied = loginParams.get('role') === 'denied';
   const [clock, setClock] = useState('');
   const [appVersion, setAppVersion] = useState(import.meta.env.VITE_APP_VERSION || '');
 
@@ -59,29 +63,37 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
   }, []);
 
   useEffect(() => {
-    if (sessionExpired) {
+    if (roleDenied) {
+      setError('Operator APK is for OPERATOR profiles only. Staff must use the web console.');
+    } else if (sessionExpired) {
       setError('Session expired. Please sign in again.');
+      // Drop sticky ?session=expired so refresh / later visits stay clean
+      window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [sessionExpired]);
+  }, [roleDenied, sessionExpired]);
 
   const badgePinLogin = async (badge: string, pinValue: string) => {
+    const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+    const apiDomain = host || window.location.origin;
     // Absolute URL so SuperTokens fetch interceptor always matches apiDomain.
-    const res = await fetch(`${window.location.origin}/auth/badge-pin`, {
+    const res = await fetch(`${apiDomain}/auth/badge-pin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'st-auth-mode': 'header' },
       credentials: 'include',
       body: JSON.stringify({ badgeId: badge, pin: pinValue }),
     });
-    let body: { error?: string } | null = null;
+    let body: { error?: string; detail?: string } | null = null;
     try {
-      body = (await res.json()) as { error?: string };
+      body = (await res.json()) as { error?: string; detail?: string };
     } catch {
       /* empty */
     }
     if (!res.ok) {
-      const err = new Error(body?.error || `Login failed (${res.status})`) as Error & {
+      const err = new Error(
+        body?.detail || body?.error || `Login failed (${res.status})`,
+      ) as Error & {
         status?: number;
-        body?: { error?: string };
+        body?: { error?: string; detail?: string };
       };
       err.status = res.status;
       err.body = body ?? undefined;
@@ -138,10 +150,19 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
     setError('');
     try {
       await badgePinLogin(badgeId, pin);
+      if (operatorOnly) {
+        const payload = await Session.getAccessTokenPayloadSecurely();
+        const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
+        if (pickPrimaryRole(roles) !== UserRole.OPERATOR) {
+          await Session.signOut();
+          setError('Operator APK is for OPERATOR profiles only. Staff must use the web console.');
+          return;
+        }
+      }
       window.location.href = '/'; // ST header tokens saved → SuperTokensSync hydrates on reload
     } catch (err: unknown) {
-      const apiErr = err as { status?: number; message?: string; body?: { error?: string } };
-      setError(apiErr.body?.error || apiErr.message || 'Invalid badge or PIN');
+      const apiErr = err as { status?: number; message?: string; body?: { error?: string; detail?: string } };
+      setError(apiErr.body?.detail || apiErr.body?.error || apiErr.message || 'Invalid badge or PIN');
     }
   };
 

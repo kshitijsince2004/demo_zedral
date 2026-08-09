@@ -3,6 +3,7 @@ import { apiClient } from '../lib/apiClient';
 import { jsonEqual } from '../lib/silentRefresh';
 import { notifyProductionChanged } from '../lib/productionSync';
 import type { ProcessStationCode } from '../lib/processConfig';
+import { formatOrderStatusLabel } from '../lib/orderLabels';
 import { useShiftStore } from './shiftStore';
 import {
   hrsSchema,
@@ -61,8 +62,7 @@ export function mapHrsPklQueueStatus(raw?: string): ProcessQueueStatus {
 }
 
 export function processQueueStatusLabel(status: ProcessQueueStatus): string {
-  if (status === 'HOLD' || status === 'REJECTED') return 'Order Hold';
-  return status.replace(/_/g, ' ');
+  return formatOrderStatusLabel(status);
 }
 
 /** Queue endpoint per line — HRS/PKL use order routes; ANN/CRS/CTL use stations. */

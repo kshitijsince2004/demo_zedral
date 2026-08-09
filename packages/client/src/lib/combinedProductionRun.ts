@@ -147,7 +147,7 @@ export function cardsShareProductionAction(cards: SixHiQueueCard[]): boolean {
 export function combinedActionLabel(cards: SixHiQueueCard[]): string {
   if (cards.length <= 1) return 'Open';
   const status = cards[0].status;
-  if (status === 'PENDING' || status === 'PREPARING') return 'Start Combined Production';
+  if (status === 'PENDING' || status === 'PREPARING') return 'Move Combined to Preparing';
   if (status === 'COMPLETED' || status === 'REJECTED') return 'View Combined History';
   if (status === 'IN_PROGRESS' || status === 'STOPPAGE') return 'Open Combined Production';
   return 'Open Combined';

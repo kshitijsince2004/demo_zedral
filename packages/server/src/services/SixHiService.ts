@@ -65,8 +65,11 @@ const SIXHI_HOLD_MAX_ROWS = Number(process.env.SIXHI_HOLD_MAX_ROWS ?? 50);
 
 export class SixHiService {
   static async getProcessId(): Promise<number> {
-    const p = await db.selectFrom('master.process').select('process_id').where('code', '=', SIX_HI_PROCESS_CODE).executeTakeFirst();
-    if (!p) throw new Error('6HI process not configured');
+    // DB seed uses CRM; some envs alias ROLLING — accept either (same as ShiftDetectionService).
+    const p =
+      (await db.selectFrom('master.process').select('process_id').where('code', '=', SIX_HI_PROCESS_CODE).executeTakeFirst()) ??
+      (await db.selectFrom('master.process').select('process_id').where('code', '=', 'CRM').executeTakeFirst());
+    if (!p) throw new Error('6HI process not configured (expected ROLLING or CRM)');
     return p.process_id;
   }
 
@@ -1463,7 +1466,12 @@ export class SixHiService {
     return this.getOrder(batchNumber, userId);
   }
 
-  static async startCombinedProduction(batchNumbers: string[], userId: number): Promise<SixHiOrderDetail[]> {
+  static async startCombinedProduction(
+    batchNumbers: string[],
+    userId: number,
+    opts?: { mode?: 'prepare' | 'start' },
+  ): Promise<SixHiOrderDetail[]> {
+    const mode = opts?.mode === 'prepare' ? 'prepare' : 'start';
     const uniqueBatchNumbers = Array.from(new Set(batchNumbers.map((batch) => batch.trim()).filter(Boolean)));
     if (uniqueBatchNumbers.length === 0) {
       throw new Error('At least one order is required');
@@ -1515,13 +1523,6 @@ export class SixHiService {
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
-    const active = await this.findActiveMachineOrder(machineCode);
-    if (active && !uniqueBatchNumbers.includes(active.batchNumber)) {
-      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
-    }
-    const { ManualRerollService } = await import('./ManualRerollService');
-    await ManualRerollService.assertNoActiveReroll(machineCode);
-
     // Ensure every selected batch has an order row and collect current statuses.
     type StartRow = {
       batchNumber: string;
@@ -1552,6 +1553,47 @@ export class SixHiService {
       });
     }
 
+    const existingGroupId = startRows.map((r) => r.combinedGroupId).find(Boolean) ?? null;
+    const groupId = uniqueBatchNumbers.length > 1
+      ? (existingGroupId ?? randomUUID())
+      : null;
+    const stamp = new Date();
+
+    // Hub combine: stamp group + PREPARING only — Start on the rail actually runs production.
+    if (mode === 'prepare') {
+      for (const row of startRows) {
+        if (row.status !== 'PENDING' && row.status !== 'PREPARING') {
+          throw new Error('Only pending or preparing orders can be combined into preparing');
+        }
+      }
+      await db.transaction().execute(async (trx) => {
+        for (const row of startRows) {
+          await trx.updateTable('txn.crm_order')
+            .set({
+              status: 'PREPARING',
+              updated_at: stamp,
+              ...(groupId ? { combined_group_id: groupId } : {}),
+            })
+            .where('order_id', '=', row.orderId as any)
+            .execute();
+        }
+        if (groupId) {
+          await trx.updateTable('txn.crm_order')
+            .set({ combined_group_id: groupId })
+            .where('batch_number', 'in', uniqueBatchNumbers)
+            .execute();
+        }
+      });
+      return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
+    }
+
+    const active = await this.findActiveMachineOrder(machineCode);
+    if (active && !uniqueBatchNumbers.includes(active.batchNumber)) {
+      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    }
+    const { ManualRerollService } = await import('./ManualRerollService');
+    await ManualRerollService.assertNoActiveReroll(machineCode);
+
     const statuses = startRows.map((r) => r.status);
     const isResume = statuses.every((s) => s === 'STOPPAGE' || s === 'IN_PROGRESS')
       && statuses.some((s) => s === 'STOPPAGE');
@@ -1574,11 +1616,7 @@ export class SixHiService {
       }
     }
 
-    const startedAt = new Date();
-    const existingGroupId = startRows.map((r) => r.combinedGroupId).find(Boolean) ?? null;
-    const groupId = uniqueBatchNumbers.length > 1
-      ? (existingGroupId ?? randomUUID())
-      : null;
+    const startedAt = stamp;
 
     // Atomic: all succeed or none — same prod_start_at / group stamp.
     await db.transaction().execute(async (trx) => {

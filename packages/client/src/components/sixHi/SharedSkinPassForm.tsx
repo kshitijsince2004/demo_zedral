@@ -78,39 +78,53 @@ function parseDecimalDraft(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function MetricToggle({
-  metric,
+/** Compact segmented control — intentionally shorter than production inputs. */
+function SegmentedToggle<T extends string>({
+  value,
+  options,
   onChange,
   locked,
-  compact,
 }: {
-  metric: SkinPassMetric;
-  onChange: (m: SkinPassMetric) => void;
+  value: T;
+  options: Array<{ id: T; label: string }>;
+  onChange: (next: T) => void;
   locked: boolean;
-  compact?: boolean;
 }) {
-  const btnClass = (m: SkinPassMetric) =>
-    [
-      compact ? 'flex-1 min-h-12 rounded-lg border text-sm font-bold' : 'flex-1 min-h-14 rounded-xl border text-sm font-semibold',
-      metric === m ? 'bg-primary text-white border-primary' : 'border-border bg-white',
-    ].join(' ');
-
   return (
-    <div className={compact ? 'col-span-2 flex gap-1 items-end' : 'flex gap-2'}>
-      {(['ANN_HARD', 'RW_TENSION'] as const).map((m) => (
+    <div
+      className="inline-flex w-full sm:w-auto max-w-full rounded-md border border-border bg-muted/40 p-0.5 gap-0.5"
+      role="group"
+    >
+      {options.map((opt) => (
         <button
-          key={m}
+          key={opt.id}
           type="button"
-          onClick={() => onChange(m)}
+          onClick={() => onChange(opt.id)}
           disabled={locked}
-          className={btnClass(m)}
+          className={[
+            'flex-1 sm:flex-none min-h-8 h-8 px-3 rounded text-[11px] font-semibold tracking-wide whitespace-nowrap',
+            'disabled:opacity-50 touch-manipulation',
+            value === opt.id
+              ? 'bg-primary text-primary-foreground shadow-sm'
+              : 'bg-transparent text-foreground hover:bg-background/80',
+          ].join(' ')}
         >
-          {m === 'ANN_HARD' ? 'Ann Hard' : 'SP Tension'}
+          {opt.label}
         </button>
       ))}
     </div>
   );
 }
+
+const METRIC_OPTIONS: Array<{ id: SkinPassMetric; label: string }> = [
+  { id: 'ANN_HARD', label: 'Ann Hard' },
+  { id: 'RW_TENSION', label: 'SP Tension' },
+];
+
+const MODE_OPTIONS: Array<{ id: 'LOAD' | 'STRETCH'; label: string }> = [
+  { id: 'LOAD', label: 'Load Mode' },
+  { id: 'STRETCH', label: 'Stretch Mode' },
+];
 
 export function SharedSkinPassForm({
   order,
@@ -230,91 +244,103 @@ export function SharedSkinPassForm({
       prominent={!!compact}
       inputClassName={compact ? 'min-h-12 text-lg' : 'min-h-14 text-lg'}
       hint={weightHint}
+      className="!mb-0"
     />
   );
+
+  const operatingMode = data.operatingMode ?? 'LOAD';
 
   if (compact) {
     return (
       <div className="flex flex-col">
         <div className="p-3">
-          <div className="bg-white border border-border rounded-xl p-3 space-y-2">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          <h3 className="text-base font-bold text-foreground whitespace-nowrap">Skin Pass</h3>
-          <div className="w-full md:w-[65%] lg:w-[60%]">
-            <ThicknessSpecs order={order} compact />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
-          <FieldWrapper label="Output Thickness (mm)" prominent>
-            <ZInput
-              type="number"
-              inputMode="decimal"
-              enterKeyHint="next"
-              autoComplete="off"
-              value={drafts.outputThkMm}
-              onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)}
-              onBlur={() => commitDecimalDraft('outputThkMm')}
-              className="min-h-12 text-lg"
-              disabled={locked}
-            />
-          </FieldWrapper>
-          {weightField}
-          <MetricToggle metric={metric} onChange={switchMetric} locked={locked} compact />
-          {metric === 'ANN_HARD' ? (
-            <FieldWrapper label="Annealing Hardness" prominent>
-              <ZInput
-                type="number"
-                inputMode="decimal"
-                enterKeyHint="next"
-                value={drafts.annHard}
-                onChange={(e) => updateDecimalDraft('annHard', e.target.value)}
-                onBlur={() => commitDecimalDraft('annHard')}
-                className="min-h-12 text-lg"
-                disabled={locked}
-              />
-            </FieldWrapper>
-          ) : (
-            <FieldWrapper label="SP Tension" prominent>
-              <ZInput
-                inputMode="text"
-                enterKeyHint="next"
-                placeholder="e.g. 1500/400"
-                value={rwTensionInput}
-                onChange={(e) => updateRwTensionInput(e.target.value)}
-                className="min-h-12 text-lg font-mono"
-                disabled={locked}
-              />
-            </FieldWrapper>
-          )}
-          <div className="col-span-2 flex gap-1 items-end">
-            {(['LOAD', 'STRETCH'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setData({ ...data, operatingMode: m })}
-                disabled={locked}
-                className={['flex-1 min-h-12 rounded-lg border text-sm font-bold', data.operatingMode === m ? 'bg-primary text-white' : 'border-border'].join(' ')}
-              >
-                {m === 'LOAD' ? 'Load Mode' : 'Stretch Mode'}
-              </button>
-            ))}
-          </div>
-          {data.operatingMode === 'LOAD' && (
-            <>
-              <FieldWrapper label="Load Minimum (Tonnes)" prominent>
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-12 text-lg" disabled={locked} />
+          <div className="bg-white border border-border rounded-xl p-3 space-y-3">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+              <h3 className="text-base font-bold text-foreground whitespace-nowrap">Skin Pass</h3>
+              <div className="w-full md:w-[65%] lg:w-[60%]">
+                <ThicknessSpecs order={order} compact />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
+              <FieldWrapper label="Output Thickness (mm)" prominent className="!mb-0">
+                <ZInput
+                  type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
+                  autoComplete="off"
+                  value={drafts.outputThkMm}
+                  onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)}
+                  onBlur={() => commitDecimalDraft('outputThkMm')}
+                  className="min-h-12 text-lg"
+                  disabled={locked}
+                />
               </FieldWrapper>
-              <FieldWrapper label="Load Maximum (Tonnes)" prominent>
-                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-12 text-lg" disabled={locked} />
-              </FieldWrapper>
-            </>
-          )}
-          {data.operatingMode === 'STRETCH' && (
-            <FieldWrapper label="Stretch (%)" prominent>
-              <ZInput type="number" inputMode="decimal" enterKeyHint="done" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-12 text-lg" disabled={locked} />
-            </FieldWrapper>
-          )}
-        </div>
+              <div className="min-w-0">{weightField}</div>
+            </div>
+
+            <div className="space-y-1.5">
+              <SegmentedToggle
+                value={metric}
+                options={METRIC_OPTIONS}
+                onChange={switchMetric}
+                locked={locked}
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
+                {metric === 'ANN_HARD' ? (
+                  <FieldWrapper label="Annealing Hardness" prominent className="!mb-0">
+                    <ZInput
+                      type="number"
+                      inputMode="decimal"
+                      enterKeyHint="next"
+                      value={drafts.annHard}
+                      onChange={(e) => updateDecimalDraft('annHard', e.target.value)}
+                      onBlur={() => commitDecimalDraft('annHard')}
+                      className="min-h-12 text-lg"
+                      disabled={locked}
+                    />
+                  </FieldWrapper>
+                ) : (
+                  <FieldWrapper label="SP Tension" prominent className="!mb-0">
+                    <ZInput
+                      inputMode="text"
+                      enterKeyHint="next"
+                      placeholder="e.g. 1500/400"
+                      value={rwTensionInput}
+                      onChange={(e) => updateRwTensionInput(e.target.value)}
+                      className="min-h-12 text-lg font-mono"
+                      disabled={locked}
+                    />
+                  </FieldWrapper>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <SegmentedToggle
+                value={operatingMode}
+                options={MODE_OPTIONS}
+                onChange={(m) => setData({ ...data, operatingMode: m })}
+                locked={locked}
+              />
+              {operatingMode === 'LOAD' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
+                  <FieldWrapper label="Load Minimum (Tonnes)" prominent className="!mb-0">
+                    <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-12 text-lg" disabled={locked} />
+                  </FieldWrapper>
+                  <FieldWrapper label="Load Maximum (Tonnes)" prominent className="!mb-0">
+                    <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-12 text-lg" disabled={locked} />
+                  </FieldWrapper>
+                </div>
+              )}
+              {operatingMode === 'STRETCH' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
+                  <FieldWrapper label="Stretch (%)" prominent className="!mb-0">
+                    <ZInput type="number" inputMode="decimal" enterKeyHint="done" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-12 text-lg" disabled={locked} />
+                  </FieldWrapper>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -338,43 +364,52 @@ export function SharedSkinPassForm({
         <ThicknessSpecs order={order} />
       </div>
       <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
-        <FieldWrapper label="Output Thickness (mm)">
-          <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.outputThkMm} onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)} onBlur={() => commitDecimalDraft('outputThkMm')} className="min-h-14 text-lg" disabled={locked} />
-        </FieldWrapper>
-        {weightField}
-        <MetricToggle metric={metric} onChange={switchMetric} locked={locked} />
-        {metric === 'ANN_HARD' ? (
-          <FieldWrapper label="Annealing Hardness">
-            <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.annHard} onChange={(e) => updateDecimalDraft('annHard', e.target.value)} onBlur={() => commitDecimalDraft('annHard')} className="min-h-14 text-lg" disabled={locked} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-3">
+          <FieldWrapper label="Output Thickness (mm)" className="!mb-0">
+            <ZInput type="number" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={drafts.outputThkMm} onChange={(e) => updateDecimalDraft('outputThkMm', e.target.value)} onBlur={() => commitDecimalDraft('outputThkMm')} className="min-h-14 text-lg" disabled={locked} />
           </FieldWrapper>
-        ) : (
-          <FieldWrapper label="SP Tension">
-            <ZInput
-              inputMode="text"
-              enterKeyHint="next"
-              placeholder="e.g. 1500/400"
-              value={rwTensionInput}
-              onChange={(e) => updateRwTensionInput(e.target.value)}
-              className="min-h-14 text-lg font-mono"
-              disabled={locked}
-            />
-          </FieldWrapper>
-        )}
+          <div className="min-w-0">{weightField}</div>
+        </div>
+        <div className="space-y-2">
+          <SegmentedToggle value={metric} options={METRIC_OPTIONS} onChange={switchMetric} locked={locked} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-3">
+            {metric === 'ANN_HARD' ? (
+              <FieldWrapper label="Annealing Hardness" className="!mb-0">
+                <ZInput type="number" inputMode="decimal" enterKeyHint="next" value={drafts.annHard} onChange={(e) => updateDecimalDraft('annHard', e.target.value)} onBlur={() => commitDecimalDraft('annHard')} className="min-h-14 text-lg" disabled={locked} />
+              </FieldWrapper>
+            ) : (
+              <FieldWrapper label="SP Tension" className="!mb-0">
+                <ZInput
+                  inputMode="text"
+                  enterKeyHint="next"
+                  placeholder="e.g. 1500/400"
+                  value={rwTensionInput}
+                  onChange={(e) => updateRwTensionInput(e.target.value)}
+                  className="min-h-14 text-lg font-mono"
+                  disabled={locked}
+                />
+              </FieldWrapper>
+            )}
+          </div>
+        </div>
       </div>
       <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
-        <div className="flex gap-2">
-          {(['LOAD', 'STRETCH'] as const).map((m) => (
-            <button key={m} type="button" onClick={() => setData({ ...data, operatingMode: m })} disabled={locked} className={['flex-1 min-h-14 rounded-xl border text-sm font-semibold', data.operatingMode === m ? 'bg-primary text-white border-primary' : 'border-border bg-white'].join(' ')}>{m === 'LOAD' ? 'Load Mode' : 'Stretch Mode'}</button>
-          ))}
-        </div>
-        {data.operatingMode === 'LOAD' && (
-          <div className="grid grid-cols-2 gap-3">
-            <FieldWrapper label="Load Minimum (Tonnes)"><ZInput type="number" inputMode="decimal" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-14" disabled={locked} /></FieldWrapper>
-            <FieldWrapper label="Load Maximum (Tonnes)"><ZInput type="number" inputMode="decimal" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-14" disabled={locked} /></FieldWrapper>
+        <SegmentedToggle
+          value={operatingMode}
+          options={MODE_OPTIONS}
+          onChange={(m) => setData({ ...data, operatingMode: m })}
+          locked={locked}
+        />
+        {operatingMode === 'LOAD' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FieldWrapper label="Load Minimum (Tonnes)" className="!mb-0"><ZInput type="number" inputMode="decimal" value={drafts.loadMinT} onChange={(e) => updateDecimalDraft('loadMinT', e.target.value)} onBlur={() => commitDecimalDraft('loadMinT')} className="min-h-14" disabled={locked} /></FieldWrapper>
+            <FieldWrapper label="Load Maximum (Tonnes)" className="!mb-0"><ZInput type="number" inputMode="decimal" value={drafts.loadMaxT} onChange={(e) => updateDecimalDraft('loadMaxT', e.target.value)} onBlur={() => commitDecimalDraft('loadMaxT')} className="min-h-14" disabled={locked} /></FieldWrapper>
           </div>
         )}
-        {data.operatingMode === 'STRETCH' && (
-          <FieldWrapper label="Stretch (%)"><ZInput type="number" inputMode="decimal" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-14" disabled={locked} /></FieldWrapper>
+        {operatingMode === 'STRETCH' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FieldWrapper label="Stretch (%)" className="!mb-0"><ZInput type="number" inputMode="decimal" value={drafts.stretchPct} onChange={(e) => updateDecimalDraft('stretchPct', e.target.value)} onBlur={() => commitDecimalDraft('stretchPct')} className="min-h-14" disabled={locked} /></FieldWrapper>
+          </div>
         )}
       </div>
       {!readOnly && (

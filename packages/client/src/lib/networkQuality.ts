@@ -12,8 +12,10 @@ export interface NetworkQuality {
 
 const MAX_SAMPLES = 20;
 const PROBE_MS = 20_000;
-const GOOD_P95_MS = 150;
-const DEGRADED_P95_MS = 800;
+// Remote QA via Cloudflare is often ~400–800ms; 150ms was plant-LAN only and false-bad on APK.
+const GOOD_P95_MS = 800;
+const DEGRADED_P95_MS = 2000;
+const FAILURE_PENALTY_MS = 5000;
 
 const samples: number[] = [];
 const listeners = new Set<(q: NetworkQuality) => void>();
@@ -24,6 +26,7 @@ let level: NetworkQualityLevel = online ? 'good' : 'bad';
 let p95RttMs: number | null = null;
 
 function percentile95(values: number[]): number {
+  if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
   return sorted[idx]!;
@@ -59,8 +62,8 @@ async function probeOnce(): Promise<void> {
   }
 
   if (!online) {
-    p95RttMs = samples.length ? percentile95(samples) : null;
     level = 'bad';
+    console.warn(`[networkQuality] Device reported OFFLINE. Level: bad`);
     emit();
     return;
   }
@@ -68,15 +71,26 @@ async function probeOnce(): Promise<void> {
   const rtt = await measurePingMs();
   if (rtt != null) {
     samples.push(rtt);
-    if (samples.length > MAX_SAMPLES) samples.shift();
-    p95RttMs = percentile95(samples);
   } else if (samples.length === 0) {
+    // Online but first probe failed — don't stamp "bad" from a cold miss.
+    level = 'degraded';
     p95RttMs = null;
+    console.warn(`[networkQuality] Probe miss (no samples yet). Level: degraded`);
+    emit();
+    return;
   } else {
-    p95RttMs = percentile95(samples);
+    // Failure penalty: if ping fails, treat it as a very high latency sample
+    // to degrade the quality level in the moving window.
+    samples.push(FAILURE_PENALTY_MS);
   }
 
+  if (samples.length > MAX_SAMPLES) {
+    samples.shift();
+  }
+
+  p95RttMs = percentile95(samples);
   level = classify(p95RttMs, online);
+  console.info(`[networkQuality] Probe. RTT: ${rtt}ms, P95: ${p95RttMs}ms, Level: ${level}, Samples: ${samples.length}`);
   emit();
 }
 
@@ -104,11 +118,13 @@ export function startNetworkQualityProbe(): void {
 
   const onBrowserOnline = () => {
     online = true;
+    console.info('[networkQuality] Browser reported ONLINE');
     void probeOnce();
   };
   const onBrowserOffline = () => {
     online = false;
     level = 'bad';
+    console.warn('[networkQuality] Browser reported OFFLINE');
     emit();
   };
 
@@ -119,6 +135,7 @@ export function startNetworkQualityProbe(): void {
 
   void Network.addListener('networkStatusChange', (status) => {
     online = status.connected;
+    console.info(`[networkQuality] Network plugin reported connected: ${status.connected}, type: ${status.connectionType}`);
     if (!status.connected) {
       level = 'bad';
       emit();

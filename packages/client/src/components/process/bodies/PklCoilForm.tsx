@@ -31,6 +31,16 @@ function fieldNum(raw: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Keep raw text so operators can type decimals ("1.", ".5") without Number() collapsing them. */
+function isDecimalDraft(raw: string): boolean {
+  return raw === '' || /^-?\d*\.?\d*$/.test(raw);
+}
+
+function parseDraftNum(raw: string): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** PKL coil capture — operator inputs only; identity lives on PPC card (revamp §5). */
 export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmitted }: BodyProps) {
   const pklGroupCoilNos = useProcessStore((s) => s.pklGroupCoilNos);
@@ -42,8 +52,8 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   const ppcWeight = fieldNum((prefill as { ppcWeightMt?: unknown }).ppcWeightMt)
     || fieldNum(pklCapture?.ppcWeightMt)
     || fieldNum(prefill.weightMt);
-  const [weightMt, setWeightMt] = useState(ppcWeight);
-  const [lineSpeed, setLineSpeed] = useState<number | ''>('');
+  const [weightMt, setWeightMt] = useState(() => (ppcWeight ? String(ppcWeight) : ''));
+  const [lineSpeed, setLineSpeed] = useState('');
   const [wp, setWp] = useState<'W' | 'P' | ''>('');
   // ponytail: label "Leader End"; keep endFilling key (no migration)
   const [endFilling, setEndFilling] = useState<boolean | null>(null);
@@ -54,8 +64,8 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
 
   useEffect(() => {
     if (!pklCapture) return;
-    if (pklCapture.weightMt != null) setWeightMt(pklCapture.weightMt);
-    if (pklCapture.lineSpeedMpm != null) setLineSpeed(pklCapture.lineSpeedMpm);
+    if (pklCapture.weightMt != null) setWeightMt(String(pklCapture.weightMt));
+    if (pklCapture.lineSpeedMpm != null) setLineSpeed(String(pklCapture.lineSpeedMpm));
     if (pklCapture.wp === 'W' || pklCapture.wp === 'P') setWp(pklCapture.wp);
     if (pklCapture.endFilling != null) setEndFilling(pklCapture.endFilling);
     if (pklCapture.remarks != null) setRemarks(pklCapture.remarks);
@@ -68,10 +78,11 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
   const customerName = fieldVal(prefill.customerName);
   const widthMm = fieldNum(prefill.widthMm);
   const thkMm = fieldNum(prefill.thicknessMm);
+  const weightNum = parseDraftNum(weightMt);
 
   const weightCue = useMemo(
-    () => deltaBand(weightMt || undefined, ppcWeight || undefined, Math.max(0.01, ppcWeight * 0.02)),
-    [weightMt, ppcWeight],
+    () => deltaBand(weightNum || undefined, ppcWeight || undefined, Math.max(0.01, ppcWeight * 0.02)),
+    [weightNum, ppcWeight],
   );
   const weightWarn = weightCue.band === 'warn';
 
@@ -82,9 +93,9 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
       coilNo,
       widthMm,
       thkMm,
-      weightMt,
+      weightMt: weightNum,
       ppcWeightMt: ppcWeight || undefined,
-      lineSpeedMpm: Number(lineSpeed),
+      lineSpeedMpm: parseDraftNum(lineSpeed),
       wp: wp as 'W' | 'P',
       endFilling: endFilling as boolean,
       motherCoilNo,
@@ -98,7 +109,8 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
 
   function validateFields(): string | null {
     if (!shiftLogId) return 'No active shift — open a shift before saving';
-    if (lineSpeed === '' || Number(lineSpeed) <= 0) return 'Line speed required';
+    const speed = Number(lineSpeed);
+    if (lineSpeed === '' || !Number.isFinite(speed) || speed <= 0) return 'Line speed required';
     if (wp !== 'W' && wp !== 'P') return 'W/P required';
     if (endFilling == null) return 'Leader End required (Yes/No)';
     return null;
@@ -157,7 +169,15 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
             band={weightCue.band}
             deltaLabel={weightCue.label}
             actualControl={
-              <ZInput label="Weight MT (actual)" type="number" value={weightMt || ''} onChange={(e) => setWeightMt(Number(e.target.value))} />
+              <ZInput
+                label="Weight MT (actual)"
+                type="number"
+                value={weightMt}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (isDecimalDraft(raw)) setWeightMt(raw);
+                }}
+              />
             }
           />
           {pklGroupCoilNos.length > 1 && (
@@ -166,7 +186,15 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
               <p className="font-semibold font-mono">{pklGroupWeightMt.toFixed(2)}</p>
             </div>
           )}
-          <ZInput label="Line Speed M/min" type="number" value={lineSpeed} onChange={(e) => setLineSpeed(e.target.value === '' ? '' : Number(e.target.value))} />
+          <ZInput
+            label="Line Speed M/min"
+            type="number"
+            value={lineSpeed}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (isDecimalDraft(raw)) setLineSpeed(raw);
+            }}
+          />
           <div>
             <p className="text-[10px] uppercase text-muted-foreground mb-1">W/P</p>
             <select

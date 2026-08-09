@@ -28,8 +28,8 @@ import { rewindingCardToPrefill } from '../../lib/rewindingQueue';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateRwdMachine,
+  prepareCombinedRwdOrders,
   reinstateRwdOrder,
-  startCombinedRwdOrders,
 } from '../../lib/rewindingWrites';
 
 const STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
@@ -374,7 +374,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         || c.status === 'REJECTED',
       );
       if (picked.length > 1 && startable) {
-        await startCombinedRwdOrders(picked.map((c) => c.batchNumber!));
+        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber!));
         notifyProductionChanged();
         rwdSelectionManual.current = false;
         setRwdSelectedBatches(new Set());
@@ -384,7 +384,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         state: {
           batchNumber,
           orderStatus: startable && picked.length > 1
-            ? 'IN_PROGRESS'
+            ? 'PREPARING'
             : (primary.status === 'HOLD' || primary.status === 'REJECTED')
               ? 'PREPARING'
               : primary.status,
@@ -402,7 +402,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
             machineAllocated: true,
             machineCode: machine,
             status: startable && picked.length > 1
-              ? 'IN_PROGRESS'
+              ? 'PREPARING'
               : (primary.status === 'HOLD' || primary.status === 'REJECTED')
                 ? 'PREPARING'
                 : primary.status,

@@ -210,10 +210,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 // --- Inactivity Logic (screen lock) ---
 let timeoutId: ReturnType<typeof setTimeout> | undefined;
 let inactivityHandlers: { event: string; handler: () => void }[] = [];
-const DEFAULT_INACTIVITY_TIMEOUT = 15 * 60 * 1000;
-// Desk roles (Machine Head / Plant Head) run long analytical sessions, so give
-// them at least a 1-hour idle window before the screen locks.
-const DESK_INACTIVITY_TIMEOUT = 60 * 60 * 1000;
+const DEFAULT_INACTIVITY_TIMEOUT = 2 * 60 * 60 * 1000;
+// Desk roles keep the same 2h idle window (ponytail: one timeout for all roles).
+const DESK_INACTIVITY_TIMEOUT = 2 * 60 * 60 * 1000;
 
 function getInactivityTimeout(role: Role | null): number {
   return role === 'MACHINE_HEAD' || role === 'PLANT_HEAD' || role === 'SUPERVISOR'

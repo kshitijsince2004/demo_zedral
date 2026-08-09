@@ -5,15 +5,20 @@ export type RateLimitStore = Map<string, { count: number; resetTime: number }>;
 
 const defaultStore: RateLimitStore = new Map();
 
+/** Each middleware instance must not share counters with other routes (different limits). */
+let bucketSeq = 0;
+
 export function createRateLimitMiddleware(
   limit: number = 100,
   windowMs: number = 60000,
   store: RateLimitStore = defaultStore,
 ) {
+  const bucket = `b${++bucketSeq}`;
   return (req: Request, res: Response, next: NextFunction) => {
     const tenant_id = req.headers['x-tenant-id'] || 'no-tenant';
     const sub = req.user?.id?.toString() || req.ip || 'unknown';
-    const key = `${tenant_id}:${sub}`;
+    // ponytail: bucket isolates routes that share defaultStore
+    const key = `${bucket}:${tenant_id}:${sub}`;
 
     const now = Date.now();
     let record = store.get(key);

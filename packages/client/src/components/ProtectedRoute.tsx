@@ -22,9 +22,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Header-mode sessions: no live ST session ⇒ login (do not trust stale mock_jwt alone)
+  // No ST session → plain login (not "expired"). Real expiry is set by apiClient 401.
   if (!session.doesSessionExist) {
-    return <Navigate to="/login?session=expired" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   if (!token) {

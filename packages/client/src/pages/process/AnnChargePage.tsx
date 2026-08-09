@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  Check,
   ChevronLeft,
   X,
 } from 'lucide-react';
@@ -293,7 +294,9 @@ export function AnnChargePage() {
               className={[
                 headerSegBtn,
                 'flex-1',
-                openStoppage ? 'bg-warning text-warning-foreground' : 'text-primary-foreground hover:bg-white/15',
+                openStoppage
+                  ? 'bg-accent text-accent-foreground shadow-sm'
+                  : 'text-primary-foreground hover:bg-white/15',
               ].join(' ')}
               onClick={() => setStoppageOpen(true)}
             >
@@ -453,10 +456,10 @@ export function AnnChargePage() {
                   </div>
                   <p className="text-sm font-semibold text-foreground">
                     {openStoppage.category_code}
-                    {openStoppage.reason ? ` ? ${openStoppage.reason}` : ''}
+                    {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
                   </p>
                   <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                    Started {formatReadingTime(openStoppage.start_at)} ? {formatElapsed(openStoppage.start_at, nowMs)}
+                    Started {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
                   </p>
                   <ZButton
                     type="button"
@@ -474,9 +477,9 @@ export function AnnChargePage() {
                   type="button"
                   disabled={charge?.status === 'DONE'}
                   onClick={() => setStoppageOpen(true)}
-                  className="flex h-12 min-h-12 w-full items-center justify-center rounded-lg border border-dashed border-border text-xs font-bold uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
-                  Open stoppage?
+                  Open stoppage
                 </button>
               )}
             </div>
@@ -515,10 +518,10 @@ export function AnnChargePage() {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-status-stopped">Active stoppage</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">
                   {openStoppage.category_code}
-                  {openStoppage.reason ? ` ? ${openStoppage.reason}` : ''}
+                  {openStoppage.reason ? ` · ${openStoppage.reason}` : ''}
                 </p>
                 <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                  Since {formatReadingTime(openStoppage.start_at)} ? {formatElapsed(openStoppage.start_at, nowMs)}
+                  Since {formatReadingTime(openStoppage.start_at)} · {formatElapsed(openStoppage.start_at, nowMs)}
                 </p>
               </div>
               <ZButton
@@ -574,27 +577,52 @@ export function AnnChargePage() {
         </div>
       </ZDrawer>
 
-      <ZDrawer open={rosterOpen} onClose={() => setRosterOpen(false)} title="Orders" size="medium">
-        <div className="space-y-3 p-4">
-          {detail ? (
-            <>
-              <ul className="space-y-2">
+      <ZDrawer open={rosterOpen} onClose={() => setRosterOpen(false)} title="Orders · charge coils" size="large">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="shrink-0 border-b border-border bg-secondary/50 px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">
+              {detail?.roster.length ?? 0} coil{(detail?.roster.length ?? 0) === 1 ? '' : 's'} on this charge
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Set disposition per coil · ADVANCE / HOLD / REJECT
+            </p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto p-4 space-y-3">
+            {detail ? (
+              <>
                 {detail.roster.length === 0 && (
-                  <li className="text-sm text-muted-foreground">No coils on this batch yet.</li>
+                  <p className="rounded-lg border border-dashed border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                    No coils on this batch yet.
+                  </p>
                 )}
                 {detail.roster.map((r) => (
-                  <li
+                  <article
                     key={r.coil_no}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm"
+                    className="rounded-xl border border-border bg-card p-3 shadow-sm space-y-3"
                   >
-                    <span className="font-mono tabular-nums">
-                      {r.coil_no} ? {r.grade_code ?? ''} ? {Number(r.weight_mt ?? 0).toFixed(2)} MT
-                    </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Coil</p>
+                        <p className="font-mono text-base font-bold tabular-nums text-foreground truncate">{r.coil_no}</p>
+                      </div>
                       {r.disposition === 'HOLD' && <ZBadge tone="accent" label="HOLD" />}
                       {r.disposition === 'REJECT' && <ZBadge tone="destructive" label="REJECT" />}
+                      {r.disposition === 'ADVANCE' && <ZBadge tone="success" label="ADVANCE" />}
+                    </div>
+                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Grade</dt>
+                        <dd className="font-mono font-semibold tabular-nums">{r.grade_code || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Weight</dt>
+                        <dd className="font-mono font-semibold tabular-nums">{Number(r.weight_mt ?? 0).toFixed(2)} MT</dd>
+                      </div>
+                    </dl>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Disposition</span>
                       <select
-                        className="h-12 min-h-12 rounded-lg border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="h-12 min-h-12 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         value={r.disposition}
                         onChange={(e) => void setDisposition(r.coil_no, e.target.value as 'ADVANCE' | 'HOLD' | 'REJECT')}
                         aria-label={`Disposition for ${r.coil_no}`}
@@ -603,59 +631,92 @@ export function AnnChargePage() {
                         <option value="HOLD">HOLD</option>
                         <option value="REJECT">REJECT</option>
                       </select>
-                    </div>
-                  </li>
+                    </label>
+                  </article>
                 ))}
-              </ul>
-              {detail.charge.status !== 'DONE' && (
-                <div className="flex items-end gap-2 border-t border-border pt-3">
-                  <div className="flex flex-1 flex-col gap-1">
-                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Add coil</label>
-                    <select
-                      className="h-12 min-h-12 w-full rounded-lg border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={coilToAdd}
-                      onChange={(e) => setCoilToAdd(e.target.value)}
-                    >
-                      <option value="">Add coil from queue?</option>
-                      {pendingCoils.map((c) => (
-                        <option key={c.coilNo} value={c.coilNo}>{c.coilNo}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <ZButton
-                    type="button"
-                    variant="primary"
-                    className="min-h-12 h-12 rounded-lg px-4"
-                    onClick={() => coilToAdd && void rosterCoil(coilToAdd)}
-                  >
-                    Add
-                  </ZButton>
-                </div>
-              )}
-            </>
-          ) : null}
+              </>
+            ) : null}
+          </div>
+          {detail && detail.charge.status !== 'DONE' && (
+            <div className="shrink-0 border-t border-border bg-card px-4 py-3 flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Add coil from queue</label>
+                <select
+                  className="h-12 min-h-12 w-full rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={coilToAdd}
+                  onChange={(e) => setCoilToAdd(e.target.value)}
+                >
+                  <option value="">Select coil…</option>
+                  {pendingCoils.map((c) => (
+                    <option key={c.coilNo} value={c.coilNo}>{c.coilNo}</option>
+                  ))}
+                </select>
+              </div>
+              <ZButton
+                type="button"
+                variant="primary"
+                className="min-h-12 h-12 rounded-lg px-5 font-bold"
+                disabled={!coilToAdd}
+                onClick={() => coilToAdd && void rosterCoil(coilToAdd)}
+              >
+                Add
+              </ZButton>
+            </div>
+          )}
         </div>
       </ZDrawer>
 
-      <ZDrawer open={showPrev} onClose={() => setShowPrev(false)} title="Reading history" size="medium">
-        <ul className="space-y-2 p-4">
-          {detail?.readings.length === 0 && (
-            <li className="text-sm text-muted-foreground">No readings yet.</li>
-          )}
-          {(detail?.readings ?? []).map((r) => (
-            <li key={r.reading_id} className="rounded-lg border border-border bg-card px-3 py-2.5 text-xs font-mono tabular-nums">
-              <p className="font-sans text-sm font-medium text-foreground">{formatReadingTime(r.taken_at)}</p>
-              <p className="mt-1 text-muted-foreground">
-                Stage {r.stage_code ?? '?'}
-                {' ? '}C {r.charge_temp ?? '?'}
-                {' ? '}G {r.gas_temp ?? '?'}
-                {' ? '}FC {r.fc_temp ?? '?'}
-                {' ? '}P {r.base_press ?? '?'}
-                {' ? '}Fan {r.base_fan_rpm ?? '?'}
-              </p>
-            </li>
-          ))}
-        </ul>
+      <ZDrawer open={showPrev} onClose={() => setShowPrev(false)} title="History · readings" size="large">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="shrink-0 border-b border-border bg-secondary/50 px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">
+              {(detail?.readings ?? []).length} reading{(detail?.readings ?? []).length === 1 ? '' : 's'} this charge
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">Newest first · temps, pressure, fan</p>
+          </div>
+          <ul className="flex-1 min-h-0 overflow-auto space-y-3 p-4">
+            {(detail?.readings ?? []).length === 0 && (
+              <li className="rounded-lg border border-dashed border-border bg-secondary/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                No readings yet.
+              </li>
+            )}
+            {[...(detail?.readings ?? [])].reverse().map((r) => (
+              <li key={r.reading_id} className="rounded-xl border border-border bg-card p-3 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Taken</p>
+                    <p className="font-mono text-sm font-bold tabular-nums text-foreground">{formatReadingTime(r.taken_at)}</p>
+                  </div>
+                  <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-foreground">
+                    {humanizeStage(String(r.stage_code ?? '?'))}
+                  </span>
+                </div>
+                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2.5 text-sm">
+                  <div>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Charge °C</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{r.charge_temp ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Gas °C</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{r.gas_temp ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">FC °C</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{r.fc_temp ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Pressure</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{r.base_press ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Fan RPM</dt>
+                    <dd className="font-mono font-semibold tabular-nums">{r.base_fan_rpm ?? '—'}</dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
+        </div>
       </ZDrawer>
       <AnnBaseAssignModal
         open={assignOpen}

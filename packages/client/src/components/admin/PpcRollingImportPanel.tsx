@@ -412,7 +412,7 @@ export function PpcRollingImportPanel({
                     const status = PREVIEW_STATUS_LABELS[row.previewStatus] ?? PREVIEW_STATUS_LABELS['new'];
                     return (
                       <tr
-                        key={row.batchNumber}
+                        key={row.rowNum}
                         className={[
                           'border-t border-border transition-colors',
                           importable ? 'hover:bg-secondary' : 'opacity-60',

@@ -6,6 +6,7 @@ import { ZBadge } from '../../../components/primitives/ZBadge';
 import { ZButton } from '../../../components/primitives/ZButton';
 import { apiClient } from '../../../lib/apiClient';
 import { formatPlantDateTime } from '../../../lib/dateFormat';
+import { formatOrderStatusLabel } from '../../../lib/orderLabels';
 import type { Tone } from '../../../lib/tones';
 
 type RwdDetail = {
@@ -36,11 +37,10 @@ function fmtKg(v: number | null | undefined): string {
 
 function statusTone(status?: string): Tone {
   const s = (status ?? '').toUpperCase();
-  if (s === 'PENDING' || s === 'HOLD') return 'accent';
+  if (s === 'PENDING' || s === 'HOLD' || s === 'REJECTED') return 'accent';
   if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'success';
   if (s === 'STOPPAGE') return 'warning';
   if (s === 'PREPARING') return 'info';
-  if (s === 'REJECTED') return 'destructive';
   return 'muted';
 }
 
@@ -94,7 +94,7 @@ export function RwdMhCoilDetailPage() {
       fillViewport
       headerActions={
         <div className="flex items-center gap-2">
-          {data && <ZBadge tone={statusTone(status)} label={String(status)} />}
+          {data && <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(String(status))} />}
           <ZButton variant="secondary" size="sm" onClick={() => navigate('/machine-head/rwd/live')}>
             <ChevronLeft className="h-4 w-4" /> Live
           </ZButton>

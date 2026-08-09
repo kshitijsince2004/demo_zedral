@@ -10,6 +10,7 @@ vi.mock('../src/db', () => ({
     selectFrom: vi.fn(),
     insertInto: vi.fn(),
     updateTable: vi.fn(),
+    deleteFrom: vi.fn(),
   },
 }));
 
@@ -74,6 +75,11 @@ const inserted = {
   duration_min: null,
 };
 
+const prepared = {
+  ...inserted,
+  status: 'PREPARING',
+};
+
 describe('ManualRerollService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -93,9 +99,9 @@ describe('ManualRerollService', () => {
     expect(computeDurationMin(new Date('2026-08-05T10:00:00Z'), new Date('2026-08-05T10:07:40Z'))).toBe(8);
   });
 
-  it('rejects start when the mill has an active production order', async () => {
+  it('rejects prepare when the mill has an active production order', async () => {
     findActiveMachineOrder.mockResolvedValue({ batchNumber: 'LIVE-1', status: 'IN_PROGRESS', subProcess: 'ROLLING' });
-    await expect(ManualRerollService.startSession({
+    await expect(ManualRerollService.prepareSession({
       machine: '6HI',
       batchNumber: 'B-1',
       orderId: 99,
@@ -106,9 +112,9 @@ describe('ManualRerollService', () => {
     expect(db.insertInto).not.toHaveBeenCalled();
   });
 
-  it('rejects start when a re-roll session is already in progress', async () => {
+  it('rejects prepare when a re-roll session is already blocking', async () => {
     (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(inserted));
-    await expect(ManualRerollService.startSession({
+    await expect(ManualRerollService.prepareSession({
       machine: '6HI',
       batchNumber: 'B-2',
       rerollQuantity: 1,
@@ -117,11 +123,11 @@ describe('ManualRerollService', () => {
     expect(db.insertInto).not.toHaveBeenCalled();
   });
 
-  it('inserts an in-progress session when the mill is idle and publishes RUNNING_STARTED', async () => {
+  it('prepares a session without starting the mill timer', async () => {
     (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(null));
-    (db.insertInto as ReturnType<typeof vi.fn>).mockReturnValue(chain(inserted));
+    (db.insertInto as ReturnType<typeof vi.fn>).mockReturnValue(chain(prepared));
 
-    const session = await ManualRerollService.startSession({
+    const session = await ManualRerollService.prepareSession({
       machine: '6HI',
       batchNumber: 'B-1',
       orderId: 99,
@@ -130,14 +136,52 @@ describe('ManualRerollService', () => {
       shiftCode: 'A',
     });
 
-    expect(session.status).toBe('IN_PROGRESS');
+    expect(session.status).toBe('PREPARING');
     expect(session.rerollQuantity).toBe(1.25);
     expect(db.insertInto).toHaveBeenCalledWith('txn.manual_reroll_session');
+    expect(recordEvent).not.toHaveBeenCalled();
+  });
+
+  it('starts a prepared session and publishes RUNNING_STARTED', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(prepared));
+    (db.updateTable as ReturnType<typeof vi.fn>).mockReturnValue(chain(inserted));
+
+    const session = await ManualRerollService.startPreparedSession('11');
+    expect(session.status).toBe('IN_PROGRESS');
     expect(recordEvent).toHaveBeenCalledWith(
       '6HI',
       'RUNNING_STARTED',
       expect.objectContaining({ batchNumber: 'B-1', meta: expect.objectContaining({ source: 'MANUAL_REROLL' }) }),
     );
+  });
+
+  it('rejects start when session is not preparing', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(inserted));
+    await expect(ManualRerollService.startPreparedSession('11')).rejects.toThrow('SESSION_NOT_PREPARING');
+  });
+
+  it('saves capture weight and passes', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain({
+      ...inserted,
+      actual_weight_mt: '2.5',
+    }));
+    (db.updateTable as ReturnType<typeof vi.fn>).mockReturnValue(chain(null));
+    (db.deleteFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(null));
+    (db.insertInto as ReturnType<typeof vi.fn>).mockReturnValue(chain(null));
+
+    const session = await ManualRerollService.updateCapture('11', {
+      actualWeightMt: 2.5,
+      actualWeightSource: 'manual',
+      passes: [{ passNo: 1, thicknessMm: 1.2 }],
+    });
+    expect(session.actualWeightMt).toBe(2.5);
+    expect(db.deleteFrom).toHaveBeenCalledWith('txn.manual_reroll_pass');
+    expect(db.insertInto).toHaveBeenCalledWith('txn.manual_reroll_pass');
+  });
+
+  it('rejects end while still preparing', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(prepared));
+    await expect(ManualRerollService.endSession('11', 7)).rejects.toThrow('SESSION_STILL_PREPARING');
   });
 
   it('ends a session with computed duration', async () => {

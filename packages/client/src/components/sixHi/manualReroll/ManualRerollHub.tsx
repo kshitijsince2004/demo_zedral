@@ -26,13 +26,16 @@ import { ZFilterPills } from '../../ui/operator/ZFilterPills';
 import { OrderStoppageModal } from '../OrderStoppageModal';
 import { ManualRerollActionRail } from './ManualRerollActionRail';
 import { ManualRerollHoldModal } from './ManualRerollHoldModal';
+import { ManualRerollWorkspaceModal } from './ManualRerollWorkspaceModal';
 import {
+  cancelManualReroll,
   endManualReroll,
   endManualRerollStoppage,
   holdManualReroll,
+  prepareManualReroll,
   releaseManualRerollToPending,
   remarkManualReroll,
-  startManualReroll,
+  startPreparedManualReroll,
   startManualRerollStoppage,
   updateManualRerollStoppage,
   useManualRerollQueue,
@@ -41,6 +44,7 @@ import {
   type ManualRerollSession,
   type ManualRerollSessionCard,
 } from '../../../services/manualRerollService';
+import { formatOrderStatusLabel } from '../../../lib/orderLabels';
 import { useSixHiStore } from '../../../store/sixHiStore';
 
 type QueueRow =
@@ -80,6 +84,18 @@ export function ManualRerollHub() {
   const [busy, setBusy] = useState(false);
   const [stoppageOpen, setStoppageOpen] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [runOrders, setRunOrders] = useState<Array<{
+    batchNumber: string;
+    coilNo?: string;
+    customer?: string;
+    grade?: string | null;
+    widthMm?: number | null;
+    thkMm?: number | null;
+    weightMt?: number | null;
+    slitId?: string | null;
+    rollFinish?: string | null;
+  }>>([]);
   const [now, setNow] = useState(() => getServerTime());
   const refreshMachineState = useSixHiStore((s) => s.refreshMachineState);
 
@@ -114,8 +130,8 @@ export function ManualRerollHub() {
 
   const filterItems = useMemo(
     () => [
-      ...pending.map((p) => ({ status: p.status || 'PENDING' })),
-      ...sessions.map((s) => ({ status: s.status })),
+      ...pending.map((p) => ({ status: p.status || 'PENDING', kind: 'pending' as const })),
+      ...sessions.map((s) => ({ status: s.status, kind: 'session' as const })),
     ],
     [pending, sessions],
   );
@@ -123,7 +139,7 @@ export function ManualRerollHub() {
 
   const filteredRows = allRows.filter((row) => {
     const status = row.kind === 'pending' ? (row.data.status || 'PENDING') : row.data.status;
-    return matchesRerollStatusFilter(status, statusFilter);
+    return matchesRerollStatusFilter(status, statusFilter, row.kind);
   });
 
   const pendingCombineKey = useMemo(
@@ -176,6 +192,8 @@ export function ManualRerollHub() {
         startTime: selectedSession.startTime,
         endTime: selectedSession.endTime,
         durationMin: selectedSession.durationMin,
+        actualWeightMt: selectedSession.actualWeightMt,
+        passes: selectedSession.passes,
         activeStoppage: selectedSession.activeStoppage,
         stoppages: selectedSession.stoppages,
       };
@@ -206,6 +224,17 @@ export function ManualRerollHub() {
     setPickedIds(new Set());
     setCompatibleIds(new Set());
     setRemarks(freeRemarks(card.remarks));
+    setRunOrders((card.batchNumbers?.length ? card.batchNumbers : (card.batchNumber ? [card.batchNumber] : [])).map((batchNumber) => ({
+      batchNumber,
+      coilNo: card.coilNo,
+      customer: card.customer,
+      grade: card.grade,
+      widthMm: card.widthMm,
+      thkMm: card.thkMm,
+      weightMt: card.weightMt,
+      slitId: card.slitId,
+      rollFinish: card.rollFinish,
+    })));
   };
 
   const toggleCombined = (orderId: string, event: MouseEvent) => {
@@ -249,9 +278,10 @@ export function ManualRerollHub() {
     }
   }, [refresh, refreshMachineState]);
 
-  const onStart = () => {
+  const openSessionId = panelSession?.sessionId;
+
+  const onPrepare = () => {
     if (!selectedPending) return;
-    // Prefer explicit picks; if effect lagged, fall back to full compatible pool (SixHi parity).
     let startOrders = picked.length > 0 ? picked : [];
     if (startOrders.length === 0) {
       startOrders = pending.filter((hit) => rerollCombineKey(hit) === rerollCombineKey(selectedPending));
@@ -261,22 +291,66 @@ export function ManualRerollHub() {
       ? selectedPending
       : startOrders[0];
     void run(async () => {
-      await startManualReroll({
+      const session = await prepareManualReroll({
         machine: machineCode,
         batchNumber: primary.batchNumber,
         orderId: primary.orderId,
         batchNumbers: startOrders.map((hit) => hit.batchNumber),
         remarks: remarks.trim() || undefined,
       });
+      setRunOrders(startOrders.map((hit) => ({
+        batchNumber: hit.batchNumber,
+        coilNo: hit.coilNo,
+        customer: hit.customer,
+        grade: hit.grade,
+        widthMm: hit.widthMm,
+        thkMm: hit.thkMm,
+        weightMt: hit.weightMt,
+        slitId: hit.slitId,
+        rollFinish: hit.rollFinish,
+      })));
       setRemarks('');
       setSelectedPending(null);
       setPickedIds(new Set());
       setCompatibleIds(new Set());
       combineManualRef.current = false;
+      setSelectedSession({
+        kind: 'session',
+        sessionId: session.sessionId,
+        orderId: session.orderId,
+        batchNumber: session.batchNumber,
+        batchNumbers: session.batchNumbers ?? [],
+        status: session.status,
+        machineCode: session.machineCode,
+        weightMt: session.rerollQuantity,
+        actualWeightMt: session.actualWeightMt,
+        passes: session.passes,
+        remarks: session.remarks,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        durationMin: session.durationMin,
+        activeStoppage: session.activeStoppage ?? null,
+        stoppages: session.stoppages ?? [],
+        thkMm: primary.thkMm,
+        coilNo: primary.coilNo,
+        customer: primary.customer,
+        grade: primary.grade,
+        widthMm: primary.widthMm,
+        slitId: primary.slitId,
+        rollFinish: primary.rollFinish,
+      });
+      setConsoleOpen(true);
+      setStatus('IN_PROGRESS');
     });
   };
 
-  const openSessionId = panelSession?.sessionId;
+  const onStartProduction = () => {
+    if (!openSessionId) return;
+    void run(async () => {
+      await startPreparedManualReroll(openSessionId, machineCode);
+      setConsoleOpen(true);
+    });
+  };
 
   const consoleLabel = active
     ? (active.batchNumbers?.length ? active.batchNumbers.join(' · ') : active.batchNumber) ?? '—'
@@ -287,12 +361,129 @@ export function ManualRerollHub() {
       ? 'Stopped'
       : active.status === 'ON_HOLD'
         ? 'Held'
-        : 'Running';
-  const consoleTimer = active && active.status !== 'ON_HOLD'
+        : active.status === 'PREPARING'
+          ? 'Preparing'
+          : 'Running';
+  const consoleTimer = active && active.status !== 'ON_HOLD' && active.status !== 'PREPARING'
     ? formatRerollNetRuntime(rerollNetRuntimeMs(active.startTime, active.stoppages, now))
     : active?.status === 'ON_HOLD'
       ? 'On hold'
-      : null;
+      : active?.status === 'PREPARING'
+        ? 'Preparing'
+        : null;
+
+  const seedThkMm = detailPending?.thkMm
+    ?? selectedSession?.thkMm
+    ?? null;
+
+  const railSession = panelSession
+    && ['PREPARING', 'IN_PROGRESS', 'ON_HOLD', 'STOPPAGE'].includes(panelSession.status)
+    ? panelSession
+    : (active ?? null);
+
+  const consoleOrders = (() => {
+    if (runOrders.length > 0) return runOrders;
+    if (picked.length > 0) {
+      return picked.map((hit) => ({
+        batchNumber: hit.batchNumber,
+        coilNo: hit.coilNo,
+        customer: hit.customer,
+        grade: hit.grade,
+        widthMm: hit.widthMm,
+        thkMm: hit.thkMm,
+        weightMt: hit.weightMt,
+        slitId: hit.slitId,
+        rollFinish: hit.rollFinish,
+      }));
+    }
+    const batches = railSession?.batchNumbers?.length
+      ? railSession.batchNumbers
+      : (railSession?.batchNumber ? [railSession.batchNumber] : []);
+    if (batches.length === 0 && detailPending) {
+      return [{
+        batchNumber: detailPending.batchNumber,
+        coilNo: detailPending.coilNo,
+        customer: detailPending.customer,
+        grade: detailPending.grade,
+        widthMm: detailPending.widthMm,
+        thkMm: detailPending.thkMm,
+        weightMt: detailPending.weightMt,
+        slitId: detailPending.slitId,
+        rollFinish: detailPending.rollFinish,
+      }];
+    }
+    return batches.map((batchNumber) => {
+      const hit = pending.find((p) => p.batchNumber === batchNumber);
+      if (hit) {
+        return {
+          batchNumber: hit.batchNumber,
+          coilNo: hit.coilNo,
+          customer: hit.customer,
+          grade: hit.grade,
+          widthMm: hit.widthMm,
+          thkMm: hit.thkMm,
+          weightMt: hit.weightMt,
+          slitId: hit.slitId,
+          rollFinish: hit.rollFinish,
+        };
+      }
+      return {
+        batchNumber,
+        coilNo: selectedSession?.coilNo ?? detailPending?.coilNo,
+        customer: selectedSession?.customer ?? detailPending?.customer,
+        grade: selectedSession?.grade ?? detailPending?.grade,
+        widthMm: selectedSession?.widthMm ?? detailPending?.widthMm,
+        thkMm: selectedSession?.thkMm ?? detailPending?.thkMm ?? seedThkMm,
+        weightMt: selectedSession?.weightMt ?? detailPending?.weightMt,
+        slitId: selectedSession?.slitId ?? detailPending?.slitId,
+        rollFinish: selectedSession?.rollFinish ?? detailPending?.rollFinish,
+      };
+    });
+  })();
+
+  const consoleContext = {
+    coilNo: consoleOrders[0]?.coilNo ?? detailPending?.coilNo ?? selectedSession?.coilNo,
+    customer: consoleOrders[0]?.customer ?? detailPending?.customer ?? selectedSession?.customer,
+    grade: consoleOrders[0]?.grade ?? detailPending?.grade ?? selectedSession?.grade,
+    widthMm: consoleOrders[0]?.widthMm ?? detailPending?.widthMm ?? selectedSession?.widthMm,
+    thkMm: seedThkMm ?? consoleOrders[0]?.thkMm,
+    inputThkMm: seedThkMm ?? consoleOrders[0]?.thkMm,
+    weightMt: consoleOrders.length > 1
+      ? consoleOrders.reduce((sum, o) => sum + (o.weightMt ?? 0), 0)
+      : (consoleOrders[0]?.weightMt ?? detailPending?.weightMt ?? selectedSession?.weightMt ?? null),
+    slitId: consoleOrders[0]?.slitId ?? detailPending?.slitId ?? selectedSession?.slitId,
+    rollFinish: consoleOrders[0]?.rollFinish ?? detailPending?.rollFinish ?? selectedSession?.rollFinish,
+    combinedCount: consoleOrders.length > 1 ? consoleOrders.length : undefined,
+    combinedTargetMt: consoleOrders.length > 1
+      ? consoleOrders.reduce((sum, o) => sum + (o.weightMt ?? 0), 0)
+      : undefined,
+    orders: consoleOrders,
+  };
+
+  const actionRail = (
+    <ManualRerollActionRail
+      session={railSession}
+      pendingLabel={selectedPending?.batchNumber}
+      pendingCount={picked.length}
+      pendingWeightMt={picked.length > 1 ? pickedWeightMt : (selectedPending?.weightMt ?? null)}
+      canPrepare={canWrite && !active && !!selectedPending}
+      canStart={canWrite && railSession?.status === 'PREPARING'}
+      busy={busy}
+      canWrite={canWrite}
+      onPrepare={onPrepare}
+      onStart={onStartProduction}
+      onEnd={() => openSessionId && void run(() => endManualReroll(openSessionId, machineCode))}
+      onHold={() => setHoldOpen(true)}
+      onRemark={() => {
+        if (!openSessionId) return;
+        const text = window.prompt('Re-roll remark', freeRemarks(panelSession?.remarks));
+        if (text == null) return;
+        void run(() => remarkManualReroll(openSessionId, machineCode, text));
+      }}
+      onStoppage={() => setStoppageOpen(true)}
+      onOpenConsole={() => setConsoleOpen(true)}
+    />
+  );
 
   return (
     <div className="flex flex-1 min-h-0 bg-secondary overflow-hidden">
@@ -420,7 +611,7 @@ export function ManualRerollHub() {
                       </span>
                       <span className="text-xs text-muted-foreground block">
                         {card.batchNumbers?.length > 1 ? 'Combined · ' : ''}
-                        {card.status}
+                        {formatOrderStatusLabel(card.status)}
                         {card.weightMt != null ? ` · ${card.weightMt} MT` : ''}
                       </span>
                     </button>
@@ -443,10 +634,15 @@ export function ManualRerollHub() {
                 <DetailLine label="Width" value={detailPending.widthMm != null ? `${detailPending.widthMm} mm` : '—'} />
                 <DetailLine label="Slit / finish" value={`${detailPending.slitId ?? '—'} / ${detailPending.rollFinish ?? '—'}`} />
                 {canWrite && !active && (
-                  <label className="text-sm block mt-2">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Remarks</span>
-                    <ZInput value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-                  </label>
+                  <>
+                    <label className="text-sm block mt-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Remarks</span>
+                      <ZInput value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+                    </label>
+                    <ZButton className="w-full mt-2" disabled={busy} onClick={onPrepare}>
+                      {picked.length > 1 ? 'Move Combined to Preparing' : 'Move to Preparing'}
+                    </ZButton>
+                  </>
                 )}
                 {picked.length > 1 && (
                   <p className="text-xs text-success font-semibold">
@@ -464,13 +660,40 @@ export function ManualRerollHub() {
                     : detailSession.batchNumber) ?? '—'}
                   mono
                 />
-                <DetailLine label="Status" value={detailSession.status} />
+                <DetailLine label="Status" value={formatOrderStatusLabel(detailSession.status)} />
                 <DetailLine label="Weight" value={detailSession.weightMt != null ? `${detailSession.weightMt} MT` : '—'} />
                 <DetailLine label="Started" value={new Date(detailSession.startTime).toLocaleString()} />
                 {detailSession.durationMin != null && (
                   <DetailLine label="Net min" value={String(detailSession.durationMin)} />
                 )}
                 <DetailLine label="Remarks" value={freeRemarks(detailSession.remarks) || '—'} />
+                {canWrite && detailSession.status === 'PREPARING' && (
+                  <div className="mt-auto pt-3 space-y-2">
+                    <ZButton className="w-full" disabled={busy} onClick={() => setConsoleOpen(true)}>
+                      Open Production Console
+                    </ZButton>
+                    <ZButton
+                      variant="secondary"
+                      className="w-full"
+                      disabled={busy}
+                      onClick={() => void run(async () => {
+                        await cancelManualReroll(detailSession.sessionId, machineCode, 'Cancelled prepare');
+                        setSelectedSession(null);
+                        setConsoleOpen(false);
+                        setStatus('PENDING');
+                      })}
+                    >
+                      Cancel Prepare
+                    </ZButton>
+                  </div>
+                )}
+                {canWrite && (detailSession.status === 'IN_PROGRESS' || detailSession.status === 'STOPPAGE') && (
+                  <div className="mt-auto pt-3">
+                    <ZButton className="w-full" disabled={busy} onClick={() => setConsoleOpen(true)}>
+                      Open Production Console
+                    </ZButton>
+                  </div>
+                )}
                 {canWrite && detailSession.status === 'ON_HOLD' && (
                   <div className="mt-auto pt-3 space-y-2">
                     <p className="text-xs text-muted-foreground">
@@ -501,24 +724,18 @@ export function ManualRerollHub() {
         </div>
       </div>
 
-      <ManualRerollActionRail
-        session={panelSession && ['IN_PROGRESS', 'ON_HOLD', 'STOPPAGE'].includes(panelSession.status) ? panelSession : (active ?? null)}
-        pendingLabel={selectedPending?.batchNumber}
-        pendingCount={picked.length}
-        pendingWeightMt={picked.length > 1 ? pickedWeightMt : (selectedPending?.weightMt ?? null)}
-        canStart={canWrite && !active && !!selectedPending}
-        busy={busy}
-        canWrite={canWrite}
-        onStart={onStart}
-        onEnd={() => openSessionId && void run(() => endManualReroll(openSessionId, machineCode))}
-        onHold={() => setHoldOpen(true)}
-        onRemark={() => {
-          if (!openSessionId) return;
-          const text = window.prompt('Re-roll remark', freeRemarks(panelSession?.remarks));
-          if (text == null) return;
-          void run(() => remarkManualReroll(openSessionId, machineCode, text));
+      {!consoleOpen && actionRail}
+
+      <ManualRerollWorkspaceModal
+        open={consoleOpen}
+        session={railSession}
+        machine={machineCode}
+        context={consoleContext}
+        actionRail={actionRail}
+        onClose={() => setConsoleOpen(false)}
+        onSaved={async () => {
+          await refresh();
         }}
-        onStoppage={() => setStoppageOpen(true)}
       />
 
       <ManualRerollHoldModal

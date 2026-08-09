@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  ManualRerollCaptureSchema,
   ManualRerollEndSchema,
   ManualRerollHoldSchema,
   ManualRerollRemarkSchema,
@@ -162,6 +163,12 @@ function sessionError(res: import('express').Response, e: unknown, fallback: str
   if (msg === 'SESSION_NOT_ON_HOLD') {
     return res.status(400).json({ error: 'Session is not on hold' });
   }
+  if (msg === 'SESSION_NOT_PREPARING') {
+    return res.status(400).json({ error: 'Session is not in preparing' });
+  }
+  if (msg === 'SESSION_STILL_PREPARING') {
+    return res.status(400).json({ error: 'Start production before ending, or cancel prepare' });
+  }
   return res.status(400).json({ error: msg });
 }
 
@@ -249,6 +256,8 @@ router.get('/queue', requireManualRerollRead, async (req, res) => {
       status: s.status,
       machineCode: s.machineCode,
       weightMt: s.rerollQuantity,
+      actualWeightMt: s.actualWeightMt,
+      passes: s.passes,
       remarks: s.remarks,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -307,7 +316,7 @@ router.post('/sessions', requireManualRerollWrite, async (req, res) => {
       machineCode: machine,
     });
 
-    const session = await ManualRerollService.startSession({
+    const session = await ManualRerollService.prepareSession({
       machine,
       batchNumber: primary.batch_number,
       batchNumbers,
@@ -319,7 +328,49 @@ router.post('/sessions', requireManualRerollWrite, async (req, res) => {
     });
     res.status(201).json(session);
   } catch (e: unknown) {
+    sessionError(res, e, 'Prepare failed');
+  }
+});
+
+router.post('/sessions/:id/start', requireManualRerollWrite, async (req, res) => {
+  try {
+    const session = await ManualRerollService.startPreparedSession(req.params.id);
+    res.json(session);
+  } catch (e: unknown) {
     sessionError(res, e, 'Start failed');
+  }
+});
+
+router.patch('/sessions/:id/capture', requireManualRerollWrite, async (req, res) => {
+  try {
+    const parsed = ManualRerollCaptureSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors.map((err) => err.message).join('; ') });
+    }
+    const session = await ManualRerollService.updateCapture(req.params.id, {
+      actualWeightMt: parsed.data.actualWeightMt,
+      actualWeightSource: parsed.data.actualWeightSource,
+      actualWeightPhotoHash: parsed.data.actualWeightPhotoHash,
+      ocrConfidence: parsed.data.ocrConfidence,
+      ocrRawText: parsed.data.ocrRawText,
+      passes: parsed.data.passes,
+    });
+    res.json(session);
+  } catch (e: unknown) {
+    sessionError(res, e, 'Capture save failed');
+  }
+});
+
+router.get('/sessions/:id', requireManualRerollRead, async (req, res) => {
+  try {
+    const session = await ManualRerollService.getSessionById(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (session.machineCode !== (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    res.json(session);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load session' });
   }
 });
 

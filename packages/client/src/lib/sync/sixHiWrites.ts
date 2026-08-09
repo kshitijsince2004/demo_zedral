@@ -25,7 +25,18 @@ export function startOrderImmediate(batchNumber: string) {
 
 /** Combined start must return prodStartAt before the operator timer can tick. */
 export function startCombinedOrdersImmediate(batchNumbers: string[]) {
-  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', { batchNumbers });
+  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', {
+    batchNumbers,
+    mode: 'start',
+  });
+}
+
+/** Hub combine — group + PREPARING only; Start on the rail runs production. */
+export function prepareCombinedOrdersImmediate(batchNumbers: string[]) {
+  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', {
+    batchNumbers,
+    mode: 'prepare',
+  });
 }
 
 /** Combined end must carry combinedActualMt to the server in the same request (not a parked outbox row). */
@@ -75,7 +86,7 @@ export function startOrder(batchNumber: string) {
 
 export function startCombinedOrders(batchNumbers: string[]) {
   const key = `6hi-combined:${[...batchNumbers].sort().join(',')}`;
-  return postQueued('/6hi/orders/start-combined', { batchNumbers }, key);
+  return postQueued('/6hi/orders/start-combined', { batchNumbers, mode: 'start' }, key);
 }
 
 export function endOrder(

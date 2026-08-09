@@ -1,39 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow system certificates and user-installed ones for debugging -->
-    <base-config>
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
-
     <debug-overrides>
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
     </debug-overrides>
-
-    <!-- Production AWS Server -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">zedral.com</domain>
-        <domain includeSubdomains="true">hsl.zedral.com</domain>
-        <domain includeSubdomains="true">51.21.24.75</domain>
-        <domain includeSubdomains="true">eu-north-1.compute.amazonaws.com</domain>
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
-        </trust-anchors>
-    </domain-config>
-
-    <!-- Local / Plant Development Hosts (HTTP) -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">plant-server.local</domain>
-        <domain includeSubdomains="true">headwind.local</domain>
-        <domain includeSubdomains="true">10.149.217.114</domain>
-        <domain includeSubdomains="true">192.168.168.1</domain>
-        <domain includeSubdomains="true">10.255.92.33</domain>
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
 </network-security-config>

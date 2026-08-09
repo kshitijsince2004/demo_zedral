@@ -6,6 +6,7 @@ import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { DataUnavailable } from './DataUnavailable';
 import { ZBadge } from '../primitives/ZBadge';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 
 interface PlantOperationsAreaProps {
   data: ExtendedPlantHeadDashboardData;
@@ -24,14 +25,11 @@ function liveStatusTone(status: ReturnType<typeof machineStatusLabel>) {
   return 'muted' as const;
 }
 
-function orderStatusLabel(status: LiveOrderRow['status']): string {
-  return status.replace(/_/g, ' ');
-}
-
 function orderStatusTone(status: LiveOrderRow['status']) {
   if (status === 'IN_PROGRESS') return 'success' as const;
   if (status === 'STOPPAGE') return 'warning' as const;
   if (status === 'COMPLETED') return 'muted' as const;
+  if (status === 'REJECTED') return 'accent' as const;
   return 'info' as const;
 }
 
@@ -161,7 +159,7 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
                     </td>
                     <td className="px-5 py-3 align-middle text-sm text-foreground">{order.customer}</td>
                     <td className="px-5 py-3 align-middle">
-                      <ZBadge tone={orderStatusTone(order.status)} label={orderStatusLabel(order.status)} />
+                      <ZBadge tone={orderStatusTone(order.status)} label={formatOrderStatusLabel(order.status)} />
                     </td>
                   </tr>
                 ))}

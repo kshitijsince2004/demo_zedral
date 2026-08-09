@@ -21,7 +21,7 @@ import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateMachine,
-  startCombinedOrdersImmediate,
+  prepareCombinedOrdersImmediate,
   transferMachines,
 } from '../../lib/sync/sixHiWrites';
 import { useAuthStore } from '../../lib/authStore';
@@ -477,7 +477,7 @@ function SixHiCrmHub() {
     openProductionForCard(primaryCard);
   };
 
-  const startCombinedProduction = async (cards: SixHiQueueCard[]) => {
+  const prepareCombinedProduction = async (cards: SixHiQueueCard[]) => {
     if (cards.length === 0) return;
     if (cards.length === 1) {
       moveToProduction(cards[0]);
@@ -494,10 +494,10 @@ function SixHiCrmHub() {
     const primaryBatch = anchorBatch && cards.some((c) => c.batchNumber === anchorBatch)
       ? anchorBatch
       : cards[0].batchNumber;
-    await startCombinedOrdersImmediate(batchNumbers);
-    // After start the run *is* the started subset.
-    const started = buildCombinedRunFromCards(cards, primaryBatch);
-    useSixHiStore.getState().setCombinedRun(started, { selectedBatches: batchNumbers });
+    await prepareCombinedOrdersImmediate(batchNumbers);
+    // Hub combine groups into PREPARING; rail Start begins production.
+    const prepared = buildCombinedRunFromCards(cards, primaryBatch);
+    useSixHiStore.getState().setCombinedRun(prepared, { selectedBatches: batchNumbers });
     setAutoCombinedBatchNumbers(new Set());
     combinedSelectionManual.current = false;
     notifyProductionChanged();
@@ -511,8 +511,8 @@ function SixHiCrmHub() {
     if (cards.length === 0) return;
     if (cards.length > 1 && cardsShareProductionAction(cards)) {
       if (cards.every(isStartable)) {
-        void startCombinedProduction(cards).catch((err) => {
-          setActionError(err instanceof Error ? err.message : 'Failed to start combined production');
+        void prepareCombinedProduction(cards).catch((err) => {
+          setActionError(err instanceof Error ? err.message : 'Failed to prepare combined orders');
         });
         return;
       }
@@ -576,7 +576,7 @@ function SixHiCrmHub() {
       notifyProductionChanged();
       await mutateQueue();
       if (allocBatches.length > 1 && machineCode === queueMachine) {
-        await startCombinedProduction(allocBatches.map((batch) => ({
+        await prepareCombinedProduction(allocBatches.map((batch) => ({
           ...batch,
           machineCode,
           machineAllocated: true,

@@ -9,6 +9,7 @@ import { ZBadge } from '../../components/primitives/ZBadge';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 import { VirtualizedList } from '../../components/VirtualizedList';
 
@@ -19,6 +20,7 @@ function statusTone(status: string) {
   if (status === 'IN_PROGRESS' || status === 'PREPARING') return 'info' as const;
   if (status === 'STOPPAGE' || status === 'BREAKDOWN') return 'warning' as const;
   if (status === 'COMPLETED') return 'success' as const;
+  if (status === 'REJECTED' || status === 'HOLD') return 'accent' as const;
   return 'muted' as const;
 }
 
@@ -40,7 +42,7 @@ const LiveQueueOrderRow = memo(function LiveQueueOrderRow({
         <div className="text-xs text-muted-foreground mt-0.5">{o.customer} · {o.weightMt} MT</div>
       </td>
       <td className="px-5 py-3 align-middle">
-        <ZBadge tone={statusTone(o.status)} label={o.status} />
+        <ZBadge tone={statusTone(o.status)} label={formatOrderStatusLabel(o.status)} />
       </td>
       <td className="px-5 py-3 align-middle">
         <div className="text-xs font-bold text-foreground/80">{o.currentProcess}</div>

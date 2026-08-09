@@ -19,12 +19,12 @@ import {
   type RewindingQueueCard,
 } from '../../lib/rewindingQueue';
 import { userScopePath } from '../../lib/userScope';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import type { Tone } from '../../lib/tones';
 
 function statusTone(status: string): Tone {
   const s = status.toUpperCase();
-  if (s === 'PENDING' || s === 'HOLD') return 'accent';
-  if (s === 'REJECTED') return 'destructive';
+  if (s === 'PENDING' || s === 'HOLD' || s === 'REJECTED') return 'accent';
   if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'success';
   if (s === 'STOPPAGE') return 'warning';
   if (s === 'PREPARING') return 'info';
@@ -191,7 +191,7 @@ export function RwdMhLiveDashboard() {
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono font-bold tabular-nums text-foreground">{card.displayCoilNo || card.coilNo}</span>
-                    <ZBadge tone={statusTone(status)} label={status} />
+                    <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(status)} />
                     {card.machineAllocated && (
                       <ZBadge tone="info" label={card.machineCode ?? liveLine} />
                     )}

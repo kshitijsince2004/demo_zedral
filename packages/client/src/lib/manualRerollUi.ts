@@ -79,20 +79,29 @@ export function formatManualRerollConflict(body: unknown, fallback: string): str
   return batch ? `${error} (${batch})` : error;
 }
 
-/** STOPPAGE buckets under In Progress, matching rolling queue behaviour. */
+/** STOPPAGE + session PREPARING under In Progress. CRM PENDING/PREPARING stay under Pending. */
 export function matchesRerollStatusFilter(
   status: string,
   filter: ManualRerollStatusFilter,
+  kind: 'pending' | 'session' = 'pending',
 ): boolean {
   if (filter === 'ALL') return status !== 'CANCELLED';
-  if (filter === 'IN_PROGRESS') return status === 'IN_PROGRESS' || status === 'STOPPAGE';
-  if (filter === 'PENDING') return isRerollPendingStatus(status);
+  if (filter === 'IN_PROGRESS') {
+    if (status === 'IN_PROGRESS' || status === 'STOPPAGE') return true;
+    return kind === 'session' && status === 'PREPARING';
+  }
+  if (filter === 'PENDING') {
+    if (kind === 'session') return false;
+    return isRerollPendingStatus(status);
+  }
   if (filter === 'ON_HOLD') return status === 'ON_HOLD';
   if (filter === 'COMPLETED') return status === 'COMPLETED';
   return false;
 }
 
-export function countRerollFilters(items: Array<{ status: string }>): Record<ManualRerollStatusFilter, number> {
+export function countRerollFilters(
+  items: Array<{ status: string; kind?: 'pending' | 'session' }>,
+): Record<ManualRerollStatusFilter, number> {
   const counts: Record<ManualRerollStatusFilter, number> = {
     ALL: 0,
     PENDING: 0,
@@ -103,9 +112,15 @@ export function countRerollFilters(items: Array<{ status: string }>): Record<Man
   for (const item of items) {
     if (item.status === 'CANCELLED') continue;
     counts.ALL += 1;
-    if (isRerollPendingStatus(item.status)) counts.PENDING += 1;
-    else if (item.status === 'IN_PROGRESS' || item.status === 'STOPPAGE') counts.IN_PROGRESS += 1;
-    else if (item.status === 'ON_HOLD') counts.ON_HOLD += 1;
+    const kind = item.kind ?? 'pending';
+    if (kind === 'pending' && isRerollPendingStatus(item.status)) counts.PENDING += 1;
+    else if (
+      item.status === 'IN_PROGRESS'
+      || item.status === 'STOPPAGE'
+      || (kind === 'session' && item.status === 'PREPARING')
+    ) {
+      counts.IN_PROGRESS += 1;
+    } else if (item.status === 'ON_HOLD') counts.ON_HOLD += 1;
     else if (item.status === 'COMPLETED') counts.COMPLETED += 1;
   }
   return counts;

@@ -45,6 +45,22 @@ export const ManualRerollSummarySchema = z.object({
   shift: z.string().trim().min(1).optional(),
 });
 
+export type ManualRerollPass = { passNo: number; thicknessMm: number };
+
+export const ManualRerollCaptureSchema = z.object({
+  machine: ManualRerollMachineSchema,
+  actualWeightMt: z.number().nonnegative().optional().nullable(),
+  actualWeightSource: z.enum(['manual', 'ocr']).optional().nullable(),
+  actualWeightPhotoHash: z.string().trim().max(128).optional().nullable(),
+  ocrConfidence: z.number().min(0).max(100).optional().nullable(),
+  ocrRawText: z.string().trim().max(4000).optional().nullable(),
+  passes: z.array(z.object({
+    passNo: z.number().int().positive(),
+    thicknessMm: z.number().nonnegative(),
+  })).max(40).optional(),
+});
+
+export type ManualRerollCapture = z.infer<typeof ManualRerollCaptureSchema>;
 export type ManualRerollMachine = z.infer<typeof ManualRerollMachineSchema>;
 export type ManualRerollStart = z.infer<typeof ManualRerollStartSchema>;
 export type ManualRerollEnd = z.infer<typeof ManualRerollEndSchema>;

@@ -89,7 +89,7 @@ export function rwdGroupWeightMt(cards: Array<{ weightMt: number }>): number {
 export function rwdCombinedActionLabel(cards: Array<{ status?: string }>): string {
   if (cards.length <= 1) return 'Move to Production…';
   const group = rwdCombineStatusGroup(cards[0]?.status);
-  if (group === 0) return `Start Combined Production (${cards.length})`;
+  if (group === 0) return `Move Combined to Preparing (${cards.length})`;
   if (group === 2 || group === 3) return `View Combined (${cards.length})`;
   return `Open Combined (${cards.length})`;
 }

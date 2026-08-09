@@ -7,12 +7,12 @@ import type { ManualRerollMachine } from '@m1/shared-validation';
 
 export const ACTIVE_REROLL_CONFLICT = 'ACTIVE_REROLL_CONFLICT';
 
-/** Blocks new CRM / re-roll starts on the mill. */
-export const BLOCKING_REROLL_STATUSES = ['IN_PROGRESS', 'STOPPAGE'] as const;
+/** Blocks new CRM / re-roll starts on the mill (includes preparing console). */
+export const BLOCKING_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 /** Includes Hold queue sessions (machine stays idle / free for other work). */
-export const OPEN_REROLL_STATUSES = ['IN_PROGRESS', 'ON_HOLD', 'STOPPAGE'] as const;
+export const OPEN_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'ON_HOLD', 'STOPPAGE'] as const;
 /** Sessions that keep CRM batches out of the Manual Re-Roll pending list. */
-export const CLAIMED_REROLL_STATUSES = ['IN_PROGRESS', 'ON_HOLD', 'STOPPAGE', 'COMPLETED'] as const;
+export const CLAIMED_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'ON_HOLD', 'STOPPAGE', 'COMPLETED'] as const;
 export type OpenRerollStatus = (typeof OPEN_REROLL_STATUSES)[number];
 
 export function computeDurationMin(start: Date, end: Date): number {
@@ -31,6 +31,11 @@ export interface ManualRerollStoppageDto {
   durationMin: number | null;
 }
 
+export interface ManualRerollPassDto {
+  passNo: number;
+  thicknessMm: number;
+}
+
 export interface ManualRerollSessionDto {
   sessionId: string;
   orderId: string | null;
@@ -46,6 +51,12 @@ export interface ManualRerollSessionDto {
   startTime: string;
   endTime: string | null;
   durationMin: number | null;
+  actualWeightMt: number | null;
+  actualWeightSource: string | null;
+  actualWeightPhotoHash: string | null;
+  ocrConfidence: number | null;
+  ocrRawText: string | null;
+  passes: ManualRerollPassDto[];
   activeStoppage?: ManualRerollStoppageDto | null;
   stoppages?: ManualRerollStoppageDto[];
 }
@@ -187,7 +198,16 @@ function mapSession(row: {
   start_time: Date | string;
   end_time: Date | string | null;
   duration_min: number | null;
-}, extras?: { activeStoppage?: ManualRerollStoppageDto | null; stoppages?: ManualRerollStoppageDto[] }): ManualRerollSessionDto {
+  actual_weight_mt?: string | number | null;
+  actual_weight_source?: string | null;
+  actual_weight_photo_hash?: string | null;
+  ocr_confidence?: string | number | null;
+  ocr_raw_text?: string | null;
+}, extras?: {
+  activeStoppage?: ManualRerollStoppageDto | null;
+  stoppages?: ManualRerollStoppageDto[];
+  passes?: ManualRerollPassDto[];
+}): ManualRerollSessionDto {
   return {
     sessionId: String(row.session_id),
     orderId: row.order_id == null ? null : String(row.order_id),
@@ -203,6 +223,12 @@ function mapSession(row: {
     startTime: toIso(row.start_time) ?? new Date().toISOString(),
     endTime: toIso(row.end_time),
     durationMin: row.duration_min,
+    actualWeightMt: row.actual_weight_mt == null ? null : Number(row.actual_weight_mt),
+    actualWeightSource: row.actual_weight_source ?? null,
+    actualWeightPhotoHash: row.actual_weight_photo_hash ?? null,
+    ocrConfidence: row.ocr_confidence == null ? null : Number(row.ocr_confidence),
+    ocrRawText: row.ocr_raw_text ?? null,
+    passes: extras?.passes ?? [],
     activeStoppage: extras?.activeStoppage ?? null,
     stoppages: extras?.stoppages,
   };
@@ -274,6 +300,14 @@ async function ensureManualRerollTable(): Promise<void> {
           ADD COLUMN IF NOT EXISTS batch_numbers TEXT[]
       `.execute(db);
       await sql`
+        ALTER TABLE txn.manual_reroll_session
+          ADD COLUMN IF NOT EXISTS actual_weight_mt NUMERIC(12,3),
+          ADD COLUMN IF NOT EXISTS actual_weight_source TEXT,
+          ADD COLUMN IF NOT EXISTS actual_weight_photo_hash TEXT,
+          ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC(5,2),
+          ADD COLUMN IF NOT EXISTS ocr_raw_text TEXT
+      `.execute(db);
+      await sql`
         CREATE TABLE IF NOT EXISTS txn.manual_reroll_stoppage (
           stoppage_id     BIGSERIAL PRIMARY KEY,
           tenant_id       UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
@@ -292,12 +326,25 @@ async function ensureManualRerollTable(): Promise<void> {
         )
       `.execute(db);
       await sql`
+        CREATE TABLE IF NOT EXISTS txn.manual_reroll_pass (
+          pass_id         BIGSERIAL PRIMARY KEY,
+          tenant_id       UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
+                          REFERENCES security.tenant(tenant_id),
+          session_id      BIGINT NOT NULL REFERENCES txn.manual_reroll_session(session_id) ON DELETE CASCADE,
+          pass_no         INTEGER NOT NULL,
+          thickness_mm    NUMERIC(8,4) NOT NULL,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (session_id, pass_no)
+        )
+      `.execute(db);
+      await sql`
         DROP INDEX IF EXISTS txn.uq_manual_reroll_session_active_machine
       `.execute(db);
       await sql`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_manual_reroll_session_active_machine
           ON txn.manual_reroll_session (machine_code)
-          WHERE status IN ('IN_PROGRESS','STOPPAGE')
+          WHERE status IN ('PREPARING','IN_PROGRESS','STOPPAGE')
       `.execute(db);
       await sql`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_manual_reroll_stoppage_open_session
@@ -322,7 +369,7 @@ async function ensureManualRerollTable(): Promise<void> {
           END LOOP;
           ALTER TABLE txn.manual_reroll_session
             ADD CONSTRAINT manual_reroll_session_status_check
-            CHECK (status IN ('IN_PROGRESS','ON_HOLD','STOPPAGE','COMPLETED','CANCELLED'));
+            CHECK (status IN ('PREPARING','IN_PROGRESS','ON_HOLD','STOPPAGE','COMPLETED','CANCELLED'));
         EXCEPTION WHEN duplicate_object THEN NULL;
         END $chk$;
       `.execute(db);
@@ -358,6 +405,23 @@ async function loadActiveStoppage(sessionId: string): Promise<ManualRerollStoppa
   return row ? mapStoppage(row as any) : null;
 }
 
+async function loadPasses(sessionId: string): Promise<ManualRerollPassDto[]> {
+  try {
+    const rows = await db
+      .selectFrom('txn.manual_reroll_pass')
+      .select(['pass_no', 'thickness_mm'])
+      .where('session_id', '=', sessionId)
+      .orderBy('pass_no', 'asc')
+      .execute();
+    return rows.map((r: any) => ({
+      passNo: Number(r.pass_no),
+      thicknessMm: Number(r.thickness_mm),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function sumStoppageMinutes(stoppages: ManualRerollStoppageDto[], until: Date): number {
   let total = 0;
   for (const s of stoppages) {
@@ -381,7 +445,8 @@ export class ManualRerollService {
     if (!row) return null;
     const stoppages = await loadStoppages(String(row.session_id));
     const activeStoppage = stoppages.find((s) => !s.endTime) ?? null;
-    return mapSession(row as any, { activeStoppage, stoppages });
+    const passes = await loadPasses(String(row.session_id));
+    return mapSession(row as any, { activeStoppage, stoppages, passes });
   }
 
   /** Open hold on this mill (Hold queue / StatusRail), if any. */
@@ -490,7 +555,8 @@ export class ManualRerollService {
     }));
   }
 
-  static async startSession(input: {
+  /** Create PREPARING session (hub Move to Preparing). Does not start the mill timer. */
+  static async prepareSession(input: {
     machine: ManualRerollMachine;
     batchNumber: string;
     batchNumbers?: string[];
@@ -526,15 +592,104 @@ export class ManualRerollService {
         operator_id: input.operatorId,
         shift_code: input.shiftCode ?? null,
         reroll_quantity: input.rerollQuantity ?? null,
-        status: 'IN_PROGRESS',
+        status: 'PREPARING',
         remarks: input.remarks?.trim() || null,
         created_by: input.operatorId,
       } as any)
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    fireMachineEvent(input.machine, 'RUNNING_STARTED', eventOptsForSession(row as any));
-    return mapSession(row as any, { activeStoppage: null, stoppages: [] });
+    return mapSession(row as any, { activeStoppage: null, stoppages: [], passes: [] });
+  }
+
+  /** @deprecated Prefer prepareSession + startPreparedSession. Kept for tests / callers that still insert running. */
+  static async startSession(input: {
+    machine: ManualRerollMachine;
+    batchNumber: string;
+    batchNumbers?: string[];
+    orderId?: string | number | null;
+    rerollQuantity?: number | null;
+    remarks?: string;
+    operatorId: number;
+    shiftCode?: string | null;
+  }): Promise<ManualRerollSessionDto> {
+    const prepared = await this.prepareSession(input);
+    return this.startPreparedSession(prepared.sessionId);
+  }
+
+  /** PREPARING → IN_PROGRESS; stamps production start and fires RUNNING_STARTED. */
+  static async startPreparedSession(sessionId: string): Promise<ManualRerollSessionDto> {
+    await ensureManualRerollTable();
+    const current = await this.requireSession(sessionId);
+    if (current.status !== 'PREPARING') throw new Error('SESSION_NOT_PREPARING');
+
+    const activeOrder = await SixHiService.findActiveMachineOrder(current.machine_code as ManualRerollMachine);
+    if (activeOrder) {
+      throw new Error(`ACTIVE_ORDER_CONFLICT:${activeOrder.batchNumber}`);
+    }
+
+    const startTime = new Date();
+    const row = await db
+      .updateTable('txn.manual_reroll_session')
+      .set({ status: 'IN_PROGRESS', start_time: startTime, updated_at: startTime })
+      .where('session_id', '=', sessionId)
+      .where('status', '=', 'PREPARING')
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    fireMachineEvent(current.machine_code, 'RUNNING_STARTED', eventOptsForSession(row as any));
+    const passes = await loadPasses(sessionId);
+    return mapSession(row as any, { activeStoppage: null, stoppages: [], passes });
+  }
+
+  static async updateCapture(
+    sessionId: string,
+    input: {
+      actualWeightMt?: number | null;
+      actualWeightSource?: string | null;
+      actualWeightPhotoHash?: string | null;
+      ocrConfidence?: number | null;
+      ocrRawText?: string | null;
+      passes?: ManualRerollPassDto[];
+    },
+  ): Promise<ManualRerollSessionDto> {
+    await ensureManualRerollTable();
+    const current = await this.requireOpenSession(sessionId);
+    if (current.status === 'ON_HOLD') throw new Error('SESSION_ON_HOLD');
+
+    await db
+      .updateTable('txn.manual_reroll_session')
+      .set({
+        ...(input.actualWeightMt !== undefined ? { actual_weight_mt: input.actualWeightMt } : {}),
+        ...(input.actualWeightSource !== undefined ? { actual_weight_source: input.actualWeightSource } : {}),
+        ...(input.actualWeightPhotoHash !== undefined
+          ? { actual_weight_photo_hash: input.actualWeightPhotoHash }
+          : {}),
+        ...(input.ocrConfidence !== undefined ? { ocr_confidence: input.ocrConfidence } : {}),
+        ...(input.ocrRawText !== undefined ? { ocr_raw_text: input.ocrRawText } : {}),
+        updated_at: new Date(),
+      } as any)
+      .where('session_id', '=', sessionId)
+      .execute();
+
+    if (input.passes) {
+      await db
+        .deleteFrom('txn.manual_reroll_pass')
+        .where('session_id', '=', sessionId)
+        .execute();
+      if (input.passes.length > 0) {
+        await db
+          .insertInto('txn.manual_reroll_pass')
+          .values(input.passes.map((p) => ({
+            session_id: sessionId,
+            pass_no: p.passNo,
+            thickness_mm: p.thicknessMm,
+          })) as any)
+          .execute();
+      }
+    }
+
+    return (await this.getSessionById(sessionId))!;
   }
 
   static async holdSession(sessionId: string, remarks: string): Promise<ManualRerollSessionDto> {
@@ -722,6 +877,8 @@ export class ManualRerollService {
     operatorId: number,
     remarks?: string,
   ): Promise<ManualRerollSessionDto> {
+    const current = await this.requireOpenSession(sessionId);
+    if (current.status === 'PREPARING') throw new Error('SESSION_STILL_PREPARING');
     return this.closeSession(sessionId, operatorId, 'COMPLETED', remarks);
   }
 
@@ -781,10 +938,14 @@ export class ManualRerollService {
 
     if (priorStatus === 'IN_PROGRESS' || priorStatus === 'STOPPAGE') {
       fireMachineEvent(current.machine_code, 'RUNNING_ENDED', eventOptsForSession(current as any));
+      fireMachineEvent(current.machine_code, 'IDLE_STARTED', eventOptsForSession(current as any));
     }
-    fireMachineEvent(current.machine_code, 'IDLE_STARTED', eventOptsForSession(current as any));
 
-    return mapSession(row as any, { stoppages, activeStoppage: null });
+    return mapSession(row as any, {
+      stoppages,
+      activeStoppage: null,
+      passes: await loadPasses(sessionId),
+    });
   }
 
   static async listSessions(machineCode: string): Promise<ManualRerollSessionDto[]> {
@@ -840,7 +1001,8 @@ export class ManualRerollService {
       const sid = String(row.session_id);
       const stoppages = await loadStoppages(sid);
       const activeStoppage = stoppages.find((s) => !s.endTime) ?? null;
-      result.push(mapSession(row as any, { activeStoppage, stoppages }));
+      const passes = await loadPasses(sid);
+      result.push(mapSession(row as any, { activeStoppage, stoppages, passes }));
     }
     return result;
   }
@@ -855,7 +1017,8 @@ export class ManualRerollService {
     if (!row) return null;
     const stoppages = await loadStoppages(sessionId);
     const activeStoppage = stoppages.find((s) => !s.endTime) ?? null;
-    return mapSession(row as any, { activeStoppage, stoppages });
+    const passes = await loadPasses(sessionId);
+    return mapSession(row as any, { activeStoppage, stoppages, passes });
   }
 
   private static async requireSession(sessionId: string) {

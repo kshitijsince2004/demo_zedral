@@ -824,7 +824,8 @@ router.post('/orders/start-combined', requireSixHi('WRITE'), async (req, res) =>
       return res.status(400).json({ error: 'batchNumbers array required' });
     }
     const cleanBatchNumbers = batchNumbers.filter((batch): batch is string => typeof batch === 'string' && batch.trim().length > 0);
-    const orders = await SixHiExecutionService.startCombinedProduction(cleanBatchNumbers, req.user!.id);
+    const mode = req.body?.mode === 'prepare' ? 'prepare' as const : 'start' as const;
+    const orders = await SixHiExecutionService.startCombinedProduction(cleanBatchNumbers, req.user!.id, { mode });
     res.json({ orders });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Start failed';

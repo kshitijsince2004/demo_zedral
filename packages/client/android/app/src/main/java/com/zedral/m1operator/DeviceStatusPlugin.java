@@ -46,6 +46,7 @@ public class DeviceStatusPlugin extends Plugin {
 
             ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
+                // Method 1: Active Network (Modern API)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     Network active = cm.getActiveNetwork();
                     if (active != null) {
@@ -61,12 +62,37 @@ public class DeviceStatusPlugin extends Plugin {
                             }
                         }
                     }
-                } else {
+                }
+                
+                // Method 2: Comprehensive Check (Fallback for "No Internet" WiFi)
+                if (!wifiConnected) {
+                    // Search all networks for any WiFi that is connected
+                    for (Network network : cm.getAllNetworks()) {
+                        NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                            // If it has WiFi transport, check if it's connected using deprecated but useful info
+                            @SuppressWarnings("deprecation")
+                            NetworkInfo info = cm.getNetworkInfo(network);
+                            if (info != null && info.isConnected()) {
+                                wifiConnected = true;
+                                connectionType = "wifi";
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Method 3: Legacy fallback
+                if (!wifiConnected) {
                     @SuppressWarnings("deprecation")
                     NetworkInfo info = cm.getActiveNetworkInfo();
                     if (info != null && info.isConnected()) {
-                        wifiConnected = info.getType() == ConnectivityManager.TYPE_WIFI;
-                        connectionType = info.getTypeName().toLowerCase();
+                        if (info.getType() == ConnectivityManager.TYPE_WIFI) {
+                            wifiConnected = true;
+                            connectionType = "wifi";
+                        } else if (connectionType.equals("none")) {
+                            connectionType = info.getTypeName().toLowerCase();
+                        }
                     }
                 }
             }
@@ -80,6 +106,8 @@ public class DeviceStatusPlugin extends Plugin {
                         Log.d(TAG, "WiFi RSSI: " + rssi);
                     }
                 }
+            } else {
+                Log.d(TAG, "WiFi NOT reported as connected by any method.");
             }
 
             ret.put("wifiConnected", wifiConnected);
@@ -95,7 +123,6 @@ public class DeviceStatusPlugin extends Plugin {
     }
 
     private static int readBatteryLevel(Context ctx) {
-        // Method 1: BatteryManager (Preferred for API 21+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
             if (bm != null) {
@@ -103,8 +130,6 @@ public class DeviceStatusPlugin extends Plugin {
                 if (cap >= 0 && cap <= 100) return cap;
             }
         }
-
-        // Method 2: Sticky Broadcast (Fallback/Legacy)
         try {
             IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
             Intent batteryStatus = ctx.registerReceiver(null, filter);
@@ -118,7 +143,6 @@ public class DeviceStatusPlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "Failed to read battery via broadcast", e);
         }
-        
         return -1;
     }
 
@@ -133,8 +157,6 @@ public class DeviceStatusPlugin extends Plugin {
 
     private static int wifiBarsFromRssi(int rssi, boolean connected) {
         if (!connected) return 0;
-        // RSSI range is typically -100 to -50
-        // We handle -127 as "unknown/bad"
         if (rssi <= -100 || rssi == -127) return 0;
         if (rssi >= -55) return 4;
         if (rssi >= -70) return 3;

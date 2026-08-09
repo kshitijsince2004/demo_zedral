@@ -13,7 +13,7 @@ import {
   rewindingCardToPrefill,
   type RewindingQueueCard,
 } from '../../lib/rewindingQueue';
-import { allocateRwdMachine, startCombinedRwdOrders } from '../../lib/rewindingWrites';
+import { allocateRwdMachine, prepareCombinedRwdOrders } from '../../lib/rewindingWrites';
 import {
   findRwdCompatibleOrders,
   rwdCombinedActionLabel,
@@ -27,6 +27,7 @@ import { ZPageHeader } from '../../components/ui/operator/ZPageHeader';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZBadge } from '../../components/primitives/ZBadge';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { RewindingMachineAllocationModal } from '../../components/rewinding/RewindingMachineAllocationModal';
 
 type StatusFilter = 'ALL' | 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'HOLD' | 'COMPLETED';
@@ -77,7 +78,7 @@ function statusTone(status?: string): 'warning' | 'info' | 'success' | 'destruct
     case 'COMPLETED':
       return 'muted';
     case 'REJECTED':
-      return 'destructive';
+      return 'accent';
     default:
       return 'muted';
   }
@@ -261,7 +262,7 @@ export function TwoHiRewindingHub() {
     try {
       setActionError(null);
       if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
-        await startCombinedRwdOrders(picked.map((c) => c.batchNumber));
+        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
         notifyProductionChanged();
         selectionManual.current = false;
         setSelectedBatches(new Set());
@@ -271,12 +272,14 @@ export function TwoHiRewindingHub() {
         state: {
           prefill: rewindingCardToPrefill(primary),
           batchNumber: primary.batchNumber,
-          orderStatus: primary.status,
+          orderStatus: picked.length > 1 && picked.every((c) => isStartable(c.status))
+            ? 'PREPARING'
+            : primary.status,
           combinedBatchNumbers: picked.length > 1 ? picked.map((c) => c.batchNumber) : undefined,
         },
       });
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Failed to start combined production');
+      setActionError(e instanceof Error ? e.message : 'Failed to prepare combined orders');
     }
   };
 
@@ -444,7 +447,7 @@ export function TwoHiRewindingHub() {
                       {inCombined && productionOrders.length > 1 && (
                         <ZBadge tone="success" label="Combined" />
                       )}
-                      <ZBadge tone={statusTone(status)} label={status} dot={status === 'IN_PROGRESS'} />
+                      <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(status)} dot={status === 'IN_PROGRESS'} />
                     </div>
                   </div>
                   <p className="text-xs mt-2 text-foreground/90 font-mono tabular-nums">
@@ -466,7 +469,7 @@ export function TwoHiRewindingHub() {
               <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Order Details</p>
-                  <ZBadge tone={statusTone(selected.status)} label={selected.status ?? 'PENDING'} />
+                  <ZBadge tone={statusTone(selected.status)} label={formatOrderStatusLabel(selected.status ?? 'PENDING')} />
                 </div>
                 <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">
                   {selected.displayCoilNo}
@@ -565,7 +568,7 @@ export function TwoHiRewindingHub() {
           const primary = picked.find((c) => c.batchNumber === anchorBatch) ?? picked[0] ?? selected;
           if (!primary) return;
           if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
-            await startCombinedRwdOrders(picked.map((c) => c.batchNumber));
+            await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
             notifyProductionChanged();
             selectionManual.current = false;
             setSelectedBatches(new Set());
@@ -575,7 +578,9 @@ export function TwoHiRewindingHub() {
             state: {
               prefill: rewindingCardToPrefill({ ...primary, machineAllocated: true, machineCode: code }),
               batchNumber: primary.batchNumber,
-              orderStatus: primary.status,
+              orderStatus: picked.length > 1 && picked.every((c) => isStartable(c.status))
+                ? 'PREPARING'
+                : primary.status,
               combinedBatchNumbers: picked.length > 1 ? picked.map((c) => c.batchNumber) : undefined,
             },
           });

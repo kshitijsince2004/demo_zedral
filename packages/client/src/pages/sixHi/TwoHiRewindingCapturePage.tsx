@@ -15,6 +15,7 @@ import { useShiftStore } from '../../store/shiftStore';
 import { useAuthStore } from '../../lib/authStore';
 import { apiClient } from '../../lib/apiClient';
 import { notifyProductionChanged } from '../../lib/productionSync';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import {
   addRwdStoppage,
   endRwdOrder,
@@ -260,14 +261,13 @@ export function TwoHiRewindingCapturePage() {
           )}
           <ZBadge
             tone={
-              orderStatus === 'PENDING' || orderStatus === 'HOLD' ? 'accent'
+              orderStatus === 'PENDING' || orderStatus === 'HOLD' || orderStatus === 'REJECTED' ? 'accent'
                 : orderStatus === 'IN_PROGRESS' || orderStatus === 'RUNNING' ? 'success'
                   : orderStatus === 'STOPPAGE' ? 'warning'
                     : orderStatus === 'PREPARING' ? 'info'
-                      : orderStatus === 'REJECTED' ? 'destructive'
-                        : 'muted'
+                      : 'muted'
             }
-            label={orderStatus}
+            label={formatOrderStatusLabel(orderStatus)}
             dot={orderStatus === 'IN_PROGRESS'}
           />
           <ZButton

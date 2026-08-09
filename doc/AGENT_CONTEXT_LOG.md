@@ -2204,28 +2204,28 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** `zod` was only on `@m1/shared-validation`; server imports it directly; prod `npm ci --workspace=packages/server` did not expose it for Node resolution from server dist. Declared direct dep; Dockerfile smoke-requires zod/pg/express after ci.
 - **Follow-ups:** Commit/push; Deploy AWS QA.
 
-### 2026-08-07 — Fix Docker prod zod: lockfile + prune-from-builder
+### 2026-08-07 â Fix Docker prod zod: lockfile + prune-from-builder
 
 - **Goal:** CI Docker build failed `require('zod')` after prior direct-dep patch; QA crash `MODULE_NOT_FOUND`.
 - **Touched:** `Dockerfile`, `package.json`, `package-lock.json`, `packages/server/package.json`, `packages/shared-validation/package.json`, `doc/AGENT_CONTEXT_LOG.md`
 - **Decisions / skipped:** Root cause: lockfile had root `zod@4` as `dev:true` (kysely-codegen/eslint); `npm ci --omit=dev --workspace=server` installed neither root nor `packages/server` zod (only deep puppeteer nest). Fix: root prod dep + override pin `zod@3.25.76`; backend image copies `npm prune --omit=dev` from builder (no second workspace ci). Verified clean temp prod-ci resolves zod 3.25.76. Local full test suite blocked by Windows EBUSY/OneDrive locks on node_modules.
 - **Follow-ups:** CI quality + Docker + Deploy AWS QA on push.
 
-### 2026-08-07 — Align D12 Docker boundary test with prod-deps stage
+### 2026-08-07 â Align D12 Docker boundary test with prod-deps stage
 
-- **Goal:** Fix `packageBoundaries` unit assert still expecting `COPY …/platform/dist` from builder.
+- **Goal:** Fix `packageBoundaries` unit assert still expecting `COPY â¦/platform/dist` from builder.
 - **Touched:** `packages/server/tests/architecture/packageBoundaries.test.ts`, `doc/AGENT_CONTEXT_LOG.md`
 - **Decisions / skipped:** Assert `prod-deps` + full package COPY paths (dist included via prune tree).
 - **Follow-ups:** Commit/push.
 
-### 2026-08-07 — CI mirror + prod-deps prune ignore-scripts
+### 2026-08-07 â CI mirror + prod-deps prune ignore-scripts
 
 - **Goal:** Run full CI quality + backend image locally; fix real Docker fail (`npm prune` esbuild install mismatch).
 - **Touched:** `Dockerfile` (`npm prune --omit=dev --ignore-scripts`), `scripts/run-ci-quality-local.sh`
-- **Decisions / skipped:** Not a smoke-check dodge — prune must not re-run install scripts; builder already has natives. Script mirrors CI quality job in node:20 container.
+- **Decisions / skipped:** Not a smoke-check dodge â prune must not re-run install scripts; builder already has natives. Script mirrors CI quality job in node:20 container.
 - **Follow-ups:** Re-run local CI mirror + backend build; commit/push prune fix.
 
-### 2026-08-07 — Local CI/QA test results (no product patches)
+### 2026-08-07 â Local CI/QA test results (no product patches)
 
 - **Goal:** Exercise CI quality + AWS QA smoke without papering over failures.
 - **Touched:** `scripts/run-ci-quality-local.sh` (cygpath mount + exclude `*.tsbuildinfo`), `scripts/diag-server-build.sh`, `Dockerfile` (already had `--ignore-scripts`)
@@ -2239,118 +2239,286 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** No version bump needed (already 1.2.9 / vc12); API via existing `.env.operator` ? qa.zedral.com; debug-signed (no `ZEDRAL_KEYSTORE_*`); no fleet upload.
 - **Follow-ups:** Sideload APK; smoke CRM Manual Re-Roll, HRS/PKL/ANN operator routes against QA.
 
-### 2026-08-07 — Pipeline reliability plan (Phases 0–5)
+### 2026-08-07 â Pipeline reliability plan (Phases 0â5)
 
 - **Goal:** Implement `PIPELINE_RELIABILITY_PLAN.md` end-to-end in-repo.
 - **Touched:** `.gitattributes`, `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `runner-health.yml`, `dependabot.yml`, `.github/actions/setup-node-npm`, `deploy/lib/common.sh`, `deploy/docker-compose.prod.yml`, `deploy/scripts/drill-rollback.sh`, `doc/MIGRATION_RUNBOOK.md`, `doc/BRANCH_PROTECTION.md`, `package.json` (overrides undici/uuid/xlsx CDN), `package-lock.json`, `vendor/xlsx-0.20.3.tgz`, `packages/server/scripts/{run-migrate,check-migration-order}.mjs`, `e2e/playwright.config.ts`, deploy workflows (Playwright cache/retries)
-- **Decisions / skipped:** xlsx Path A2 (CDN 0.20.3 + vendored tarball), not exceljs rewrite; off-OneDrive / WSL move and long-lived branch collapse left to humans; `gh` absent so branch protection only documented; full Linux lockfile regen aborted (OneDrive docker hangs) — surgical lock patches for undici/xlsx/uuid instead; `--no-check-order` kept for deploy DBs, `MIGRATE_STRICT_ORDER=1` on CI.
-- **Follow-ups:** Move checkout off OneDrive; apply `doc/BRANCH_PROTECTION.md`; run `bash scripts/run-ci-quality-local.sh`; commit/push; watch first PR matrix + migrate down-all; optional Dependabot/gitleaks license for private repos. Fixed `exceljs>uuid` override → nested `exceljs.uuid` (npm rejected `>` key).
+- **Decisions / skipped:** xlsx Path A2 (CDN 0.20.3 + vendored tarball), not exceljs rewrite; off-OneDrive / WSL move and long-lived branch collapse left to humans; `gh` absent so branch protection only documented; full Linux lockfile regen aborted (OneDrive docker hangs) â surgical lock patches for undici/xlsx/uuid instead; `--no-check-order` kept for deploy DBs, `MIGRATE_STRICT_ORDER=1` on CI.
+- **Follow-ups:** Move checkout off OneDrive; apply `doc/BRANCH_PROTECTION.md`; run `bash scripts/run-ci-quality-local.sh`; commit/push; watch first PR matrix + migrate down-all; optional Dependabot/gitleaks license for private repos. Fixed `exceljs>uuid` override â nested `exceljs.uuid` (npm rejected `>` key).
 
 
 
-### 2026-08-07 — Local CI/QA green; commit pipeline reliability
+### 2026-08-07 â Local CI/QA green; commit pipeline reliability
 
 - **Goal:** Run CI quality + Docker + QA health; commit/push pipeline plan work if green.
 - **Touched:** pipeline reliability set (workflows, deploy migrate-before-boot, deps overrides, vendor xlsx, CONTRIBUTING, scripts/run-ci-quality-local.sh)
 - **Decisions / skipped:** Full local mirror PASSED (lint/build/client/unit/integration/arch/migrate up-down-up/docker require smoke). QA curl /health+/login+/api/health 200. Playwright login skipped locally (no SMOKE_* secrets; health request test passed). Excluded dist-operator/capacitor APK churn and AUDIT_REPORT from commit.
 - **Follow-ups:** Watch Actions CI + Deploy AWS QA Playwright (uses repo secrets); apply branch protection; collapse long-lived branches.
 
-### 2026-08-07 — CI_FIX_PLAN: four CI blockers
+### 2026-08-07 â CI_FIX_PLAN: four CI blockers
 
 - **Goal:** Fix integration missing workspace builds, unit DB leak, gitleaks 403, docker-pr chdir ENOENT.
 - **Touched:** .github/workflows/ci.yml, packages/server/tests/handoverDraftJsonb.integration.test.ts (renamed from .test.ts)
 - **Decisions / skipped:** Recommended options only (A/A/A/B absolute chdir). No vite-tsconfig-paths. Verified: unit 539 pass without handoverDraftJsonb; renamed integration test pass; docker absolute chdir pr image ok (relative still ENOENT). Gitleaks permissions only verifiable on GitHub PR.
 - **Follow-ups:** Push/re-run PR CI for secrets job confirmation.
 
-### 2026-08-08 — CI_FIX_PLAN_2: natives, runner-health, audit hygiene
+### 2026-08-08 â CI_FIX_PLAN_2: natives, runner-health, audit hygiene
 
 - **Goal:** Implement CI_FIX_PLAN_2.md (A/B/C + hygiene).
 - **Touched:** .github/workflows/runner-health.yml (contents+administration), .npmrc (fetch retries), scripts/ensure-native-bindings.mjs (esbuild 0.28 + dir present check + install retries), package.json (esbuild/tar/nodemailer overrides, optionalDeps 0.28), package-lock.json (Linux regen), workflows checkout@v5/setup-node@v5/cache@v5, endor/README.md
-- **Decisions / skipped:** A1+A2 landed — ensure-native OK no-op after 
-pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11→all would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept 
+- **Decisions / skipped:** A1+A2 landed â ensure-native OK no-op after 
+pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11âall would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept 
 egen helper scripts deleted after use.
 - **Follow-ups:** Confirm runner-health via workflow_dispatch; staged kysely upgrade PR; clear remaining audit (vitest nested esbuild, kysely, ST/nodemailer hoist).
 
-### 2026-08-08 — CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
+### 2026-08-08 â CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
 
-- **Goal:** Implement CI_FINAL_FIX_PLAN.md — fix lock desync, kysely CVE migration, Dependabot policy, drift guard.
+- **Goal:** Implement CI_FINAL_FIX_PLAN.md â fix lock desync, kysely CVE migration, Dependabot policy, drift guard.
 - **Touched:** package-lock.json, package.json (overrides), packages/server/package.json (kysely 0.28.17, nodemailer), packages/server/src/repositories/BaseRepository.ts, .github/workflows/ci.yml (lockfile job), .github/dependabot.yml (exclude kysely from groups), Dockerfile (drop nested nodemailer 8.x), CI_FINAL_FIX_PLAN.md
 - **Decisions / skipped:** Primary kysely path (not trivyignore). BaseRepository uses (trx as any) for generic table .where under 0.28. Nested ST nodemailer removed at image build. Hygiene lint/Node22 deferred.
 - **Follow-ups:** Watch Trivy on main; close/rebase Dependabot #173/#175 after lock lands.
 
-### 2026-08-08 — Durable CI: 3 workflows, lock/xlsx vendor, Trivy clear
+### 2026-08-08 â Durable CI: 3 workflows, lock/xlsx vendor, Trivy clear
 
 - **Goal:** Collapse Actions to CI + Deploy AWS + Deploy Production; stop Dependabot/runner-health noise; fix Lockfile sync (xlsx) and Trivy HIGH (glob/nodemailer).
 - **Touched:** `.github/workflows/ci.yml` (schedule runners job; delete runner-health), `.github/workflows/runner-health.yml` (deleted), `.github/dependabot.yml`, `package.json`/`packages/server/package.json`/`package-lock.json` (xlsx file:vendor, glob 11.1.0), `Dockerfile` + `scripts/purge-nodemailer-lt9.mjs`, `CONTRIBUTING.md`, `doc/BRANCH_PROTECTION.md`, `vendor/README.md`
 - **Decisions / skipped:** Quality jobs skip on schedule; docker-pr skips dependabot; server xlsx pin `0.20.3` + root `file:vendor` (workspace `file:../../vendor` broke npm path). Local quality mirror PASSED; image has glob@11.1.0 + nodemailer@9.0.5; Trivy CRITICAL/HIGH clean. Did not commit `.github/an` / AUDIT_REPORT.
 - **Follow-ups:** Apply branch protection contexts including Lockfile sync; close stale Dependabot PRs; confirm Actions shows only CI (no runner-health) and QA auto-deploy after main green.
 
-### 2026-08-08 — Rebuild CI from CURSOR_PROMPT_rebuild_ci.md
+### 2026-08-08 â Rebuild CI from CURSOR_PROMPT_rebuild_ci.md
 
 - **Goal:** Fix invalid `administration` permission; rewrite CI/CD workflows cleanly; cut Dependabot noise.
 - **Touched:** `.github/workflows/ci.yml` (rewritten; runners job removed), `deploy-aws.yml`/`deploy-production.yml` (top-level `permissions: contents: read`), `.github/dependabot.yml` (1 npm + 1 actions group), `.github/actionlint.yaml`
-- **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (prompt’s 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
+- **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (promptâs 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
 - **Follow-ups:** Push and confirm CI parses on GitHub; close stale Dependabot PRs.
 
-### 2026-08-08 — QA deploy pull resilience (QA_DEPLOY_FIX_PLAN)
+### 2026-08-08 â QA deploy pull resilience (QA_DEPLOY_FIX_PLAN)
 
 - **Goal:** Stop GHCR pull stalls from aborting AWS QA deploy; shrink backend image pull window.
 - **Touched:** `deploy/lib/common.sh` (per-service pull retry/backoff + GHCR probe), `Dockerfile` (`PUPPETEER_SKIP_DOWNLOAD`), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Option 1+2 only; ECR mirror deferred. PdfRenderer already falls back to HTML without Chromium.
-- **Follow-ups:** Push → CI image rebuild → workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
+- **Follow-ups:** Push â CI image rebuild â workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
 
-### 2026-08-08 — QA #177: image tag split-brain + nginx sticky upstream
+### 2026-08-08 â QA #177: image tag split-brain + nginx sticky upstream
 
 - **Goal:** Fix deploy logging SHA A while running SHA B; nginx unrecreated/unhealthy after backend recreate.
 - **Touched:** `deploy/lib/common.sh` (dedupe upsert, assert_compose_images, docker pull by ref, force-recreate backend+nginx, running-tag assert, nginx health gate), `deploy/nginx.prod.conf` (Docker DNS + variable proxy_pass), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Root cause was Compose env-file/soft-recreate split-brain + static upstream DNS, not pull stalls. ECR mirror still deferred.
 - **Follow-ups:** Re-run Deploy AWS QA after CI builds nginx with new conf; confirm running images == intended SHA and nginx healthy.
 
-### 2026-08-08 — Deploy preflight: CORS_ORIGIN + resolve_repo_root
+### 2026-08-08 â Deploy preflight: CORS_ORIGIN + resolve_repo_root
 
 - **Goal:** Fail fast when CORS_ORIGIN missing/empty; define missing resolve_repo_root used by rollback-images.sh.
 - **Touched:** `deploy/lib/common.sh`
-- **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root — no edit needed. remote-ghcr left as-is.
+- **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root â no edit needed. remote-ghcr left as-is.
 - **Follow-ups:** Set CORS_ORIGIN=https://qa.zedral.com on QA box /opt/zedral/deploy/.env (ops).
 
-### 2026-08-08 — Auto-heal CORS_ORIGIN from WEBSITE_DOMAIN
+### 2026-08-08 â Auto-heal CORS_ORIGIN from WEBSITE_DOMAIN
 
 - **Goal:** Unblock QA #179 fail-fast when CORS_ORIGIN empty but WEBSITE_DOMAIN is set.
 - **Touched:** `deploy/lib/common.sh` (auto_heal), `deploy/.env.production.example`
 - **Decisions / skipped:** Heal only when no non-empty CORS origins; still die if both empty.
 - **Follow-ups:** Re-run Deploy AWS QA.
 
-### 2026-08-08 — Fix Playwright smoke secrets + rollback gate
+### 2026-08-08 â Fix Playwright smoke secrets + rollback gate
 
 - **Goal:** Stop silent 1001 login fails; do not image-rollback on secrets/CDN/UI smoke failures.
 - **Touched:** `e2e/tests/smoke.spec.ts` (seed default 3000; CI requires secrets), `.github/workflows/deploy-aws.yml` (preflight secrets + wait-public-health; rollback only if failure_kind=app)
 - **Decisions / skipped:** Rollback only when public /health fails as app/origin issue, not login flake.
 - **Follow-ups:** Set staging secrets SMOKE_BADGE_ID=3000 and SMOKE_PIN=1234 (or real PIN); re-run Deploy AWS QA.
 
-### 2026-08-08 — QA smoke login: domain sync + seed profiles
+### 2026-08-08 â QA smoke login: domain sync + seed profiles
 
 - **Goal:** Fix Deploy AWS smoke stuck on /login (wrong SuperTokens host and/or missing badge 3000).
 - **Touched:** deploy/lib/common.sh (sync_public_origin, ensure_login_profiles), deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/deploy-aws.yml (pass AWS_PUBLIC_URL/ENSURE_SMOKE_USERS; report no exit 1), e2e/tests/smoke.spec.ts (surface UI error), deploy/.env.production.example
 - **Decisions / skipped:** Seed gated to QA only via ENSURE_SMOKE_USERS=true. Report job stays green when smoke already failed.
 - **Follow-ups:** Staging secrets AWS_PUBLIC_URL=https://qa.zedral.com, SMOKE_BADGE_ID=3000, SMOKE_PIN matching seed; re-run Deploy AWS QA.
 
-### 2026-08-08 — QA seed via node + non-fatal edge/auth checks
+### 2026-08-08 â QA seed via node + non-fatal edge/auth checks
 
 - **Goal:** Fix npm-not-found seed abort/rollback; document QA host edge; warn on public /auth 404.
 - **Touched:** deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, deploy/scripts/post-deploy-setup.sh, deploy/bootstrap-aws-vm.sh, deploy/nginx/host-qa.zedral.com.conf
 - **Decisions / skipped:** Seed + edge check always return 0 / || true under set -e; no Dockerfile/nginx.prod changes.
-- **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com → nginx:80.
+- **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com â nginx:80.
 
-### 2026-08-08 — Fix nginx /auth URI preserve (variable proxy_pass)
+### 2026-08-08 â Fix nginx /auth URI preserve (variable proxy_pass)
 
-- **Goal:** Stop Express 404 on /auth/* caused by variable proxy_pass …/auth/ replacing entire URI.
+- **Goal:** Stop Express 404 on /auth/* caused by variable proxy_pass â¦/auth/ replacing entire URI.
 - **Touched:** deploy/nginx.prod.conf, deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/ci.yml, e2e/tests/smoke.spec.ts
 - **Decisions / skipped:** /api/ unchanged (intentional strip). Auth 404 fails local+public deploy checks. No auth app code changes.
-- **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh → 401 not 404.
+- **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh â 401 not 404.
 
-### 2026-08-08 — Fix nginx /api strip under variable proxy_pass
+### 2026-08-08 â Fix nginx /api strip under variable proxy_pass
 
-- **Goal:** Stop Cannot GET / on /api/* (variable proxy_pass …/; replaced entire URI with /).
+- **Goal:** Stop Cannot GET / on /api/* (variable proxy_pass â¦/; replaced entire URI with /).
 - **Touched:** deploy/nginx.prod.conf (rewrite + proxy_pass), deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, e2e/tests/smoke.spec.ts
 - **Decisions / skipped:** Kept variable upstream for Docker DNS; did not use static upstream. /auth/ unchanged.
-- **Follow-ups:** CI push nginx SHA → Deploy AWS QA recreate zedral-nginx; expect GET /api/shifts/current → 401 not 404.
+- **Follow-ups:** CI push nginx SHA â Deploy AWS QA recreate zedral-nginx; expect GET /api/shifts/current â 401 not 404.
+
+### 2026-08-08  Operator QA APK 1.2.10 (vc13)
+
+- **Goal:** Rebuild operator APK with latest console bundle pointed at QA.
+- **Touched:** `packages/client/android/app/build.gradle` (1.2.10 / vc13), `packages/client/.env.operator` (qa.zedral.com), `dist-operator` + cap sync, `Zedral-Operator-QA-1.2.10-vc13.apk`
+- **Decisions / skipped:** In-tree `gradlew assembleRelease` hit Windows file locks under `C:\dev`; assembled successfully from `C:\temp\zedral-apk-build` mirror. Debug-signed (no `ZEDRAL_KEYSTORE_*`). No HeadWind upload.
+- **Follow-ups:** Sideload APK; badge/PIN smoke against `https://qa.zedral.com`.
+
+### 2026-08-08  Fix AnnChargePage Check import
+
+- **Goal:** Fix Uncaught ReferenceError: Check is not defined on ANN charge page.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Added missing lucide-react `Check` import only.
+- **Follow-ups:** None.
+
+### 2026-08-08  Drop StatusRail produced/target strip
+
+- **Goal:** Remove Produced / shift-target / Stoppage minutes from operator StatusRail on all process profiles.
+- **Touched:** `packages/client/src/components/layout/operator/StatusRail.tsx`
+- **Decisions / skipped:** Kept line/shift, Active Order (CRM), Running/Idle, device/sync, End Shift. Did not move strip elsewhere.
+- **Follow-ups:** None unless shift MT should live on hub pages instead.
+
+### 2026-08-08  APK OPERATOR-only session gate
+
+- **Goal:** Operator APK accepts only OPERATOR role (badge+PIN staff blocked).
+- **Touched:** `packages/client/src/pages/Login.tsx`, `packages/client/src/operator/OperatorApp.tsx`
+- **Decisions / skipped:** UI already operatorOnly; added post-login + SuperTokensSync role check. Web App unchanged.
+- **Follow-ups:** Rebuild operator APK to ship gate.
+
+### 2026-08-08  Audit/fix APK status-bar false-bad ping
+
+- **Goal:** Status bar showed bad despite good Wi-Fi; probe was failing / thresholds too tight.
+- **Touched:** `packages/client/src/lib/supertokens.ts`, `packages/client/src/operator/native/deviceStatus.ts`, `packages/client/src/lib/networkQuality.ts`
+- **Decisions / skipped:** Skip ST intercept on `/health`; cors+omit ping; cold miss=degraded not 5s penalty; good<=800ms / degraded<=2s for Cloudflare QA. No native ICMP.
+- **Follow-ups:** Rebuild operator APK; confirm console `measurePingMs ... success` and label good/degraded not stuck bad.
+
+### 2026-08-09  Fix PpcRollingImportPanel duplicate React keys
+
+- **Goal:** Stop duplicate-key warnings when preview rows share a batch number.
+- **Touched:** `packages/client/src/components/admin/PpcRollingImportPanel.tsx`
+- **Decisions / skipped:** Key rows by `row.rowNum` (already unique). Left selection/commit keyed by `batchNumber` (API contract; dup rows already non-importable). Did not chase preview 401.
+- **Follow-ups:** If preview 401 persists after refresh/login, check auth on `/api/6hi/import/ppc/preview`.
+
+### 2026-08-09  Fix PklCoilForm NaN input value
+
+- **Goal:** Stop React warning `Received NaN for the value attribute` on PKL coil capture.
+- **Touched:** `packages/client/src/components/process/bodies/PklCoilForm.tsx`
+- **Decisions / skipped:** Guard weight + line speed with `Number.isFinite`; ignore incomplete numeric keystrokes (`-`, `.`) instead of storing NaN. No ZInput change.
+- **Follow-ups:** None.
+
+### 2026-08-09  PklCoilForm allow decimal typing
+
+- **Goal:** Operators can type decimal weights/speeds (e.g. `1.5`); prior NaN guard collapsed `1.` via `Number()`.
+- **Touched:** `packages/client/src/components/process/bodies/PklCoilForm.tsx`
+- **Decisions / skipped:** Store weight + line speed as draft strings; parse on submit/cue. Reject non-decimal keystrokes via regex.
+- **Follow-ups:** None.
+
+### 2026-08-09  PKL chart reading form UX fixes
+
+- **Goal:** Chart time read-only; inputs keep focus while typing; Save Reading always visible.
+- **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
+- **Decisions / skipped:** Moved `ChartField` outside component (nested Field remounted every keystroke). Sticky modal footer for Save. Time display only (set on open via `formatPlantTime`).
+- **Follow-ups:** None.
+
+### 2026-08-09  PKL chart date+shift filter
+
+- **Goal:** Default process chart to current running shift; allow date + shift A/B/C to view past readings.
+- **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
+- **Decisions / skipped:** Resolve past logs via `/shift-logs?line=PKL`. Add Reading / save only on live shift. Reused existing shift-logs API (no new endpoint).
+- **Follow-ups:** None.
+
+### 2026-08-09  Fix badge-pin 429 rate limit
+
+- **Goal:** Stop local `/auth/badge-pin` 429 lockouts during login retries.
+- **Touched:** `packages/server/src/middleware/rateLimitMiddleware.ts`, `packages/server/src/routes/authRoutes.ts`, `packages/client/src/pages/Login.tsx`
+- **Decisions / skipped:** Per-middleware rate-limit buckets (shared store was cross-charging routes). Dev badge-pin limit 200/min (prod stays 20). Login shows RFC7807 `detail` for 429.
+- **Follow-ups:** Restart API once to clear in-memory counters from the old keying.
+
+### 2026-08-09  Screen lock idle = 2h all roles
+
+- **Goal:** Screen lock after 2 hours idle for every role.
+- **Touched:** `packages/client/src/lib/authStore.ts`
+- **Decisions / skipped:** Set both default and desk timeouts to 2h (was 15m / 1h).
+- **Follow-ups:** None.
+
+### 2026-08-09  Stop false Session expired on login
+
+- **Goal:** `Session expired. Please sign in again.` was always showing on login.
+- **Touched:** `packages/client/src/components/ProtectedRoute.tsx`, `packages/client/src/pages/Login.tsx`
+- **Decisions / skipped:** ProtectedRoute sends unauthenticated users to `/login` (not `?session=expired`). Only apiClient mid-session 401 still sets expired. Login strips the query after showing once.
+- **Follow-ups:** None.
+
+### 2026-08-09  ANN console stoppage color + History/Orders drawers
+
+- **Goal:** Open stoppage matches End Shift accent; History/Orders panels clearer.
+- **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
+- **Decisions / skipped:** Accent button for Open stoppage + active header Stoppage. Orders/History drawers larger with labeled cards (not dense mono dumps).
+- **Follow-ups:** None.
+
+### 2026-08-09  Fix 2HI session 400 + RWD entry 500
+
+- **Goal:** `POST /machines/handover/2HI/session` 400 and `GET /stations/RWD/entry/...` 500 on 2HI rewinding.
+- **Touched:** `packages/server/src/services/SixHiService.ts`, `packages/server/src/routes/processStationRoutes.ts`
+- **Decisions / skipped:** `getProcessId` falls back `ROLLING`?`CRM` (seed has CRM). RWD entry allows 2HI/RWD machine access when line RWD missing; Forbidden?403 not 500.
+- **Follow-ups:** Restart API and retry 2HI capture.
+
+### 2026-08-09  Combine ? PREPARING (not Start)
+
+- **Goal:** Hub combine groups orders into PREPARING; Start on rail/capture begins production.
+- **Touched:** `packages/client/src/lib/sync/sixHiWrites.ts`, `packages/client/src/lib/rewindingWrites.ts`, `packages/client/src/lib/combinedProductionRun.ts`, `packages/client/src/lib/rwdSiblingSelect.ts`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/components/process/ProcessHub.tsx`
+- **Decisions / skipped:** Hubs call `mode: 'prepare'`; `SixHiLayout` + `TwoHiRewindingCapturePage` keep `mode: 'start'`. Manual re-roll combine unchanged.
+- **Follow-ups:** None.
+
+### 2026-08-09  RWD capture decimal typing
+
+- **Goal:** 2HI/RWD production console rejected mid-decimal entry (`1.` / `1.0`).
+- **Touched:** `packages/client/src/components/process/bodies/RwdTensionForm.tsx`
+- **Decisions / skipped:** Store draft strings in `UnitField`; parse on submit. Same root cause as PKL coil form.
+- **Follow-ups:** None.
+
+### 2026-08-09  Skin pass form grid align
+
+- **Goal:** Align option toggles + inputs; responsive skin-pass console layout.
+- **Touched:** `packages/client/src/components/sixHi/SharedSkinPassForm.tsx`
+- **Decisions / skipped:** Replaced mixed 2/3-col auto-flow with labeled `OptionToggle` + `sm:grid-cols-2` rows. Logic unchanged.
+- **Follow-ups:** None.
+
+### 2026-08-09  Skin Pass form layout cleanup
+
+- **Goal:** Align inputs; shrink Ann Hard / SP Tension / Load / Stretch toggles vs input height.
+- **Touched:** `packages/client/src/components/sixHi/SharedSkinPassForm.tsx`, `packages/client/src/components/sixHi/ActualWeightCaptureField.tsx`
+- **Decisions / skipped:** Compact segmented toggles (h-8); 1?2-col input grids; no visual restyle of brand tokens.
+- **Follow-ups:** None.
+
+### 2026-08-09  Hold status showed REJECTED
+
+- **Goal:** Held orders displayed raw `REJECTED` instead of Order Hold.
+- **Touched:** `packages/client/src/lib/orderLabels.ts`, `packages/client/src/store/processStore.ts`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingCapturePage.tsx`, `packages/client/src/pages/machinehead/RwdMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/rwd/RwdMhCoilDetailPage.tsx`, `packages/client/src/pages/live/LiveDashboard.tsx`, `packages/client/src/components/plant-head/PlantOperationsArea.tsx`, `packages/client/src/components/sixHi/SixHiStatusPill.tsx`
+- **Decisions / skipped:** `formatOrderStatusLabel` is the single display map (HOLD+REJECTED ? Order Hold); internal status code unchanged.
+- **Follow-ups:** None.
+
+### 2026-08-09  Manual Re-Roll prepare + console
+
+- **Goal:** Rolling-parity flow: prepare ? PREPARING ? console (weight/passes) ? Start ? Save/End; overlay only (no CRM mutation).
+- **Touched:** `packages/server/migrations/1974000000000_manual_reroll_preparing_capture.js`, `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `db-types.ts`, `manualRerollService.ts` (client), `manualRerollUi.ts`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `ManualRerollCaptureForm.tsx`, `ManualRerollWorkspaceModal.tsx`, tests
+- **Decisions / skipped:** Destination/ETR/DTR out of scope; capture on session + `manual_reroll_pass`.
+- **Follow-ups:** Run migration `1974000000000` on deploy DBs.
+
+### 2026-08-09  Manual Re-Roll console matches rolling
+
+- **Goal:** Production console shell + compact form match SixHi rolling workspace.
+- **Touched:** `ManualRerollWorkspaceModal.tsx`, `ManualRerollCaptureForm.tsx`, `ManualRerollHub.tsx`
+- **Decisions / skipped:** Destination/ETR/DTR UI parity; weight+passes still the persisted capture. Full-bleed `left-16` shell + rail inside console.
+- **Follow-ups:** Persist destination/tension on session if operators need them after reopen.
+
+### 2026-08-09  Re-roll console: drop tension + order details
+
+- **Goal:** Remove destination/tension/rewinder; show running order details (single + combined).
+- **Touched:** `ManualRerollCaptureForm.tsx`, `ManualRerollWorkspaceModal.tsx`, `ManualRerollHub.tsx`
+- **Decisions / skipped:** Combined strip + side Order Details panel (rolling parity); weight+passes only on save.
+- **Follow-ups:** None.
+
+### 2026-08-09 — Re-roll console: combined + Current Order parity
+
+- **Goal:** Match rolling Combined Production strip and Current Order card for single/combined Manual Re-Roll.
+- **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollWorkspaceModal.tsx`
+- **Decisions / skipped:** Reused `PPCInfoCards` (SKIN_PASS map for Pre-stage/Target + Finish); combined strip mirrors `CombinedProductionOrdersPanel` (Target/Produced/Balance). Skipped untick checkboxes (batches locked at prepare).
+- **Follow-ups:** Wire prepare-time untick only if operators need mid-prepare membership edits.

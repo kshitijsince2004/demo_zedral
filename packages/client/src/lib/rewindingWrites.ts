@@ -24,7 +24,12 @@ export async function allocateRwdMachine(batchNumber: string, machineCode: strin
 }
 
 export async function startCombinedRwdOrders(batchNumbers: string[]) {
-  return apiClient.post('/rewinding/orders/start-combined', { batchNumbers });
+  return apiClient.post('/rewinding/orders/start-combined', { batchNumbers, mode: 'start' });
+}
+
+/** Hub combine — PREPARING + group; capture Start actually runs. */
+export async function prepareCombinedRwdOrders(batchNumbers: string[]) {
+  return apiClient.post('/rewinding/orders/start-combined', { batchNumbers, mode: 'prepare' });
 }
 
 export async function addRwdStoppage(

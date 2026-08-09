@@ -159,7 +159,8 @@ router.post('/orders/start-combined', async (req, res) => {
     for (const batchNo of batchNumbers) {
       if (!(await authorizeOrderBatch(req, res, batchNo))) return;
     }
-    const orders = await RewindingOrderService.startCombinedProduction(batchNumbers, req.user!.id);
+    const mode = req.body?.mode === 'prepare' ? 'prepare' as const : 'start' as const;
+    const orders = await RewindingOrderService.startCombinedProduction(batchNumbers, req.user!.id, { mode });
     res.json({ orders });
   } catch (e) {
     respondError(res, 'rewinding.startCombined', e);

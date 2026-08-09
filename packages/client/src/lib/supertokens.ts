@@ -49,6 +49,10 @@ export function initSuperTokens() {
                   typeof window !== 'undefined' ? window.location.origin : apiDom,
                 );
                 const path = absolute.pathname;
+                // /health is the APK status-bar ping — ST must not wrap it.
+                if (path === '/health') {
+                  return false;
+                }
                 if (path.startsWith('/api') && !path.startsWith('/api/auth')) {
                   return false;
                 }

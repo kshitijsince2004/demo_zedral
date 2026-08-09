@@ -89,22 +89,25 @@ describe('manual reroll helpers', () => {
     expect(rerollCombineKey(a)).not.toBe(rerollCombineKey(d));
   });
 
-  it('buckets STOPPAGE under In Progress and PREPARING under Pending', () => {
+  it('buckets STOPPAGE + session PREPARING under In Progress; CRM PREPARING under Pending', () => {
     expect(matchesRerollStatusFilter('STOPPAGE', 'IN_PROGRESS')).toBe(true);
+    expect(matchesRerollStatusFilter('PREPARING', 'IN_PROGRESS', 'session')).toBe(true);
+    expect(matchesRerollStatusFilter('PREPARING', 'PENDING', 'session')).toBe(false);
     expect(matchesRerollStatusFilter('ON_HOLD', 'ON_HOLD')).toBe(true);
     expect(matchesRerollStatusFilter('PENDING', 'PENDING')).toBe(true);
-    expect(matchesRerollStatusFilter('PREPARING', 'PENDING')).toBe(true);
+    expect(matchesRerollStatusFilter('PREPARING', 'PENDING', 'pending')).toBe(true);
     expect(countRerollFilters([
-      { status: 'PENDING' },
-      { status: 'PREPARING' },
-      { status: 'IN_PROGRESS' },
-      { status: 'STOPPAGE' },
-      { status: 'ON_HOLD' },
-      { status: 'COMPLETED' },
+      { status: 'PENDING', kind: 'pending' },
+      { status: 'PREPARING', kind: 'pending' },
+      { status: 'PREPARING', kind: 'session' },
+      { status: 'IN_PROGRESS', kind: 'session' },
+      { status: 'STOPPAGE', kind: 'session' },
+      { status: 'ON_HOLD', kind: 'session' },
+      { status: 'COMPLETED', kind: 'session' },
     ])).toEqual({
-      ALL: 6,
+      ALL: 7,
       PENDING: 2,
-      IN_PROGRESS: 2,
+      IN_PROGRESS: 3,
       ON_HOLD: 1,
       COMPLETED: 1,
     });

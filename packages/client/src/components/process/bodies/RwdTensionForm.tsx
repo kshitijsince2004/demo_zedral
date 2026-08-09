@@ -12,6 +12,16 @@ function pv<T>(f: unknown): T | undefined {
   return f as T;
 }
 
+/** Keep raw text so "1." / "1.0" survive keystrokes (Number() would collapse them). */
+function isDecimalDraft(raw: string): boolean {
+  return raw === '' || /^\d*(\.\d*)?$/.test(raw);
+}
+
+function parseDraftNum(raw: string): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Unit-suffixed shop-floor input — matches 6HI production capture density. */
 function UnitField({
   label,
@@ -23,8 +33,8 @@ function UnitField({
 }: {
   label: string;
   unit: string;
-  value: number | '';
-  onChange: (v: number | '') => void;
+  value: string;
+  onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
 }) {
@@ -42,14 +52,8 @@ function UnitField({
           placeholder={placeholder}
           value={value}
           onChange={(e) => {
-            const raw = e.target.value.trim();
-            if (raw === '') {
-              onChange('');
-              return;
-            }
-            if (!/^(\d+(\.\d*)?|\.\d*)$/.test(raw)) return;
-            const n = Number(raw);
-            if (Number.isFinite(n)) onChange(n);
+            const raw = e.target.value;
+            if (isDecimalDraft(raw)) onChange(raw);
           }}
           className="flex-1 min-h-14 px-3 text-lg font-mono tabular-nums bg-transparent outline-none touch-manipulation"
         />
@@ -76,11 +80,11 @@ export function RwdTensionForm({
   const planSurface = pv<'M' | 'B'>(prefill.surfaceFinish) ?? null;
   const planSurfaceBlank = planSurface == null;
 
-  const [t1, setT1] = useState<number | ''>('');
-  const [t2, setT2] = useState<number | ''>('');
-  const [t3, setT3] = useState<number | ''>('');
-  const [weightMt, setWeightMt] = useState<number | ''>(planWeight || '');
-  const [observedThk, setObservedThk] = useState<number | ''>('');
+  const [t1, setT1] = useState('');
+  const [t2, setT2] = useState('');
+  const [t3, setT3] = useState('');
+  const [weightMt, setWeightMt] = useState(planWeight ? String(planWeight) : '');
+  const [observedThk, setObservedThk] = useState('');
   // RWD-Q2: operator picks Matt/Bright only when plan surface is blank.
   const [surfacePick, setSurfacePick] = useState<'M' | 'B' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,8 +101,8 @@ export function RwdTensionForm({
       return;
     }
 
-    const capturedWeight = weightMt === '' ? planWeight : Number(weightMt);
-    const outputThkMm = observedThk === '' ? planThk : Number(observedThk);
+    const capturedWeight = weightMt.trim() === '' ? planWeight : parseDraftNum(weightMt);
+    const outputThkMm = observedThk.trim() === '' ? planThk : parseDraftNum(observedThk);
 
     setSubmitting(true);
     try {
@@ -107,9 +111,9 @@ export function RwdTensionForm({
         await captureRwdOrder(batchNumber, {
           weightMt: capturedWeight,
           outputThkMm,
-          rwTension1Kg: t1 === '' ? undefined : Number(t1),
-          rwTension2Kg: t2 === '' ? undefined : Number(t2),
-          rwTension3Kg: t3 === '' ? undefined : Number(t3),
+          rwTension1Kg: t1.trim() === '' ? undefined : parseDraftNum(t1),
+          rwTension2Kg: t2.trim() === '' ? undefined : parseDraftNum(t2),
+          rwTension3Kg: t3.trim() === '' ? undefined : parseDraftNum(t3),
           surfaceFinish: surfaceFinish ?? undefined,
           complete: false,
         });
@@ -122,9 +126,9 @@ export function RwdTensionForm({
           thkMm: planThk,
           weightMt: capturedWeight,
           outputThkMm,
-          rwTension1Kg: t1 === '' ? undefined : Number(t1),
-          rwTension2Kg: t2 === '' ? undefined : Number(t2),
-          rwTension3Kg: t3 === '' ? undefined : Number(t3),
+          rwTension1Kg: t1.trim() === '' ? undefined : parseDraftNum(t1),
+          rwTension2Kg: t2.trim() === '' ? undefined : parseDraftNum(t2),
+          rwTension3Kg: t3.trim() === '' ? undefined : parseDraftNum(t3),
           surfaceFinish: surfaceFinish ?? undefined,
         }, coilNo);
       }

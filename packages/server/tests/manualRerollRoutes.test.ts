@@ -14,17 +14,25 @@ vi.mock('../src/platform/tenantConfig', () => ({
 }));
 
 const mockStart = vi.fn();
+const mockPrepare = vi.fn();
+const mockStartPrepared = vi.fn();
+const mockCapture = vi.fn();
 const mockEnd = vi.fn();
 const mockCancel = vi.fn();
 const mockList = vi.fn();
 const mockActive = vi.fn();
 const mockSummary = vi.fn();
 const mockClaimed = vi.fn(async () => new Set<string>());
+const mockGetById = vi.fn();
 
 vi.mock('../src/services/ManualRerollService', () => ({
   ACTIVE_REROLL_CONFLICT: 'ACTIVE_REROLL_CONFLICT',
   ManualRerollService: {
+    prepareSession: (...args: unknown[]) => mockPrepare(...args),
+    startPreparedSession: (...args: unknown[]) => mockStartPrepared(...args),
     startSession: (...args: unknown[]) => mockStart(...args),
+    updateCapture: (...args: unknown[]) => mockCapture(...args),
+    getSessionById: (...args: unknown[]) => mockGetById(...args),
     endSession: (...args: unknown[]) => mockEnd(...args),
     cancelSession: (...args: unknown[]) => mockCancel(...args),
     listSessions: (...args: unknown[]) => mockList(...args),
@@ -107,7 +115,9 @@ describe('manualRerollRoutes auth matrix', () => {
       grade_code: 'G1',
       ppc_weight_mt: '2.5',
     });
-    mockStart.mockResolvedValue({ sessionId: '1', status: 'IN_PROGRESS' });
+    mockPrepare.mockResolvedValue({ sessionId: '1', status: 'PREPARING', passes: [] });
+    mockStartPrepared.mockResolvedValue({ sessionId: '1', status: 'IN_PROGRESS', passes: [] });
+    mockCapture.mockResolvedValue({ sessionId: '1', status: 'IN_PROGRESS', actualWeightMt: 2.5, passes: [] });
     mockList.mockResolvedValue([]);
     mockActive.mockResolvedValue(null);
     mockClaimed.mockResolvedValue(new Set());
@@ -127,26 +137,43 @@ describe('manualRerollRoutes auth matrix', () => {
     expect(res.status).toBe(403);
   });
 
-  it('allows operator write start', async () => {
+  it('allows operator write prepare', async () => {
     const res = await request(app).post('/manual-reroll/sessions').send({
       machine: '6HI',
       batchNumber: 'B-1',
       rerollQuantity: 1.5,
     });
     expect(res.status).toBe(201);
-    expect(mockStart).toHaveBeenCalled();
+    expect(mockPrepare).toHaveBeenCalled();
+    expect(res.body.status).toBe('PREPARING');
   });
 
-  it('starts without a client weight and uses ppc weight', async () => {
+  it('prepares without a client weight and uses ppc weight', async () => {
     const res = await request(app).post('/manual-reroll/sessions').send({
       machine: '6HI',
       batchNumber: 'B-1',
     });
     expect(res.status).toBe(201);
-    expect(mockStart.mock.calls[0][0].rerollQuantity).toBe(2.5);
+    expect(mockPrepare.mock.calls[0][0].rerollQuantity).toBe(2.5);
   });
 
-  it('allows admin write start', async () => {
+  it('starts a prepared session', async () => {
+    const res = await request(app).post('/manual-reroll/sessions/1/start').send({ machine: '6HI' });
+    expect(res.status).toBe(200);
+    expect(mockStartPrepared).toHaveBeenCalledWith('1');
+  });
+
+  it('saves capture payload', async () => {
+    const res = await request(app).patch('/manual-reroll/sessions/1/capture').send({
+      machine: '6HI',
+      actualWeightMt: 2.5,
+      passes: [{ passNo: 1, thicknessMm: 1.1 }],
+    });
+    expect(res.status).toBe(200);
+    expect(mockCapture).toHaveBeenCalled();
+  });
+
+  it('allows admin write prepare', async () => {
     currentUser = {
       id: 1,
       username: 'admin',
@@ -178,7 +205,7 @@ describe('manualRerollRoutes auth matrix', () => {
       rerollQuantity: 1.5,
     });
     expect(res.status).toBe(403);
-    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockPrepare).not.toHaveBeenCalled();
   });
 
   it('allows machine-head read', async () => {
@@ -210,7 +237,7 @@ describe('manualRerollRoutes auth matrix', () => {
   });
 
   it('maps production conflict to 409', async () => {
-    mockStart.mockRejectedValue(new Error('ACTIVE_ORDER_CONFLICT:LIVE-9'));
+    mockPrepare.mockRejectedValue(new Error('ACTIVE_ORDER_CONFLICT:LIVE-9'));
     const res = await request(app).post('/manual-reroll/sessions').send({
       machine: '6HI',
       batchNumber: 'B-1',
@@ -259,7 +286,7 @@ describe('manualRerollRoutes auth matrix', () => {
     expect(res.body.pending.map((p: { batchNumber: string }) => p.batchNumber)).toEqual(['OPEN-1']);
   });
 
-  it('rejects start when batch already has a completed re-roll session', async () => {
+  it('rejects prepare when batch already has a completed re-roll session', async () => {
     mockClaimed.mockResolvedValue(new Set(['B-1']));
     const res = await request(app).post('/manual-reroll/sessions').send({
       machine: '6HI',
@@ -268,6 +295,6 @@ describe('manualRerollRoutes auth matrix', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/completed Manual Re-Roll/i);
-    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockPrepare).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatPlantTime, plantMinutesOfDay } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
 import { apiClient } from '../../../lib/apiClient';
+import { formatShiftDate } from '../../../lib/dateFormat';
 import { useShiftStore } from '../../../store/shiftStore';
 
 type SpecLimit = {
@@ -68,9 +69,45 @@ function lim(limits: SpecLimit[], key: string, scope: string) {
 
 function s(v: unknown) { return v == null || v === '' ? '' : String(v); }
 
+// ponytail: must live outside PklChartGrid — nested Field remounts every keystroke and steals focus
+function ChartField({
+  label,
+  value,
+  onChange,
+  className,
+  text,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  className: string;
+  text?: boolean;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+      <input
+        className={className}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputMode={text ? 'text' : 'decimal'}
+      />
+    </label>
+  );
+}
+
 /** Process Chart — history by default; entry form opens only via Add Reading. */
 export function PklChartGrid() {
-  const { shiftLogId } = useShiftStore();
+  const liveShiftLogId = useShiftStore((s) => s.shiftLogId);
+  const liveShiftDate = useShiftStore((s) => {
+    const raw = s.detectedShift?.prodDate ?? s.shiftDate;
+    const day = formatShiftDate(raw);
+    return day === '—' ? '' : day;
+  });
+  const liveShiftCode = useShiftStore((s) =>
+    String(s.detectedShift?.shiftCode ?? s.shiftCode).toUpperCase() as 'A' | 'B' | 'C',
+  );
+
   const [chartTime, setChartTime] = useState(formatPlantTime());
   const [labels, setLabels] = useState(['1st', '3rd', '5th', '7th']);
   const [intervalHours, setIntervalHours] = useState(2);
@@ -82,6 +119,16 @@ export function PklChartGrid() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+
+  // Filter: default follows current running shift; user can pick past date+shift
+  const [filterDate, setFilterDate] = useState('');
+  const [filterShift, setFilterShift] = useState<'A' | 'B' | 'C' | ''>('');
+  const [viewShiftLogId, setViewShiftLogId] = useState<string | null>(null);
+  const [followLive, setFollowLive] = useState(true);
+  const [filterMsg, setFilterMsg] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+
+  const isLiveView = Boolean(liveShiftLogId && viewShiftLogId === liveShiftLogId);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -95,16 +142,73 @@ export function PklChartGrid() {
     } catch { /* soft */ }
   }, []);
 
-  const loadHistory = useCallback(async () => {
-    if (!shiftLogId) return;
+  const loadHistory = useCallback(async (logId: string | null) => {
+    if (!logId) {
+      setHistory([]);
+      return;
+    }
     try {
-      const data = await apiClient.get<{ rows: ChartDbRow[] }>(`/stations/pkl/chart/${encodeURIComponent(shiftLogId)}`);
+      const data = await apiClient.get<{ rows: ChartDbRow[] }>(`/stations/pkl/chart/${encodeURIComponent(logId)}`);
       setHistory(data.rows ?? []);
     } catch { setHistory([]); }
-  }, [shiftLogId]);
+  }, []);
+
+  const resolveShiftLog = useCallback(async (date: string, code: string) => {
+    if (!date || !code) {
+      setViewShiftLogId(null);
+      setHistory([]);
+      setFilterMsg('Pick a date and shift');
+      return;
+    }
+    // Current running shift — use live id directly
+    if (liveShiftLogId && date === liveShiftDate && code === liveShiftCode) {
+      setViewShiftLogId(liveShiftLogId);
+      setFollowLive(true);
+      setFilterMsg(null);
+      await loadHistory(liveShiftLogId);
+      return;
+    }
+    setResolving(true);
+    setFilterMsg(null);
+    try {
+      const qs = new URLSearchParams({ line: 'PKL', shiftDate: date, shiftCode: code });
+      const rows = await apiClient.get<Array<{ id: string; processLine?: string; state?: string }>>(
+        `/shift-logs?${qs.toString()}`,
+      );
+      const pkl = rows.find((r) => String(r.processLine ?? '').toUpperCase() === 'PKL') ?? rows[0];
+      if (!pkl?.id) {
+        setViewShiftLogId(null);
+        setHistory([]);
+        setFilterMsg(`No PKL shift log for ${date} · Shift ${code}`);
+        return;
+      }
+      setViewShiftLogId(pkl.id);
+      setFollowLive(false);
+      await loadHistory(pkl.id);
+    } catch (e) {
+      setViewShiftLogId(null);
+      setHistory([]);
+      setFilterMsg(e instanceof Error ? e.message : 'Failed to load shift');
+    } finally {
+      setResolving(false);
+    }
+  }, [liveShiftLogId, liveShiftDate, liveShiftCode, loadHistory]);
+
+  // Default filter = current running shift
+  useEffect(() => {
+    if (!followLive) return;
+    if (liveShiftDate) setFilterDate(liveShiftDate);
+    if (liveShiftCode) setFilterShift(liveShiftCode);
+    if (liveShiftLogId) {
+      setViewShiftLogId(liveShiftLogId);
+      void loadHistory(liveShiftLogId);
+    } else {
+      setViewShiftLogId(null);
+      setHistory([]);
+    }
+  }, [followLive, liveShiftLogId, liveShiftDate, liveShiftCode, loadHistory]);
 
   useEffect(() => { void loadMeta(); }, [loadMeta]);
-  useEffect(() => { void loadHistory(); }, [loadHistory]);
 
   useEffect(() => {
     const tick = () => {
@@ -139,6 +243,7 @@ export function PklChartGrid() {
   function num(v: string) { return v === '' ? undefined : Number(v); }
 
   function openForm() {
+    if (!isLiveView) return;
     setMsg(null);
     setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
     setLine(emptyLine());
@@ -154,11 +259,11 @@ export function PklChartGrid() {
   }
 
   async function saveChart() {
-    if (!shiftLogId) return;
+    if (!liveShiftLogId || !isLiveView) return;
     setSaving(true);
     setMsg(null);
     const payload = {
-      shiftLogId,
+      shiftLogId: liveShiftLogId,
       chartTime,
       tanks: ([1, 2, 3] as const).map((n) => ({
         tankNo: n,
@@ -185,7 +290,7 @@ export function PklChartGrid() {
     try {
       await apiClient.post('/stations/pkl/chart', payload);
       setMsg('Saved');
-      await loadHistory();
+      await loadHistory(liveShiftLogId);
       closeForm();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Save failed');
@@ -197,28 +302,8 @@ export function PklChartGrid() {
   const fieldCls = (val: string, key: string, scope: string) =>
     `w-full min-h-11 rounded-lg border border-input bg-background px-3 text-base font-mono tabular-nums ${cellClass(val, key, scope)}`;
 
-  function Field({
-    label, value, onChange, paramKey, scope, text,
-  }: {
-    label: string;
-    value: string;
-    onChange: (v: string) => void;
-    paramKey?: string;
-    scope?: string;
-    text?: boolean;
-  }) {
-    return (
-      <label className="block space-y-1">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
-        <input
-          className={fieldCls(value, paramKey ?? '', scope ?? 'LINE')}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          inputMode={text ? 'text' : 'decimal'}
-        />
-      </label>
-    );
-  }
+  const filterSelectCls =
+    'h-10 rounded-lg border border-input bg-background px-3 text-sm font-mono';
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-secondary">
@@ -226,27 +311,100 @@ export function PklChartGrid() {
         <div className="flex items-center gap-3 min-w-0">
           <p className="text-base font-bold shrink-0">Process Chart</p>
           <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15">PKL</span>
-          {duePrompt && <span className="text-xs opacity-90">Reading due · every {intervalHours}h</span>}
+          {duePrompt && isLiveView && <span className="text-xs opacity-90">Reading due · every {intervalHours}h</span>}
         </div>
         <ZButton
           type="button"
           variant="secondary"
           className="shrink-0 bg-white text-primary hover:bg-white/90"
           onClick={openForm}
-          disabled={!shiftLogId}
+          disabled={!isLiveView}
+          title={isLiveView ? undefined : 'Switch to current shift to add a reading'}
         >
           Add Reading
         </ZButton>
       </div>
 
+      <div className="shrink-0 flex flex-wrap items-end gap-3 px-4 py-3 border-b border-border bg-card">
+        <label className="block space-y-1">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date</span>
+          <input
+            type="date"
+            className={filterSelectCls}
+            value={filterDate}
+            onChange={(e) => {
+              const next = e.target.value;
+              setFilterDate(next);
+              setFollowLive(false);
+              if (next && filterShift) void resolveShiftLog(next, filterShift);
+            }}
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shift</span>
+          <select
+            className={filterSelectCls}
+            value={filterShift}
+            onChange={(e) => {
+              const next = e.target.value as 'A' | 'B' | 'C' | '';
+              setFilterShift(next);
+              setFollowLive(false);
+              if (filterDate && next) void resolveShiftLog(filterDate, next);
+            }}
+          >
+            <option value="" disabled>Select…</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+          </select>
+        </label>
+        <ZButton
+          type="button"
+          variant="secondary"
+          disabled={followLive && isLiveView}
+          onClick={() => {
+            setFollowLive(true);
+            setFilterMsg(null);
+            if (liveShiftDate) setFilterDate(liveShiftDate);
+            if (liveShiftCode) setFilterShift(liveShiftCode);
+            if (liveShiftLogId) {
+              setViewShiftLogId(liveShiftLogId);
+              void loadHistory(liveShiftLogId);
+            }
+          }}
+        >
+          Current shift
+        </ZButton>
+        <div className="min-w-0 pb-1 text-xs text-muted-foreground">
+          {resolving ? (
+            <span>Loading…</span>
+          ) : isLiveView ? (
+            <span className="text-success font-medium">
+              Current · {filterDate || '—'} · Shift {filterShift || '—'}
+            </span>
+          ) : viewShiftLogId ? (
+            <span>
+              Past · {filterDate || '—'} · Shift {filterShift || '—'} (read only)
+            </span>
+          ) : (
+            <span>{filterMsg ?? 'No shift selected'}</span>
+          )}
+        </div>
+      </div>
+
       <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4">
-        {duePrompt && (
+        {duePrompt && isLiveView && (
           <p className="text-sm bg-info/10 border border-info/30 text-info rounded-lg px-3 py-2">
             Reading due ({labels.join(' / ')}, every {intervalHours}h) — soft reminder.
           </p>
         )}
+        {filterMsg && !isLiveView && (
+          <p className="text-sm bg-warning/10 border border-warning/30 text-warning rounded-lg px-3 py-2">
+            {filterMsg}
+          </p>
+        )}
 
-        {formOpen && (
+        {formOpen && isLiveView && (
           <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
             <button
               type="button"
@@ -254,66 +412,75 @@ export function PklChartGrid() {
               className="fixed inset-0 bg-primary/50"
               onClick={() => { if (!saving) closeForm(); }}
             />
-            <section className="relative z-10 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-2xl space-y-4">
-              <div className="flex items-center justify-between gap-2">
+            <section className="relative z-10 w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+              <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
                 <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">New reading</h2>
                 <ZButton type="button" variant="secondary" onClick={closeForm} disabled={saving}>Cancel</ZButton>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Chart time" value={chartTime} onChange={setChartTime} text />
-                <Field
-                  label="Line incharge"
-                  value={line.lineIncharge}
-                  onChange={(v) => setLine({ ...line, lineIncharge: v })}
-                  text
-                />
-              </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                {([1, 2, 3] as const).map((n) => (
-                  <div key={n} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-                    <p className="text-sm font-bold text-foreground">Tank T{n}</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field label="Level mm" value={tanks[n].level} paramKey="tank_level" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], level: v } })} />
-                      <Field label="Temp °C" value={tanks[n].temp} paramKey="tank_temp" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], temp: v } })} />
-                      <Field label="Acid %" value={tanks[n].acid} paramKey="acid_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], acid: v } })} />
-                      <Field label="Iron %" value={tanks[n].iron} paramKey="iron_strength" scope={`T${n}`} onChange={(v) => setTanks({ ...tanks, [n]: { ...tanks[n], iron: v } })} />
-                    </div>
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="block space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Chart time</span>
+                    <p className="w-full min-h-11 flex items-center rounded-lg border border-border bg-muted/40 px-3 text-base font-mono tabular-nums text-foreground">
+                      {chartTime}
+                    </p>
                   </div>
-                ))}
-              </div>
+                  <ChartField
+                    label="Line incharge"
+                    value={line.lineIncharge}
+                    className={fieldCls(line.lineIncharge, '', 'LINE')}
+                    onChange={(v) => setLine((prev) => ({ ...prev, lineIncharge: v }))}
+                    text
+                  />
+                </div>
 
-              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-                <p className="text-sm font-bold text-foreground">Steam / burner</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Field label="Inlet PRV" value={line.steamInlet} paramKey="steam_inlet" scope="LINE" onChange={(v) => setLine({ ...line, steamInlet: v })} />
-                  <Field label="Out PRV" value={line.steamOutlet} paramKey="steam_outlet" scope="LINE" onChange={(v) => setLine({ ...line, steamOutlet: v })} />
-                  <Field label="Masha" value={line.masha} paramKey="burner_pressure" scope="LINE" onChange={(v) => setLine({ ...line, masha: v })} />
-                  <Field label="Hot air °C" value={line.hotAir} paramKey="hot_air_temp" scope="LINE" onChange={(v) => setLine({ ...line, hotAir: v })} />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  {([1, 2, 3] as const).map((n) => (
+                    <div key={n} className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                      <p className="text-sm font-bold text-foreground">Tank T{n}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <ChartField label="Level mm" value={tanks[n].level} className={fieldCls(tanks[n].level, 'tank_level', `T${n}`)} onChange={(v) => setTanks((prev) => ({ ...prev, [n]: { ...prev[n], level: v } }))} />
+                        <ChartField label="Temp °C" value={tanks[n].temp} className={fieldCls(tanks[n].temp, 'tank_temp', `T${n}`)} onChange={(v) => setTanks((prev) => ({ ...prev, [n]: { ...prev[n], temp: v } }))} />
+                        <ChartField label="Acid %" value={tanks[n].acid} className={fieldCls(tanks[n].acid, 'acid_strength', `T${n}`)} onChange={(v) => setTanks((prev) => ({ ...prev, [n]: { ...prev[n], acid: v } }))} />
+                        <ChartField label="Iron %" value={tanks[n].iron} className={fieldCls(tanks[n].iron, 'iron_strength', `T${n}`)} onChange={(v) => setTanks((prev) => ({ ...prev, [n]: { ...prev[n], iron: v } }))} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <p className="text-sm font-bold text-foreground">Steam / burner</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <ChartField label="Inlet PRV" value={line.steamInlet} className={fieldCls(line.steamInlet, 'steam_inlet', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, steamInlet: v }))} />
+                    <ChartField label="Out PRV" value={line.steamOutlet} className={fieldCls(line.steamOutlet, 'steam_outlet', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, steamOutlet: v }))} />
+                    <ChartField label="Masha" value={line.masha} className={fieldCls(line.masha, 'burner_pressure', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, masha: v }))} />
+                    <ChartField label="Hot air °C" value={line.hotAir} className={fieldCls(line.hotAir, 'hot_air_temp', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, hotAir: v }))} />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <p className="text-sm font-bold text-foreground">Dosage L/min</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <ChartField label="Acid" value={line.dosageAcid} className={fieldCls(line.dosageAcid, '', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, dosageAcid: v }))} />
+                    <ChartField label="Water" value={line.dosageWater} className={fieldCls(line.dosageWater, '', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, dosageWater: v }))} />
+                    <ChartField label="Inhibitor" value={line.dosageInhib} className={fieldCls(line.dosageInhib, '', 'LINE')} onChange={(v) => setLine((prev) => ({ ...prev, dosageInhib: v }))} />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <p className="text-sm font-bold text-foreground">Hot rinse</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <ChartField label="Cl" value={line.rinseCl} className={fieldCls(line.rinseCl, 'rinse_cl', 'RINSE')} onChange={(v) => setLine((prev) => ({ ...prev, rinseCl: v }))} />
+                    <ChartField label="pH" value={line.rinsePh} className={fieldCls(line.rinsePh, 'rinse_ph', 'RINSE')} onChange={(v) => setLine((prev) => ({ ...prev, rinsePh: v }))} />
+                    <ChartField label="Flow" value={line.rinseFlow} className={fieldCls(line.rinseFlow, 'rinse_flow', 'RINSE')} onChange={(v) => setLine((prev) => ({ ...prev, rinseFlow: v }))} />
+                    <ChartField label="Temp °C" value={line.rinseTemp} className={fieldCls(line.rinseTemp, 'rinse_temp', 'RINSE')} onChange={(v) => setLine((prev) => ({ ...prev, rinseTemp: v }))} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Rinse acid % / iron % are entered once at end of shift.</p>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-                <p className="text-sm font-bold text-foreground">Dosage L/min</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <Field label="Acid" value={line.dosageAcid} onChange={(v) => setLine({ ...line, dosageAcid: v })} />
-                  <Field label="Water" value={line.dosageWater} onChange={(v) => setLine({ ...line, dosageWater: v })} />
-                  <Field label="Inhibitor" value={line.dosageInhib} onChange={(v) => setLine({ ...line, dosageInhib: v })} />
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
-                <p className="text-sm font-bold text-foreground">Hot rinse</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Field label="Cl" value={line.rinseCl} paramKey="rinse_cl" scope="RINSE" onChange={(v) => setLine({ ...line, rinseCl: v })} />
-                  <Field label="pH" value={line.rinsePh} paramKey="rinse_ph" scope="RINSE" onChange={(v) => setLine({ ...line, rinsePh: v })} />
-                  <Field label="Flow" value={line.rinseFlow} paramKey="rinse_flow" scope="RINSE" onChange={(v) => setLine({ ...line, rinseFlow: v })} />
-                  <Field label="Temp °C" value={line.rinseTemp} paramKey="rinse_temp" scope="RINSE" onChange={(v) => setLine({ ...line, rinseTemp: v })} />
-                </div>
-                <p className="text-[10px] text-muted-foreground">Rinse acid % / iron % are entered once at end of shift.</p>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border bg-card">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs text-muted-foreground">Out-of-spec cells amber — still saves. Specs advisory only.</p>
                   {msg && <p className="text-sm">{msg}</p>}
@@ -324,7 +491,7 @@ export function PklChartGrid() {
                   size="lg"
                   className="min-w-[16rem] px-12 font-bold ml-auto"
                   onClick={() => void saveChart()}
-                  disabled={saving || !shiftLogId}
+                  disabled={saving || !liveShiftLogId}
                 >
                   {saving ? 'Saving…' : 'Save Reading'}
                 </ZButton>
@@ -336,14 +503,20 @@ export function PklChartGrid() {
         <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
           <div className="sticky top-0 z-10 px-4 py-3 border-b border-border bg-card flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-bold text-foreground">Shift readings</h2>
+              <h2 className="text-sm font-bold text-foreground">
+                {isLiveView ? 'Shift readings' : 'Past shift readings'}
+              </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {stacked.length === 0
-                  ? 'No readings yet'
-                  : `${stacked.length} reading${stacked.length === 1 ? '' : 's'} this shift`}
+                {!viewShiftLogId
+                  ? 'Select date and shift'
+                  : stacked.length === 0
+                    ? 'No readings yet'
+                    : `${stacked.length} reading${stacked.length === 1 ? '' : 's'} · ${filterDate || '—'} · Shift ${filterShift || '—'}`}
               </p>
             </div>
-            <p className="text-xs text-muted-foreground hidden sm:block">Use Add Reading to log the next interval.</p>
+            <p className="text-xs text-muted-foreground hidden sm:block">
+              {isLiveView ? 'Use Add Reading to log the next interval.' : 'Read only — switch to Current shift to add.'}
+            </p>
           </div>
           {stacked.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground text-center">No readings logged this shift yet.</p>

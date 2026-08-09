@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from '../lib/authStore';
-import { pickPrimaryRole } from '@m1/shared-validation';
+import { pickPrimaryRole, UserRole } from '@m1/shared-validation';
 import { Login } from '../pages/Login';
 import { RoleHomeRedirect } from '../components/RoleHomeRedirect';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -57,7 +57,15 @@ function SuperTokensSync() {
     if (session.doesSessionExist) {
       const payload = session.accessTokenPayload as Record<string, unknown>;
       const roles = Array.isArray(payload.roles) ? (payload.roles as string[]) : [];
-      const role = pickPrimaryRole(roles) ?? 'OPERATOR';
+      const role = pickPrimaryRole(roles) ?? UserRole.OPERATOR;
+      // APK is operator-console only — staff badge/PIN or leftover web session must not enter.
+      if (role !== UserRole.OPERATOR) {
+        void (async () => {
+          await logout();
+          window.location.replace('/login?role=denied');
+        })();
+        return;
+      }
       const lines = Array.isArray(payload.lineAccess) ? (payload.lineAccess as string[]) : [];
       const machines = Array.isArray(payload.machineAccess)
         ? (payload.machineAccess as string[])

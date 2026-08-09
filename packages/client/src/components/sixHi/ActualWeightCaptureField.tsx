@@ -18,6 +18,7 @@ export interface ActualWeightCaptureFieldProps {
   prominent?: boolean;
   inputClassName: string;
   hint?: React.ReactNode;
+  className?: string;
 }
 
 /**
@@ -37,6 +38,7 @@ export function ActualWeightCaptureField({
   prominent,
   inputClassName,
   hint,
+  className,
 }: ActualWeightCaptureFieldProps) {
   const native = isNative();
   const minConfidence = resolveOcrMinConfidence(ocrMinConfidence);
@@ -69,6 +71,7 @@ export function ActualWeightCaptureField({
       key={`${ocr.actualWeightSource ?? 'none'}-${ocr.actualWeightPhotoHash ?? 'none'}`}
       label={label}
       prominent={prominent}
+      className={className}
     >
       <div className="flex gap-2 items-stretch">
         <div className="flex-1 min-w-0">

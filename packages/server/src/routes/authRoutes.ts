@@ -34,29 +34,34 @@ function authRouteError(res: import('express').Response, error: unknown) {
   return res.status(500).json({ error: message });
 }
 
-router.post('/badge-pin', rateLimitMiddleware(20, 60_000), async (req, res) => {
-  try {
-    const { badgeId, pin } = req.body;
-    if (!badgeId || !pin) {
-      return res.status(400).json({ error: 'Missing badge ID or PIN' });
+router.post(
+  '/badge-pin',
+  // ponytail: loose in local/dev so login retries don't lock the floor tablet
+  rateLimitMiddleware(process.env.NODE_ENV === 'production' ? 20 : 200, 60_000),
+  async (req, res) => {
+    try {
+      const { badgeId, pin } = req.body;
+      if (!badgeId || !pin) {
+        return res.status(400).json({ error: 'Missing badge ID or PIN' });
+      }
+
+      const user = await validateBadgePin(badgeId, pin);
+      const stUserId = supertokens.convertToRecipeUserId(String(user.id));
+      await Session.createNewSession(req, res, 'public', stUserId, {
+        id: user.id,
+        username: user.username,
+        roles: user.roles,
+        lineAccess: user.lineAccess,
+        lineScopes: user.lineScopes,
+        machineAccess: user.machineAccess,
+      });
+
+      res.json({ ok: true });
+    } catch (error: unknown) {
+      authRouteError(res, error);
     }
-
-    const user = await validateBadgePin(badgeId, pin);
-    const stUserId = supertokens.convertToRecipeUserId(String(user.id));
-    await Session.createNewSession(req, res, 'public', stUserId, {
-      id: user.id,
-      username: user.username,
-      roles: user.roles,
-      lineAccess: user.lineAccess,
-      lineScopes: user.lineScopes,
-      machineAccess: user.machineAccess,
-    });
-
-    res.json({ ok: true });
-  } catch (error: unknown) {
-    authRouteError(res, error);
-  }
-});
+  },
+);
 
 /** Screen unlock — verifies the authenticated user's own PIN. */
 router.post('/verify-pin', requireAuth, rateLimitMiddleware(10, 60_000), async (req, res) => {

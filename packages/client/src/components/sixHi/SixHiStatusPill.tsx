@@ -7,7 +7,7 @@ const STATUS_STYLE: Record<SixHiOrderStatus, { bg: string; text: string }> = {
   IN_PROGRESS: { bg: 'bg-[#FFEDD5]', text: 'text-warning' },
   STOPPAGE: { bg: 'bg-destructive/10', text: 'text-destructive' },
   COMPLETED: { bg: 'bg-secondary', text: 'text-muted-foreground' },
-  REJECTED: { bg: 'bg-destructive/10', text: 'text-destructive' },
+  REJECTED: { bg: 'bg-accent/15', text: 'text-accent-foreground' },
 };
 
 interface SixHiStatusPillProps {

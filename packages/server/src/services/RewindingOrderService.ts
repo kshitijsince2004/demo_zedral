@@ -727,7 +727,9 @@ export class RewindingOrderService {
   static async startCombinedProduction(
     batchNumbers: string[],
     userId: number,
+    opts?: { mode?: 'prepare' | 'start' },
   ): Promise<RwdOrderDetail[]> {
+    const mode = opts?.mode === 'prepare' ? 'prepare' : 'start';
     const unique = Array.from(new Set(batchNumbers.map((b) => b.trim()).filter(Boolean)));
     if (unique.length === 0) throw new Error('At least one order is required');
 
@@ -761,11 +763,6 @@ export class RewindingOrderService {
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
-    const active = await this.findActiveMachineOrder(machineCode);
-    if (active && !unique.includes(active.batchNumber)) {
-      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
-    }
-
     const startRows: Array<{
       batchNumber: string;
       orderId: string;
@@ -789,6 +786,38 @@ export class RewindingOrderService {
       });
     }
 
+    const existingGroupId = startRows.map((r) => r.combinedGroupId).find(Boolean) ?? null;
+    const groupId = unique.length > 1 ? (existingGroupId ?? randomUUID()) : null;
+    const stamp = new Date();
+
+    // Hub combine → PREPARING only; Start on capture actually runs.
+    if (mode === 'prepare') {
+      for (const row of startRows) {
+        if (row.status !== 'PENDING' && row.status !== 'PREPARING') {
+          throw new Error('Only pending or preparing orders can be combined into preparing');
+        }
+      }
+      await db.transaction().execute(async (trx) => {
+        for (const row of startRows) {
+          await trx
+            .updateTable('txn.rwd_order')
+            .set({
+              status: 'PREPARING',
+              updated_at: stamp,
+              ...(groupId ? { combined_group_id: groupId } : {}),
+            })
+            .where('order_id', '=', row.orderId as any)
+            .execute();
+        }
+      });
+      return Promise.all(unique.map((bn) => this.getOrder(bn, userId)));
+    }
+
+    const active = await this.findActiveMachineOrder(machineCode);
+    if (active && !unique.includes(active.batchNumber)) {
+      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    }
+
     const statuses = startRows.map((r) => r.status);
     const isResume =
       statuses.every((s) => s === 'STOPPAGE' || s === 'IN_PROGRESS') &&
@@ -803,9 +832,7 @@ export class RewindingOrderService {
       }
     }
 
-    const startedAt = new Date();
-    const existingGroupId = startRows.map((r) => r.combinedGroupId).find(Boolean) ?? null;
-    const groupId = unique.length > 1 ? (existingGroupId ?? randomUUID()) : null;
+    const startedAt = stamp;
 
     await db.transaction().execute(async (trx) => {
       for (const row of startRows) {

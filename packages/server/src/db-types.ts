@@ -1567,7 +1567,20 @@ export interface TxnManualRerollStoppage {
   updated_at: Generated<Timestamp>;
 }
 
+export interface TxnManualRerollPass {
+  created_at: Generated<Timestamp>;
+  pass_id: Generated<Int8>;
+  pass_no: number;
+  session_id: Int8;
+  tenant_id: Generated<string>;
+  thickness_mm: Numeric;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface TxnManualRerollSession {
+  actual_weight_mt: Numeric | null;
+  actual_weight_photo_hash: string | null;
+  actual_weight_source: string | null;
   batch_number: string | null;
   batch_numbers: string[] | null;
   created_at: Generated<Timestamp>;
@@ -1576,6 +1589,8 @@ export interface TxnManualRerollSession {
   end_time: Timestamp | null;
   machine_code: string;
   machine_type: string;
+  ocr_confidence: Numeric | null;
+  ocr_raw_text: string | null;
   operator_id: number;
   order_id: Int8 | null;
   remarks: string | null;
@@ -1959,6 +1974,7 @@ export interface DB {
   "txn.prod_pkl_chart": TxnProdPklChart;
   "txn.prod_rwd": TxnProdRwd;
   "txn.hrs_order": TxnHrsOrder;
+  "txn.manual_reroll_pass": TxnManualRerollPass;
   "txn.manual_reroll_session": TxnManualRerollSession;
   "txn.manual_reroll_stoppage": TxnManualRerollStoppage;
   "txn.pkl_order": TxnPklOrder;

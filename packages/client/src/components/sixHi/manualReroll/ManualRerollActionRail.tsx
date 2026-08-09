@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Ban, Clock, MessageSquare, Play, Square } from 'lucide-react';
+import { AlertTriangle, Ban, Clock, LayoutPanelLeft, MessageSquare, Play, Square } from 'lucide-react';
 import { getServerTime } from '../../../lib/apiClient';
 import { formatDuration } from '../../../hooks/useLiveTimer';
 import { HOLD_ACTION_LABEL } from '../../../lib/orderLabels';
@@ -16,14 +16,19 @@ interface ManualRerollActionRailProps {
   pendingLabel?: string | null;
   pendingCount?: number;
   pendingWeightMt?: number | null;
+  /** Pending selected — Move to Preparing. */
+  canPrepare?: boolean;
+  /** PREPARING session — Start production. */
   canStart?: boolean;
   busy?: boolean;
   canWrite?: boolean;
+  onPrepare: () => void;
   onStart: () => void;
   onEnd: () => void;
   onHold: () => void;
   onRemark: () => void;
   onStoppage: () => void;
+  onOpenConsole?: () => void;
 }
 
 function RailButton({
@@ -96,29 +101,47 @@ export function ManualRerollActionRail({
   pendingLabel,
   pendingCount = 0,
   pendingWeightMt,
+  canPrepare,
   canStart,
   busy,
   canWrite = true,
+  onPrepare,
   onStart,
   onEnd,
   onHold,
   onRemark,
   onStoppage,
+  onOpenConsole,
 }: ManualRerollActionRailProps) {
   const status = session?.status ?? null;
   const hasActiveStoppage = !!session?.activeStoppage;
+  const preparing = status === 'PREPARING';
   const running = status === 'IN_PROGRESS';
   const stopped = status === 'STOPPAGE' || hasActiveStoppage;
   const held = status === 'ON_HOLD';
-  const open = running || stopped || held;
+  const open = preparing || running || stopped || held;
   const combinedActive = (session?.batchNumbers?.length ?? 0) > 1;
   const combinedPending = !session && pendingCount > 1;
 
-  const machineStatus = stopped ? 'Stopped' : running ? 'Running' : held ? 'Held' : canStart ? 'Ready' : 'Idle';
+  const machineStatus = stopped
+    ? 'Stopped'
+    : running
+      ? 'Running'
+      : held
+        ? 'Held'
+        : preparing
+          ? 'Preparing'
+          : canPrepare
+            ? 'Ready'
+            : 'Idle';
 
   const title = session
     ? (session.batchNumbers?.length ? session.batchNumbers.join(' · ') : session.batchNumber) ?? '—'
     : pendingLabel ?? '—';
+
+  const statusChip = status === 'PREPARING'
+    ? 'PREPARING'
+    : status ?? (canPrepare ? 'PENDING' : 'IDLE');
 
   return (
     <aside
@@ -142,15 +165,21 @@ export function ManualRerollActionRail({
           <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">{title}</p>
         )}
         <span className="inline-block text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-          {status ?? (canStart ? 'PENDING' : 'IDLE')}
+          {statusChip}
         </span>
       </div>
 
       <div className="flex-1 flex flex-col justify-center gap-2 px-2 py-3 min-h-0 overflow-y-auto">
-        {canWrite && canStart && !open && (
+        {canWrite && canPrepare && !open && (
+          <RailButton label="Preparing" icon={Play} onClick={onPrepare} disabled={busy} variant="start" />
+        )}
+        {canWrite && preparing && (
           <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />
         )}
-        {canWrite && open && !held && (
+        {canWrite && open && onOpenConsole && (
+          <RailButton label="Console" icon={LayoutPanelLeft} onClick={onOpenConsole} disabled={busy} />
+        )}
+        {canWrite && open && !held && !preparing && (
           <RailButton label="End" icon={Square} onClick={onEnd} disabled={busy} variant="end" />
         )}
         {canWrite && (running || stopped) && (
@@ -162,7 +191,7 @@ export function ManualRerollActionRail({
             variant={hasActiveStoppage ? 'stoppage' : 'default'}
           />
         )}
-        {canWrite && open && !held && (
+        {canWrite && open && !held && !preparing && (
           <RailButton label="Remark" icon={MessageSquare} onClick={onRemark} disabled={busy} />
         )}
         {canWrite && running && (
@@ -191,7 +220,7 @@ export function ManualRerollActionRail({
               className="font-mono text-lg font-bold text-destructive"
             />
           </div>
-        ) : session && open ? (
+        ) : session && open && !preparing ? (
           <div className="flex flex-col items-center gap-0.5 text-muted-foreground">
             <Clock className="h-3.5 w-3.5" aria-hidden />
             <NetRuntimeText
@@ -212,6 +241,7 @@ export function ManualRerollActionRail({
           machineStatus === 'Running' ? 'bg-primary text-primary-foreground' :
           machineStatus === 'Stopped' ? 'bg-destructive text-destructive-foreground' :
           machineStatus === 'Held' ? 'bg-warning text-white' :
+          machineStatus === 'Preparing' ? 'bg-info text-white' :
           machineStatus === 'Ready' ? 'bg-info text-white' :
           'bg-secondary text-muted-foreground',
         ].join(' ')}>

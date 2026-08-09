@@ -31,6 +31,11 @@ export interface ManualRerollStoppage {
   durationMin: number | null;
 }
 
+export interface ManualRerollPass {
+  passNo: number;
+  thicknessMm: number;
+}
+
 export interface ManualRerollSession {
   sessionId: string;
   orderId: string | null;
@@ -46,6 +51,12 @@ export interface ManualRerollSession {
   startTime: string;
   endTime: string | null;
   durationMin: number | null;
+  actualWeightMt?: number | null;
+  actualWeightSource?: string | null;
+  actualWeightPhotoHash?: string | null;
+  ocrConfidence?: number | null;
+  ocrRawText?: string | null;
+  passes?: ManualRerollPass[];
   activeStoppage?: ManualRerollStoppage | null;
   stoppages?: ManualRerollStoppage[];
 }
@@ -59,6 +70,8 @@ export interface ManualRerollSessionCard {
   status: string;
   machineCode: string;
   weightMt: number | null;
+  actualWeightMt?: number | null;
+  passes?: ManualRerollPass[];
   remarks: string | null;
   startTime: string;
   endTime: string | null;
@@ -133,7 +146,7 @@ export async function searchManualRerollOrders(machine: string, q = ''): Promise
   return res.orders ?? [];
 }
 
-export async function startManualReroll(input: {
+export async function prepareManualReroll(input: {
   machine: string;
   batchNumber: string;
   batchNumbers?: string[];
@@ -142,6 +155,52 @@ export async function startManualReroll(input: {
   remarks?: string;
 }): Promise<ManualRerollSession> {
   return apiClient.post('/manual-reroll/sessions', input);
+}
+
+/** @deprecated Use prepareManualReroll then startPreparedManualReroll. */
+export async function startManualReroll(input: {
+  machine: string;
+  batchNumber: string;
+  batchNumbers?: string[];
+  orderId?: string;
+  rerollQuantity?: number;
+  remarks?: string;
+}): Promise<ManualRerollSession> {
+  return prepareManualReroll(input);
+}
+
+export async function startPreparedManualReroll(
+  sessionId: string,
+  machine: string,
+): Promise<ManualRerollSession> {
+  return apiClient.post(`/manual-reroll/sessions/${encodeURIComponent(sessionId)}/start`, { machine });
+}
+
+export async function saveManualRerollCapture(
+  sessionId: string,
+  machine: string,
+  payload: {
+    actualWeightMt?: number | null;
+    actualWeightSource?: string | null;
+    actualWeightPhotoHash?: string | null;
+    ocrConfidence?: number | null;
+    ocrRawText?: string | null;
+    passes?: ManualRerollPass[];
+  },
+): Promise<ManualRerollSession> {
+  return apiClient.patch(`/manual-reroll/sessions/${encodeURIComponent(sessionId)}/capture`, {
+    machine,
+    ...payload,
+  });
+}
+
+export async function fetchManualRerollSession(
+  sessionId: string,
+  machine: string,
+): Promise<ManualRerollSession> {
+  return apiClient.get(
+    `/manual-reroll/sessions/${encodeURIComponent(sessionId)}?machine=${encodeURIComponent(machine)}`,
+  );
 }
 
 export async function endManualReroll(

@@ -32,41 +32,72 @@ let lastGoodPing: number | null = null;
 let lastPingAt = 0;
 const PING_CACHE_MS = 10_000;
 
-export async function measurePingMs(timeoutMs = 4000): Promise<number | null> {
+export async function measurePingMs(timeoutMs = 6000): Promise<number | null> {
   const now = Date.now();
   if (lastGoodPing !== null && now - lastPingAt < PING_CACHE_MS) {
     return lastGoodPing;
   }
 
   const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-  if (!host) return null;
-  const base = host.endsWith('/api') ? host.slice(0, -4) : host;
-  const healthUrl = `${base}/health`;
+  // APK: VITE_API_URL. Web/dev: same-origin so empty env still probes.
+  const base = host
+    ? host.endsWith('/api')
+      ? host.slice(0, -4)
+      : host
+    : typeof window !== 'undefined'
+      ? window.location.origin
+      : '';
+  if (!base) return null;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const started = performance.now();
-  try {
-    await fetch(healthUrl, {
-      method: 'GET',
-      mode: 'no-cors',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    const duration = Math.max(1, Math.round(performance.now() - started));
-    lastGoodPing = duration;
-    lastPingAt = now;
-    return duration;
-  } catch (err) {
-    console.debug('[measurePingMs] Ping failed', err);
-    // If we have a recent good ping, keep using it for a while even on failure
-    if (lastGoodPing !== null && now - lastPingAt < 30_000) {
-      return lastGoodPing;
+  // Prefer HTTPS; HTTP fallback only for broken device clocks / misconfigured TLS.
+  const urls = [
+    `${base}/health`,
+    base.startsWith('https://') ? `http://${base.slice('https://'.length)}/health` : null,
+  ].filter(Boolean) as string[];
+
+  const globalStart = performance.now();
+
+  for (const healthUrl of urls) {
+    if (performance.now() - globalStart > timeoutMs) break;
+
+    const controller = new AbortController();
+    const attemptTimeout = Math.min(4000, timeoutMs - (performance.now() - globalStart));
+    if (attemptTimeout < 500) break;
+    const timer = setTimeout(() => controller.abort(), attemptTimeout);
+
+    try {
+      const started = performance.now();
+      // cors (not no-cors): opaque responses hid failures and ST used to intercept /health.
+      const res = await fetch(healthUrl, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`health ${res.status}`);
+      }
+      const duration = Math.max(1, Math.round(performance.now() - started));
+      lastGoodPing = duration;
+      lastPingAt = Date.now();
+      console.info(`[measurePingMs] Ping to ${healthUrl} success: ${duration}ms`);
+      return duration;
+    } catch (err) {
+      console.debug(`[measurePingMs] Ping to ${healthUrl} failed`, err);
+    } finally {
+      clearTimeout(timer);
     }
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+
+  // If all attempts failed but we have a very recent good ping (e.g. from 30s ago),
+  // use it as a fallback to avoid flickering the UI to "bad" on a single dropped packet.
+  if (lastGoodPing !== null && Date.now() - lastPingAt < 30_000) {
+    console.info(`[measurePingMs] All attempts failed, using recent good ping: ${lastGoodPing}ms`);
+    return lastGoodPing;
+  }
+  console.warn(`[measurePingMs] All attempts failed. No recent fallback available.`);
+  return null;
 }
 
 export const isAndroidApk = () =>
@@ -111,7 +142,10 @@ export async function readDeviceStatus(): Promise<DeviceStatusSnapshot> {
   }
 
   // Only measure ping if we are not already in a high-frequency loop or if status changed
-  const online = snapshot.wifiConnected || snapshot.connectionType === 'cellular' || snapshot.connectionType === 'ethernet';
+  const online =
+    snapshot.wifiConnected ||
+    snapshot.connectionType === 'cellular' ||
+    snapshot.connectionType === 'ethernet';
   const pingMs = online ? await measurePingMs() : null;
   return { ...snapshot, pingMs };
 }

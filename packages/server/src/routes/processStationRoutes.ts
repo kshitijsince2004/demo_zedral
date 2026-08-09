@@ -6,6 +6,7 @@ import { assertLineOperation } from '../auth/lineAccessPolicy';
 import { ProcessStationService } from '../services/ProcessStationService';
 import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
+import { AuthError } from '../services/authService';
 
 function canEditAnnBase(roles: string[] | undefined) {
   const r = roles ?? [];
@@ -19,6 +20,19 @@ function respondProcessError(res: import('express').Response, e: unknown, fallba
   const msg = e instanceof Error ? e.message : fallback;
   const status = msg.includes('Forbidden') ? 403 : 400;
   return res.status(status).json({ error: msg });
+}
+
+/** RWD capture also runs on 2HI — those operators are machine-scoped (not RWD line). */
+function assertProcessEntryRead(user: import('express').Request['user'], processCode: string) {
+  if (!user) throw new AuthError('Unauthenticated');
+  try {
+    assertLineOperation(user, processCode, 'READ');
+  } catch (e) {
+    if (!(e instanceof AuthError) || processCode.toUpperCase() !== 'RWD') throw e;
+    const machines = (user.machineAccess ?? []).map((m) => String(m).toUpperCase());
+    if (machines.includes('2HI') || machines.includes('RWD')) return;
+    throw e;
+  }
 }
 
 const router = Router();
@@ -725,11 +739,17 @@ router.get('/:process/queue', requireAuth, async (req, res) => {
 router.get('/:process/entry/:coilNo', requireAuth, async (req, res) => {
   try {
     const code = requireProcess(req.params.process);
-    assertLineOperation(req.user!, code, 'READ');
+    assertProcessEntryRead(req.user, code);
     const prefill = await ProcessStationService.getEntryPrefill(code, req.params.coilNo);
     res.json(prefill);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Prefill failed';
+    if (e instanceof AuthError || /Forbidden/i.test(msg)) {
+      return res.status(403).json({ error: msg });
+    }
+    if (/Unknown process/i.test(msg)) {
+      return res.status(400).json({ error: msg });
+    }
     res.status(500).json({ error: msg });
   }
 });
