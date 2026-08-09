@@ -173,7 +173,7 @@ export function ManualRerollActionRail({
         {canWrite && canPrepare && !open && (
           <RailButton label="Preparing" icon={Play} onClick={onPrepare} disabled={busy} variant="start" />
         )}
-        {canWrite && preparing && (
+        {canWrite && canStart && (
           <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />
         )}
         {canWrite && open && onOpenConsole && (

@@ -200,10 +200,6 @@ export function ManualRerollWorkspaceModal({
   const [detailBatch, setDetailBatch] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !session) {
-      setDetailBatch(null);
-      return;
-    }
     setDetailBatch(null);
   }, [open, session?.sessionId, isCombined]);
 
