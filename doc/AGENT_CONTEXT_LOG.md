@@ -2543,3 +2543,10 @@ egen helper scripts deleted after use.
 - **Touched:** `seed-pilot-users.mjs`, `deploy/lib/common.sh`, `e2e/tests/smoke.spec.ts`, `Login.tsx`, `deploy-aws.yml`
 - **Decisions / skipped:** Drop dotenv (compose injects env); default PIN 5678.
 - **Follow-ups:** Set staging secret `SMOKE_PIN=5678` (exact 4 digits).
+
+### 2026-08-09 — Seed as owner (MIGRATE_DATABASE_URL)
+
+- **Goal:** QA seed 42501 RLS on `security.role` — was connecting as `m1_app`.
+- **Touched:** `scripts/lib/database-url.mjs` (`resolveOwnerDatabaseUrl`), `seed-login-profiles.mjs`, `seed-pilot-users.mjs`, `seed-admin/supervisor/quality/machines/planner.mjs`
+- **Decisions / skipped:** Prefer `MIGRATE_DATABASE_URL` / `DB_USER` owner; refuse `m1_app` URL in login-profiles; seed stays fatal.
+- **Follow-ups:** None.

@@ -4,9 +4,9 @@
  * Usage: npm run seed:quality  (from packages/server)
  */
 import { seedPilotUsers } from './seed-pilot-users.mjs';
-import { resolveDatabaseUrl } from './lib/database-url.mjs';
+import { resolveOwnerDatabaseUrl } from './lib/database-url.mjs';
 
-const PRIMARY_URL = resolveDatabaseUrl();
+const PRIMARY_URL = resolveOwnerDatabaseUrl();
 
 async function main() {
   console.log('=== Zedral Quality Seed ===\n');

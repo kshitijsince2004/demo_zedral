@@ -3,16 +3,16 @@
  * Seeds pilot users (badge/PIN/roles) + machines.
  * Default PIN 5678 (override with SEED_PIN). Idempotent.
  *
- * Prod image has no dotenv — rely on compose-injected env (DATABASE_URL / DB_*).
+ * Prod image has no dotenv — rely on compose-injected env (MIGRATE_DATABASE_URL / DB_*).
  */
 import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
 import supertokens from 'supertokens-node';
 import EmailPassword from 'supertokens-node/recipe/emailpassword/index.js';
-import { resolveDatabaseUrl } from './lib/database-url.mjs';
+import { resolveOwnerDatabaseUrl } from './lib/database-url.mjs';
 import { seedMachines } from './seed-machines.mjs';
 
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = resolveOwnerDatabaseUrl();
 
 supertokens.init({
   framework: 'express',

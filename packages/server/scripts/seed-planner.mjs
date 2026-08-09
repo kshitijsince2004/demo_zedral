@@ -7,15 +7,11 @@ import pg from 'pg';
 import { scryptSync, randomBytes } from 'node:crypto';
 import supertokens from 'supertokens-node';
 import EmailPassword from 'supertokens-node/recipe/emailpassword/index.js';
-import { resolveDatabaseUrl } from './lib/database-url.mjs';
-import dotenv from 'dotenv';
-import path from 'path';
+import { resolveOwnerDatabaseUrl } from './lib/database-url.mjs';
 
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = resolveOwnerDatabaseUrl();
 const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD || 'Password123!';
-const PIN = process.env.SEED_PIN || '1234';
+const PIN = String(process.env.SEED_PIN || '5678').trim();
 const EMAIL = 'planning@zedral.local';
 const USERNAME = 'planning';
 const EMP_CODE = '4600';

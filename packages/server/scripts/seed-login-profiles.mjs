@@ -11,13 +11,18 @@
  *   docker compose -f deploy/docker-compose.prod.yml exec backend npm run seed:profiles
  */
 import { seedPilotUsers } from './seed-pilot-users.mjs';
-import { resolveDatabaseUrl } from './lib/database-url.mjs';
+import { resolveOwnerDatabaseUrl } from './lib/database-url.mjs';
 
-const PRIMARY_URL = resolveDatabaseUrl();
+const PRIMARY_URL = resolveOwnerDatabaseUrl();
 
 async function main() {
   console.log('=== Zedral Login Profiles + Machines Seed ===\n');
   console.log(`Database: ${PRIMARY_URL.replace(/:[^:@]+@/, ':***@')}\n`);
+  if (/\/\/m1_app[:@]/.test(PRIMARY_URL)) {
+    throw new Error(
+      'Seed refused m1_app URL (RLS). Set MIGRATE_DATABASE_URL to the bootstrap owner (m1_user).',
+    );
+  }
 
   const { pin, staffPassword, users } = await seedPilotUsers(PRIMARY_URL);
 

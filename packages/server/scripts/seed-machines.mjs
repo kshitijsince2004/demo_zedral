@@ -4,9 +4,9 @@
  * Safe to run on fresh production DB after migrations.
  */
 import pg from 'pg';
-import { resolveDatabaseUrl } from './lib/database-url.mjs';
+import { resolveOwnerDatabaseUrl } from './lib/database-url.mjs';
 
-const DEFAULT_URL = resolveDatabaseUrl();
+const DEFAULT_URL = resolveOwnerDatabaseUrl();
 
 /** @param {pg.Client | pg.PoolClient} client */
 export async function seedMachines(client) {
