@@ -80,7 +80,7 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'st-auth-mode': 'header' },
       credentials: 'include',
-      body: JSON.stringify({ badgeId: badge, pin: pinValue }),
+      body: JSON.stringify({ badgeId: badge.trim(), pin: pinValue.trim() }),
     });
     let body: { error?: string; detail?: string } | null = null;
     try {

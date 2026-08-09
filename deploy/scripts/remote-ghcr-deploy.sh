@@ -59,8 +59,9 @@ fi
 export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE
 run_stack_deploy
 verify_deployment_health
-# Seed is non-fatal; public /auth 404 fails deploy (routing regression through CDN→nginx).
-ensure_login_profiles || true
+# QA: seed badge 3000 then prove /auth/badge-pin accepts SMOKE_* (fatal — smoke cannot pass otherwise).
+ensure_login_profiles
+assert_smoke_badge_login
 assert_public_auth_routes
 record_successful_deploy
 log "remote-ghcr-deploy finished OK"

@@ -2522,3 +2522,17 @@ egen helper scripts deleted after use.
 - **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollWorkspaceModal.tsx`
 - **Decisions / skipped:** Reused `PPCInfoCards` (SKIN_PASS map for Pre-stage/Target + Finish); combined strip mirrors `CombinedProductionOrdersPanel` (Target/Produced/Balance). Skipped untick checkboxes (batches locked at prepare).
 - **Follow-ups:** Wire prepare-time untick only if operators need mid-prepare membership edits.
+
+### 2026-08-09 — Fix Manual Re-Roll lint errors
+
+- **Goal:** Unblock CI eslint on unused `canStart` and useEffect deps.
+- **Touched:** `ManualRerollActionRail.tsx`, `ManualRerollWorkspaceModal.tsx`
+- **Decisions / skipped:** Gate Start on `canStart`; reset detail batch without referencing full `session`.
+- **Follow-ups:** None.
+
+### 2026-08-09 — Fix QA smoke Invalid badge or PIN
+
+- **Goal:** Staging Playwright login failed with Invalid badge or PIN; QA `3000/1234` also 401.
+- **Touched:** `seed-pilot-users.mjs`, `authService.ts`, `Login.tsx`, `e2e/tests/smoke.spec.ts`, `deploy/lib/common.sh`, `remote-ghcr-deploy.sh`, `deploy-aws.yml`
+- **Decisions / skipped:** Trim PIN/badge everywhere (secret newlines); fatal QA seed + post-seed/public badge-pin assert; keep rollback semantics for config failures.
+- **Follow-ups:** Confirm staging `SMOKE_BADGE_ID=3000` and `SMOKE_PIN` is exactly 4 digits (no quotes/newline).

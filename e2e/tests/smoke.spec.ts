@@ -2,14 +2,21 @@ import { test, expect, type Page } from '@playwright/test';
 
 // Seeded pilot operator is emp_code 3000 / PIN 1234 (seed-pilot-users.mjs).
 // CI must set SMOKE_BADGE_ID + SMOKE_PIN explicitly (workflow fail-fast); no bogus 1001.
+// Trim — GitHub secrets often include a trailing newline that breaks /^\d{4}$/ PIN checks.
 const isCi = Boolean(process.env.CI);
-const badge = process.env.SMOKE_BADGE_ID || (isCi ? '' : '3000');
-const pin = process.env.SMOKE_PIN || (isCi ? '' : '1234');
+const badge = (process.env.SMOKE_BADGE_ID || (isCi ? '' : '3000')).trim();
+const pin = (process.env.SMOKE_PIN || (isCi ? '' : '1234')).trim();
 
-if (!badge.trim() || !pin.trim()) {
+if (!badge || !pin) {
   throw new Error(
     'SMOKE_BADGE_ID and SMOKE_PIN are required (seeded badge e.g. 3000 / PIN 1234). ' +
       'Empty secrets used to fall back to 1001 which is not a seeded user.',
+  );
+}
+if (!/^\d{4}$/.test(pin)) {
+  throw new Error(
+    `SMOKE_PIN must be exactly 4 digits after trim (got length=${pin.length}). ` +
+      'Remove quotes/newlines from the staging secret.',
   );
 }
 

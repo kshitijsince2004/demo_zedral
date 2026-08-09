@@ -245,13 +245,19 @@ sync_public_origin() {
 }
 
 # Ensure seeded pilot login profiles exist (badge 3000 etc.). Gated — QA only.
-# Non-fatal: seed failure must not fail deploy or trigger rollback of a healthy stack.
 # Prod image has no npm — call node scripts directly (WORKDIR /app/packages/server).
+# When ENSURE_SMOKE_USERS=true, seed failure is fatal (smoke cannot pass without badge 3000).
 ensure_login_profiles() {
   if [ "${ENSURE_SMOKE_USERS:-false}" != "true" ]; then
     return 0
   fi
-  local pin="${SEED_PIN:-${SMOKE_PIN:-1234}}"
+  # Trim CR/LF/spaces — GitHub secrets often include a trailing newline.
+  local pin
+  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-1234}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if ! printf '%s' "${pin}" | grep -Eq '^[0-9]{4}$'; then
+    echo "::error::SMOKE_PIN/SEED_PIN must be exactly 4 digits after trim (got length=${#pin})"
+    return 1
+  fi
   log "Ensuring pilot login profiles (SEED_PIN set, node scripts/seed-login-profiles.mjs)…"
   if compose exec -T -e SEED_PIN="${pin}" backend node scripts/seed-login-profiles.mjs; then
     log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
@@ -262,8 +268,36 @@ ensure_login_profiles() {
     log "Pilot login profiles ready (operator badge 3000 / PIN from SEED_PIN)"
     return 0
   fi
-  echo "::warning::seed:profiles failed — smoke login may fail, stack left running"
-  log "WARNING: seed:profiles failed — smoke login may fail, stack left running (no rollback)"
+  echo "::error::seed:profiles failed — cannot run smoke without badge 3000"
+  log "ERROR: seed:profiles failed"
+  return 1
+}
+
+# After seed: prove badge+PIN works through nginx (catches PIN/secret drift before Playwright).
+assert_smoke_badge_login() {
+  if [ "${ENSURE_SMOKE_USERS:-false}" != "true" ]; then
+    return 0
+  fi
+  local badge pin http_port base code body
+  badge="$(printf '%s' "${SMOKE_BADGE_ID:-3000}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  pin="$(printf '%s' "${SEED_PIN:-${SMOKE_PIN:-1234}}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  http_port="${HTTP_PORT:-80}"
+  base="http://127.0.0.1:${http_port}"
+  body="$(mktemp)"
+  code="$(curl -sS -o "${body}" -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' \
+    -H 'st-auth-mode: header' \
+    --data "{\"badgeId\":\"${badge}\",\"pin\":\"${pin}\"}" \
+    --max-time 20 \
+    "${base}/auth/badge-pin" 2>/dev/null || echo "000")"
+  if [ "${code}" != "200" ]; then
+    echo "::error::Smoke badge-pin login failed (HTTP ${code}) for badge=${badge}. Body: $(head -c 200 "${body}" 2>/dev/null || true)"
+    echo "::error::Re-check staging secrets SMOKE_BADGE_ID/SMOKE_PIN (4-digit PIN, no newline) and seed logs."
+    rm -f "${body}"
+    return 1
+  fi
+  rm -f "${body}"
+  log "Smoke badge-pin OK: badge=${badge} → HTTP 200"
   return 0
 }
 

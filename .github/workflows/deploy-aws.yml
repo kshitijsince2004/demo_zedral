@@ -168,12 +168,13 @@ jobs:
           AWS_PUBLIC_URL: ${{ secrets.AWS_PUBLIC_URL }}
           PUBLIC_BASE_URL: ${{ secrets.AWS_PUBLIC_URL }}
           ENSURE_SMOKE_USERS: 'true'
+          SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
         run: |
           set -euo pipefail
           export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE \
                  APP_BASE="${APP_DIR}" RUN_BACKUP=false \
-                 AWS_PUBLIC_URL PUBLIC_BASE_URL ENSURE_SMOKE_USERS SMOKE_PIN
+                 AWS_PUBLIC_URL PUBLIC_BASE_URL ENSURE_SMOKE_USERS SMOKE_BADGE_ID SMOKE_PIN
           bash "${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh"
 
       - name: Local health check (curl /health)
@@ -263,12 +264,33 @@ jobs:
             echo "::error::Use a seeded pilot badge (e.g. 3000) and PIN (default seed PIN 1234). Do not leave empty — there is no safe 1001 default."
             exit 1
           fi
+          # GitHub secret UI often appends a newline — strip before Playwright + length check.
+          SMOKE_BADGE_ID="$(printf '%s' "${SMOKE_BADGE_ID}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          SMOKE_PIN="$(printf '%s' "${SMOKE_PIN}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          export SMOKE_BADGE_ID SMOKE_PIN
+          if ! printf '%s' "${SMOKE_PIN}" | grep -Eq '^[0-9]{4}$'; then
+            echo "::error::SMOKE_PIN must be exactly 4 digits after trim (got length=${#SMOKE_PIN})."
+            exit 1
+          fi
 
           host="$(printf '%s' "${BASE_URL}" | sed -E 's#^https?://##; s#/.*##')"
           echo "Smoke target: ${host} (badge=${SMOKE_BADGE_ID})"
           # Overwrites rollback_safe / failure_kind (cdn → false; app /health fail → true+app).
           bash deploy/scripts/wait-public-health.sh
 
+          # Fail fast if public badge-pin rejects the same secrets Playwright will use.
+          code="$(curl -sS -o /tmp/smoke-badge.json -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -H 'st-auth-mode: header' \
+            --data "{\"badgeId\":\"${SMOKE_BADGE_ID}\",\"pin\":\"${SMOKE_PIN}\"}" \
+            --max-time 20 \
+            "${BASE_URL%/}/auth/badge-pin" || echo 000)"
+          if [ "${code}" != "200" ]; then
+            echo "::error::Public badge-pin login failed (HTTP ${code}) before Playwright."
+            echo "::error::Body: $(head -c 240 /tmp/smoke-badge.json 2>/dev/null || true)"
+            echo "failure_kind=config" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Public badge-pin OK (HTTP 200)"
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:

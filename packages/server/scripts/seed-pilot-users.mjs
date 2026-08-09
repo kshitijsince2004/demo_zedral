@@ -64,7 +64,8 @@ const USERS = [
   { username: 'quality', emp_code: '7000', full_name: 'Quality Engineer', role_id: 6, lines: [], machines: [], staff: true },
 ];
 
-const PIN = process.env.SEED_PIN || '1234';
+// Trim — GitHub Actions secrets often include a trailing newline.
+const PIN = String(process.env.SEED_PIN || '1234').trim();
 
 function staffEmail(username) {
   return `${username}@zedral.local`;
@@ -106,6 +107,13 @@ async function seedRoles(client) {
 }
 
 export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
+  if (!/^\d{4}$/.test(PIN)) {
+    throw new Error(
+      `SEED_PIN must be exactly 4 digits after trim (got length=${PIN.length}). ` +
+        'Check SMOKE_PIN / SEED_PIN for trailing whitespace or newlines.',
+    );
+  }
+
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
 

@@ -178,11 +178,13 @@ export async function verifySupervisorOverridePin(
 }
 
 export const validateBadgePin = async (badgeId: string, pin: string): Promise<AuthUser> => {
-  if (!badgeId?.trim() || !pin?.trim()) {
+  const badge = badgeId?.trim() ?? '';
+  const cleanPin = pin?.trim() ?? '';
+  if (!badge || !cleanPin) {
     throw new AuthError('Missing badge ID or PIN');
   }
 
-  if (!/^\d{4}$/.test(pin)) {
+  if (!/^\d{4}$/.test(cleanPin)) {
     throw new AuthError('Invalid badge or PIN');
   }
 
@@ -190,7 +192,7 @@ export const validateBadgePin = async (badgeId: string, pin: string): Promise<Au
   try {
     user = await db.selectFrom('security.app_user')
       .select(['user_id', 'username', 'status', 'pin_hash'])
-      .where('emp_code', '=', badgeId.trim())
+      .where('emp_code', '=', badge)
       .executeTakeFirst();
   } catch (err) {
     if (isDbConnectionError(err)) {
@@ -205,7 +207,7 @@ export const validateBadgePin = async (badgeId: string, pin: string): Promise<Au
     throw new AuthError('Invalid badge or PIN');
   }
 
-  const pinValid = await verifyUserPin(pin, user);
+  const pinValid = await verifyUserPin(cleanPin, user);
   if (!pinValid) {
     throw new AuthError('Invalid badge or PIN');
   }
