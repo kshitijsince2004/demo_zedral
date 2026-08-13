@@ -3175,3 +3175,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Stop calling `assert_docker_daemon` on every failed pull (that skipped backoff). Fail-fast only on socket or permanent GHCR errors. Resolve job now inspects both SHA tags. Re-login with `GHCR_USER`/`GHCR_TOKEN` before pull. Did not add ECR.
 - **Follow-ups:** Push this, wait for CI docker-build-push, then Deploy AWS QA.
 
+### 2026-08-13 — QA #198 seed duplicate username
+
+- **Goal:** Deploy #198 pulled `3a2609e`, migrated, health-checked, then died on `seed-login-profiles` (`app_user_username_key` / `machinehead.ann`).
+- **Touched:** `packages/server/scripts/seed-pilot-users.mjs`
+- **Decisions / skipped:** Lookup by `emp_code OR username` (prefer username). Update sets username/emp_code. Did not change deploy health/pull. Did not mix unrelated dirty tree.
+- **Follow-ups:** Commit + push this script, wait for CI docker-build-push, re-run Deploy AWS QA.
+

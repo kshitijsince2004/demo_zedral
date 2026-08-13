@@ -130,9 +130,13 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
   const userIds = {};
 
   for (const u of USERS) {
+    // Username is unique; emp_code can be null/stale (QA #198: machinehead.ann existed, 4001 did not).
     const existing = await client.query(
-      `SELECT user_id, supertokens_user_id FROM security.app_user WHERE emp_code = $1`,
-      [u.emp_code],
+      `SELECT user_id, supertokens_user_id FROM security.app_user
+       WHERE emp_code = $1 OR username = $2
+       ORDER BY (username = $2) DESC
+       LIMIT 1`,
+      [u.emp_code, u.username],
     );
 
     let userId;
@@ -148,8 +152,9 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
           `UPDATE security.app_user
            SET supertokens_user_id = NULL
            WHERE supertokens_user_id = $1
-             AND emp_code IS DISTINCT FROM $2`,
-          [stUserId, u.emp_code],
+             AND emp_code IS DISTINCT FROM $2
+             AND username IS DISTINCT FROM $3`,
+          [stUserId, u.emp_code, u.username],
         );
       }
     }
@@ -157,11 +162,17 @@ export async function seedPilotUsers(databaseUrl = DATABASE_URL) {
     if (existing.rows.length > 0) {
       userId = existing.rows[0].user_id;
       await client.query(
+        `UPDATE security.app_user SET emp_code = NULL
+         WHERE emp_code = $1 AND user_id <> $2`,
+        [u.emp_code, userId],
+      );
+      await client.query(
         `UPDATE security.app_user
-         SET pin_hash = $1, status = 'ACTIVE', pin_failed_attempts = 0, pin_locked_until = NULL,
+         SET username = $4, full_name = $5, emp_code = $6,
+             pin_hash = $1, status = 'ACTIVE', pin_failed_attempts = 0, pin_locked_until = NULL,
              supertokens_user_id = COALESCE($3, supertokens_user_id)
          WHERE user_id = $2`,
-        [pinHash, userId, stUserId],
+        [pinHash, userId, stUserId, u.username, u.full_name, u.emp_code],
       );
       console.log(`Updated user ${u.emp_code} (${u.username})${u.staff ? ` → ${staffEmail(u.username)}` : ''}`);
     } else {
