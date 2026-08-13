@@ -26,7 +26,6 @@ import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/share
 import { MachineStateEventService } from './MachineStateEventService';
 import { earlierShiftCodesOnSameDay } from './sixHi/shiftCycle';
 import {
-  ensureOrderMachineTransferTable,
   loadRecentOrderMachineTransfersGlobal,
   recordOrderMachineTransfer,
 } from './orderMachineTransferAudit';
@@ -802,7 +801,6 @@ export class SixHiService {
     }
 
     await this.ensureOrder(batchNumber, userId);
-    await ensureOrderMachineTransferTable();
 
     await db.transaction().execute(async (trx) => {
       const maxSeq = await trx.selectFrom('planning.ppc_batch')
