@@ -2,36 +2,6 @@ import { sql, type Transaction } from 'kysely';
 import { db } from '../db';
 import type { DB } from '../db-types';
 
-let ensurePromise: Promise<void> | null = null;
-
-/** Idempotent — safe if migration 1802000000000 was not applied yet. */
-export async function ensureOrderMachineTransferTable(): Promise<void> {
-  if (!ensurePromise) {
-    ensurePromise = sql`
-      CREATE TABLE IF NOT EXISTS txn.order_machine_transfer (
-        transfer_id       BIGSERIAL PRIMARY KEY,
-        order_id          BIGINT REFERENCES txn.crm_order(order_id) ON DELETE SET NULL,
-        batch_number      VARCHAR(64) NOT NULL,
-        source_machine_code VARCHAR(16) NOT NULL,
-        destination_machine_code VARCHAR(16) NOT NULL,
-        sub_process       VARCHAR(32) NOT NULL,
-        assigned_by       INTEGER REFERENCES security.app_user(user_id) ON DELETE SET NULL,
-        reason            TEXT,
-      transferred_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      transfer_type     VARCHAR(16) NOT NULL DEFAULT 'SINGLE'
-    );
-      CREATE INDEX IF NOT EXISTS ix_order_machine_transfer_batch
-        ON txn.order_machine_transfer(batch_number);
-      CREATE INDEX IF NOT EXISTS ix_order_machine_transfer_at
-        ON txn.order_machine_transfer(transferred_at DESC);
-    `.execute(db).then(() => undefined).catch((err) => {
-      ensurePromise = null;
-      throw err;
-    });
-  }
-  await ensurePromise;
-}
-
 export type OrderMachineTransferRow = {
   transferId: string;
   batchNumber: string;
@@ -57,7 +27,6 @@ export async function recordOrderMachineTransfer(
   },
   trx?: Transaction<DB>,
 ): Promise<void> {
-  await ensureOrderMachineTransferTable();
   const executor = trx ?? db;
   await sql`
     INSERT INTO txn.order_machine_transfer (
@@ -105,7 +74,6 @@ export async function loadRecentOrderMachineTransfers(
   shiftCode: string,
   limit = 50,
 ): Promise<OrderMachineTransferRow[]> {
-  await ensureOrderMachineTransferTable();
   const result = await sql<{
     transfer_id: string;
     batch_number: string;
@@ -138,7 +106,6 @@ export async function loadRecentOrderMachineTransfers(
 export async function loadRecentOrderMachineTransfersGlobal(
   limit = 50,
 ): Promise<OrderMachineTransferRow[]> {
-  await ensureOrderMachineTransferTable();
   const result = await sql<{
     transfer_id: string;
     batch_number: string;

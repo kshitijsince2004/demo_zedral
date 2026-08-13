@@ -73,9 +73,6 @@ const ROUTE_META: Record<string, Omit<ParsedRouteStep, 'routeCode'>> = {
 
 /** Derive route code from a PPC batch's machine + sub_process. */
 export function routeCodeFromBatch(machineCode: string, subProcess: string): string | null {
-  if (subProcess === 'ROLLING' && ['6HI', '4HI'].includes(machineCode)) return '4';
-  if (subProcess === 'SKIN_PASS' && ['2HI', '4HI', '6HI'].includes(machineCode)) return 'X';
-
   const map: Record<string, string> = {
     '6HI:ROLLING': '6',
     '6HI:SKIN_PASS': 'Z',

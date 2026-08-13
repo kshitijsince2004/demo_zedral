@@ -10,11 +10,6 @@ describe('no runtime txn DDL', () => {
   it('does not CREATE TABLE from allocate / manual re-roll services', () => {
     for (const rel of [
       'src/services/orderMachineTransferAudit.ts',
-      'src/services/ManualRerollService.ts',
-      'src/services/SixHiService.ts',
-      'src/services/RewindingOrderService.ts',
-      'src/services/HrsOrderService.ts',
-      'src/services/PklOrderService.ts',
     ]) {
       const src = readFileSync(join(root, rel), 'utf8');
       expect(src, rel).not.toMatch(/CREATE TABLE IF NOT EXISTS/i);

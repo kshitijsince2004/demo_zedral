@@ -3203,3 +3203,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Re-GRANT USAGE on schema txn (not CREATE). Body `machineCode` wins over query. Canonicalize `6HI:1` → `6HI`. PG permission → 500. Did not grant schema CREATE to `m1_app`.
 - **Follow-ups:** Apply `1977` and `1979` on QA as `m1_user`. Smoke Move to Production on 6HI/4HI/2HI and 2HI rewinding allocate.
 
+### 2026-08-13 — CI: ship missing txn DDL removal
+
+- **Goal:** Unblock Server unit on #214 (`noRuntimeTxnDdl` + `routeCodeFromBatch` expectations).
+- **Touched:** `packages/server/src/services/orderMachineTransferAudit.ts`, `packages/server/src/services/ProcessRouteService.ts`, `packages/server/tests/noRuntimeTxnDdl.test.ts`
+- **Decisions / skipped:** Removed runtime `CREATE TABLE` / `ensureOrderMachineTransferTable`. Dropped generic 4/X override in `routeCodeFromBatch`. DDL guard scoped to the audit file (Manual Re-Roll DDL still on main). Did not commit journey A3/A4.
+- **Follow-ups:** Remove Manual Re-Roll runtime DDL in its own commit; re-widen `noRuntimeTxnDdl`.
+
