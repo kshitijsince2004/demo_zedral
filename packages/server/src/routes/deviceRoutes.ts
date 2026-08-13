@@ -39,17 +39,4 @@ router.post(
   },
 );
 
-router.get('/status/:processCode', requireAuth, async (req, res) => {
-  try {
-    const device = await DeviceRegistrationService.getDeviceByProcess(req.params.processCode);
-    if (!device) {
-      return res.status(404).json({ error: 'Device not found for this process' });
-    }
-    res.json({ deviceId: device.device_id, processCode: device.process_code, status: 'ACTIVE' });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Device lookup failed';
-    res.status(500).json({ error: message });
-  }
-});
-
 export default router;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  asDisplayText,
   combinedRunKey,
   displayMotherCoilId,
   finishGroupOf,
@@ -32,6 +33,21 @@ describe('displayMotherCoilId — Operator / MH / PH parity', () => {
       '1100038319 B',
     );
     expect(displayMotherCoilId({ batchNumber: 'B-1' })).toBe('B-1');
+  });
+
+  it('unwraps prefill { value } and snake_case instead of rendering [object Object]', () => {
+    expect(asDisplayText({ value: '1100038319' })).toBe('1100038319');
+    expect(asDisplayText({ coil_no: '1100038319' })).toBe('1100038319');
+    expect(asDisplayText({ nested: true })).toBe('');
+    expect(displayMotherCoilId({
+      motherCoil: { value: '1100038319' },
+      slitId: { value: 'A' },
+      batchNumber: { value: 'B-1' },
+    })).toBe('1100038319 A');
+    expect(displayMotherCoilId({
+      coil_no: '1100038348',
+      slit_id: 'B',
+    })).toBe('1100038348 B');
   });
 
   it('renders coil alone when no slit', () => {

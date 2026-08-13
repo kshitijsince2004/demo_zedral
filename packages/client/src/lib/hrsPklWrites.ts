@@ -104,9 +104,14 @@ export function reinstateHrsPklOrder(
   line: 'HRS' | 'PKL',
   coilNo: string,
   target: 'PREPARING' | 'PENDING' = 'PREPARING',
+  opts?: { slitId?: string; batchNumber?: string },
 ) {
   const base = line === 'HRS' ? '/hrs-order' : '/pkl-order';
-  return apiClient.post(`${base}/orders/${encodeURIComponent(coilNo)}/reinstate`, { target });
+  return apiClient.post(`${base}/orders/${encodeURIComponent(coilNo)}/reinstate`, {
+    target,
+    slitId: opts?.slitId,
+    batchNumber: opts?.batchNumber,
+  });
 }
 
 export function deleteHrsPklOrder(line: 'HRS' | 'PKL', coilNo: string) {

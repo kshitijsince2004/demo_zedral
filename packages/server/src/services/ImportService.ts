@@ -11,6 +11,7 @@ import {
 import { ImportRowError, validateImportRow } from './importRowValidator';
 import { parseDateOnly } from '../utils/dateOnly';
 import { QualitySpecService } from './QualitySpecService';
+import { logger } from '../utils/logger';
 
 export type ImportSource = 'CSV' | 'SAP' | 'MANUAL' | 'XLSX';
 export type ImportBatchStatus = 'PENDING' | 'VALIDATED' | 'LOADED' | 'FAILED' | 'PARTIAL';
@@ -291,7 +292,7 @@ export class ImportService {
     try {
       await QualitySpecService.attachResolvedSpec(planOrderId, 'SYSTEM', { trx });
     } catch (err) {
-      console.error('[ImportService] plan_order_spec attach failed safely:', err);
+      logger.error('[ImportService] plan_order_spec attach failed safely:', err);
     }
   }
 

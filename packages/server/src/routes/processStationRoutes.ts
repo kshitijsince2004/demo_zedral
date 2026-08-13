@@ -147,16 +147,6 @@ router.get('/pkl/manual-stoppage', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/pkl/stoppage-codes', requireAuth, async (req, res) => {
-  try {
-    assertLineOperation(req.user!, 'PKL', 'READ');
-    const { PklOrderService } = await import('../services/PklOrderService');
-    res.json({ codes: await PklOrderService.listStoppageCodes('PKL') });
-  } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Stoppage codes failed' });
-  }
-});
-
 /** Machine-classified stoppage codes from master.stoppage_code.applies_to. */
 router.get('/stoppage-codes', requireAuth, async (req, res) => {
   try {
@@ -514,6 +504,20 @@ router.get('/ann/board', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/ann/readings', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'ANN', 'READ');
+    const from = new Date(String(req.query.from ?? ''));
+    const to = new Date(String(req.query.to ?? ''));
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ error: 'from and to required' });
+    }
+    res.json({ readings: await ProcessStationService.listAnnReadings(from, to) });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Readings failed' });
+  }
+});
+
 router.post('/ann/charges', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'ANN', 'WRITE');
@@ -695,16 +699,6 @@ router.get('/:process/readings', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/crs/shift-metrics/:shiftLogId', requireAuth, async (req, res) => {
-  try {
-    assertLineOperation(req.user!, 'CRS', 'READ');
-    const metrics = await ProcessStationService.getCrsShiftMetrics(req.params.shiftLogId);
-    res.json(metrics);
-  } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Metrics failed' });
-  }
-});
-
 router.get('/crs/assignment', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'CRS', 'READ');
@@ -795,7 +789,11 @@ router.post('/:process/start', requireAuth, async (req, res) => {
     const expectedUpdatedAt = req.body?.expectedUpdatedAt
       ? String(req.body.expectedUpdatedAt)
       : undefined;
-    res.json(await ProcessStationService.startCoil(code, coilNo, req.user!.id, { expectedUpdatedAt }));
+    const batchNumber = req.body?.batchNumber != null ? String(req.body.batchNumber) : undefined;
+    res.json(await ProcessStationService.startCoil(code, coilNo, req.user!.id, {
+      expectedUpdatedAt,
+      batchNumber,
+    }));
   } catch (e: unknown) {
     respondProcessError(res, e, 'Start failed');
   }
@@ -900,7 +898,13 @@ router.post('/:process/hold', requireAuth, async (req, res) => {
     const expectedUpdatedAt = req.body?.expectedUpdatedAt
       ? String(req.body.expectedUpdatedAt)
       : undefined;
-    res.json(await ProcessStationService.holdCoil(code, coilNo, req.user!.id, reason, remarks, { expectedUpdatedAt }));
+    const batchNumber = req.body?.batchNumber != null ? String(req.body.batchNumber) : undefined;
+    const slitId = req.body?.slitId != null ? String(req.body.slitId) : undefined;
+    res.json(await ProcessStationService.holdCoil(code, coilNo, req.user!.id, reason, remarks, {
+      expectedUpdatedAt,
+      batchNumber,
+      slitId,
+    }));
   } catch (e: unknown) {
     respondProcessError(res, e, 'Hold failed');
   }

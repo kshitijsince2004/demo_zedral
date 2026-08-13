@@ -47,7 +47,7 @@ async function assertHrsPklReadyToEnd(processCode: string, coilNo: string, userI
   }
 }
 
-function withTenant(body: unknown): unknown {
+function withTenant(body: unknown, crewRef?: string): unknown {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return body;
   }
@@ -57,6 +57,7 @@ function withTenant(body: unknown): unknown {
   };
   // Clients occasionally POST numeric shiftLogId; schema requires string.
   if (next.shiftLogId != null) next.shiftLogId = String(next.shiftLogId);
+  if (crewRef && (next.crewRef == null || next.crewRef === '')) next.crewRef = crewRef;
   return next;
 }
 
@@ -86,7 +87,7 @@ function postProduction<T>(
       if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
       assertLineOperation(req.user, processCode, 'WRITE');
 
-      const parsed = schema.safeParse(withTenant(req.body));
+      const parsed = schema.safeParse(withTenant(req.body, req.user.username));
       if (!parsed.success) {
         return res.status(400).json({ error: 'Invalid production payload', details: zodErrors(parsed.error) });
       }
@@ -149,7 +150,7 @@ router.post('/hrs/draft', async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     assertLineOperation(req.user, 'HRS', 'WRITE');
-    const parsed = hrsSchema.safeParse(withTenant(req.body));
+    const parsed = hrsSchema.safeParse(withTenant(req.body, req.user.username));
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid production payload', details: zodErrors(parsed.error) });
     }
@@ -168,7 +169,7 @@ router.post('/pkl/draft', async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     assertLineOperation(req.user, 'PKL', 'WRITE');
-    const parsed = pklSchema.safeParse(withTenant(req.body));
+    const parsed = pklSchema.safeParse(withTenant(req.body, req.user.username));
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid production payload', details: zodErrors(parsed.error) });
     }

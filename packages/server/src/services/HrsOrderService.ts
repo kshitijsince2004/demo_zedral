@@ -4,8 +4,8 @@
  * No combine, no machine allocation — HRS has a single line.
  */
 import { formatPlantDate, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
-import { sql } from 'kysely';
-import { db } from '../db';
+import { sql, type Kysely } from 'kysely';
+import { db, type Database } from '../db';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -16,6 +16,15 @@ import {
   emitProductionCaptured,
   rewindCompletedLineIfNextIdle,
 } from './journeyHandoff';
+import { derivedChildCoilNo } from '../utils/childCoil';
+import {
+  allPlanSlitsHeld,
+  fanOutHrsQueueCards,
+  matchHrsSlitLine,
+  normalizeHrsSlot,
+  requireHrsSlitId,
+} from '../utils/hrsSlitHold';
+import { ensureSlitChildCoils } from '../modules/m1-collection/services/ProductionService';
 
 export type HrsOrderStatus =
   | 'PENDING'
@@ -54,6 +63,8 @@ export type HrsQueueCard = {
   journeyId?: string;
   stepNo?: number;
   routeRaw?: string;
+  slitId?: string;
+  batchNumber?: string;
 };
 
 export type HrsOrderDetail = {
@@ -223,6 +234,30 @@ export class HrsOrderService {
       surfaceFinish: l.roll_finish ?? undefined,
       toWorkCenter: l.to_work_center ?? undefined,
     }));
+  }
+
+  private static async loadHeldSlits(
+    coilNo: string,
+    conn: Kysely<Database> = db,
+  ): Promise<Array<{ slitId: string; batchNumber?: string }>> {
+    const entry = await conn
+      .selectFrom('txn.prod_hrs')
+      .select('entry_id')
+      .where('coil_no', '=', coilNo)
+      .orderBy('entry_id', 'desc')
+      .executeTakeFirst();
+    if (!entry) return [];
+    const slits = await conn
+      .selectFrom('txn.prod_hrs_slit')
+      .select(['slot', 'sap_batch_number', 'hold_flag'])
+      .where('entry_id', '=', entry.entry_id)
+      .execute();
+    return slits
+      .filter((s) => s.hold_flag)
+      .map((s) => ({
+        slitId: String(s.slot),
+        batchNumber: s.sap_batch_number ? String(s.sap_batch_number) : undefined,
+      }));
   }
 
   /** Ensure hrs_order row exists for a mother coil. */
@@ -403,25 +438,29 @@ export class HrsOrderService {
       if (seenCoils.has(order.coil_no)) return;
       seenCoils.add(order.coil_no);
       const orderLines = await this.loadOrderLines(order.coil_no);
-      const routeRaw = orderLines.find((ol) => ol.routeRaw)?.routeRaw;
-      queue.push({
-        coilNo: order.coil_no,
-        gradeCode: order.grade_code ?? '',
-        customerName: order.customer_name ?? '',
-        widthMm: Number(order.nominal_width_mm),
-        thicknessMm: Number(order.nominal_thk_mm),
-        weightMt: Number(order.mother_coil_weight_mt),
-        status: order.status as HrsOrderStatus,
-        machineCode: 'HRS',
+      const held = await this.loadHeldSlits(order.coil_no);
+      const cards = fanOutHrsQueueCards(
+        {
+          coilNo: order.coil_no,
+          gradeCode: order.grade_code ?? '',
+          customerName: order.customer_name ?? '',
+          widthMm: Number(order.nominal_width_mm),
+          thicknessMm: Number(order.nominal_thk_mm),
+          weightMt: Number(order.mother_coil_weight_mt),
+          status: order.status,
+          journeyId: extra?.journeyId,
+          stepNo: extra?.stepNo,
+        },
         orderLines,
-        lineCount: Math.max(1, orderLines.length),
-        combination: orderLines.length
-          ? orderLines.map((ol) => (ol.widthMm != null ? String(ol.widthMm) : '?')).join('+')
-          : undefined,
-        journeyId: extra?.journeyId,
-        stepNo: extra?.stepNo,
-        routeRaw,
-      });
+        held,
+      );
+      for (const card of cards) {
+        queue.push({
+          ...card,
+          status: card.status as HrsOrderStatus,
+          machineCode: 'HRS',
+        });
+      }
     };
 
     for (const row of rows) {
@@ -753,21 +792,61 @@ export class HrsOrderService {
     rejectionReason: string,
     remarks: string,
     userId: number,
+    opts?: { slitId?: string; batchNumber?: string },
+  ): Promise<HrsOrderDetail> {
+    const slitId = requireHrsSlitId(opts?.slitId);
+    return this.rejectSlit(coilNo, slitId, rejectionReason, remarks, userId, opts?.batchNumber);
+  }
+
+  static async rejectSlit(
+    coilNo: string,
+    slitId: string,
+    rejectionReason: string,
+    remarks: string,
+    userId: number,
+    batchNumber?: string,
   ): Promise<HrsOrderDetail> {
     if (!rejectionReason?.trim()) throw new Error('Hold reason is required');
     if (!remarks?.trim()) throw new Error('Hold remarks are required');
 
+    const slot = normalizeHrsSlot(slitId);
     const orderId = await this.ensureOrder(coilNo, userId);
+    const lines = await this.loadOrderLines(coilNo);
+    const line = matchHrsSlitLine(lines, slot, batchNumber);
+    if (!line) throw new Error(`Unknown slit ${slot} on ${coilNo}`);
+
     const current = await db
       .selectFrom('txn.hrs_order')
-      .select(['status'])
+      .select(['status', 'shift_log_id', 'grade_code', 'nominal_width_mm', 'nominal_thk_mm', 'mother_coil_weight_mt'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
 
-    if (current.status === 'REJECTED') return this.getOrder(coilNo, userId);
-
     const heldAt = new Date();
+    const reason = rejectionReason.trim().slice(0, 100);
+    const holdRemarks = remarks.trim().slice(0, 500);
+
     await db.transaction().execute(async (trx) => {
+      await this.persistSlitHold(trx, {
+        coilNo,
+        slot,
+        line,
+        hold: true,
+        reason,
+        remarks: holdRemarks,
+        heldAt,
+        userId,
+        shiftLogId: current.shift_log_id,
+        gradeCode: current.grade_code,
+        widthMm: Number(current.nominal_width_mm),
+        thkMm: Number(current.nominal_thk_mm),
+        weightMt: Number(current.mother_coil_weight_mt),
+      });
+
+      const held = await this.loadHeldSlits(coilNo, trx);
+      const heldSlots = new Set(held.map((h) => normalizeHrsSlot(h.slitId)));
+      heldSlots.add(slot);
+      if (!allPlanSlitsHeld(lines, heldSlots)) return;
+
       const open = await trx
         .selectFrom('txn.stoppage')
         .select(['stoppage_id', 'start_at'])
@@ -787,8 +866,8 @@ export class HrsOrderService {
         .updateTable('txn.hrs_order')
         .set({
           status: 'REJECTED',
-          hold_reason: rejectionReason.trim().slice(0, 100),
-          hold_remarks: remarks.trim().slice(0, 500),
+          hold_reason: reason,
+          hold_remarks: holdRemarks,
           held_at: heldAt,
           held_by: userId,
           updated_at: heldAt,
@@ -804,47 +883,179 @@ export class HrsOrderService {
     coilNo: string,
     userId: number,
     target: 'PREPARING' | 'PENDING' = 'PREPARING',
+    opts?: { slitId?: string; batchNumber?: string },
   ): Promise<HrsOrderDetail> {
+    const slitId = requireHrsSlitId(opts?.slitId);
+    return this.reinstateSlit(coilNo, slitId, userId, target, opts?.batchNumber);
+  }
+
+  static async reinstateSlit(
+    coilNo: string,
+    slitId: string,
+    userId: number,
+    target: 'PREPARING' | 'PENDING' = 'PREPARING',
+    batchNumber?: string,
+  ): Promise<HrsOrderDetail> {
+    const slot = normalizeHrsSlot(slitId);
     const orderId = await this.ensureOrder(coilNo, userId);
+    const lines = await this.loadOrderLines(coilNo);
+    const line = matchHrsSlitLine(lines, slot, batchNumber) ?? { slitId: slot, batchNumber };
+
     const order = await db
       .selectFrom('txn.hrs_order')
-      .select(['status'])
+      .select(['status', 'shift_log_id', 'grade_code', 'nominal_width_mm', 'nominal_thk_mm', 'mother_coil_weight_mt', 'prod_start_at'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
-    if (order.status !== 'REJECTED' && order.status !== 'COMPLETED') {
-      throw new Error('Only held or completed orders can be reinstated');
-    }
+
+    await db.transaction().execute(async (trx) => {
+      await this.persistSlitHold(trx, {
+        coilNo,
+        slot,
+        line,
+        hold: false,
+        reason: null,
+        remarks: null,
+        heldAt: null,
+        userId,
+        shiftLogId: order.shift_log_id,
+        gradeCode: order.grade_code,
+        widthMm: Number(order.nominal_width_mm),
+        thkMm: Number(order.nominal_thk_mm),
+        weightMt: Number(order.mother_coil_weight_mt),
+      });
+
+      if (order.status === 'REJECTED') {
+        const restore = order.prod_start_at ? 'IN_PROGRESS' : target;
+        await trx
+          .updateTable('txn.hrs_order')
+          .set({
+            status: restore,
+            hold_reason: null,
+            hold_remarks: null,
+            held_at: null,
+            held_by: null,
+            updated_at: new Date(),
+          })
+          .where('order_id', '=', orderId as any)
+          .execute();
+      }
+    });
+
     if (order.status === 'COMPLETED') {
-      await rewindCompletedLineIfNextIdle(coilNo, 'HRS');
+      const { spawnHrsChildForSlot } = await import(
+        '../modules/m1-collection/consumers/JourneyAdvanceConsumer'
+      );
+      await spawnHrsChildForSlot(coilNo, slot);
     }
-
-    const patch: {
-      status: 'PREPARING' | 'PENDING';
-      hold_reason: null;
-      hold_remarks: null;
-      held_at: null;
-      held_by: null;
-      prod_end_at: null;
-      prod_start_at?: null;
-      updated_at: Date;
-    } = {
-      status: target,
-      hold_reason: null,
-      hold_remarks: null,
-      held_at: null,
-      held_by: null,
-      prod_end_at: null,
-      updated_at: new Date(),
-    };
-    if (order.status === 'COMPLETED') patch.prod_start_at = null;
-
-    await db
-      .updateTable('txn.hrs_order')
-      .set(patch)
-      .where('order_id', '=', orderId as any)
-      .execute();
 
     return this.getOrder(coilNo, userId);
+  }
+
+  private static async persistSlitHold(
+    trx: Kysely<Database>,
+    args: {
+      coilNo: string;
+      slot: string;
+      line: HrsOrderLine;
+      hold: boolean;
+      reason: string | null;
+      remarks: string | null;
+      heldAt: Date | null;
+      userId: number;
+      shiftLogId: string | number | null;
+      gradeCode: string | null;
+      widthMm: number;
+      thkMm: number;
+      weightMt: number;
+    },
+  ): Promise<void> {
+    let entry = await trx
+      .selectFrom('txn.prod_hrs')
+      .select('entry_id')
+      .where('coil_no', '=', args.coilNo)
+      .orderBy('entry_id', 'desc')
+      .executeTakeFirst();
+
+    if (!entry) {
+      if (args.shiftLogId == null) throw new Error('HRS order has no shift — start production first');
+      entry = await trx
+        .insertInto('txn.prod_hrs')
+        .values({
+          coil_no: args.coilNo,
+          shift_log_id: args.shiftLogId as any,
+          grade_code: args.gradeCode,
+          nominal_width_mm: args.widthMm,
+          nominal_thk_mm: args.thkMm,
+          mother_coil_weight_mt: args.weightMt,
+          status: 'IN_PROGRESS',
+        } as any)
+        .returning('entry_id')
+        .executeTakeFirstOrThrow();
+    }
+
+    const childNos = await ensureSlitChildCoils(trx, args.coilNo, [{
+      slot: args.slot,
+      widthMm: args.line.widthMm ?? args.widthMm,
+      thkMm: args.line.thicknessMm ?? args.thkMm,
+      weightMt: args.line.weightMt ?? null,
+      hold: args.hold,
+    }]);
+    const childNo = childNos.get(args.slot) ?? derivedChildCoilNo(args.coilNo, args.slot);
+    await trx
+      .updateTable('coil.coil')
+      .set({ status: args.hold ? 'HOLD' : 'PLANNED' })
+      .where('coil_no', '=', childNo)
+      .execute();
+
+    const existing = await trx
+      .selectFrom('txn.prod_hrs_slit')
+      .select('slit_id')
+      .where('entry_id', '=', entry.entry_id)
+      .where(sql<boolean>`upper(trim(slot)) = ${args.slot}`)
+      .executeTakeFirst();
+
+    const holdPatch = {
+      hold_flag: args.hold,
+      hold_reason: args.hold ? args.reason : null,
+      hold_remarks: args.hold ? args.remarks : null,
+      held_at: args.hold ? args.heldAt : null,
+      held_by: args.hold ? args.userId : null,
+      child_coil_no: childNo,
+      sap_batch_number: args.line.batchNumber ?? null,
+    };
+
+    if (existing) {
+      await trx
+        .updateTable('txn.prod_hrs_slit')
+        .set(holdPatch)
+        .where('slit_id', '=', existing.slit_id)
+        .execute();
+      return;
+    }
+
+    await trx
+      .insertInto('txn.prod_hrs_slit')
+      .values({
+        entry_id: entry.entry_id,
+        slot: args.line.slitId ?? args.slot,
+        target_width_mm: args.line.widthMm ?? null,
+        width_mm: args.line.widthMm ?? null,
+        planned_thk_mm: args.line.thicknessMm ?? null,
+        planned_weight_mt: args.line.weightMt ?? null,
+        customer: args.line.customerName ?? null,
+        sap_batch_number: args.line.batchNumber ?? null,
+        surface_finish: args.line.surfaceFinish ?? null,
+        finish_thickness_mm: args.line.finishThicknessMm ?? null,
+        route_raw: args.line.routeRaw ?? null,
+        child_coil_no: childNo,
+        hold_flag: args.hold,
+        hold_reason: args.hold ? args.reason : null,
+        hold_remarks: args.hold ? args.remarks : null,
+        held_at: args.hold ? args.heldAt : null,
+        held_by: args.hold ? args.userId : null,
+        for_ctl_flag: false,
+      } as any)
+      .execute();
   }
 
   static async deleteOrder(coilNo: string, _userId: number): Promise<{ coilNo: string }> {

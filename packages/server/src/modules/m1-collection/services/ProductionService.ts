@@ -21,7 +21,7 @@ function emptyToNull(value: string | undefined): string | null {
 type DbConn = Kysely<Database>;
 
 /** Mint mother-slot coils so prod_*_slit.child_coil_no FK can land. */
-async function ensureSlitChildCoils(
+export async function ensureSlitChildCoils(
   trx: DbConn,
   motherCoilNo: string,
   slits: Array<{
@@ -123,6 +123,13 @@ export class ProductionService {
         .executeTakeFirst();
 
       let entryId: string | number;
+      const priorBySlot = new Map<string, {
+        hold_flag: boolean;
+        hold_reason: string | null;
+        hold_remarks: string | null;
+        held_at: Date | null;
+        held_by: number | null;
+      }>();
       if (existing) {
         await trx
           .updateTable('txn.prod_hrs')
@@ -130,6 +137,20 @@ export class ProductionService {
           .where('entry_id', '=', existing.entry_id)
           .execute();
         entryId = existing.entry_id;
+        const priorHolds = await trx
+          .selectFrom('txn.prod_hrs_slit')
+          .select(['slot', 'hold_flag', 'hold_reason', 'hold_remarks', 'held_at', 'held_by'])
+          .where('entry_id', '=', entryId)
+          .execute();
+        for (const s of priorHolds) {
+          priorBySlot.set(s.slot.trim().toUpperCase(), {
+            hold_flag: !!s.hold_flag,
+            hold_reason: s.hold_reason,
+            hold_remarks: s.hold_remarks,
+            held_at: s.held_at ? new Date(s.held_at as Date) : null,
+            held_by: s.held_by,
+          });
+        }
         await trx.deleteFrom('txn.prod_hrs_slit_reading').where('entry_id', '=', entryId).execute();
         await trx.deleteFrom('txn.prod_hrs_slit').where('entry_id', '=', entryId).execute();
         await trx.deleteFrom('txn.prod_hrs_width_reading').where('entry_id', '=', entryId).execute();
@@ -177,6 +198,8 @@ export class ProductionService {
               ?? emptyToNull(slot.taperLatest)
               ?? emptyToNull(slot.taper);
             const slotKey = slot.slot.trim().toUpperCase();
+            const hold = slot.holdFlag ?? false;
+            const prior = hold ? priorBySlot.get(slotKey) : undefined;
             return {
               entry_id: entryId,
               slot: slot.slot,
@@ -202,7 +225,11 @@ export class ProductionService {
               route_raw: emptyToNull(slot.routeRaw),
               resolved_next_step: emptyToNull(slot.resolvedNextStep),
               downstream_crs_combination: emptyToNull(slot.downstreamCrsCombination),
-              hold_flag: slot.holdFlag ?? false,
+              hold_flag: hold,
+              hold_reason: hold ? (prior?.hold_reason ?? null) : null,
+              hold_remarks: hold ? (prior?.hold_remarks ?? null) : null,
+              held_at: hold ? (prior?.held_at ?? null) : null,
+              held_by: hold ? (prior?.held_by ?? null) : null,
               for_ctl_flag: slot.forCtlFlag ?? false,
             };
           }),
@@ -304,11 +331,20 @@ export class ProductionService {
       }
 
       if (entry.charts?.length) {
-        await trx.insertInto('txn.prod_pkl_chart').values(
-          entry.charts.map((chart) => ({
+        for (const chart of entry.charts) {
+          const tankNo = chart.tankNo ?? null;
+          let existingQ = trx.selectFrom('txn.prod_pkl_chart')
+            .select('chart_id')
+            .where('shift_log_id', '=', entry.shiftLogId)
+            .where('chart_time', '=', chart.chartTime);
+          existingQ = tankNo == null
+            ? existingQ.where('tank_no', 'is', null)
+            : existingQ.where('tank_no', '=', tankNo);
+          const existing = await existingQ.executeTakeFirst();
+          const values = {
             shift_log_id: entry.shiftLogId,
             chart_time: chart.chartTime,
-            tank_no: chart.tankNo ?? null,
+            tank_no: tankNo,
             tank_level: chart.tankLevel ?? null,
             tank_temp_degc: chart.tankTempDegc ?? null,
             acid_strength_pct: chart.acidStrengthPct ?? null,
@@ -326,8 +362,13 @@ export class ProductionService {
             rinse_iron_pct: chart.rinseIronPct ?? null,
             burner_pressure_kgcm2: chart.burnerPressureKgcm2 ?? null,
             hot_air_temp_degc: chart.hotAirTempDegc ?? null,
-          })),
-        ).execute();
+          };
+          if (existing) {
+            await trx.updateTable('txn.prod_pkl_chart').set(values as never).where('chart_id', '=', existing.chart_id).execute();
+          } else {
+            await trx.insertInto('txn.prod_pkl_chart').values(values as never).execute();
+          }
+        }
       }
 
       return entryId;

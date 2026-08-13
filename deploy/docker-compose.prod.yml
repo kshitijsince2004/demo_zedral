@@ -3,10 +3,13 @@
 #
 #   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env pull
 #   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --no-build
+#
+# Postgres pgaudit image: build from deploy/postgres/ and set POSTGRES_IMAGE=
+# (default stays postgres:15-alpine until QA soak). Secrets: deploy/secrets/* (see README).
 
 services:
   db:
-    image: postgres:15-alpine
+    image: ${POSTGRES_IMAGE:-postgres:15-alpine}
     container_name: zedral-db
     environment:
       POSTGRES_USER: ${DB_USER}
@@ -14,6 +17,11 @@ services:
       POSTGRES_DB: ${DB_NAME}
     volumes:
       - pg_data:/var/lib/postgresql/data
+      # Optional SSL certs (SAFE_CHANGE #15) — uncomment when ready:
+      # - ./postgres/ssl:/var/lib/postgresql/ssl:ro
+    # When using POSTGRES_IMAGE with pgaudit, the image CMD already sets shared_preload_libraries.
+    # Optional SSL command (server certs first, then DATABASE_SSL=true on backend):
+    # command: ["postgres","-c","ssl=on","-c","ssl_cert_file=/var/lib/postgresql/ssl/server.crt","-c","ssl_key_file=/var/lib/postgresql/ssl/server.key"]
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
       interval: 5s
@@ -33,7 +41,8 @@ services:
         condition: service_healthy
     environment:
       POSTGRESQL_CONNECTION_URI: "postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
-      API_KEYS: ${SUPERTOKENS_API_KEY}
+      # ST image reads env only — keep key in deploy/.env (same value as secret file for backend).
+      API_KEYS: ${SUPERTOKENS_API_KEY:?Set SUPERTOKENS_API_KEY}
       ACCESS_TOKEN_VALIDITY: 900
       REFRESH_TOKEN_VALIDITY: 10080
     restart: unless-stopped
@@ -63,34 +72,41 @@ services:
       PORT: 3005
       DB_HOST: db
       DB_PORT: 5432
-      # Runtime app role — subject to RLS (see migration 1797000000000_app_rls_role).
-      # Note: container DB_USER is the *app* role; bootstrap owner stays in host .env as DB_USER
-      # and is injected only via DB_MIGRATE_* / MIGRATE_DATABASE_URL below.
-      DB_USER: ${DB_APP_USER:-m1_app}
-      DB_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
-      DB_APP_USER: ${DB_APP_USER:-m1_app}
-      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
-      DB_NAME: ${DB_NAME}
-      DATABASE_URL: postgres://${DB_APP_USER:-m1_app}:${DB_APP_PASSWORD:-m1_app_password}@db:5432/${DB_NAME}
-      # Host deploy/.env DB_USER/DB_PASSWORD = Postgres bootstrap (e.g. m1_user), NOT m1_app.
-      DB_MIGRATE_USER: ${DB_USER}
-      DB_MIGRATE_PASSWORD: ${DB_PASSWORD}
-      MIGRATE_DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
-      JWT_SECRET: ${JWT_SECRET}
+      # Runtime app role — no weak :-m1_app_password fallbacks (SAFE_CHANGE #16).
+      DB_USER: ${DB_APP_USER:?Set DB_APP_USER}
+      DB_APP_USER: ${DB_APP_USER:?Set DB_APP_USER}
+      DB_NAME: ${DB_NAME:?Set DB_NAME}
+      DB_APP_PASSWORD_FILE: /run/secrets/db_app_password
+      DB_MIGRATE_USER: ${DB_USER:?Set DB_USER}
+      DB_MIGRATE_PASSWORD_FILE: /run/secrets/db_bootstrap_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      SUPERTOKENS_API_KEY_FILE: /run/secrets/supertokens_api_key
+      SERVICE_TOKEN_FILE: /run/secrets/service_token
+      # Legacy: if DATABASE_URL is set in .env it wins after secret load; else entrypoint builds it.
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
       AUTH_STRICT: ${AUTH_STRICT:-true}
       VALIDATION_STRICT: ${VALIDATION_STRICT:-true}
       TENANT_ID: ${TENANT_ID}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
       EXPORT_WORKER_ENABLED: ${EXPORT_WORKER_ENABLED:-true}
+      EXPORT_WORKER_POLL_MS: ${EXPORT_WORKER_POLL_MS:-15000}
       DPR_SCHEDULER_ENABLED: ${DPR_SCHEDULER_ENABLED:-true}
       SHIFT_BOUNDARY_SCHEDULER_ENABLED: ${SHIFT_BOUNDARY_SCHEDULER_ENABLED:-false}
       CACHE_DRIVER: ${CACHE_DRIVER:-memory}
       REDIS_URL: ${REDIS_URL:-}
       SUPERTOKENS_CORE_URI: http://supertokens:3567
-      SUPERTOKENS_API_KEY: ${SUPERTOKENS_API_KEY}
       API_DOMAIN: ${API_DOMAIN}
       WEBSITE_DOMAIN: ${WEBSITE_DOMAIN}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-}
+    secrets:
+      - db_app_password
+      - db_bootstrap_password
+      - jwt_secret
+      - supertokens_api_key
+      - service_token
     depends_on:
       db:
         condition: service_healthy
@@ -103,7 +119,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 8
-      # Migrations + cold Node boot regularly exceed 60s on small QA boxes.
       start_period: 120s
     restart: unless-stopped
     stop_grace_period: 30s
@@ -117,8 +132,6 @@ services:
       - "${DOCKER_HTTP_BIND:-0.0.0.0:80}:80"
     depends_on:
       backend:
-        # service_started — do not block compose up on health. Migrations / cold
-        # boot can exceed Compose's dependency wait; verify_deployment_health waits.
         condition: service_started
     restart: unless-stopped
     networks:
@@ -131,3 +144,15 @@ networks:
 volumes:
   pg_data:
   redis_data:
+
+secrets:
+  db_app_password:
+    file: ${SECRETS_DIR:-./secrets}/db_app_password
+  db_bootstrap_password:
+    file: ${SECRETS_DIR:-./secrets}/db_bootstrap_password
+  jwt_secret:
+    file: ${SECRETS_DIR:-./secrets}/jwt_secret
+  supertokens_api_key:
+    file: ${SECRETS_DIR:-./secrets}/supertokens_api_key
+  service_token:
+    file: ${SECRETS_DIR:-./secrets}/service_token

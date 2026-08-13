@@ -51,7 +51,7 @@ export async function checkElasticHealth(): Promise<boolean> {
     return true;
   } catch (err: any) {
     _available = false;
-    console.warn(`[elastic] Elasticsearch unavailable at ${ELASTICSEARCH_URL} — traceability search will use PostgreSQL fallback. Error: ${err.message}`);
+    logger.warn(`[elastic] Elasticsearch unavailable at ${ELASTICSEARCH_URL} — traceability search will use PostgreSQL fallback. Error: ${err.message}`);
     return false;
   }
 }

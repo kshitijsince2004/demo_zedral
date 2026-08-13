@@ -7,11 +7,49 @@ import { ZInput } from '../../components/primitives/ZInput';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { apiClient } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
-import { currentPlantDate } from '../../lib/dateFormat';
+import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { useShiftStore } from '../../store/shiftStore';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { asDisplayText, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
+import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { isCrmMillCode } from '../../lib/millConfig';
 import { isProcessStationCode } from '../../lib/processConfig';
+
+function historyText(row: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const text = asDisplayText(row[k]);
+    if (text) return text;
+  }
+  return '';
+}
+
+function asHistoryRows(raw: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { orders?: unknown }).orders)) {
+    return (raw as { orders: Array<Record<string, unknown>> }).orders;
+  }
+  return [];
+}
+
+function asShiftLogs(raw: unknown): Array<{ id: string }> {
+  if (Array.isArray(raw)) return raw as Array<{ id: string }>;
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { logs?: unknown }).logs)) {
+    return (raw as { logs: Array<{ id: string }> }).logs;
+  }
+  return [];
+}
+
+function historyWeight(row: Record<string, unknown>): number | null {
+  const raw = row.weightMt ?? row.weight_mt ?? row.motherCoilWeightMt ?? row.ppcWeightMt;
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object') {
+    const inner = asDisplayText(raw);
+    const n = Number(inner);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
 
 type StatusFilter = 'COMPLETED' | 'HOLD';
 
@@ -21,10 +59,9 @@ const STATUS_PILLS: { id: StatusFilter; label: string }[] = [
 ];
 
 function matchesStatus(status: unknown, filter: StatusFilter): boolean {
-  const s = String(status ?? '').toUpperCase();
+  const s = asDisplayText(status).toUpperCase();
   if (filter === 'HOLD') return s === 'HOLD' || s === 'REJECTED';
-  // Completed: treat blank/legacy rows as completed production entries too.
-  return s === '' || s === 'COMPLETED' || s === 'DONE';
+  return s === 'COMPLETED' || s === 'DONE' || s === '';
 }
 
 /** Operator History for HRS/PKL/RWD — ANN readings; CRM mills use CrmOperatorHistoryPage. */
@@ -40,6 +77,9 @@ export function ProcessOperatorHistoryPage() {
 
   const isAnn = processCode === 'ANN';
   const isHrs = processCode === 'HRS';
+  const isPkl = processCode === 'PKL';
+  const isRwd = processCode === 'RWD';
+  const isDatedHistory = isHrs || isPkl || isRwd;
   const isProcess = isProcessStationCode(processCode);
   const isCrm = isCrmMillCode(processCode);
   const code = processCode.toLowerCase();
@@ -47,27 +87,25 @@ export function ProcessOperatorHistoryPage() {
 
   const load = useCallback(async () => {
     if (isAnn || !isProcess) return;
-    if (!isHrs && !shiftLogId) return;
+    if (!isDatedHistory && !shiftLogId) return;
     setLoading(true);
     setError(null);
     try {
-      if (isHrs) {
-        const qs = new URLSearchParams({ shiftDate: historyDate, line: 'HRS' });
-        const logs = await apiClient.get<Array<{ id: string }>>(`/shift-logs?${qs.toString()}`);
+      if (isDatedHistory) {
+        const qs = new URLSearchParams({ shiftDate: historyDate, line: processCode });
+        const logs = asShiftLogs(await apiClient.get(`/shift-logs?${qs.toString()}`));
         const packs = await Promise.all(
           logs.map((log) =>
             apiClient
-              .get<{ orders: Array<Record<string, unknown>> }>(
-                `/stations/hrs/history?shiftLogId=${encodeURIComponent(log.id)}`,
-              )
+              .get<unknown>(`/stations/${code}/history?shiftLogId=${encodeURIComponent(log.id)}`)
               .catch(() => ({ orders: [] as Array<Record<string, unknown>> })),
           ),
         );
         const seen = new Set<string>();
         const merged: Array<Record<string, unknown>> = [];
         for (const pack of packs) {
-          for (const row of pack.orders ?? []) {
-            const key = String(row.id ?? row.coilNo ?? '');
+          for (const row of asHistoryRows(pack)) {
+            const key = historyText(row, 'id', 'coilNo', 'coil_no', 'batchNumber', 'batch_number');
             if (!key || seen.has(key)) continue;
             seen.add(key);
             merged.push(row);
@@ -75,17 +113,17 @@ export function ProcessOperatorHistoryPage() {
         }
         setOrders(merged);
       } else {
-        const o = await apiClient.get<{ orders: Array<Record<string, unknown>> }>(
+        const o = await apiClient.get<unknown>(
           `/stations/${code}/history?shiftLogId=${encodeURIComponent(shiftLogId!)}`,
         );
-        setOrders(o.orders ?? []);
+        setOrders(asHistoryRows(o));
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load history');
     } finally {
       setLoading(false);
     }
-  }, [shiftLogId, code, isAnn, isProcess, isHrs, historyDate]);
+  }, [shiftLogId, code, isAnn, isProcess, isDatedHistory, historyDate, processCode]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -94,10 +132,13 @@ export function ProcessOperatorHistoryPage() {
     return orders.filter((row) => {
       if (!matchesStatus(row.status, statusFilter)) return false;
       if (!q) return true;
-      const hay = [row.coilNo, row.gradeCode, row.surfaceFinish]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+      const hay = [
+        historyText(row, 'coilNo', 'coil_no', 'displayCoilNo'),
+        historyText(row, 'gradeCode', 'grade_code'),
+        historyText(row, 'surfaceFinish', 'surface_finish', 'rollFinish'),
+        historyText(row, 'batchNumber', 'batch_number', 'sap_batch_number'),
+        historyText(row, 'customerName', 'customer_name', 'customer'),
+      ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
     });
   }, [orders, statusFilter, debouncedSearch]);
@@ -134,7 +175,7 @@ export function ProcessOperatorHistoryPage() {
             Refresh
           </ZButton>
         </div>
-        {isHrs && (
+        {isDatedHistory && (
           <label className="text-xs font-medium text-muted-foreground">
             Date
             <input
@@ -164,7 +205,7 @@ export function ProcessOperatorHistoryPage() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
-        {!isHrs && !shiftLogId && <p className="text-sm text-muted-foreground">No active shift log.</p>}
+        {!isDatedHistory && !shiftLogId && <p className="text-sm text-muted-foreground">No active shift log.</p>}
         {error && <p className="text-sm text-destructive mb-2">{error}</p>}
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
@@ -173,26 +214,39 @@ export function ProcessOperatorHistoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-muted-foreground border-b border-border bg-card">
-                <th className="py-2 px-2 font-medium">Coil</th>
+                <th className="py-2 px-2 font-medium">Coil / Order</th>
                 <th className="py-2 px-2 font-medium">Grade / Finish</th>
                 <th className="py-2 px-2 font-medium">Weight MT</th>
+                <th className="py-2 px-2 font-medium">Status</th>
+                <th className="py-2 px-2 font-medium">Completed</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((row) => {
-                const grade = row.gradeCode ? String(row.gradeCode) : '';
-                const finish = row.surfaceFinish ? String(row.surfaceFinish) : '';
+                const coil = displayMotherCoilId(row) || '—';
+                const grade = historyText(row, 'gradeCode', 'grade_code');
+                const finish = historyText(row, 'surfaceFinish', 'surface_finish', 'rollFinish');
                 const gradeFinish = [grade, finish].filter(Boolean).join(' / ') || '—';
+                const weight = historyWeight(row);
+                const status = historyText(row, 'status') || 'COMPLETED';
+                const ended = historyText(row, 'timeTo', 'time_to', 'prodEndAt', 'prod_end_at', 'held_at');
+                const batch = historyText(row, 'batchNumber', 'batch_number', 'sap_batch_number');
+                const key = historyText(row, 'id', 'coilNo', 'coil_no') || coil;
                 return (
-                <tr key={String(row.id)} className="border-b border-border/50 font-mono">
-                  <td className="py-2 px-2 font-bold">{String(row.coilNo ?? '—')}</td>
+                <tr key={key} className="border-b border-border/50 font-mono">
+                  <td className="py-2 px-2 font-bold">
+                    {coil}
+                    {batch ? <span className="block text-[11px] font-normal text-muted-foreground">Batch {batch}</span> : null}
+                  </td>
                   <td className="py-2 px-2">{gradeFinish}</td>
-                  <td className="py-2 px-2">{row.weightMt != null ? Number(row.weightMt).toFixed(2) : '—'}</td>
+                  <td className="py-2 px-2">{weight != null ? weight.toFixed(2) : '—'}</td>
+                  <td className="py-2 px-2">{formatOrderStatusLabel(status)}</td>
+                  <td className="py-2 px-2 text-muted-foreground">{ended ? formatPlantDateTime(ended) : '—'}</td>
                 </tr>
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={3} className="py-6 px-2 text-muted-foreground">No {statusFilter === 'HOLD' ? 'held' : 'completed'} orders {isHrs ? 'for this date' : 'this shift'}</td></tr>
+                <tr><td colSpan={5} className="py-6 px-2 text-muted-foreground">No {statusFilter === 'HOLD' ? 'held' : 'completed'} orders {isDatedHistory ? 'for this date' : 'this shift'}</td></tr>
               )}
             </tbody>
           </table>

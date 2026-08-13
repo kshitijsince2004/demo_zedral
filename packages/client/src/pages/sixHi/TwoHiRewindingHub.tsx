@@ -326,7 +326,7 @@ export function TwoHiRewindingHub() {
       finishLocal();
       return;
     }
-    void cancelCombinedRwdOrders(preparing)
+    void cancelCombinedRwdOrders(preparing, machineCode || '2HI')
       .then(async () => {
         notifyProductionChanged();
         await mutate();
@@ -360,7 +360,7 @@ export function TwoHiRewindingHub() {
     try {
       setActionError(null);
       if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
-        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
+        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber), machineCode || '2HI');
         notifyProductionChanged();
         selectionManual.current = false;
         setSelectedBatches(new Set());
@@ -379,7 +379,7 @@ export function TwoHiRewindingHub() {
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to prepare combined orders');
     }
-  }, [productionOrders, anchorBatch, navigate, basePath, mutate]);
+  }, [productionOrders, anchorBatch, navigate, basePath, mutate, machineCode]);
 
   const handleOpenCard = useCallback((card: RewindingQueueCard) => {
     void openCapture(card);
@@ -630,7 +630,7 @@ export function TwoHiRewindingHub() {
               return;
             }
             if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
-              await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
+              await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber), machineCode || '2HI');
               notifyProductionChanged();
               selectionManual.current = false;
               setSelectedBatches(new Set());

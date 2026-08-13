@@ -15,6 +15,15 @@ type Prefill = {
   motherCoilNo?: string;
   slitId?: string;
   prefill?: Record<string, unknown>;
+  pklCapture?: {
+    lineSpeedMpm?: number;
+    repeats?: number;
+    ht?: string;
+    wp?: string;
+    endFilling?: boolean;
+    weightMt?: number;
+    operatorName?: string;
+  } | null;
 };
 
 /** Full-screen PKL coil detail for MH desk. */
@@ -41,23 +50,29 @@ export function PklMhCoilDetailPage() {
   }, [coilNo]);
 
   const p = data?.prefill ?? {};
+  const c = data?.pklCapture ?? {};
   const coilIdentity = displayMotherCoilId({
     motherCoilNo: String(data?.motherCoilNo ?? p.motherCoilNo ?? '') || undefined,
     coilNo: data?.coilNo ?? coilNo,
     batchNumber: coilNo,
     slitId: String(data?.slitId ?? p.slitId ?? '') || undefined,
   });
+  const endRaw = c.endFilling ?? p.endFilling ?? p.end_filling;
+  const endFilling = endRaw === true || endRaw === 'true' ? 'Yes'
+    : endRaw === false || endRaw === 'false' ? 'No'
+      : '—';
+  const weight = c.weightMt ?? data?.weightMt ?? p.weightMt;
   const rows: Array<[string, string]> = [
     ['Coil', coilIdentity],
     ['Grade', String(data?.gradeCode ?? p.gradeCode ?? '—')],
-    ['Weight (MT)', data?.weightMt != null ? Number(data.weightMt).toFixed(2) : String(p.weightMt ?? '—')],
-    ['Line speed', String(p.lineSpeedMpm ?? p.line_speed_mpm ?? '—')],
-    ['Repeats', String(p.repeats ?? '—')],
-    ['HT', String(p.ht ?? p.HT ?? '—')],
-    ['W/P', String(p.wp ?? p.WP ?? '—')],
-    ['End filling', p.endFilling === true || p.end_filling === true ? 'Yes' : p.endFilling === false || p.end_filling === false ? 'No' : '—'],
+    ['Weight (MT)', weight != null ? Number(weight).toFixed(2) : '—'],
+    ['Line speed', String(c.lineSpeedMpm ?? p.lineSpeedMpm ?? p.line_speed_mpm ?? '—')],
+    ['Repeats', String(c.repeats ?? p.repeats ?? '—')],
+    ['HT', String(c.ht ?? p.ht ?? p.HT ?? '—')],
+    ['W/P', String(c.wp ?? p.wp ?? p.WP ?? '—')],
+    ['End filling', endFilling],
     ['Captured at', p.createdAt || p.created_at ? formatPlantDateTime(String(p.createdAt ?? p.created_at)) : '—'],
-    ['Operator', String(p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
+    ['Operator', String(c.operatorName ?? p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
   ];
 
   const st = (status ?? '').toUpperCase();

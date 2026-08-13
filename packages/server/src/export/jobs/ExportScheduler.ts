@@ -57,7 +57,7 @@ export class ExportScheduler {
       .executeTakeFirst();
 
     if (!userRow) {
-      console.warn('[ExportScheduler] system user not found — skipping DPR');
+      logger.warn('[ExportScheduler] system user not found — skipping DPR');
       return null;
     }
 

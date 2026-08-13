@@ -49,29 +49,6 @@ router.get('/delta', async (_req, res) => {
   }
 });
 
-// --- Task 12.2 Grade Specs ---
-router.post('/grade-specs', requireRole([UserRole.ADMIN]), async (req, res) => {
-  try {
-    const id = await MasterDataService.createGradeSpec(req.body);
-    await MasterDataService.invalidateCache('master.grade');
-    res.status(201).json({ id });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-router.get('/grade-specs/:gradeCode', async (req, res) => {
-  try {
-    // customerId passed as query param if applicable
-    const spec = await MasterDataService.getGradeSpec(req.params.gradeCode, req.query.customerId as string);
-    if (!spec) return res.status(404).json({ error: 'Grade spec not found' });
-    res.json(spec);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
 // --- Task 12.1 Generic CRUD ---
 
 router.get('/:entityType', validateTable, async (req: any, res) => {

@@ -7,6 +7,7 @@ import {
 } from '../validation/manufacturingValidation';
 import { calcShiftDurationMinutes } from '../utils/kpiCalculator';
 import { formatPlantDate, postgresDateOnly } from '../utils/dateOnly';
+import { logger } from '../utils/logger';
 
 export interface AttributionSlice {
   orderId: number;
@@ -434,7 +435,7 @@ export class ShiftAttributionService {
         });
       } catch (err) {
         // ponytail: skip slices that fail shift-duration accounting rather than blocking preview
-        console.warn('[ShiftAttribution] sync slice skipped', oid, err instanceof Error ? err.message : err);
+        logger.warn('[ShiftAttribution] sync slice skipped', oid, err instanceof Error ? err.message : err);
       }
     }
   }

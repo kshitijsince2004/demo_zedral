@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/authMiddleware';
 import { getTenantId } from '../context';
 import { getTenantModuleConfig } from '../platform/tenantConfig';
-import { getConfig } from '../services/configService';
 
 const router = Router();
 
@@ -19,15 +18,4 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-/** Full tenant platform config (latency, modules, branding) for admin surfaces. */
-router.get('/config', requireAuth, async (_req, res) => {
-  try {
-    const config = await getConfig();
-    res.json(config);
-  } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to load tenant config' });
-  }
-});
-
 export default router;
-

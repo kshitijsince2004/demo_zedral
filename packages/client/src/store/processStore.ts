@@ -137,6 +137,8 @@ export function mapQueue(code: ProcessStationCode, raw: unknown): ProcessQueueCa
         lineCount: c.lineCount != null ? Number(c.lineCount) : undefined,
         combination: c.combination != null ? String(c.combination) : undefined,
         routeRaw: c.routeRaw != null ? String(c.routeRaw) : undefined,
+        slitId: c.slitId != null ? String(c.slitId) : undefined,
+        batchNumber: c.batchNumber != null ? String(c.batchNumber) : undefined,
       };
     });
   }
@@ -557,7 +559,13 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
         prodStartAt?: string;
         activeStoppageId?: string;
         stoppages?: Array<{ startAt: string; endAt?: string }>;
-      }>(`/stations/${processCode}/start`, { coilNo });
+      }>(`/stations/${processCode}/start`, {
+        coilNo,
+        batchNumber: (get().activePrefill as { batchNumber?: string } | null)?.batchNumber
+          ?? get().queue.find((c) => c.coilNo === coilNo)?.batchNumber,
+        slitId: (get().activePrefill as { slitId?: string } | null)?.slitId
+          ?? get().queue.find((c) => c.coilNo === coilNo)?.slitId,
+      });
       // Stations start returns thin {coilNo,status}; hrs startProduction returns full order via service
       // but ProcessStationService.startCoil only returns {coilNo,status}. Re-fetch for HRS/PKL.
       if (processCode === 'HRS' || processCode === 'PKL') {
@@ -735,9 +743,16 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
 
   holdCoil: async (coilNo, remarks) => {
     const { processCode } = get();
+    const card = get().queue.find((c) => c.coilNo === coilNo);
+    const prefill = get().activePrefill as { batchNumber?: string; slitId?: string } | null;
     set({ busy: true });
     try {
-      await apiClient.post(`/stations/${processCode}/hold`, { coilNo, remarks });
+      await apiClient.post(`/stations/${processCode}/hold`, {
+        coilNo,
+        remarks,
+        batchNumber: prefill?.batchNumber ?? card?.batchNumber,
+        slitId: prefill?.slitId ?? card?.slitId,
+      });
       set({ ...IDLE_RUN });
       get().clearPklGroup();
       get().requestQueueRefresh();

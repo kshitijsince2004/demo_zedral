@@ -1,6 +1,6 @@
 import { notifyProductionChanged, type ProductionSyncDetail } from '../productionSync';
 
-const CACHE_RELEVANT_URL = /^\/(6hi|production|shift-logs|machines\/handover|machine-crew|machine-access)/;
+const CACHE_RELEVANT_URL = /^\/(6hi|production|shift-logs|machines\/handover|machine-crew|machine-access|rewinding|stations)/;
 
 export function shouldInvalidateCachesForUrl(url: string): boolean {
   return CACHE_RELEVANT_URL.test(url);

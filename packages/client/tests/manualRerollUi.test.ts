@@ -8,7 +8,10 @@ import {
   matchesRerollStatusFilter,
   parseRerollQuantity,
   rerollCombineKey,
+  rerollHitToQueueCard,
   rerollNetRuntimeMs,
+  rerollSessionToQueueCard,
+  rerollStatusToQueueStatus,
   showManualRerollEnterButton,
   withManualRerollTab,
 } from '../src/lib/manualRerollUi';
@@ -123,5 +126,39 @@ describe('manual reroll helpers', () => {
     ], now);
     expect(ms).toBe(15 * 60_000);
     expect(formatRerollNetRuntime(ms)).toBe('00:15:00');
+  });
+
+  it('maps pending hits and sessions onto SixHi queue cards', () => {
+    expect(rerollStatusToQueueStatus('ON_HOLD')).toBe('REJECTED');
+    expect(rerollStatusToQueueStatus('PREPARING')).toBe('PREPARING');
+    const hit = rerollHitToQueueCard({
+      orderId: '9',
+      batchNumber: 'B1',
+      coilNo: 'C1',
+      status: 'PENDING',
+      customer: 'Acme',
+      grade: 'CQ',
+      weightMt: 1.2,
+      thkMm: 2.5,
+      widthMm: 1200,
+    }, '6HI');
+    expect(hit).toMatchObject({
+      batchNumber: 'B1',
+      motherCoil: 'C1',
+      status: 'PENDING',
+      machineCode: '6HI',
+      orderId: '9',
+    });
+    const sess = rerollSessionToQueueCard({
+      sessionId: 's1',
+      batchNumber: 'B1',
+      status: 'PREPARING',
+      machineCode: '4HI',
+      weightMt: 1.2,
+      coilNo: 'C1',
+    }, '4HI');
+    expect(sess.status).toBe('PREPARING');
+    expect(sess.orderId).toBe('s1');
+    expect(sess.prepReady).toBe(true);
   });
 });

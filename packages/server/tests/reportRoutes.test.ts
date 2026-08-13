@@ -19,7 +19,6 @@ const mockMachineHead = vi.fn();
 const mockPlantHead = vi.fn();
 const mockPlantHeadBacklog = vi.fn();
 const mockManagement = vi.fn();
-const mockDaily = vi.fn();
 const mockDrilldown = vi.fn();
 const mockPlantHeadDrilldown = vi.fn();
 const mockCoilSearch = vi.fn();
@@ -30,7 +29,6 @@ vi.mock('../src/services/ReportingService', () => ({
     getPlantHeadDashboard: (...args: unknown[]) => mockPlantHead(...args),
     getPlantHeadBacklog: (...args: unknown[]) => mockPlantHeadBacklog(...args),
     getManagementDashboard: (...args: unknown[]) => mockManagement(...args),
-    getDailyReport: (...args: unknown[]) => mockDaily(...args),
     getDrilldown: (...args: unknown[]) => mockDrilldown(...args),
     getPlantHeadDrilldown: (...args: unknown[]) => mockPlantHeadDrilldown(...args),
     searchCoilTraceability: (...args: unknown[]) => mockCoilSearch(...args),
@@ -182,21 +180,6 @@ describe('reportRoutes', () => {
     expect(res.status).toBe(200);
     expect(mockManagement).toHaveBeenCalledWith('week');
     expect(res.body.period).toBe('week');
-  });
-
-  it('GET /reports/daily returns production summary', async () => {
-    mockDaily.mockResolvedValue({
-      date: '2025-06-01',
-      totalProductionMt: 500,
-      primeYieldPct: 94.2,
-      shiftCount: 3,
-      byLine: [],
-    });
-
-    const res = await request(app).get('/reports/daily?date=2025-06-01');
-    expect(res.status).toBe(200);
-    expect(res.body.totalProductionMt).toBe(500);
-    expect(mockDaily).toHaveBeenCalledWith('2025-06-01');
   });
 
   it('GET /reports/coil-traceability requires coilNo', async () => {

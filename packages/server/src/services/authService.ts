@@ -2,6 +2,7 @@ import { db } from '../db';
 import { isAuthStrict } from '../config/authConfig';
 import { verifyPin } from './pinService';
 import { normalizeRoles } from '@m1/shared-validation';
+import { logger } from '../utils/logger';
 
 const JWT_EXPIRES_IN = '15m';
 const REFRESH_EXPIRES_IN = '7d';
@@ -280,7 +281,7 @@ export async function getAuthUserBySuperTokensId(stUserId: string): Promise<Auth
 
   if (users.length === 0) return null;
   if (users.length > 1) {
-    console.error(
+    logger.error(
       `[auth] Ambiguous SuperTokens link ${stUserId} → ${users.map((u) => u.username).join(', ')}`,
     );
   }

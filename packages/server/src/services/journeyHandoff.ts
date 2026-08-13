@@ -262,7 +262,12 @@ export async function findStrandedHandoffs(): Promise<StrandedHandoff[]> {
         OR (cur.process_code = 'HRS' AND EXISTS (
           SELECT 1 FROM txn.hrs_order h WHERE h.coil_no = oj.coil_no AND h.status = 'COMPLETED'))
         OR (cur.process_code = 'PKL' AND EXISTS (
-          SELECT 1 FROM txn.pkl_order p WHERE p.coil_no = oj.coil_no AND p.status = 'COMPLETED'))
+          SELECT 1 FROM txn.pkl_order p
+          WHERE p.status = 'COMPLETED'
+            AND (
+              (cur.queue_batch_id IS NOT NULL AND p.batch_id = cur.queue_batch_id)
+              OR (cur.queue_batch_id IS NULL AND p.coil_no = oj.coil_no)
+            )))
         OR (cur.process_code = 'RWD' AND EXISTS (
           SELECT 1 FROM txn.rwd_order r WHERE r.coil_no = oj.coil_no AND r.status = 'COMPLETED'))
         OR (cur.process_code = 'CRS' AND EXISTS (
@@ -326,8 +331,14 @@ export function nextLineBlocksRewind(nextStepStatus: string, nextOrderStatus?: s
 
 async function orderStatusForProcess(coilNo: string, processCode: string): Promise<string | null> {
   if (processCode === 'PKL') {
-    const o = await db.selectFrom('txn.pkl_order').select('status').where('coil_no', '=', coilNo).executeTakeFirst();
-    return o?.status ?? null;
+    const rows = await db.selectFrom('txn.pkl_order').select('status').where('coil_no', '=', coilNo).execute();
+    if (!rows.length) return null;
+    const live = rows.find((r) => r.status === 'IN_PROGRESS' || r.status === 'STOPPAGE');
+    if (live) return live.status;
+    if (rows.every((r) => r.status === 'COMPLETED')) return 'COMPLETED';
+    const held = rows.find((r) => r.status === 'REJECTED');
+    if (held && rows.every((r) => r.status === 'REJECTED' || r.status === 'COMPLETED')) return 'REJECTED';
+    return rows.find((r) => r.status !== 'COMPLETED')?.status ?? rows[0].status;
   }
   if (processCode === 'HRS') {
     const o = await db.selectFrom('txn.hrs_order').select('status').where('coil_no', '=', coilNo).executeTakeFirst();

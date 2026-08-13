@@ -1,12 +1,12 @@
-import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
+import { asDisplayText, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 type OrderIdentitySource = {
-  motherCoil?: string;
-  motherCoilNo?: string;
-  displayCoilNo?: string;
-  coilNo?: string;
-  batchNumber: string;
-  slitId?: string;
+  motherCoil?: unknown;
+  motherCoilNo?: unknown;
+  displayCoilNo?: unknown;
+  coilNo?: unknown;
+  batchNumber?: unknown;
+  slitId?: unknown;
 };
 
 interface OrderIdentityDisplayProps {
@@ -29,6 +29,7 @@ export function OrderIdentityDisplay({
   className = '',
 }: OrderIdentityDisplayProps) {
   const coil = displayMotherCoilId(order);
+  const batch = asDisplayText(order.batchNumber);
 
   return (
     <div className={className}>
@@ -36,11 +37,11 @@ export function OrderIdentityDisplay({
         className={`font-mono font-bold text-primary block truncate ${sizeClass[size]}`}
         title={coil}
       >
-        {coil}
+        {coil || '—'}
       </span>
-      {showSubtitle && (
+      {showSubtitle && batch && (
         <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block truncate mt-0.5">
-          Batch {order.batchNumber}
+          Batch {batch}
         </span>
       )}
     </div>

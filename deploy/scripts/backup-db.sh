@@ -48,12 +48,29 @@ docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" exec -T db \
   > "${OUTPUT}"
 
 gzip -f "${OUTPUT}"
-ARCHIVE="${OUTPUT}.gz"
+PLAIN_ARCHIVE="${OUTPUT}.gz"
+
+# Encrypt with age using an off-box public recipient (private key never on the VM).
+# Set AGE_RECIPIENT in deploy/.env (age1...). Install: https://github.com/FiloSottile/age
+if [ -z "${AGE_RECIPIENT:-}" ]; then
+  echo "ERROR: AGE_RECIPIENT not set — refusing to leave plaintext backup on disk" >&2
+  rm -f "${PLAIN_ARCHIVE}"
+  exit 1
+fi
+if ! command -v age >/dev/null 2>&1; then
+  echo "ERROR: age not installed on PATH" >&2
+  rm -f "${PLAIN_ARCHIVE}"
+  exit 1
+fi
+ARCHIVE="${PLAIN_ARCHIVE}.age"
+age -r "${AGE_RECIPIENT}" -o "${ARCHIVE}" "${PLAIN_ARCHIVE}"
+rm -f "${PLAIN_ARCHIVE}"
 SIZE="$(du -h "${ARCHIVE}" | cut -f1)"
 echo "[$(date -Is)] Backup complete (${SIZE}): ${ARCHIVE}"
 
 # Optional off-VM copy (requires IAM role or AWS credentials on VM):
+# Encrypt-before-upload already done; upload the .age only:
 # aws s3 cp "${ARCHIVE}" "s3://${S3_BACKUP_BUCKET}/zedral/$(basename "${ARCHIVE}")"
 
-find "${BACKUP_DIR}" -name 'zedral_*.sql.gz' -type f -mtime +"${RETENTION_DAYS}" -delete
-echo "[$(date -Is)] Pruned backups older than ${RETENTION_DAYS} days"
+find "${BACKUP_DIR}" -name 'zedral_*.sql.gz.age' -type f -mtime +"${RETENTION_DAYS}" -delete
+echo "[$(date -Is)] Pruned encrypted backups older than ${RETENTION_DAYS} days"

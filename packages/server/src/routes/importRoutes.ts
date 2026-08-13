@@ -4,9 +4,10 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { ImportService } from '../services/ImportService';
+import { logger } from '../utils/logger';
 
 function respondImportServerError(res: import('express').Response, error: unknown) {
-  console.error('Import route error:', error);
+  logger.error('Import route error:', error);
   res.status(500).json({ error: 'Import failed' });
 }
 

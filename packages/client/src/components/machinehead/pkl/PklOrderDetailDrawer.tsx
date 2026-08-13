@@ -71,15 +71,15 @@ function mergePklCapture(entry: PklEntryShape | null): PklCaptureMerged {
   const capturedAt = p.createdAt ?? p.created_at;
   return {
     lineSpeedMpm: c.lineSpeedMpm ?? c.line_speed_mpm ?? p.lineSpeedMpm ?? p.line_speed_mpm,
-    repeats: p.repeats,
-    ht: String(p.ht ?? p.HT ?? ''),
+    repeats: c.repeats ?? p.repeats,
+    ht: String(c.ht ?? p.ht ?? p.HT ?? ''),
     wp: String(c.wp ?? p.wp ?? p.WP ?? ''),
     endFilling,
     weightMt: c.weightMt != null ? Number(c.weightMt) : c.weight_mt != null ? Number(c.weight_mt) : undefined,
     ppcWeightMt: c.ppcWeightMt != null ? Number(c.ppcWeightMt) : c.ppc_weight_mt != null ? Number(c.ppc_weight_mt) : undefined,
     remarks: String(c.remarks ?? ''),
     capturedAt: capturedAt ? String(capturedAt) : undefined,
-    operator: String(p.capturedBy ?? p.operatorName ?? p.created_by ?? ''),
+    operator: String(c.operatorName ?? p.capturedBy ?? p.operatorName ?? p.created_by ?? ''),
   };
 }
 

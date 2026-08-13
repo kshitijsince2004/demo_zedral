@@ -1,11 +1,8 @@
 import { Router } from 'express';
-import { ShiftLogService } from '../services/shiftLogService';
 import {
-  DailyReportService,
   DashboardReportingService,
   TraceabilityReportingService,
 } from '../services/reporting';
-import { ReportingService } from '../services/ReportingService';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { getScopedLineCodes } from '../auth/lineAccessPolicy';
@@ -15,7 +12,6 @@ import {
   parseDrilldownPage,
   parsePlantHeadDrilldownMetric,
 } from '../reporting/plantHeadDrilldown';
-import { currentPlantDate } from '../utils/dateOnly';
 import { MachineRegistryService } from '../services/MachineRegistryService';
 
 const router = Router();
@@ -146,16 +142,6 @@ router.get('/drilldown', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD
   }
 });
 
-router.get('/daily', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
-  try {
-    const date = (req.query.date as string) || currentPlantDate();
-    const data = await DailyReportService.getDailyReport(date);
-    res.json(data);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.MACHINE_HEAD, UserRole.ADMIN]), async (req, res) => {
   try {
     const rawCoilNo = req.query.coilNo as string;
@@ -168,15 +154,6 @@ router.get('/coil-traceability', requireRole([UserRole.PLANT_HEAD, UserRole.MACH
     }
     const results = await TraceabilityReportingService.searchCoilTraceability(coilNo);
     res.json(results);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.get('/handover', requireRole([UserRole.MACHINE_HEAD, UserRole.PLANT_HEAD, UserRole.ADMIN]), async (req, res) => {
-  try {
-    const summary = await ReportingService.getMachineHandoverSummary(req.query.shiftLogId as string);
-    res.json(summary);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

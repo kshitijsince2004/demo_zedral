@@ -34,6 +34,7 @@ import { SixHiService } from '../services/SixHiService';
 import { MachineCrewService } from '../services/MachineCrewService';
 import multer from 'multer';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
+import { logger } from '../utils/logger';
 
 const router = Router();
 // ponytail: hub+capture+Strict Mode burst past 120/min locally; keep prod tight
@@ -41,7 +42,7 @@ router.use(rateLimitMiddleware(process.env.NODE_ENV === 'production' ? 120 : 600
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function respondSixHiServerError(res: import('express').Response, context: string, error: unknown) {
-  console.error(`${context}:`, error);
+  logger.error(`${context}:`, error);
   const message = error instanceof Error ? error.message : 'Import failed';
   res.status(500).json({ error: message });
 }

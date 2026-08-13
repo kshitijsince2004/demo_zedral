@@ -87,12 +87,14 @@ function requireManualRerollWrite(
   }
 }
 
+const REROLL_SUB_PROCESSES = ['ROLLING', 'SKIN_PASS'] as const;
+
 const PENDING_SELECT = [
   'o.order_id',
-  'o.batch_number',
+  'pb.batch_number',
   'o.coil_no as order_coil_no',
   'o.status',
-  'o.customer_name',
+  'pb.customer_name',
   'pb.machine_code',
   'pb.grade_code',
   'pb.coil_no',
@@ -114,13 +116,14 @@ function mapPendingOrder(row: Record<string, unknown>) {
     || row.batch_number
     || '',
   );
+  const batchNumber = String(row.batch_number ?? '');
   return {
     kind: 'pending' as const,
-    orderId: String(row.order_id),
-    batchNumber: row.batch_number as string,
+    orderId: row.order_id != null ? String(row.order_id) : batchNumber,
+    batchNumber,
     coilNo: motherCoil,
     status: (row.status as string) === 'PREPARING' ? 'PREPARING' : 'PENDING',
-    customer: row.customer_name as string,
+    customer: (row.customer_name as string) || '',
     grade: (row.grade_code as string | null) ?? null,
     machineCode: row.machine_code as string,
     slitId: (row.slit_id as string | null) ?? null,
@@ -132,21 +135,61 @@ function mapPendingOrder(row: Record<string, unknown>) {
   };
 }
 
+/** Mill's allocated plans + the unallocated CRM pool (same as Rolling pendingAllocation). */
+function belongsOnRerollDesk(eb: any, machine: ManualRerollMill) {
+  return eb.or([
+    eb.and([eb('pb.machine_code', '=', machine), eb('pb.machine_allocated', '=', true)]),
+    eb('pb.machine_allocated', '=', false),
+  ]);
+}
+
+function pendingRerollQuery(machine: ManualRerollMill, q: string) {
+  let query = db
+    .selectFrom('planning.ppc_batch as pb')
+    .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
+    .select([...PENDING_SELECT])
+    .where('pb.sub_process', 'in', [...REROLL_SUB_PROCESSES])
+    .where((eb) => belongsOnRerollDesk(eb, machine))
+    .where((eb) =>
+      eb.or([
+        eb('o.status', 'is', null),
+        eb('o.status', 'in', [...REROLL_QUEUE_STATUSES]),
+      ]),
+    )
+    .orderBy('pb.queue_seq', 'asc')
+    .orderBy('pb.batch_number', 'asc')
+    .limit(q ? 80 : 500);
+
+  if (q) {
+    const like = `%${q}%`;
+    query = query.where((eb) =>
+      eb.or([
+        eb('pb.batch_number', 'ilike', like),
+        eb('pb.coil_no', 'ilike', like),
+        eb('o.coil_no', 'ilike', like),
+        eb('pb.customer_name', 'ilike', like),
+      ]),
+    );
+  }
+  return query;
+}
+
 async function lookupOrder(machine: ManualRerollMill, batchNumber: string) {
   return db
-    .selectFrom('txn.crm_order as o')
-    .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+    .selectFrom('planning.ppc_batch as pb')
+    .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
     .select([
       'o.order_id',
-      'o.batch_number',
+      'pb.batch_number',
       'o.status',
-      'o.customer_name',
+      'pb.customer_name',
       'pb.machine_code',
       'pb.grade_code',
       'pb.ppc_weight_mt',
     ])
-    .where('pb.machine_code', '=', machine)
-    .where('o.batch_number', '=', batchNumber)
+    .where('pb.batch_number', '=', batchNumber)
+    .where('pb.sub_process', 'in', [...REROLL_SUB_PROCESSES])
+    .where((eb) => belongsOnRerollDesk(eb, machine))
     .executeTakeFirst();
 }
 
@@ -184,28 +227,7 @@ router.get('/orders', requireManualRerollRead, async (req, res) => {
   try {
     const machine = (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill!;
     const q = String(req.query.q ?? '').trim();
-    let query = db
-      .selectFrom('txn.crm_order as o')
-      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .select([...PENDING_SELECT])
-      .where('pb.machine_code', '=', machine)
-      .where('o.status', 'in', [...REROLL_QUEUE_STATUSES])
-      .orderBy('o.updated_at', 'desc')
-      .limit(q ? 80 : 500);
-
-    if (q) {
-      const like = `%${q}%`;
-      query = query.where((eb) =>
-        eb.or([
-          eb('o.batch_number', 'ilike', like),
-          eb('o.coil_no', 'ilike', like),
-          eb('pb.coil_no', 'ilike', like),
-          eb('o.customer_name', 'ilike', like),
-        ]),
-      );
-    }
-
-    const rows = await query.execute();
+    const rows = await pendingRerollQuery(machine, q).execute();
     const claimed = await ManualRerollService.listClaimedBatchNumbers(machine);
     res.json({
       orders: rows
@@ -223,29 +245,8 @@ router.get('/queue', requireManualRerollRead, async (req, res) => {
     const q = String(req.query.q ?? '').trim();
     const day = String(req.query.date ?? currentPlantDate());
 
-    let pendingQuery = db
-      .selectFrom('txn.crm_order as o')
-      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
-      .select([...PENDING_SELECT])
-      .where('pb.machine_code', '=', machine)
-      .where('o.status', 'in', [...REROLL_QUEUE_STATUSES])
-      .orderBy('o.updated_at', 'desc')
-      .limit(q ? 80 : 500);
-
-    if (q) {
-      const like = `%${q}%`;
-      pendingQuery = pendingQuery.where((eb) =>
-        eb.or([
-          eb('o.batch_number', 'ilike', like),
-          eb('o.coil_no', 'ilike', like),
-          eb('pb.coil_no', 'ilike', like),
-          eb('o.customer_name', 'ilike', like),
-        ]),
-      );
-    }
-
     const [pendingRows, sessions, active, claimed] = await Promise.all([
-      pendingQuery.execute(),
+      pendingRerollQuery(machine, q).execute(),
       ManualRerollService.listQueueSessions(machine, startOfPlantDay(day)),
       ManualRerollService.getActiveSession(machine),
       ManualRerollService.listClaimedBatchNumbers(machine),
@@ -299,7 +300,10 @@ router.post('/sessions', requireManualRerollWrite, async (req, res) => {
     if (missing.length > 0) {
       return res.status(404).json({ error: `Order ${missing[0]} not found on ${machine}` });
     }
-    const notStartable = orders.find((row) => row && !REROLL_QUEUE_STATUSES.includes(row.status as typeof REROLL_QUEUE_STATUSES[number]));
+    const notStartable = orders.find((row) =>
+      row?.status != null
+      && !REROLL_QUEUE_STATUSES.includes(row.status as typeof REROLL_QUEUE_STATUSES[number]),
+    );
     if (notStartable) {
       return res.status(400).json({
         error: `Order ${notStartable.batch_number} is ${notStartable.status} — only PENDING/PREPARING can start re-roll`,

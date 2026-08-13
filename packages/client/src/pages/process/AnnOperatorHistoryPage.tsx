@@ -36,42 +36,16 @@ export function AnnOperatorHistoryPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const board = await apiClient.get<{ board: AnnBoardRow[] }>('/stations/ann/board');
-      const withCharge = (board.board ?? []).filter((r) => r.charge?.charge_no);
+      const fromIso = new Date(from).toISOString();
+      const toIso = new Date(to).toISOString();
+      const [board, pack] = await Promise.all([
+        apiClient.get<{ board: AnnBoardRow[] }>('/stations/ann/board'),
+        apiClient.get<{ readings: ReadingRow[] }>(
+          `/stations/ann/readings?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+        ),
+      ]);
       setBases((board.board ?? []).map((b) => b.base_no));
-      const fromMs = new Date(from).getTime();
-      const toMs = new Date(to).getTime();
-      const all: ReadingRow[] = [];
-      await Promise.all(
-        withCharge.map(async (row) => {
-          const cn = row.charge!.charge_no;
-          const d = await apiClient.get<{
-            charge: Record<string, unknown>;
-            readings: Array<{
-              reading_id: string;
-              taken_at: string;
-              stage_code: string | null;
-              charge_temp: number | string | null;
-              gas_temp: number | string | null;
-              fc_temp: number | string | null;
-              base_press: number | string | null;
-              base_fan_rpm: number | string | null;
-            }>;
-          }>(`/stations/ann/charges/${encodeURIComponent(cn)}`);
-          for (const r of d.readings ?? []) {
-            const ms = new Date(r.taken_at).getTime();
-            if (ms < fromMs || ms > toMs) continue;
-            all.push({
-              ...r,
-              base_no: row.base_no,
-              batch_no: String(d.charge.annealing_batch_no ?? row.charge?.annealing_batch_no ?? '—'),
-              charge_no: cn,
-            });
-          }
-        }),
-      );
-      all.sort((a, b) => b.taken_at.localeCompare(a.taken_at));
-      setRows(all);
+      setRows(pack.readings ?? []);
     } finally {
       setLoading(false);
     }

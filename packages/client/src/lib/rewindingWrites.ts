@@ -23,18 +23,22 @@ export async function allocateRwdMachine(batchNumber: string, machineCode: strin
   });
 }
 
-export async function startCombinedRwdOrders(batchNumbers: string[]) {
-  return apiClient.post('/rewinding/orders/start-combined', { batchNumbers, mode: 'start' });
+function rwdMachineQuery(machine?: string) {
+  return machine ? `?machine=${encodeURIComponent(machine)}` : '';
+}
+
+export async function startCombinedRwdOrders(batchNumbers: string[], machine?: string) {
+  return apiClient.post(`/rewinding/orders/start-combined${rwdMachineQuery(machine)}`, { batchNumbers, mode: 'start' });
 }
 
 /** Hub combine — PREPARING + group; capture Start actually runs. */
-export async function prepareCombinedRwdOrders(batchNumbers: string[]) {
-  return apiClient.post('/rewinding/orders/start-combined', { batchNumbers, mode: 'prepare' });
+export async function prepareCombinedRwdOrders(batchNumbers: string[], machine?: string) {
+  return apiClient.post(`/rewinding/orders/start-combined${rwdMachineQuery(machine)}`, { batchNumbers, mode: 'prepare' });
 }
 
 /** Dissolve PREPARING combined_group_id (hub Cancel Combined after prepare). */
-export async function cancelCombinedRwdOrders(batchNumbers: string[]) {
-  return apiClient.post('/rewinding/orders/cancel-combined', { batchNumbers });
+export async function cancelCombinedRwdOrders(batchNumbers: string[], machine?: string) {
+  return apiClient.post(`/rewinding/orders/cancel-combined${rwdMachineQuery(machine)}`, { batchNumbers });
 }
 
 export async function addRwdStoppage(

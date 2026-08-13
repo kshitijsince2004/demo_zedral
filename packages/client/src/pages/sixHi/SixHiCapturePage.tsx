@@ -187,6 +187,8 @@ export function SixHiCapturePage() {
       if (fingerprint === combinedOrdersFpRef.current) return;
       combinedOrdersFpRef.current = fingerprint;
       setCombinedOrders(orders);
+    }).catch(() => {
+      // keep last combined cards
     });
     return () => {
       cancelled = true;

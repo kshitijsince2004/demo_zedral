@@ -16,7 +16,7 @@ export function AppSWRConfig({ children }: { children: ReactNode }) {
         errorRetryCount: 3,
         onErrorRetry: (err, _key, _cfg, revalidate, { retryCount }) => {
           if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-          if (err instanceof ApiError && (err.status === 401 || err.preventRetry)) return;
+          if (err instanceof ApiError && (err.status === 401 || err.status === 429 || err.preventRetry)) return;
           if ((err as ApiError)?.preventRetry) return;
           setTimeout(
             () => revalidate({ retryCount }),

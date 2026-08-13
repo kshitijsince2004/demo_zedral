@@ -19,7 +19,7 @@ import { MachineStateEventService } from './MachineStateEventService';
 import { MachineRegistryService } from './MachineRegistryService';
 import { MachineCrewService } from './MachineCrewService';
 import { ManualRerollService, type OpenManualRerollLiveRow } from './ManualRerollService';
-import { currentPlantDate, formatPlantDate, startOfDateFilter } from '../utils/dateOnly';
+import { currentPlantDate, formatPlantDate, startOfDateFilter, postgresDateOnly, PLANT_TIME_ZONE } from '../utils/dateOnly';
 /** Live shopfloor queue — no COMPLETED (those belong in production history). */
 const ACTIVE_STATUSES = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 const ORDER_STATUS_PRIORITY: Record<string, number> = {
@@ -414,6 +414,79 @@ export class LiveService {
         completionPct: progress.completionPct,
       });
     }
+
+    if (machines.length > 0) {
+      const seen = new Set(orders.map((o) => `${o.machineCode}:${o.coilNo}:${o.batchNumber}`));
+      const lineRows = await Promise.all([
+        db.selectFrom('txn.hrs_order as ho')
+          .leftJoin('master.machine as m', 'm.machine_code', 'ho.machine_code')
+          .leftJoin('security.app_user as u', 'u.user_id', 'ho.logged_in_user_id')
+          .select([
+            'ho.machine_code', 'm.name as machine_name', 'ho.coil_no', 'ho.customer_name',
+            'ho.grade_code', 'ho.status', 'ho.prod_start_at', 'ho.shift_code',
+            'ho.mother_coil_weight_mt', 'u.full_name as operator_name',
+          ])
+          .where('ho.machine_code', 'in', machines)
+          .where('ho.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+          .execute()
+          .catch(() => [] as Array<Record<string, unknown>>),
+        db.selectFrom('txn.pkl_order as po')
+          .leftJoin('master.machine as m', 'm.machine_code', 'po.machine_code')
+          .leftJoin('security.app_user as u', 'u.user_id', 'po.logged_in_user_id')
+          .select([
+            'po.machine_code', 'm.name as machine_name', 'po.coil_no', 'po.batch_number',
+            'po.customer_name', 'po.grade_code', 'po.status', 'po.prod_start_at',
+            'po.shift_code', 'po.mother_coil_weight_mt', 'po.slit_id',
+            'u.full_name as operator_name',
+          ])
+          .where('po.machine_code', 'in', machines)
+          .where('po.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+          .execute()
+          .catch(() => [] as Array<Record<string, unknown>>),
+      ]);
+      for (const r of [...lineRows[0], ...lineRows[1]]) {
+        const rec = r as {
+          machine_code: string;
+          machine_name?: string | null;
+          coil_no: string;
+          batch_number?: string | null;
+          customer_name?: string | null;
+          grade_code?: string | null;
+          status: string;
+          prod_start_at?: Date | string | null;
+          shift_code?: string | null;
+          mother_coil_weight_mt?: string | number | null;
+          slit_id?: string | null;
+          operator_name?: string | null;
+        };
+        const coilNo = rec.coil_no;
+        const batchNumber = rec.batch_number || coilNo;
+        const key = `${rec.machine_code}:${coilNo}:${batchNumber}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let runtimeMin: number | undefined;
+        if (rec.prod_start_at) {
+          runtimeMin = Math.round((Date.now() - new Date(rec.prod_start_at).getTime()) / 60000);
+        }
+        orders.push({
+          batchNumber,
+          customer: rec.customer_name ?? '',
+          grade: rec.grade_code ?? '',
+          machineCode: rec.machine_code,
+          machineName: rec.machine_name ?? rec.machine_code,
+          currentProcess: rec.machine_code,
+          operatorName: rec.operator_name ?? undefined,
+          runtimeMin,
+          status: rec.status as LiveOrderRow['status'],
+          weightMt: rec.mother_coil_weight_mt != null ? Number(rec.mother_coil_weight_mt) : 0,
+          coilNo,
+          motherCoil: coilNo,
+          slitId: rec.slit_id?.trim() || undefined,
+          shiftCode: rec.shift_code ?? undefined,
+        });
+      }
+    }
+
     return orders;
   }
   static async getMachineCards(
@@ -589,6 +662,70 @@ export class LiveService {
     const rwdByMachine = new Map<string, OpenRwdLiveRow>();
     for (const row of openRwdRows) {
       if (!rwdByMachine.has(row.machine_code)) rwdByMachine.set(row.machine_code, row);
+    }
+
+    // 3e. Open HRS / PKL orders — same overlay as RWD so plant/MH cards aren't stuck IDLE
+    if (machineCodes.length > 0) {
+      const hrsRows: OpenRwdLiveRow[] = await db.selectFrom('txn.hrs_order as ho')
+        .leftJoin('security.app_user as u', 'u.user_id', 'ho.logged_in_user_id')
+        .select([
+          'ho.machine_code',
+          'ho.coil_no',
+          'ho.status',
+          'ho.prod_start_at',
+          'ho.shift_code',
+          'ho.mother_coil_weight_mt as ppc_weight_mt',
+          'u.full_name as operator_name',
+        ])
+        .where('ho.machine_code', 'in', machineCodes)
+        .where('ho.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+        .orderBy('ho.updated_at', 'desc')
+        .execute()
+        .then((rows) => rows.map((r) => ({
+          machine_code: r.machine_code,
+          batch_number: r.coil_no,
+          coil_no: r.coil_no,
+          status: r.status,
+          prod_start_at: r.prod_start_at,
+          shift_code: r.shift_code,
+          operator_name: r.operator_name,
+          ppc_weight_mt: r.ppc_weight_mt,
+        })))
+        .catch(() => [] as OpenRwdLiveRow[]);
+      for (const row of hrsRows) {
+        if (!rwdByMachine.has(row.machine_code)) rwdByMachine.set(row.machine_code, row);
+      }
+
+      const pklRows: OpenRwdLiveRow[] = await db.selectFrom('txn.pkl_order as po')
+        .leftJoin('security.app_user as u', 'u.user_id', 'po.logged_in_user_id')
+        .select([
+          'po.machine_code',
+          'po.batch_number',
+          'po.coil_no',
+          'po.status',
+          'po.prod_start_at',
+          'po.shift_code',
+          'po.mother_coil_weight_mt as ppc_weight_mt',
+          'u.full_name as operator_name',
+        ])
+        .where('po.machine_code', 'in', machineCodes)
+        .where('po.status', 'in', [...PRODUCTION_ORDER_STATUSES])
+        .orderBy('po.updated_at', 'desc')
+        .execute()
+        .then((rows) => rows.map((r) => ({
+          machine_code: r.machine_code,
+          batch_number: r.batch_number || r.coil_no,
+          coil_no: r.coil_no,
+          status: r.status,
+          prod_start_at: r.prod_start_at,
+          shift_code: r.shift_code,
+          operator_name: r.operator_name,
+          ppc_weight_mt: r.ppc_weight_mt,
+        })))
+        .catch(() => [] as OpenRwdLiveRow[]);
+      for (const row of pklRows) {
+        if (!rwdByMachine.has(row.machine_code)) rwdByMachine.set(row.machine_code, row);
+      }
     }
 
     // 4. Map to cards
@@ -1370,7 +1507,11 @@ export class LiveService {
       }
     }
     if (shiftLogIds.length > 0) {
-      completedQ = completedQ.where('o.shift_log_id', 'in', shiftLogIds);
+      const prodDateKey = postgresDateOnly(prodDate);
+      completedQ = completedQ.where((eb) => eb.or([
+        eb('o.shift_log_id', 'in', shiftLogIds),
+        sql<boolean>`(o.prod_end_at AT TIME ZONE ${PLANT_TIME_ZONE})::date = ${prodDateKey}::date`,
+      ]));
     } else {
       completedQ = completedQ
         .where('pb.plan_date', '=', SixHiShiftService.toPlanDate(prodDate))

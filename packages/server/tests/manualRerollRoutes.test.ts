@@ -60,6 +60,7 @@ vi.mock('../src/db', () => ({
       const chain: Record<string, unknown> = {};
       const self = () => chain;
       chain.innerJoin = self;
+      chain.leftJoin = self;
       chain.select = self;
       chain.where = self;
       chain.orderBy = self;
@@ -285,6 +286,37 @@ describe('manualRerollRoutes auth matrix', () => {
     const res = await request(app).get('/manual-reroll/queue?machine=6HI');
     expect(res.status).toBe(200);
     expect(res.body.pending.map((p: { batchNumber: string }) => p.batchNumber)).toEqual(['OPEN-1']);
+  });
+
+  it('returns 4HI pending plans that have no crm_order yet', async () => {
+    currentUser = {
+      ...currentUser,
+      machineAccess: ['4HI'],
+      lineAccess: ['4HI'],
+      lineScopes: [{ code: '4HI', accessLevel: 'WRITE' }],
+    };
+    mockExecute.mockResolvedValue([
+      {
+        order_id: null,
+        batch_number: '4HI-PLAN-1',
+        coil_no: 'C-4',
+        status: null,
+        customer_name: 'Acme',
+        machine_code: '4HI',
+        grade_code: 'G1',
+        ppc_weight_mt: '3',
+        slit_id: null,
+        roll_finish: null,
+        sub_process: 'ROLLING',
+        ppc_thk_mm: null,
+        width_mm: null,
+      },
+    ]);
+    const res = await request(app).get('/manual-reroll/queue?machine=4HI');
+    expect(res.status).toBe(200);
+    expect(res.body.pending).toEqual([
+      expect.objectContaining({ batchNumber: '4HI-PLAN-1', orderId: '4HI-PLAN-1', status: 'PENDING' }),
+    ]);
   });
 
   it('rejects prepare when batch already has a completed re-roll session', async () => {

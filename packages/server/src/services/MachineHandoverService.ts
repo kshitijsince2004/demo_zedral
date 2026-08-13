@@ -19,6 +19,7 @@ import { reparentOpenWork } from './handover/carryForward';
 import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ShiftLogValidationService } from './shiftLogValidationService';
 import { publishShiftClosed } from '../platform/m1Events';
+import { logger } from '../utils/logger';
 
 /** PERF-C1: handover list/detail columns (PendingHandover + write paths). */
 const HANDOVER_COLS = [
@@ -267,7 +268,7 @@ export class MachineHandoverService {
         ];
       }
     } catch (err) {
-      console.error('[buildOutgoingPreview] Open manual stoppages failed:', err);
+      logger.error('[buildOutgoingPreview] Open manual stoppages failed:', err);
     }
 
     const machineStatus: MachineHandoverStatus = active
@@ -299,7 +300,7 @@ export class MachineHandoverService {
         );
       }
     } catch (err) {
-      console.error('[buildOutgoingPreview] Shift log lookup failed:', err);
+      logger.error('[buildOutgoingPreview] Shift log lookup failed:', err);
     }
 
     // Shift production summary
@@ -339,7 +340,7 @@ export class MachineHandoverService {
           crewSnapshot = await CrewService.listBySession(String(session.session_id));
         }
       } catch (err) {
-        console.error('[buildOutgoingPreview] Shift production summary failed:', err);
+        logger.error('[buildOutgoingPreview] Shift production summary failed:', err);
       }
     }
 
@@ -358,7 +359,7 @@ export class MachineHandoverService {
         stoppageCount: util.stoppageCount,
       };
     } catch (err) {
-      console.error('[buildOutgoingPreview] Utilization error:', err);
+      logger.error('[buildOutgoingPreview] Utilization error:', err);
     }
 
     const { MachineCrewService } = await import('./MachineCrewService');
@@ -655,7 +656,7 @@ export class MachineHandoverService {
           operatorUserId,
         );
       } catch (err) {
-        console.error('[createOutgoingHandover] Shift summary finalization failed:', err);
+        logger.error('[createOutgoingHandover] Shift summary finalization failed:', err);
       }
 
       try {
@@ -665,7 +666,7 @@ export class MachineHandoverService {
           totalProdMt: (preview.shiftProductionSummary?.totalProdMt ?? 0) as number,
         });
       } catch (err) {
-        console.error('[createOutgoingHandover] Domain event publish failed:', err);
+        logger.error('[createOutgoingHandover] Domain event publish failed:', err);
       }
     }
 
@@ -935,7 +936,7 @@ export class MachineHandoverService {
             processIdResolved
           );
         } catch (err) {
-          console.error('[acceptHandover] Failed to resolve outgoing shiftLogId:', err);
+          logger.error('[acceptHandover] Failed to resolve outgoing shiftLogId:', err);
         }
 
         const incomingShiftLogId = incomingShiftLogIdForSession;
@@ -1074,15 +1075,20 @@ export class MachineHandoverService {
     // Close any other operator's non-live ACTIVE before conflict check (fix 2.2).
     await ShiftDetectionService.closeStaleSessionsOnMachine(machineCode);
 
-    const otherActive = await db
+    const blocking = await db
       .selectFrom('txn.machine_shift_session')
-      .select('session_id')
+      .select([...SESSION_COLS])
       .where('machine_code', '=', machineCode)
       .where('status', '=', 'ACTIVE')
-      .where('operator_user_id', '!=', operatorUserId)
       .executeTakeFirst();
 
-    if (otherActive) {
+    if (blocking) {
+      // closeStale can disagree with isSessionLiveById — leftover own row
+      // used to fall through to INSERT and 400 on ux_machine_shift_session_one_active.
+      if (Number(blocking.operator_user_id) === operatorUserId) {
+        const needsCrew = await CrewService.sessionNeedsCrew(String(blocking.session_id));
+        return { session: blocking, pendingHandover: null, needsCrew, created: false };
+      }
       throw new Error(
         'ACTIVE_SESSION_CONFLICT: Another operator holds an active session on this machine.',
       );

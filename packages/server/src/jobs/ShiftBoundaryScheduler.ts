@@ -60,7 +60,7 @@ export class ShiftBoundaryScheduler {
       );
       return closed;
     } catch (err) {
-      console.error(
+      logger.error(
         JSON.stringify({
           msg: 'shift_boundary_scheduler_failed',
           mode,

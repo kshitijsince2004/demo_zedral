@@ -4,6 +4,7 @@ import { assertCombineEligible } from '../utils/orderLifecycleHelpers';
 import { SixHiService } from './SixHiService';
 import { MachineStateEventService } from './MachineStateEventService';
 import type { ManualRerollMachine } from '@m1/shared-validation';
+import { logger } from '../utils/logger';
 
 export const ACTIVE_REROLL_CONFLICT = 'ACTIVE_REROLL_CONFLICT';
 
@@ -268,7 +269,7 @@ function fireMachineEvent(
   opts: Parameters<typeof MachineStateEventService.recordEvent>[2] = {},
 ): void {
   MachineStateEventService.recordEvent(machineCode, eventType, opts).catch((err) => {
-    console.error(`[MachineStateEvent] ${eventType} (manual reroll) failed:`, err);
+    logger.error(`[MachineStateEvent] ${eventType} (manual reroll) failed:`, err);
   });
 }
 
@@ -294,134 +295,6 @@ function eventOptsForSession(row: {
       ...extraMeta,
     },
   };
-}
-
-let tableReady: Promise<void> | null = null;
-
-async function ensureManualRerollTable(): Promise<void> {
-  if (!tableReady) {
-    tableReady = (async () => {
-      await sql`
-        CREATE TABLE IF NOT EXISTS txn.manual_reroll_session (
-          session_id        BIGSERIAL PRIMARY KEY,
-          tenant_id         UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
-                            REFERENCES security.tenant(tenant_id),
-          order_id          BIGINT,
-          batch_number      VARCHAR(64),
-          machine_code      VARCHAR(32) NOT NULL,
-          machine_type      VARCHAR(16) NOT NULL,
-          operator_id       INTEGER NOT NULL REFERENCES security.app_user(user_id),
-          shift_code        VARCHAR(16),
-          reroll_quantity   NUMERIC(12,3),
-          status            VARCHAR(24) NOT NULL DEFAULT 'IN_PROGRESS',
-          remarks           TEXT,
-          start_time        TIMESTAMPTZ NOT NULL DEFAULT now(),
-          end_time          TIMESTAMPTZ,
-          duration_min      INTEGER,
-          created_by        INTEGER NOT NULL REFERENCES security.app_user(user_id),
-          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `.execute(db);
-      await sql`
-        ALTER TABLE txn.manual_reroll_session
-          ADD COLUMN IF NOT EXISTS batch_numbers TEXT[]
-      `.execute(db);
-      await sql`
-        ALTER TABLE txn.manual_reroll_session
-          ADD COLUMN IF NOT EXISTS actual_weight_mt NUMERIC(12,3),
-          ADD COLUMN IF NOT EXISTS actual_weight_source TEXT,
-          ADD COLUMN IF NOT EXISTS actual_weight_photo_hash TEXT,
-          ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC(5,2),
-          ADD COLUMN IF NOT EXISTS ocr_raw_text TEXT,
-          ADD COLUMN IF NOT EXISTS input_thk_mm NUMERIC(8,4),
-          ADD COLUMN IF NOT EXISTS target_thk_mm NUMERIC(8,4),
-          ADD COLUMN IF NOT EXISTS destination VARCHAR(16),
-          ADD COLUMN IF NOT EXISTS destination_override BOOLEAN DEFAULT false,
-          ADD COLUMN IF NOT EXISTS etr NUMERIC,
-          ADD COLUMN IF NOT EXISTS dtr NUMERIC
-      `.execute(db);
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_manual_reroll_session_batch_completed
-          ON txn.manual_reroll_session (batch_number)
-          WHERE status = 'COMPLETED'
-      `.execute(db);
-      await sql`
-        CREATE TABLE IF NOT EXISTS txn.manual_reroll_stoppage (
-          stoppage_id     BIGSERIAL PRIMARY KEY,
-          tenant_id       UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
-                          REFERENCES security.tenant(tenant_id),
-          session_id      BIGINT NOT NULL REFERENCES txn.manual_reroll_session(session_id) ON DELETE CASCADE,
-          machine_code    VARCHAR(32) NOT NULL,
-          category_code   VARCHAR(64) NOT NULL,
-          stoppage_code   VARCHAR(64),
-          remarks         TEXT,
-          operator_id     INTEGER REFERENCES security.app_user(user_id),
-          start_time      TIMESTAMPTZ NOT NULL DEFAULT now(),
-          end_time        TIMESTAMPTZ,
-          duration_min    INTEGER,
-          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `.execute(db);
-      await sql`
-        CREATE TABLE IF NOT EXISTS txn.manual_reroll_pass (
-          pass_id         BIGSERIAL PRIMARY KEY,
-          tenant_id       UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
-                          REFERENCES security.tenant(tenant_id),
-          session_id      BIGINT NOT NULL REFERENCES txn.manual_reroll_session(session_id) ON DELETE CASCADE,
-          pass_no         INTEGER NOT NULL,
-          thickness_mm    NUMERIC(8,4) NOT NULL,
-          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (session_id, pass_no)
-        )
-      `.execute(db);
-      await sql`
-        DROP INDEX IF EXISTS txn.uq_manual_reroll_session_active_machine
-      `.execute(db);
-      await sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_manual_reroll_session_active_machine
-          ON txn.manual_reroll_session (machine_code)
-          WHERE status IN ('PREPARING','IN_PROGRESS','STOPPAGE')
-      `.execute(db);
-      await sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_manual_reroll_stoppage_open_session
-          ON txn.manual_reroll_stoppage (session_id)
-          WHERE end_time IS NULL
-      `.execute(db);
-      await sql`
-        DO $chk$
-        DECLARE r RECORD;
-        BEGIN
-          FOR r IN
-            SELECT c.conname
-            FROM pg_constraint c
-            JOIN pg_class t ON t.oid = c.conrelid
-            JOIN pg_namespace n ON n.oid = t.relnamespace
-            WHERE n.nspname = 'txn'
-              AND t.relname = 'manual_reroll_session'
-              AND c.contype = 'c'
-              AND pg_get_constraintdef(c.oid) ILIKE '%status%'
-          LOOP
-            EXECUTE format('ALTER TABLE txn.manual_reroll_session DROP CONSTRAINT IF EXISTS %I', r.conname);
-          END LOOP;
-          ALTER TABLE txn.manual_reroll_session
-            ADD CONSTRAINT manual_reroll_session_status_check
-            CHECK (status IN ('PREPARING','IN_PROGRESS','ON_HOLD','STOPPAGE','COMPLETED','CANCELLED'));
-        EXCEPTION WHEN duplicate_object THEN NULL;
-        END $chk$;
-      `.execute(db);
-    })().catch((err: unknown) => {
-      tableReady = null;
-      throw err;
-    });
-  }
-  try {
-    await tableReady;
-  } catch {
-    // Tests / no-DDL still proceed; insert will surface a real missing-table error.
-  }
 }
 
 async function loadStoppages(sessionId: string): Promise<ManualRerollStoppageDto[]> {
@@ -547,7 +420,6 @@ async function resolveSessionThicknesses(batchNumber: string): Promise<{
 export class ManualRerollService {
   /** Hub active session (PREPARING / running / stoppage) — used for prepare conflict + queue active. */
   static async getActiveSession(machineCode: string): Promise<ManualRerollSessionDto | null> {
-    await ensureManualRerollTable();
     const row = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -571,7 +443,6 @@ export class ManualRerollService {
 
   /** Open hold on this mill (Hold queue / StatusRail), if any. */
   static async getHeldSession(machineCode: string): Promise<ManualRerollSessionDto | null> {
-    await ensureManualRerollTable();
     const row = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -633,7 +504,6 @@ export class ManualRerollService {
   /** Open sessions for LiveService machine cards (keyed by machine). */
   static async listOpenSessionsForMachines(machineCodes: string[]): Promise<OpenManualRerollLiveRow[]> {
     if (machineCodes.length === 0) return [];
-    await ensureManualRerollTable();
     const rows = await db
       .selectFrom('txn.manual_reroll_session as s')
       .leftJoin('security.app_user as u', 'u.user_id', 's.operator_id')
@@ -686,7 +556,6 @@ export class ManualRerollService {
     operatorId: number;
     shiftCode?: string | null;
   }): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const activeOrder = await SixHiService.findActiveMachineOrder(input.machine);
     if (activeOrder) {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${activeOrder.batchNumber}`);
@@ -745,7 +614,6 @@ export class ManualRerollService {
 
   /** PREPARING → IN_PROGRESS; stamps production start and fires RUNNING_STARTED. */
   static async startPreparedSession(sessionId: string): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireSession(sessionId);
     if (current.status !== 'PREPARING') throw new Error('SESSION_NOT_PREPARING');
 
@@ -785,7 +653,6 @@ export class ManualRerollService {
       passes?: ManualRerollPassDto[];
     },
   ): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireOpenSession(sessionId);
     if (current.status === 'ON_HOLD') throw new Error('SESSION_ON_HOLD');
 
@@ -833,7 +700,6 @@ export class ManualRerollService {
   }
 
   static async holdSession(sessionId: string, remarks: string): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const reason = remarks.trim();
     if (!reason) throw new Error('HOLD_REMARKS_REQUIRED');
     const current = await this.requireSession(sessionId);
@@ -856,7 +722,6 @@ export class ManualRerollService {
   }
 
   static async resumeSession(sessionId: string): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireSession(sessionId);
     if (current.status !== 'ON_HOLD') throw new Error('SESSION_NOT_ON_HOLD');
 
@@ -877,14 +742,12 @@ export class ManualRerollService {
    * started again from the Pending queue (overlay does not mutate CRM).
    */
   static async releaseToPending(sessionId: string, operatorId: number): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireSession(sessionId);
     if (current.status !== 'ON_HOLD') throw new Error('SESSION_NOT_ON_HOLD');
     return this.closeSession(sessionId, operatorId, 'CANCELLED', current.remarks ?? undefined);
   }
 
   static async updateRemarks(sessionId: string, remarks: string): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     await this.requireOpenSession(sessionId);
     const row = await db
       .updateTable('txn.manual_reroll_session')
@@ -906,7 +769,6 @@ export class ManualRerollService {
     remarks?: string;
     operatorId: number;
   }): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireSession(input.sessionId);
     if (current.status !== 'IN_PROGRESS') throw new Error('SESSION_NOT_RUNNING');
     const existing = await loadActiveStoppage(input.sessionId);
@@ -946,7 +808,6 @@ export class ManualRerollService {
     stoppageCode?: string;
     remarks?: string;
   }): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     await this.requireOpenSession(input.sessionId);
     const updated = await db
       .updateTable('txn.manual_reroll_stoppage')
@@ -971,7 +832,6 @@ export class ManualRerollService {
     stoppageCode?: string;
     remarks?: string;
   }): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const session = await this.requireOpenSession(input.sessionId);
     const current = await db
       .selectFrom('txn.manual_reroll_stoppage')
@@ -1036,7 +896,6 @@ export class ManualRerollService {
     status: 'COMPLETED' | 'CANCELLED',
     remarks?: string,
   ): Promise<ManualRerollSessionDto> {
-    await ensureManualRerollTable();
     const current = await this.requireOpenSession(sessionId);
     const priorStatus = current.status;
 
@@ -1089,7 +948,6 @@ export class ManualRerollService {
   }
 
   static async listSessions(machineCode: string): Promise<ManualRerollSessionDto[]> {
-    await ensureManualRerollTable();
     const rows = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -1105,7 +963,6 @@ export class ManualRerollService {
    * CANCELLED (incl. Move to Pending) is not claimed — those return to pending.
    */
   static async listClaimedBatchNumbers(machineCode: string): Promise<Set<string>> {
-    await ensureManualRerollTable();
     const rows = await db
       .selectFrom('txn.manual_reroll_session')
       .select(['batch_number', 'batch_numbers', 'remarks'])
@@ -1121,7 +978,6 @@ export class ManualRerollService {
 
   /** Open sessions + today's completed (for console queue). */
   static async listQueueSessions(machineCode: string, dayStart: Date): Promise<ManualRerollSessionDto[]> {
-    await ensureManualRerollTable();
     const rows = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -1148,7 +1004,6 @@ export class ManualRerollService {
   }
 
   static async getSessionById(sessionId: string): Promise<ManualRerollSessionDto | null> {
-    await ensureManualRerollTable();
     const row = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -1187,7 +1042,6 @@ export class ManualRerollService {
     toLabel: string;
     shift?: string;
   }): Promise<ManualRerollSummary> {
-    await ensureManualRerollTable();
     let query = db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
@@ -1250,7 +1104,6 @@ export class ManualRerollService {
 
   /** Read-only overlay for rolling console — COMPLETED manual sessions only. */
   static async getOverlay(batchNumbers: string[]): Promise<ManualRerollOverlayEntry[]> {
-    await ensureManualRerollTable();
     const unique = [...new Set(batchNumbers.map((b) => b.trim()).filter(Boolean))];
     if (unique.length === 0) return [];
 

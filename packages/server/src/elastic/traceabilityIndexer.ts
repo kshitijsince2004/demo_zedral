@@ -70,7 +70,7 @@ export async function indexBatch(batchRow: any): Promise<void> {
       body: doc,
     });
   } catch (err: any) {
-    console.error(`[elastic] Failed to index batch ${doc.batch_number}: ${err.message}`);
+    logger.error(`[elastic] Failed to index batch ${doc.batch_number}: ${err.message}`);
   }
 }
 
@@ -99,7 +99,7 @@ export async function indexBulk(batchRows: any[]): Promise<{ indexed: number; er
     const errorCount = result.items?.filter((item: any) => item.index?.error).length ?? 0;
     return { indexed: batchRows.length - errorCount, errors: errorCount };
   } catch (err: any) {
-    console.error(`[elastic] Bulk index failed: ${err.message}`);
+    logger.error(`[elastic] Bulk index failed: ${err.message}`);
     return { indexed: 0, errors: batchRows.length };
   }
 }
@@ -119,7 +119,7 @@ export async function removeBatch(batchId: number | string): Promise<void> {
   } catch (err: any) {
     // 404 is fine — document may not have been indexed
     if (err.meta?.statusCode !== 404) {
-      console.error(`[elastic] Failed to remove batch ${batchId}: ${err.message}`);
+      logger.error(`[elastic] Failed to remove batch ${batchId}: ${err.message}`);
     }
   }
 }

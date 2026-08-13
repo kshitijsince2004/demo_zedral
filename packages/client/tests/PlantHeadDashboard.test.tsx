@@ -26,6 +26,8 @@ vi.mock('../src/hooks/useLiveSnapshot', () => ({
 vi.mock('../src/lib/liveService', () => ({
   liveService: {
     getOrders: vi.fn().mockResolvedValue({ orders: [], refreshedAt: new Date().toISOString() }),
+    getOrderDetail: vi.fn().mockResolvedValue(null),
+    getMachineState: vi.fn().mockResolvedValue(null),
   },
 }));
 

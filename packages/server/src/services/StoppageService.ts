@@ -9,6 +9,7 @@ import {
 } from '../validation/manufacturingValidation';
 import { publishDowntimeLogged } from '../platform/m1Events';
 import { plantClockDate } from '@m1/shared-validation';
+import { logger } from '../utils/logger';
 
 function clockTimeToDate(prodDate: Date, time: string): Date {
   return plantClockDate(prodDate, time);
@@ -125,7 +126,7 @@ export class StoppageService {
       durationMin,
       prodDate,
     }).catch((error) => {
-      console.error('[M1] failed to publish downtime.logged', error);
+      logger.error('[M1] failed to publish downtime.logged', error);
     });
 
     return String(row.stoppage_id);
@@ -260,7 +261,7 @@ export class StoppageService {
       durationMin,
       prodDate,
     }).catch((error) => {
-      console.error('[M1] failed to publish downtime.logged', error);
+      logger.error('[M1] failed to publish downtime.logged', error);
     });
 
     return String(row.stoppage_id);

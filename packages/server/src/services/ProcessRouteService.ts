@@ -459,6 +459,13 @@ export class ProcessRouteService {
       .executeTakeFirst();
     if (!currentStep) return null;
 
+    if (
+      currentStep.queue_batch_id != null
+      && String(currentStep.queue_batch_id) !== String(batch.batch_id)
+    ) {
+      return null;
+    }
+
     const now = new Date();
 
     await db.transaction().execute(async (trx) => {
@@ -496,7 +503,7 @@ export class ProcessRouteService {
 
       await trx.updateTable('planning.order_journey_step')
         .set({
-          status: 'PENDING',
+          status: 'ACTIVE',
           queue_batch_id: newBatchId ?? nextStep.queue_batch_id,
         })
         .where('step_id', '=', nextStep.step_id)

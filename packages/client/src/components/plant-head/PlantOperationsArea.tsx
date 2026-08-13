@@ -1,12 +1,11 @@
-import React from 'react';
 import type { LiveOrderRow, MachineStatusCard } from '@m1/shared-validation';
 import type { ExtendedPlantHeadDashboardData } from '../../lib/reportingService';
-import { machineStatusLabel } from '../../hooks/useLiveSnapshot';
-import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { DataUnavailable } from './DataUnavailable';
 import { ZBadge } from '../primitives/ZBadge';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
+import { MachineStatusBoard } from '../live/MachineStatusBoard';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
+import { asDisplayText } from '../../lib/sixHiOrderIdentity';
 
 interface PlantOperationsAreaProps {
   data: ExtendedPlantHeadDashboardData;
@@ -14,15 +13,7 @@ interface PlantOperationsAreaProps {
   liveOrders?: LiveOrderRow[];
   liveOrdersError?: string | null;
   onOrderClick?: (batchNumber: string) => void;
-}
-
-function liveStatusTone(status: ReturnType<typeof machineStatusLabel>) {
-  if (status === 'Running') return 'success' as const;
-  if (status === 'Stopped') return 'warning' as const;
-  if (status === 'Breakdown') return 'destructive' as const;
-  if (status === 'Maintenance') return 'info' as const;
-  if (status === 'Offline') return 'muted' as const;
-  return 'muted' as const;
+  onMachineClick?: (machineCode: string) => void;
 }
 
 function orderStatusTone(status: LiveOrderRow['status']) {
@@ -33,63 +24,34 @@ function orderStatusTone(status: LiveOrderRow['status']) {
   return 'info' as const;
 }
 
-function MachineStateDuration({ m }: { m: MachineStatusCard }) {
-  const active = !!m.stateSinceAt;
-  const { formatted } = useLiveTimer(m.stateSinceAt, active);
-  if (!active) return <span className="text-muted-foreground">—</span>;
-  return <span className="font-mono tabular-nums">{formatted || '—'}</span>;
-}
-
-export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrdersError, onOrderClick }: PlantOperationsAreaProps) {
+export function PlantOperationsArea({
+  data,
+  liveMachines,
+  liveOrders,
+  liveOrdersError,
+  onOrderClick,
+  onMachineClick,
+}: PlantOperationsAreaProps) {
   const hasLiveMachines = liveMachines != null && liveMachines.length > 0;
   const hasLiveOrders = liveOrders != null && liveOrders.length > 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="flex flex-col gap-4">
       <div className="z-card text-card-foreground flex flex-col overflow-hidden">
         <div className="p-6 flex flex-col space-y-1.5 border-b border-border/50">
           <h2 className="font-semibold leading-none tracking-tight text-foreground">Machine Status</h2>
           <p className="text-sm text-muted-foreground">
-            {hasLiveMachines ? 'Live machine status from /live/snapshot' : 'Live machine feed unavailable'}
+            {hasLiveMachines
+              ? 'Live machine cards from /live/snapshot — current order, runtime, and stoppages'
+              : 'Live machine feed unavailable'}
           </p>
         </div>
-        <div className="p-0 flex-1 overflow-x-auto">
+        <div className="p-4 flex-1">
           {hasLiveMachines ? (
-            <table className="w-full text-left">
-              <thead className="bg-muted/30 border-b border-border/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Machine</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Duration</th>
-                  <th className="px-5 py-3 font-medium text-right">Shift progress</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {liveMachines!.map((m) => {
-                  const status = machineStatusLabel(m.status);
-                  const progress = m.shiftProgressPct;
-                  return (
-                    <tr key={m.machineCode} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-5 py-3 align-middle text-sm font-medium text-foreground">
-                        {m.machineName}
-                      </td>
-                      <td className="px-5 py-3 align-middle">
-                        <ZBadge tone={liveStatusTone(status)} label={status} />
-                      </td>
-                      <td className="px-5 py-3 align-middle text-sm text-foreground">
-                        <MachineStateDuration m={m} />
-                      </td>
-                      <td className="px-5 py-3 align-middle text-right text-sm font-semibold text-foreground">
-                        {progress != null ? `${Math.round(progress)}%` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <MachineStatusBoard machines={liveMachines!} onSelect={onMachineClick} />
           ) : data.lineAttainment.length > 0 ? (
             <>
-              <div className="px-5 py-3 text-xs text-muted-foreground border-b border-border/50 bg-muted/20">
+              <div className="px-1 pb-3 text-xs text-muted-foreground">
                 Showing plan attainment by process line (reporting window) — not live machine utilization
               </div>
               <table className="w-full text-left">
@@ -157,7 +119,9 @@ export function PlantOperationsArea({ data, liveMachines, liveOrders, liveOrders
                         {order.machineName} · {order.currentProcess}
                       </div>
                     </td>
-                    <td className="px-5 py-3 align-middle text-sm text-foreground">{order.customer}</td>
+                    <td className="px-5 py-3 align-middle text-sm text-foreground">
+                      {asDisplayText(order.customer) || '—'}
+                    </td>
                     <td className="px-5 py-3 align-middle">
                       <ZBadge tone={orderStatusTone(order.status)} label={formatOrderStatusLabel(order.status)} />
                     </td>

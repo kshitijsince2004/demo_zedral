@@ -3,9 +3,10 @@ import { db } from '../../db';
 import { getUserWithRolesAndAccess } from '../../services/authService';
 import type { ExportFormat, ExportRequest, ExportType } from '../types';
 import { ExportJobRunner } from './ExportJobRunner';
+import { sweepStaleArtifacts } from './artifactStore';
 import { logger } from '../../utils/logger';
 
-const DEFAULT_POLL_MS = Number(process.env.EXPORT_WORKER_POLL_MS ?? 5000);
+const DEFAULT_POLL_MS = Number(process.env.EXPORT_WORKER_POLL_MS ?? 15000);
 
 let workerRunning = false;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -14,6 +15,9 @@ export class ExportWorker {
   static start(pollMs = DEFAULT_POLL_MS): void {
     if (pollMs <= 0 || process.env.EXPORT_WORKER_ENABLED === 'false') return;
     if (pollTimer) return;
+
+    const swept = sweepStaleArtifacts();
+    if (swept > 0) logger.info(`[ExportWorker] swept ${swept} stale export artifact(s)`);
 
     void this.processQueue();
     pollTimer = setInterval(() => void this.processQueue(), pollMs);

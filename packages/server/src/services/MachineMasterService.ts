@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
 import { db } from '../db';
 import { MachineRegistryService } from './MachineRegistryService';
+import { routeCodeFromBatch } from './ProcessRouteService';
 
 export type MachineMasterInput = {
   machineCode: string;
@@ -152,53 +153,48 @@ export class MachineMasterService {
     processCode: string | null,
     caps: { rolling: boolean; skinPass: boolean },
   ): Promise<void> {
-    if (processCode !== 'ROLLING' && !caps.rolling && !caps.skinPass) return;
+    const rollingCode = routeCodeFromBatch(machineCode, 'ROLLING');
+    const skinCode = routeCodeFromBatch(machineCode, 'SKIN_PASS');
+    // ponytail: unknown mills have no canonical token — do not mint 4I/6I/2HIS
+    if (!rollingCode && !skinCode) return;
 
-    await trx.deleteFrom('master.route_code')
-      .where('machine_code', '=', machineCode)
-      .where('sub_process', 'in', ['ROLLING', 'SKIN_PASS'])
-      .execute();
+    const proc = processCode ?? 'ROLLING';
+    await this.bindCanonicalRoute(trx, rollingCode, caps.rolling, machineCode, proc, 'ROLLING', `${machineCode} Rolling`);
+    await this.bindCanonicalRoute(trx, skinCode, caps.skinPass, machineCode, proc, 'SKIN_PASS', `${machineCode} Skin Pass`);
+  }
 
-    const seqBase = machineCode.charCodeAt(0) + machineCode.charCodeAt(machineCode.length - 1);
-
-    if (caps.rolling) {
-      const routeCode = machineCode.length >= 2 ? machineCode.slice(0, 1) + machineCode.slice(-1) : `${machineCode}R`;
-      await sql`
-        INSERT INTO master.route_code (route_code, display_label, process_code, machine_code, sub_process, seq_hint)
-        VALUES (
-          ${routeCode.slice(0, 4)},
-          ${`${machineCode} Rolling`},
-          ${processCode ?? 'ROLLING'},
-          ${machineCode},
-          'ROLLING',
-          ${seqBase}
-        )
-        ON CONFLICT (route_code) DO UPDATE SET
-          machine_code = EXCLUDED.machine_code,
-          sub_process = EXCLUDED.sub_process,
-          process_code = EXCLUDED.process_code,
-          display_label = EXCLUDED.display_label
-      `.execute(trx);
+  private static async bindCanonicalRoute(
+    trx: any,
+    routeCode: string | null,
+    enabled: boolean,
+    machineCode: string,
+    processCode: string,
+    subProcess: 'ROLLING' | 'SKIN_PASS',
+    displayLabel: string,
+  ): Promise<void> {
+    if (!routeCode) return;
+    if (!enabled) {
+      await trx.updateTable('master.route_code')
+        .set({ machine_code: null })
+        .where('route_code', '=', routeCode)
+        .where('machine_code', '=', machineCode)
+        .execute();
+      return;
     }
-
-    if (caps.skinPass) {
-      const routeCode = `${machineCode}SP`.slice(0, 4);
-      await sql`
-        INSERT INTO master.route_code (route_code, display_label, process_code, machine_code, sub_process, seq_hint)
-        VALUES (
-          ${routeCode},
-          ${`${machineCode} Skin Pass`},
-          ${processCode ?? 'ROLLING'},
-          ${machineCode},
-          'SKIN_PASS',
-          ${seqBase + 1}
-        )
-        ON CONFLICT (route_code) DO UPDATE SET
-          machine_code = EXCLUDED.machine_code,
-          sub_process = EXCLUDED.sub_process,
-          process_code = EXCLUDED.process_code,
-          display_label = EXCLUDED.display_label
-      `.execute(trx);
-    }
+    await sql`
+      INSERT INTO master.route_code (route_code, display_label, process_code, machine_code, sub_process, seq_hint)
+      VALUES (
+        ${routeCode},
+        ${displayLabel},
+        ${processCode},
+        ${machineCode},
+        ${subProcess},
+        ${machineCode.charCodeAt(0)}
+      )
+      ON CONFLICT (route_code) DO UPDATE SET
+        machine_code = EXCLUDED.machine_code,
+        sub_process = EXCLUDED.sub_process,
+        process_code = EXCLUDED.process_code
+    `.execute(trx);
   }
 }

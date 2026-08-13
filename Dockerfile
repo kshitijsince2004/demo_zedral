@@ -70,12 +70,19 @@ ENV PORT=3005
 
 COPY --from=prod-deps /app/package.json /app/package-lock.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=prod-deps /app/packages/platform ./packages/platform
-COPY --from=prod-deps /app/packages/connectors ./packages/connectors
-COPY --from=prod-deps /app/packages/modules/m1-collection ./packages/modules/m1-collection
-COPY --from=prod-deps /app/packages/shared-validation ./packages/shared-validation
-COPY --from=prod-deps /app/packages/server ./packages/server
-COPY doc doc
+# Dist-only runtime (no src/tests/doc) — mirror deploy/connectors/Dockerfile.
+COPY --from=prod-deps /app/packages/platform/package.json ./packages/platform/package.json
+COPY --from=prod-deps /app/packages/platform/dist ./packages/platform/dist
+COPY --from=prod-deps /app/packages/connectors/package.json ./packages/connectors/package.json
+COPY --from=prod-deps /app/packages/connectors/dist ./packages/connectors/dist
+COPY --from=prod-deps /app/packages/modules/m1-collection/package.json ./packages/modules/m1-collection/package.json
+COPY --from=prod-deps /app/packages/modules/m1-collection/dist ./packages/modules/m1-collection/dist
+COPY --from=prod-deps /app/packages/shared-validation/package.json ./packages/shared-validation/package.json
+COPY --from=prod-deps /app/packages/shared-validation/dist ./packages/shared-validation/dist
+COPY --from=prod-deps /app/packages/server/package.json ./packages/server/package.json
+COPY --from=prod-deps /app/packages/server/dist ./packages/server/dist
+COPY --from=prod-deps /app/packages/server/migrations ./packages/server/migrations
+COPY --from=prod-deps /app/packages/server/scripts ./packages/server/scripts
 COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 
 # Trivy flags CVE-2026-59873 in npm's bundled tar (entrypoint runs node directly).

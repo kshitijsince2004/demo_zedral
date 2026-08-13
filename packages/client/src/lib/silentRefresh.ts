@@ -1,22 +1,19 @@
-function stableHash(value: unknown): string {
-  if (value === null || value === undefined) return String(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableHash(item)).join(',')}]`;
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, val]) => `${JSON.stringify(key)}:${stableHash(val)}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
+/**
+ * Cheap stable fingerprint for poll equality checks.
+ * Single JSON.stringify with sorted object keys (no recursive string concat).
+ */
+function sortForHash(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(sortForHash);
+  const obj = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).sort()) out[k] = sortForHash(obj[k]);
+  return out;
 }
 
-/** Stable fingerprint for comparing poll results without full JSON.stringify churn. */
+/** Stable fingerprint for comparing poll results without recursive hash churn. */
 export function jsonFingerprint(value: unknown): string {
-  return stableHash(value);
+  return JSON.stringify(sortForHash(value));
 }
 
 export function jsonEqual(a: unknown, b: unknown): boolean {

@@ -78,6 +78,6 @@ export async function ensureIndex(): Promise<void> {
     });
     logger.info(`[elastic] Created index "${TRACEABILITY_INDEX}"`);
   } catch (err: any) {
-    console.error(`[elastic] Failed to ensure index: ${err.message}`);
+    logger.error(`[elastic] Failed to ensure index: ${err.message}`);
   }
 }

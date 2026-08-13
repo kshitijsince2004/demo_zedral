@@ -42,7 +42,7 @@ async function startServer(): Promise<void> {
 
     const seeder = new DefaultRuleSeeder(db);
     await seeder.seed().catch((err) => {
-      console.error('Failed to seed validation rules:', err);
+      logger.error('Failed to seed validation rules:', err);
     });
 
     ExportWorker.start();
@@ -51,14 +51,14 @@ async function startServer(): Promise<void> {
     JourneyHandoffScheduler.start();
 
     void initAppCache().catch((err) => {
-      console.error('[cache] Failed to initialize cache layer:', err);
+      logger.error('[cache] Failed to initialize cache layer:', err);
     });
 
     checkRedisHealth()
       .then((ok) => {
-        if (ok) console.info('[cache] Redis health check passed');
+        if (ok) logger.info('[cache] Redis health check passed');
         else if (process.env.REDIS_URL)
-          console.warn('[cache] Redis health check failed; using memory fallback');
+          logger.warn('[cache] Redis health check failed; using memory fallback');
       })
       .catch(() => {
         /* non-fatal */
@@ -75,18 +75,18 @@ async function startServer(): Promise<void> {
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(
+      logger.error(
         `[startup] Port ${port} is already in use. Stop the other process (often another Zedral checkout) and retry.`,
       );
       process.exit(1);
     }
-    console.error('[startup] HTTP server error', err);
+    logger.error('[startup] HTTP server error', err);
     process.exit(1);
   });
 }
 
 void startServer().catch((err) => {
-  console.error('[startup]', err instanceof Error ? err.message : err);
+  logger.error('[startup]', err instanceof Error ? err.message : err);
   process.exit(1);
 });
 
@@ -97,17 +97,17 @@ function shutdown(signal: string) {
   ShiftBoundaryScheduler.stop();
   JourneyHandoffScheduler.stop();
   void moduleRuntime?.stop().catch((err) => {
-    console.error('[shutdown] module runtime stop failed', err);
+    logger.error('[shutdown] module runtime stop failed', err);
   });
   void shutdownEventBus().catch((err) => {
-    console.error('[shutdown] event bus shutdown failed', err);
+    logger.error('[shutdown] event bus shutdown failed', err);
   });
   server.close(() => {
     logger.info('[shutdown] HTTP server closed');
     process.exit(0);
   });
   setTimeout(() => {
-    console.error('[shutdown] forced exit after timeout');
+    logger.error('[shutdown] forced exit after timeout');
     process.exit(1);
   }, 10_000).unref();
 }
@@ -115,9 +115,9 @@ function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason);
+  logger.error('[unhandledRejection]', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err);
+  logger.error('[uncaughtException]', err);
   shutdown('uncaughtException');
 });

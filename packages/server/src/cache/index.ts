@@ -1,6 +1,7 @@
 import { NodeCacheAdapter } from './NodeCacheAdapter';
 import { RedisCacheAdapter, type RedisClient } from './RedisCacheAdapter';
 import type { AppCache } from './types';
+import { logger } from '../utils/logger';
 
 let sharedCache: AppCache | null = null;
 
@@ -17,7 +18,7 @@ async function createRedisClient(url: string): Promise<RedisClient | null> {
     await client.ping();
     return client;
   } catch (err) {
-    console.warn('[cache] Redis unavailable; falling back to in-memory cache', err);
+    logger.warn('[cache] Redis unavailable; falling back to in-memory cache', err);
     return null;
   }
 }
@@ -32,13 +33,13 @@ export async function initAppCache(): Promise<AppCache> {
     const client = await createRedisClient(redisUrl);
     if (client) {
       sharedCache = new RedisCacheAdapter(client);
-      console.info('[cache] Using Redis cache driver');
+      logger.info('[cache] Using Redis cache driver');
       return sharedCache;
     }
   }
 
   sharedCache = new NodeCacheAdapter();
-  console.info('[cache] Using in-memory cache driver');
+  logger.info('[cache] Using in-memory cache driver');
   return sharedCache;
 }
 

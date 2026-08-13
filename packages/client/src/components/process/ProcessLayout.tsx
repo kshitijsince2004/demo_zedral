@@ -326,17 +326,30 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           batchNumber={activeCoilNo ?? ''}
           orderLabel={activeCoilNo ? `${machine} · ${activeCoilNo}` : undefined}
           appliesTo={machine}
+          slitOptions={machine === 'HRS'
+            ? (activeCard?.orderLines ?? [])
+              .filter((ol) => ol.slitId)
+              .map((ol) => ({
+                slitId: String(ol.slitId),
+                batchNumber: ol.batchNumber,
+                label: `${ol.slitId}${ol.batchNumber ? ` · ${ol.batchNumber}` : ''}${ol.customerName ? ` · ${ol.customerName}` : ''}`,
+              }))
+            : undefined}
           onClose={() => setRejectOpen(false)}
-          onReject={async (coilOrBatch, rejectionReason, _defectCodes, remarks) => {
+          onReject={async (coilOrBatch, rejectionReason, _defectCodes, remarks, slit) => {
             if (machine === 'HRS') {
               await apiClient.post(`/hrs-order/orders/${encodeURIComponent(coilOrBatch)}/reject`, {
                 rejectionReason,
                 remarks,
+                slitId: slit?.slitId,
+                batchNumber: slit?.batchNumber,
               });
             } else if (machine === 'PKL') {
               await apiClient.post(`/pkl-order/orders/${encodeURIComponent(coilOrBatch)}/reject`, {
                 rejectionReason,
                 remarks,
+                batchNumber: activeCard?.batchNumber,
+                slitId: activeCard?.slitId,
               });
             } else if (machine === 'RWD') {
               const batch = activeCard?.batchNumber ?? coilOrBatch;

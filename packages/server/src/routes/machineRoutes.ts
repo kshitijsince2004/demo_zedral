@@ -4,7 +4,6 @@ import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { MachineRegistryService } from '../services/MachineRegistryService';
 import { MachineMasterService } from '../services/MachineMasterService';
 import { MachineSpecService } from '../services/MachineSpecService';
-import { isEligible } from '../utils/machineEligibility';
 
 const router = Router();
 router.use(requireAuth);
@@ -111,24 +110,6 @@ router.post('/specs/:specId/activate', requireRole([UserRole.ADMIN, UserRole.MAC
     res.json(spec);
   } catch (e: unknown) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Activate failed' });
-  }
-});
-
-router.post('/eligibility', requireAuth, async (req, res) => {
-  try {
-    const machineCode = String(req.body?.machineCode ?? '').toUpperCase();
-    const spec = await MachineSpecService.getActive(machineCode);
-    const result = isEligible({
-      requiredMandrelIdMm: req.body?.requiredMandrelIdMm,
-      widthMm: req.body?.widthMm,
-      thicknessMm: req.body?.thicknessMm,
-      coilWeightMt: req.body?.coilWeightMt,
-      exitOdMm: req.body?.exitOdMm,
-      suggestedMachine: req.body?.suggestedMachine ?? null,
-    }, spec);
-    res.json({ ...result, spec });
-  } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Eligibility check failed' });
   }
 });
 

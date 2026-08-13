@@ -68,14 +68,18 @@ export function CombinedProductionOrdersPanel({
     const batchNumbers = batchNumbersKey ? batchNumbersKey.split(',') : [];
     let cancelled = false;
     void (async () => {
-      const loaded = loadOrders
-        ? await loadOrders(batchNumbers)
-        : await Promise.all(
-            batchNumbers.map((batchNumber) =>
-              apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
-            ),
-          );
-      if (!cancelled) setOrders(loaded);
+      try {
+        const loaded = loadOrders
+          ? await loadOrders(batchNumbers)
+          : await Promise.all(
+              batchNumbers.map((batchNumber) =>
+                apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
+              ),
+            );
+        if (!cancelled) setOrders(loaded);
+      } catch {
+        // keep last cards; 429/offline should not crash the panel
+      }
     })();
     return () => {
       cancelled = true;

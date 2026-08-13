@@ -83,6 +83,10 @@ function statusTone(status: string): Tone {
   return 'muted';
 }
 
+function hrsRowKey(card: ProcessQueueCard): string {
+  return card.journeyId || `${card.coilNo}:${card.slitId ?? ''}:${card.batchNumber ?? ''}`;
+}
+
 function identity(card: ProcessQueueCard) {
   return {
     batchNumber: card.batchNumber ?? card.coilNo,
@@ -171,7 +175,7 @@ export function HrsMhLiveDashboard() {
   const [stoppages, setStoppages] = useState<HrsStoppageRow[]>([]);
   const [operatorName, setOperatorName] = useState('—');
   const [shiftLogId, setShiftLogId] = useState<string | null>(null);
-  const [selectedCoil, setSelectedCoil] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailByCoil, setDetailByCoil] = useState<Record<string, HrsCoilDetail>>({});
   const [detailLoadingCoil, setDetailLoadingCoil] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -307,7 +311,7 @@ export function HrsMhLiveDashboard() {
           for (const o of pack.orders ?? []) {
             const s = (o.status ?? '').toUpperCase();
             if (s === 'REJECTED' || s === 'HOLD') continue;
-            const key = o.id || o.coilNo;
+            const key = `${o.id || o.coilNo}:${(o as { slitId?: string }).slitId ?? ''}`;
             if (seen.has(key)) continue;
             seen.add(key);
             out.push(o);
@@ -328,8 +332,8 @@ export function HrsMhLiveDashboard() {
   const status = hrsLineStatus(queue, !!stoppage?.active);
 
   const selected = useMemo(
-    () => queue.find((c) => c.coilNo === selectedCoil) ?? null,
-    [queue, selectedCoil],
+    () => queue.find((c) => hrsRowKey(c) === selectedKey) ?? null,
+    [queue, selectedKey],
   );
 
   useEffect(() => {
@@ -358,15 +362,18 @@ export function HrsMhLiveDashboard() {
     return datedHistory.filter((r) => `${r.coilNo} ${r.gradeCode ?? ''}`.toLowerCase().includes(q));
   }, [datedHistory, search]);
 
-  async function handleReinstate(coilNo: string) {
+  async function handleReinstate(card: ProcessQueueCard) {
     setBusy(true);
     setError(null);
     try {
-      await reinstateHrsPklOrder('HRS', coilNo, 'PREPARING');
-      setSelectedCoil(null);
+      await reinstateHrsPklOrder('HRS', card.coilNo, 'PREPARING', {
+        slitId: card.slitId,
+        batchNumber: card.batchNumber,
+      });
+      setSelectedKey(null);
       setDetailByCoil((prev) => {
         const next = { ...prev };
-        delete next[coilNo];
+        delete next[card.coilNo];
         return next;
       });
       await reload();
@@ -382,7 +389,7 @@ export function HrsMhLiveDashboard() {
     setError(null);
     try {
       await deleteHrsPklOrder('HRS', coilNo);
-      setSelectedCoil(null);
+      setSelectedKey(null);
       setDetailByCoil((prev) => {
         const next = { ...prev };
         delete next[coilNo];
@@ -409,7 +416,7 @@ export function HrsMhLiveDashboard() {
       busy={busy}
       onShowHrsDetails={() => selected && openDrawer('hrs', selected)}
       onShowCompleteInfo={() => selected && openDrawer('complete', selected)}
-      onReinstatePreparing={canReinstate && selected ? () => void handleReinstate(selected.coilNo) : undefined}
+      onReinstatePreparing={canReinstate && selected ? () => void handleReinstate(selected) : undefined}
       onDelete={canDelete && selected ? () => void handleDelete(selected.coilNo) : undefined}
     />
   );
@@ -431,7 +438,7 @@ export function HrsMhLiveDashboard() {
           onOpenOrders={() => setTab('orders')}
           onOpenDetail={() => {
             if (!running) return;
-            setSelectedCoil(running.coilNo);
+            setSelectedKey(hrsRowKey(running));
             openDrawer('hrs', running);
           }}
         />
@@ -472,7 +479,7 @@ export function HrsMhLiveDashboard() {
                 <tr
                   key={r.id}
                   className="border-t border-border hover:bg-secondary/50 cursor-pointer"
-                  onClick={() => setSelectedCoil(r.coilNo)}
+                  onClick={() => setSelectedKey(r.coilNo)}
                 >
                   <td className="px-4 py-3 font-mono font-bold">{r.coilNo}</td>
                   <td>{r.gradeCode ?? '—'}</td>
@@ -546,7 +553,7 @@ export function HrsMhLiveDashboard() {
                 <tr
                   key={r.id}
                   className="border-t border-border hover:bg-secondary/50 cursor-pointer"
-                  onClick={() => setSelectedCoil(r.coilNo)}
+                  onClick={() => setSelectedKey(r.coilNo)}
                 >
                   <td className="px-4 py-3 font-mono font-bold">{r.coilNo}</td>
                   <td>{r.gradeCode ?? '—'}</td>
@@ -579,9 +586,9 @@ export function HrsMhLiveDashboard() {
             <tbody>
               {tableRows.map((c) => (
                 <tr
-                  key={c.coilNo}
-                  className={`border-t border-border hover:bg-secondary/50 cursor-pointer ${selectedCoil === c.coilNo ? 'bg-primary/10' : ''}`}
-                  onClick={() => setSelectedCoil(c.coilNo)}
+                  key={hrsRowKey(c)}
+                  className={`border-t border-border hover:bg-secondary/50 cursor-pointer ${selectedKey === hrsRowKey(c) ? 'bg-primary/10' : ''}`}
+                  onClick={() => setSelectedKey(hrsRowKey(c))}
                 >
                   <td className="px-4 py-3">
                     <OrderIdentityDisplay order={identity(c)} size="sm" showSubtitle={false} />

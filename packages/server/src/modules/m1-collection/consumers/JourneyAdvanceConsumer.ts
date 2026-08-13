@@ -15,6 +15,7 @@ import {
 import { derivedChildCoilNo } from '../../../utils/childCoil';
 import { resolveCrsSlitPreferredRoute } from '../../../utils/crsSlitRoute';
 import { QueueTransferService, type BatchRow } from '../../../services/QueueTransferService';
+import { logger } from '../../../utils/logger';
 
 type DbConn = Kysely<Database>;
 
@@ -182,7 +183,7 @@ async function validateCrsQuality(
         measuredBy: 'SYSTEM',
       });
     } catch (err) {
-      console.error('[validateCrsQuality] qc_measurement write failed safely:', err);
+      logger.error('[validateCrsQuality] qc_measurement write failed safely:', err);
     }
     if (verdict === 'FAIL') failures.push(`${check.label} out of spec`);
   }
@@ -314,7 +315,7 @@ async function spawnChildCoils(
     const stored = slit.child_coil_no?.trim() || '';
     const coilNo = derived; // Child coil number must be derived — never free-typed.
     if (stored && stored !== derived) {
-      console.warn(`[JourneyAdvanceConsumer] stored child coil ${stored} != expected ${derived} (ignored)`);
+      logger.warn(`[JourneyAdvanceConsumer] stored child coil ${stored} != expected ${derived} (ignored)`);
     }
     const key = `${motherCoilNo}:${label}`;
     if (seen.has(key)) {
@@ -390,9 +391,35 @@ async function spawnChildCoils(
         slit_id: label,
         sap_order_no: motherBatch?.sap_order_no ?? null,
       };
-      await QueueTransferService.enqueueActiveStep(childJourneyId, childSourceBatch, {}, conn);
+      const enqueuedId = await QueueTransferService.enqueueActiveStep(
+        childJourneyId, childSourceBatch, {}, conn,
+      );
+      // A1: never leave a child with queue_batch_id = null.
+      if (enqueuedId == null) {
+        throw new Error(
+          `enqueueActiveStep failed for child ${coilNo} journey ${childJourneyId}`,
+        );
+      }
     }
   }
+}
+
+/** After unholding a slit on an already-COMPLETED mother, mint that child's next journey. */
+export async function spawnHrsChildForSlot(motherCoilNo: string, slot: string): Promise<void> {
+  const entry = await db
+    .selectFrom('txn.prod_hrs')
+    .select('entry_id')
+    .where('coil_no', '=', motherCoilNo)
+    .orderBy('entry_id', 'desc')
+    .executeTakeFirst();
+  if (!entry) return;
+  const slits = await loadHrsSlits(String(entry.entry_id));
+  const want = slot.trim().toUpperCase();
+  const one = slits.filter((s) => (s.slot ?? '').toUpperCase() === want);
+  if (!one.length) return;
+  await db.transaction().execute(async (trx) => {
+    await spawnChildCoils(motherCoilNo, 'HRS', one, undefined, trx);
+  });
 }
 
 async function handleSlittingAdvance(
@@ -424,7 +451,7 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
 
   const quality = await validateCrsQuality(entry);
   if (!quality.pass) {
-    console.warn(`[JourneyAdvanceConsumer] CRS quality gate failed for ${coilNo}:`, quality.failures);
+    logger.warn(`[JourneyAdvanceConsumer] CRS quality gate failed for ${coilNo}:`, quality.failures);
   }
 
   const slits = await loadCrsSlits(entryId);
@@ -522,7 +549,7 @@ async function handleCaptured(payload: CapturedPayload): Promise<void> {
   if (!ADVANCE_PROCESSES.has(code)) return;
 
   if (await isStepCompleted(coilNo, code)) {
-    console.info(`[JourneyAdvanceConsumer] skip idempotent ${code} ${coilNo}`);
+    logger.info(`[JourneyAdvanceConsumer] skip idempotent ${code} ${coilNo}`);
     return;
   }
 
@@ -555,7 +582,7 @@ async function handleCaptured(payload: CapturedPayload): Promise<void> {
 function scheduleRetry(key: string, payload: CapturedPayload): void {
   const attempt = pendingRetries.get(key) ?? 0;
   if (attempt >= RETRY_DELAYS_MS.length) {
-    console.error(`[JourneyAdvanceConsumer] exhausted retries for ${key}`);
+    logger.error(`[JourneyAdvanceConsumer] exhausted retries for ${key}`);
     pendingRetries.delete(key);
     return;
   }
@@ -563,7 +590,7 @@ function scheduleRetry(key: string, payload: CapturedPayload): void {
   const delay = RETRY_DELAYS_MS[attempt];
   setTimeout(() => {
     void handleCaptured(payload).catch((err) => {
-      console.error(`[JourneyAdvanceConsumer] retry failed for ${key}:`, err);
+      logger.error(`[JourneyAdvanceConsumer] retry failed for ${key}:`, err);
       scheduleRetry(key, payload);
     });
   }, delay).unref?.();
@@ -577,7 +604,7 @@ async function onProductionCaptured(envelope: EventEnvelope<CapturedPayload>): P
     await handleCaptured(payload);
     pendingRetries.delete(key);
   } catch (err) {
-    console.error('[JourneyAdvanceConsumer] advance failed:', err);
+    logger.error('[JourneyAdvanceConsumer] advance failed:', err);
     scheduleRetry(key, payload);
   }
 }
@@ -591,6 +618,6 @@ export function registerJourneyAdvanceConsumer(): () => void {
     onProductionCaptured(envelope as EventEnvelope<CapturedPayload>),
   );
 
-  console.info('[JourneyAdvanceConsumer] subscribed to production.captured');
+  logger.info('[JourneyAdvanceConsumer] subscribed to production.captured');
   return unsubscribe;
 }

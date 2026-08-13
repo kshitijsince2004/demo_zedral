@@ -3,7 +3,6 @@ import { MachineHeadShell } from '../../components/layout/machinehead/MachineHea
 import { ZOperatorCard } from '../../components/ui/operator/ZOperatorCard';
 import { PpcRollingImportPanel } from '../../components/admin/PpcRollingImportPanel';
 import { useAuthStore } from '../../lib/authStore';
-import type { PpcXlsxSheetType } from '../../services/adminService';
 
 /** Line-scoped MH import — HRS / PKL / RWD fail-safe (journey-aware dedup). */
 export function LineMhImportPage({
@@ -73,33 +72,25 @@ export function RwdMhImportPage() {
   );
 }
 
-export function CrmMillImportPage({ mill }: { mill: '6HI' | '4HI' | '2HI' }) {
+/** One Rolling / Skin Pass import for 2HI + 4HI + 6HI (process-wise, not mill-wise). */
+export function RollingSkinMhImportPage() {
   const machineAccess = useAuthStore((s) => s.machineAccess);
   const role = useAuthStore((s) => s.role);
+  const mills = (machineAccess ?? []).map((m) => m.toUpperCase());
   const allowed =
     role === 'ADMIN'
     || role === 'SUPERVISOR'
-    || (machineAccess ?? []).map((m) => m.toUpperCase()).includes(mill);
+    || mills.some((m) => m === '6HI' || m === '4HI' || m === '2HI');
   if (!allowed) return <Navigate to="/live" replace />;
-  const sheets: PpcXlsxSheetType[] = mill === '2HI' ? ['SKIN_PASS', 'REWINDING'] : ['ROLLING', 'SKIN_PASS'];
-  const subtitle = mill === '2HI'
-    ? '2HI plan file — Skin Pass + Rewinding stay in this mill desk'
-    : `${mill} plan file — Rolling / Skin Pass stay in this mill desk`;
   return (
-    <MachineHeadShell title="Import" subtitle={subtitle}>
-      <ZOperatorCard title={`PPC ${mill} Plan (XLSX)`} noPadding>
-        <PpcRollingImportPanel allowedSheetTypes={sheets} />
+    <MachineHeadShell
+      title="Import"
+      subtitle="Rolling / Skin Pass plan — one import for 2HI, 4HI, and 6HI"
+    >
+      <ZOperatorCard title="PPC Rolling / Skin Pass Plan (XLSX)" noPadding>
+        <PpcRollingImportPanel allowedSheetTypes={['ROLLING', 'SKIN_PASS']} />
       </ZOperatorCard>
     </MachineHeadShell>
   );
 }
 
-export function SixHiMhImportPage() {
-  return <CrmMillImportPage mill="6HI" />;
-}
-export function FourHiMhImportPage() {
-  return <CrmMillImportPage mill="4HI" />;
-}
-export function TwoHiMhImportPage() {
-  return <CrmMillImportPage mill="2HI" />;
-}

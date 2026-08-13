@@ -219,14 +219,8 @@ const PklMhImportPage = lazy(() =>
 const RwdMhImportPage = lazy(() =>
   import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.RwdMhImportPage })),
 );
-const SixHiMhImportPage = lazy(() =>
-  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.SixHiMhImportPage })),
-);
-const FourHiMhImportPage = lazy(() =>
-  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.FourHiMhImportPage })),
-);
-const TwoHiMhImportPage = lazy(() =>
-  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.TwoHiMhImportPage })),
+const RollingSkinMhImportPage = lazy(() =>
+  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.RollingSkinMhImportPage })),
 );
 const LiveDashboard = lazy(() =>
   import('./pages/live/LiveDashboard').then((m) => ({ default: m.LiveDashboard })),
@@ -399,9 +393,10 @@ function AppRoutes() {
           <Route path="/machine-head/hrs/import" element={<MachineHeadRoute><HrsMhImportPage /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/import" element={<MachineHeadRoute><PklMhImportPage /></MachineHeadRoute>} />
           <Route path="/machine-head/rwd/import" element={<MachineHeadRoute><RwdMhImportPage /></MachineHeadRoute>} />
-          <Route path="/machine-head/6hi/import" element={<MachineHeadRoute><SixHiMhImportPage /></MachineHeadRoute>} />
-          <Route path="/machine-head/4hi/import" element={<MachineHeadRoute><FourHiMhImportPage /></MachineHeadRoute>} />
-          <Route path="/machine-head/2hi/import" element={<MachineHeadRoute><TwoHiMhImportPage /></MachineHeadRoute>} />
+          <Route path="/machine-head/rolling/import" element={<MachineHeadRoute><RollingSkinMhImportPage /></MachineHeadRoute>} />
+          <Route path="/machine-head/6hi/import" element={<Navigate to="/machine-head/rolling/import" replace />} />
+          <Route path="/machine-head/4hi/import" element={<Navigate to="/machine-head/rolling/import" replace />} />
+          <Route path="/machine-head/2hi/import" element={<Navigate to="/machine-head/rolling/import" replace />} />
           <Route path="/machine-head/pkl/live" element={<MachineHeadRoute><PklMhLiveDashboard /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/coil/:coilNo" element={<MachineHeadRoute><PklMhCoilDetailPage /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/specs" element={<MachineHeadRoute><PklSpecAdmin /></MachineHeadRoute>} />

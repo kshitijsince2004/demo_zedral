@@ -1,6 +1,29 @@
 #!/bin/sh
 set -eu
 
+# Load Docker secrets from *_FILE into matching env vars (SAFE_CHANGE #16).
+load_secret_file() {
+  _var="$1"
+  _file_var="${_var}_FILE"
+  eval "_path=\${${_file_var}:-}"
+  if [ -n "${_path}" ] && [ -f "${_path}" ]; then
+    # shellcheck disable=SC2034
+    _val="$(tr -d '\r\n' < "${_path}")"
+    eval "export ${_var}=\"\${_val}\""
+  fi
+}
+
+load_secret_file DB_APP_PASSWORD
+load_secret_file DB_PASSWORD
+# Prefer DB_APP_PASSWORD for runtime password when DB_PASSWORD unset
+if [ -z "${DB_PASSWORD:-}" ] && [ -n "${DB_APP_PASSWORD:-}" ]; then
+  export DB_PASSWORD="${DB_APP_PASSWORD}"
+fi
+load_secret_file DB_MIGRATE_PASSWORD
+load_secret_file JWT_SECRET
+load_secret_file SUPERTOKENS_API_KEY
+load_secret_file SERVICE_TOKEN
+
 # Preserve runtime app URL (m1_app / RLS). Migrations must not leave the process on the bootstrap role.
 APP_DATABASE_URL="${DATABASE_URL:-}"
 
@@ -73,6 +96,15 @@ if [ -n "${APP_DATABASE_URL}" ]; then
   export DATABASE_URL="${APP_DATABASE_URL}"
 elif [ -n "${DB_HOST:-}" ] && [ -n "${DB_APP_USER:-}" ] && [ -n "${DB_APP_PASSWORD:-}" ] && [ -n "${DB_NAME:-}" ]; then
   export DATABASE_URL="$(pg_url "${DB_APP_USER}" "${DB_APP_PASSWORD}" "${DB_HOST}" "${DB_PORT:-5432}" "${DB_NAME}")"
+fi
+
+if [ -z "${JWT_SECRET:-}" ]; then
+  echo "[entrypoint] ERROR: JWT_SECRET not set (file /run/secrets/jwt_secret or env)"
+  exit 1
+fi
+if [ -z "${DB_APP_PASSWORD:-}" ] && [ -z "${DATABASE_URL:-}" ]; then
+  echo "[entrypoint] ERROR: DB_APP_PASSWORD / DATABASE_URL missing (secrets or env)"
+  exit 1
 fi
 
 exec "$@"

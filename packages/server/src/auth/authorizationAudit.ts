@@ -1,5 +1,6 @@
 import { AuditTrailService } from '../services/AuditTrailService';
 import { isAuditPersistenceEnabled } from '../audit/auditConfig';
+import { logger } from '../utils/logger';
 
 export async function logAuthorizationDenied(
   userId: number,
@@ -21,6 +22,6 @@ export async function logAuthorizationDenied(
       userId,
     );
   } catch (err) {
-    console.error('Failed to persist authorization denial audit', err);
+    logger.error('Failed to persist authorization denial audit', err);
   }
 }

@@ -27,6 +27,7 @@ type Prefill = {
   motherCoilNo?: string;
   slitId?: string;
   prefill?: Record<string, unknown>;
+  hrsCapture?: { weightMt?: number; operatorName?: string } | null;
 };
 
 /** Lean HRS MH coil detail — order + entry KV. */
@@ -52,22 +53,23 @@ export function HrsMhCoilDetailPage() {
   }, [coilNo]);
 
   const p = entry?.prefill ?? {};
+  const capture = entry?.hrsCapture;
   const coilIdentity = displayMotherCoilId({
     motherCoilNo: String(order?.motherCoilNo ?? entry?.motherCoilNo ?? p.motherCoilNo ?? '') || undefined,
     coilNo: order?.coilNo ?? entry?.coilNo ?? coilNo,
     batchNumber: coilNo,
     slitId: String(order?.slitId ?? entry?.slitId ?? p.slitId ?? '') || undefined,
   });
+  const weight = order?.weightMt ?? capture?.weightMt ?? entry?.weightMt ?? p.weightMt;
   const rows: Array<[string, string]> = [
     ['Coil', coilIdentity],
     ['Status', order?.status ?? '—'],
     ['Grade', String(order?.gradeCode ?? entry?.gradeCode ?? p.gradeCode ?? '—')],
-    ['Weight (MT)', order?.weightMt != null ? Number(order.weightMt).toFixed(2)
-      : entry?.weightMt != null ? Number(entry.weightMt).toFixed(2) : String(p.weightMt ?? '—')],
+    ['Weight (MT)', weight != null ? Number(weight).toFixed(2) : '—'],
     ['Prod start', order?.prodStartAt ? formatPlantDateTime(order.prodStartAt) : '—'],
     ['Prod end', order?.prodEndAt ? formatPlantDateTime(order.prodEndAt) : '—'],
     ['Slit lines', order?.orderLines?.length != null ? String(order.orderLines.length) : '—'],
-    ['Operator', String(p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
+    ['Operator', String(capture?.operatorName ?? p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
   ];
 
   const st = (order?.status ?? '').toUpperCase();
@@ -89,7 +91,8 @@ export function HrsMhCoilDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await reinstateHrsPklOrder('HRS', coilNo, target);
+      const slitId = order?.slitId ?? (order?.orderLines?.length === 1 ? order.orderLines[0]?.slitId : undefined);
+      await reinstateHrsPklOrder('HRS', coilNo, target, { slitId });
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Reinstate failed');

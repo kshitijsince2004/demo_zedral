@@ -1,4 +1,5 @@
 import { isAuthStrict } from './authConfig';
+import { logger } from '../utils/logger';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,7 +70,7 @@ export function validateEnvironmentAtStartup(): void {
     }
 
     if (process.env.VALIDATION_STRICT === 'false') {
-      console.warn(
+      logger.warn(
         '[env] WARNING: VALIDATION_STRICT=false in production — validation gates are bypassed',
       );
     }

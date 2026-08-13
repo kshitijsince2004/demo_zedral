@@ -4,8 +4,9 @@ import { UserRole } from '@m1/shared-validation';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { assertMachineAccess, isMachineAccessForbidden } from '../auth/machineAccessPolicy';
 import { RewindingOrderService } from '../services/RewindingOrderService';
-import { assertRewindingMachine, parseRewindingMachineCode } from '../utils/rewindingMachines';
+import { assertRewindingMachine, parseRewindingMachineCode, resolveRewindingWriteMachine } from '../utils/rewindingMachines';
 import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -54,7 +55,7 @@ function zodMsg(error: z.ZodError): string {
 }
 
 function respondError(res: import('express').Response, context: string, error: unknown) {
-  console.error(`${context}:`, error);
+  logger.error(`${context}:`, error);
   if (isVersionConflict(error)) {
     res.status(409).json(versionConflictBody(error));
     return;
@@ -70,6 +71,10 @@ function respondError(res: import('express').Response, context: string, error: u
   }
   if (/not found|unknown batch/i.test(message)) {
     res.status(404).json({ error: message });
+    return;
+  }
+  if (/permission denied/i.test(message)) {
+    res.status(500).json({ error: 'Database permission denied' });
     return;
   }
   res.status(400).json({ error: message });
@@ -94,19 +99,32 @@ async function authorizeMachine(
   }
 }
 
-/** Authorize against the order's allocated/ppc machine before mutating. */
+function hubMachineFromReq(req: import('express').Request) {
+  const raw = req.query?.machine ?? req.body?.machine;
+  return parseRewindingMachineCode(String(raw ?? ''));
+}
+
+/** Authorize against allocated mill, or hub mill for unallocated RWD-coded plans. */
 async function authorizeOrderBatch(
   req: import('express').Request,
   res: import('express').Response,
   batchNo: string,
 ): Promise<boolean> {
-  const peek = await RewindingOrderService.peekOrderMachine(batchNo);
-  if (peek.machineCode && parseRewindingMachineCode(peek.machineCode)) {
-    return authorizeMachine(req, res, peek.machineCode);
+  if (!req.user) {
+    res.status(401).json({ error: 'Unauthenticated' });
+    return false;
   }
-  // Order may not exist yet — ensure via getOrder then auth.
-  const order = await RewindingOrderService.getOrder(batchNo, req.user!.id);
-  return authorizeMachine(req, res, order.machineCode);
+  const peek = await RewindingOrderService.peekOrderMachine(batchNo);
+  let target = resolveRewindingWriteMachine(peek, hubMachineFromReq(req));
+  if (!target) {
+    const order = await RewindingOrderService.getOrder(batchNo, req.user.id);
+    target = parseRewindingMachineCode(order.machineCode);
+  }
+  if (!target) {
+    res.status(400).json({ error: 'machine param required' });
+    return false;
+  }
+  return authorizeMachine(req, res, target);
 }
 
 router.get('/machines', (_req, res) => {
@@ -189,7 +207,7 @@ router.get('/orders/:batchNo', async (req, res) => {
       (await RewindingOrderService.getExistingOrder(req.params.batchNo))
       ?? (await RewindingOrderService.getPlanOrderDetail(req.params.batchNo));
     if (!existing) return res.status(404).json({ error: `Order not found: ${req.params.batchNo}` });
-    if (!(await authorizeMachine(req, res, existing.machineCode))) return;
+    if (!(await authorizeOrderBatch(req, res, req.params.batchNo))) return;
     res.json(existing);
   } catch (e) {
     respondError(res, 'rewinding.getOrder', e);

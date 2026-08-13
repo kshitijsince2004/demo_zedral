@@ -13,10 +13,10 @@ type NextStep = { step_id: number; step_no: number; route_code: string; queue_ba
 
 let hasSkipFilter = false;
 let stepNoOp: '=' | '>' | null = null;
+const stepUpdates: Array<Record<string, unknown>> = [];
 
-const dbMock = {
-  selectFrom: vi.fn((table: string) => {
-    // Reset per query builder.
+function makeSelectFrom(batchId: number) {
+  return vi.fn((table: string) => {
     hasSkipFilter = false;
     stepNoOp = null;
 
@@ -38,14 +38,14 @@ const dbMock = {
       orderBy: () => builder,
       executeTakeFirst: async () => {
         if (table === 'planning.ppc_batch') {
-          return { batch_number: 'BATCH-1', coil_no: 'COIL-1' };
+          return { batch_id: batchId, batch_number: 'BATCH-1', coil_no: 'COIL-1' };
         }
         if (table === 'planning.order_journey') {
           return { journey_id: 1, current_step_no: 2, status: 'ACTIVE' };
         }
         if (table === 'planning.order_journey_step') {
           if (stepNoOp === '=') {
-            return { step_id: 10, queue_batch_id: 200, step_no: 2 };
+            return { step_id: 10, queue_batch_id: 200, step_no: 2, machine_code: 'CRS' };
           }
           if (stepNoOp === '>') {
             const next: NextStep = hasSkipFilter
@@ -59,16 +59,22 @@ const dbMock = {
     };
 
     return builder;
-  }),
-  updateTable: vi.fn(() => {
+  });
+}
+
+const dbMock = {
+  selectFrom: makeSelectFrom(200),
+  updateTable: vi.fn((table: string) => {
     const ub: any = {
-      set: () => ub,
+      set: (vals: Record<string, unknown>) => {
+        if (table === 'planning.order_journey_step') stepUpdates.push(vals);
+        return ub;
+      },
       where: () => ub,
       execute: async () => undefined,
     };
     return ub;
   }),
-  // F6: advanceJourney runs COMPLETE→enqueue→PENDING inside a transaction.
   transaction: () => ({
     execute: async (fn: (trx: typeof dbMock) => Promise<unknown>) => fn(dbMock),
   }),
@@ -81,12 +87,13 @@ vi.mock('../src/db', () => ({
 describe('CRS For-CTL routing', () => {
   beforeEach(() => {
     enqueueNextStep.mockClear();
+    stepUpdates.length = 0;
+    dbMock.selectFrom = makeSelectFrom(200);
   });
 
   it('ignores SKIPPED steps when selecting the next journey step', async () => {
     const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
 
-    // Avoid toView DB reads.
     vi.spyOn(ProcessRouteService, 'toView').mockResolvedValue({
       journeyId: '1',
       coilNo: 'COIL-1',
@@ -99,6 +106,15 @@ describe('CRS For-CTL routing', () => {
 
     const [, , nextStep] = enqueueNextStep.mock.calls[0];
     expect(nextStep.route_code).toBe('LE');
+    expect(stepUpdates.some((u) => u.status === 'ACTIVE' && u.queue_batch_id === 123)).toBe(true);
+  });
+
+  it('aborts when completing batch does not match current step queue_batch_id', async () => {
+    dbMock.selectFrom = makeSelectFrom(999);
+
+    const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
+    const result = await ProcessRouteService.advanceJourney('BATCH-1', {});
+    expect(result).toBeNull();
+    expect(enqueueNextStep).not.toHaveBeenCalled();
   });
 });
-

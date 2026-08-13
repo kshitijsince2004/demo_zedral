@@ -23,23 +23,37 @@ interface OrderRejectionModalProps {
   orderSubtitle?: string;
   /** Machine classification for defect tags (e.g. 6HI / CRM6). */
   appliesTo?: string;
+  /** HRS: pick which slit + batch to hold. */
+  slitOptions?: Array<{ slitId: string; batchNumber?: string; label: string }>;
   onClose: () => void;
   onReject: (
     batchNo: string,
     rejectionReason: string,
     defectCodes: string[],
     remarks: string,
+    slit?: { slitId: string; batchNumber?: string },
   ) => Promise<void>;
 }
 
-export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtitle, appliesTo, onClose, onReject }: OrderRejectionModalProps) {
+export function OrderRejectionModal({
+  open, batchNumber, orderLabel, orderSubtitle, appliesTo, slitOptions, onClose, onReject,
+}: OrderRejectionModalProps) {
   const [rejectionReason, setRejectionReason] = useState<string>(REJECTION_REASONS[0].value);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [otherDefectRemarks, setOtherDefectRemarks] = useState('');
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [slitId, setSlitId] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (slitOptions?.length === 1) setSlitId(slitOptions[0].slitId);
+    else if (slitOptions?.length) setSlitId((prev) => (
+      slitOptions.some((s) => s.slitId === prev) ? prev : ''
+    ));
+  }, [open, slitOptions]);
 
   useEffect(() => {
     if (error && errorRef.current) {
@@ -49,7 +63,8 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
 
   if (!open) return null;
 
-  const canSubmit = !!batchNumber.trim() && !!remarks.trim();
+  const needsSlit = !!slitOptions?.length;
+  const canSubmit = !!batchNumber.trim() && !!remarks.trim() && (!needsSlit || !!slitId);
 
   const toggleTag = (code: string) => {
     setSelectedTags((prev) =>
@@ -68,6 +83,10 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
       setError('No order selected for hold');
       return;
     }
+    if (needsSlit && !slitId) {
+      setError('Pick a slit to hold');
+      return;
+    }
     if (!remarks.trim()) {
       setError('Hold remarks are required');
       return;
@@ -79,7 +98,14 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
     setBusy(true);
     setError(null);
     try {
-      await onReject(batchNumber, rejectionReason, defectCodesForSubmit(), remarks.trim());
+      const picked = slitOptions?.find((s) => s.slitId === slitId);
+      await onReject(
+        batchNumber,
+        rejectionReason,
+        defectCodesForSubmit(),
+        remarks.trim(),
+        picked ? { slitId: picked.slitId, batchNumber: picked.batchNumber } : undefined,
+      );
       onClose();
       setRejectionReason(REJECTION_REASONS[0].value);
       setSelectedTags([]);
@@ -117,8 +143,32 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
             </div>
           )}
           <div className="bg-red-50 text-red-800 text-sm p-4 rounded-xl font-medium border border-red-200">
-            Placing this order on hold will end production immediately and return the machine to IDLE state. This action cannot be undone.
+            {needsSlit
+              ? 'This slit will be held. Sibling slits stay in production and can still complete.'
+              : 'Placing this order on hold will end production immediately and return the machine to IDLE state. This action cannot be undone.'}
           </div>
+
+          {needsSlit ? (
+            <FieldWrapper label="Slit" required>
+              <div className="grid grid-cols-1 gap-2">
+                {slitOptions!.map((opt) => (
+                  <button
+                    key={`${opt.slitId}:${opt.batchNumber ?? ''}`}
+                    type="button"
+                    onClick={() => setSlitId(opt.slitId)}
+                    className={[
+                      'min-h-12 rounded-xl border px-3 py-2 text-sm font-semibold text-left transition-colors',
+                      slitId === opt.slitId
+                        ? 'bg-destructive text-white border-destructive'
+                        : 'bg-white text-foreground border-border hover:bg-secondary',
+                    ].join(' ')}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </FieldWrapper>
+          ) : null}
 
           <FieldWrapper label="Hold Reason" required>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

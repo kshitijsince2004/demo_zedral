@@ -5,6 +5,7 @@ import { apiClient } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
 import { currentPlantDate, formatPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { formatOrderProcessLabel, formatProcessFilterLabel } from '../../lib/orderLabels';
+import { asDisplayText } from '../../lib/sixHiOrderIdentity';
 import { isCrmMillCode } from '../../lib/millConfig';
 import {
   listManualRerollSessions,
@@ -51,20 +52,29 @@ export function CrmOperatorHistoryPage() {
 
       if (wantCrm) {
         const qs = new URLSearchParams({ machine, date });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const res = await apiClient.get<any[]>(`/6hi/orders/completed?${qs.toString()}`);
+        const raw = await apiClient.get<unknown>(`/6hi/orders/completed?${qs.toString()}`);
+        const res = Array.isArray(raw)
+          ? raw
+          : (raw && typeof raw === 'object' && Array.isArray((raw as { orders?: unknown }).orders)
+            ? (raw as { orders: Array<Record<string, unknown>> }).orders
+            : []);
         for (const o of res) {
-          const sub = o.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING';
+          const rec = o as Record<string, unknown>;
+          const subRaw = asDisplayText(rec.subProcess ?? rec.sub_process);
+          const sub = subRaw === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING';
           if (filter === 'ROLLING' && sub !== 'ROLLING') continue;
           if (filter === 'SKIN_PASS' && sub !== 'SKIN_PASS') continue;
+          const batchNumber = asDisplayText(rec.batchNumber ?? rec.batch_number);
+          if (!batchNumber) continue;
+          const weightRaw = rec.weightMt ?? rec.weight_mt ?? rec.ppc_weight_mt;
           out.push({
             kind: 'CRM',
-            key: `crm-${o.batchNumber}`,
-            batchNumber: o.batchNumber,
-            machineCode: o.machineCode ?? machine,
-            customer: o.customer,
-            weightMt: o.weightMt != null ? Number(o.weightMt) : undefined,
-            prodEndAt: o.prodEndAt,
+            key: `crm-${batchNumber}`,
+            batchNumber,
+            machineCode: asDisplayText(rec.machineCode ?? rec.machine_code) || machine,
+            customer: asDisplayText(rec.customer ?? rec.customer_name) || undefined,
+            weightMt: weightRaw != null && weightRaw !== '' ? Number(weightRaw) : undefined,
+            prodEndAt: asDisplayText(rec.prodEndAt ?? rec.prod_end_at) || undefined,
             subProcess: sub,
           });
         }

@@ -13,6 +13,7 @@ import {
   ValidationGateContext,
 } from './shiftLogValidationService';
 import { publishShiftClosed } from '../platform/m1Events';
+import { logger } from '../utils/logger';
 
 export interface ShiftLogPayload {
   processId: number;
@@ -163,7 +164,7 @@ export class ShiftLogService {
       processId: log.process_id,
       totalProdMt: actualProd,
     }).catch((error) => {
-      console.error('[M1] failed to publish shift.closed', error);
+      logger.error('[M1] failed to publish shift.closed', error);
     });
   }
 
@@ -223,7 +224,7 @@ export class ShiftLogService {
       processId: log.process_id,
       totalProdMt: actualProd,
     }).catch((error) => {
-      console.error('[M1] failed to publish shift.closed', error);
+      logger.error('[M1] failed to publish shift.closed', error);
     });
 
     // SPEC2 §10/§12 — resolve MH auto-handover notifications on sign-off.
@@ -232,7 +233,7 @@ export class ShiftLogService {
         DeskNotificationService.resolveForShiftLog(shiftLogId),
       )
       .catch((error) => {
-        console.error('[M1] failed to resolve desk notifications', error);
+        logger.error('[M1] failed to resolve desk notifications', error);
       });
   }
 

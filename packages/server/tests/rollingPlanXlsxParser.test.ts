@@ -18,7 +18,9 @@ describe('parseRollingPlanXlsx', () => {
     expect(machineFromPvDesc('2HIML')).toBe('2HI');
   });
 
-  it('maps skin-pass work-center codes to machine codes', () => {
+  it('maps rolling work-center codes 4/6 and skin-pass X/Y/Z to mills', () => {
+    expect(machineFromWorkCenter('4')).toBe('4HI');
+    expect(machineFromWorkCenter('6')).toBe('6HI');
     expect(machineFromWorkCenter('X')).toBe('2HI');
     expect(machineFromWorkCenter('Y')).toBe('4HI');
     expect(machineFromWorkCenter('Z')).toBe('6HI');
@@ -29,6 +31,8 @@ describe('parseRollingPlanXlsx', () => {
     expect(resolveMachineCode('', '')).toBe('6HI');
     expect(resolveMachineCode('6HIML')).toBe('6HI');
     expect(resolveMachineCode('', 'Y')).toBe('4HI');
+    expect(resolveMachineCode('', '4')).toBe('4HI');
+    expect(resolveMachineCode('', '6')).toBe('6HI');
   });
 
   it('parses rolling rows without a PV-Desc column', () => {

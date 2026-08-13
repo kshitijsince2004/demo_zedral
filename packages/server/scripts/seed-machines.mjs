@@ -12,15 +12,15 @@ const DEFAULT_URL = resolveOwnerDatabaseUrl();
 export async function seedMachines(client) {
   await client.query(`
     INSERT INTO master.process (process_id, code, name, seq_no, has_mill_type)
-    VALUES (31, '6HI', '6HI', 31, FALSE)
-    ON CONFLICT (process_id) DO UPDATE SET name = EXCLUDED.name;
+    VALUES (31, 'ROLLING', 'Rolling', 31, FALSE)
+    ON CONFLICT (process_id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name;
   `);
 
   await client.query(`
     INSERT INTO master.machine (machine_code, process_id, name, process_code) VALUES
-      ('6HI', 31, '6HI Mill', '6HI'),
-      ('4HI', NULL, 'CRM 4HI', '6HI'),
-      ('2HI', NULL, 'CRM 2HI', '6HI'),
+      ('6HI', 31, '6HI Mill', 'ROLLING'),
+      ('4HI', 31, 'CRM 4HI',  'ROLLING'),
+      ('2HI', 31, 'CRM 2HI',  'ROLLING'),
       ('PKL', (SELECT process_id FROM master.process WHERE code = 'PKL' LIMIT 1), 'Pickling', 'PKL'),
       ('ANN', (SELECT process_id FROM master.process WHERE code = 'ANN' LIMIT 1), 'Annealing', 'ANN'),
       ('RWD', (SELECT process_id FROM master.process WHERE code = 'RWD' LIMIT 1), 'Rewinding', 'RWD'),
@@ -29,7 +29,8 @@ export async function seedMachines(client) {
       ('HRS', (SELECT process_id FROM master.process WHERE code = 'HRS' LIMIT 1), 'HR Slitting', 'HRS')
     ON CONFLICT (machine_code) DO UPDATE SET
       name = EXCLUDED.name,
-      process_code = COALESCE(EXCLUDED.process_code, master.machine.process_code);
+      process_code = COALESCE(EXCLUDED.process_code, master.machine.process_code),
+      process_id = COALESCE(EXCLUDED.process_id, master.machine.process_id);
   `);
 
   await client.query(`

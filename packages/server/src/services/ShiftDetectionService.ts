@@ -518,19 +518,8 @@ export class ShiftDetectionService {
 
     let processId = opts.processId;
     if (processId == null) {
-      const proc =
-        (await db
-          .selectFrom('master.process')
-          .select('process_id')
-          .where('code', '=', 'ROLLING')
-          .executeTakeFirst()) ??
-        (await db
-          .selectFrom('master.process')
-          .select('process_id')
-          .where('code', '=', 'CRM')
-          .executeTakeFirst());
-      if (!proc) throw new Error('CRM/ROLLING process not configured');
-      processId = proc.process_id;
+      const { resolveRollingProcessId } = await import('../utils/rollingProcess');
+      processId = await resolveRollingProcessId();
     }
 
     let shiftCode: string;

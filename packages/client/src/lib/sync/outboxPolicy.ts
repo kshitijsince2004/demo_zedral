@@ -10,7 +10,6 @@ export function isBenignSyncClientError(status: number, body: string): boolean {
     /ACTIVE_SESSION_CONFLICT/i.test(text) ||
     /Forbidden:\s*No access to machine/i.test(text) ||
     /Forbidden:\s*No write access to line/i.test(text) ||
-    /Invalid production payload/i.test(text) ||
     /Only active \(DRAFT or REOPENED\) shifts can be marked completed/i.test(text) ||
     /already (completed|submitted|closed)/i.test(text) ||
     /IDEMPOTENCY_IN_FLIGHT/i.test(text)

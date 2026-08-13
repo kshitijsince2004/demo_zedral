@@ -1,5 +1,6 @@
 import { getElasticClient, isElasticAvailable } from '../elastic/elasticClient';
 import { TRACEABILITY_INDEX } from '../elastic/traceabilityIndex';
+import { logger } from '../utils/logger';
 
 export interface ElasticSearchHit {
   batch_id: number;
@@ -89,7 +90,7 @@ export class ElasticTraceabilityService {
         score: hit._score ?? 0,
       }));
     } catch (err: any) {
-      console.error(`[elastic] Search failed: ${err.message}`);
+      logger.error(`[elastic] Search failed: ${err.message}`);
       return [];
     }
   }
@@ -157,7 +158,7 @@ export class ElasticTraceabilityService {
       suggestions.sort((a, b) => b.score - a.score);
       return suggestions.slice(0, 8);
     } catch (err: any) {
-      console.error(`[elastic] Suggest failed: ${err.message}`);
+      logger.error(`[elastic] Suggest failed: ${err.message}`);
       return [];
     }
   }

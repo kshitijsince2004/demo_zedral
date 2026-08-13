@@ -1429,6 +1429,10 @@ export interface TxnProdHrsSlit {
   finish_thickness_mm: Numeric | null;
   for_ctl_flag: Generated<boolean>;
   hold_flag: Generated<boolean>;
+  hold_reason: string | null;
+  hold_remarks: string | null;
+  held_at: Timestamp | null;
+  held_by: number | null;
   planned_thk_mm: Numeric | null;
   planned_weight_mt: Numeric | null;
   qc_measurement_ref: string | null;

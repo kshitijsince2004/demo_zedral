@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { logger } from '../utils/logger';
 
 // ponytail: tables land in migration before kysely regen — cast until db-types catches up
 const k = db as any;
@@ -232,7 +233,7 @@ export class SpecResolverService {
         parameters,
       };
     } catch (err) {
-      console.error('[SpecResolverService.resolve] failed safely:', err);
+      logger.error('[SpecResolverService.resolve] failed safely:', err);
       return null;
     }
   }
@@ -270,7 +271,7 @@ export class SpecResolverService {
         input.measuredValue,
       );
     } catch (err) {
-      console.error('[SpecResolverService.evaluate] failed safely:', err);
+      logger.error('[SpecResolverService.evaluate] failed safely:', err);
       return 'NOT_EVALUATED';
     }
   }
@@ -298,7 +299,7 @@ export class SpecResolverService {
         parameters,
       };
     } catch (err) {
-      console.error('[SpecResolverService.resolveForOrder] failed safely:', err);
+      logger.error('[SpecResolverService.resolveForOrder] failed safely:', err);
       return null;
     }
   }
@@ -315,7 +316,7 @@ export class SpecResolverService {
       if (!order) return null;
       return this.resolveForOrder(order.plan_order_id);
     } catch (err) {
-      console.error('[SpecResolverService.resolveForSapOrder] failed safely:', err);
+      logger.error('[SpecResolverService.resolveForSapOrder] failed safely:', err);
       return null;
     }
   }
@@ -376,7 +377,7 @@ export class SpecResolverService {
         customerId: coil.customer_id != null ? Number(coil.customer_id) : null,
       });
     } catch (err) {
-      console.error('[SpecResolverService.resolveForCoil] failed safely:', err);
+      logger.error('[SpecResolverService.resolveForCoil] failed safely:', err);
       return null;
     }
   }

@@ -18,8 +18,11 @@ Zedral production runs PostgreSQL 15 in Docker (`zedral-db` container) with data
 1. Reads credentials from `deploy/.env`
 2. Runs `pg_dump` inside the `db` container (no owner/ACL for portability)
 3. Compresses with gzip
-4. Stores in `/var/backups/zedral/` (configurable via `BACKUP_DIR`)
-5. Deletes archives older than 30 days (configurable via `RETENTION_DAYS`)
+4. Encrypts with `age -r "$AGE_RECIPIENT"` → `*.sql.gz.age` (plaintext gzip deleted)
+5. Stores in `/var/backups/zedral/` (configurable via `BACKUP_DIR`)
+6. Deletes encrypted archives older than 30 days (configurable via `RETENTION_DAYS`)
+
+**Key custody:** `AGE_RECIPIENT` (public) lives on the VM in `deploy/.env`. The matching **private** identity stays off-box (ops laptop / sealed store). Never store the private key on the plant VM.
 
 ### Schedule (Cron)
 
@@ -75,7 +78,8 @@ bash deploy/scripts/backup-db.sh
 ### Prerequisites
 
 - Access to EC2 instance
-- Backup file: `zedral_m1_db_YYYY-MM-DD_HHMMSS.sql.gz`
+- Backup file: `zedral_m1_db_YYYY-MM-DD_HHMMSS.sql.gz.age`
+- Off-box age private key (`AGE_IDENTITY` path)
 - Application stopped or in maintenance mode
 
 ### Steps
@@ -85,15 +89,17 @@ bash deploy/scripts/backup-db.sh
 cd /opt/zedral
 docker compose -f deploy/docker-compose.prod.yml stop backend
 
-# 2. Restore into PostgreSQL (DESTRUCTIVE — drops and recreates objects in dump)
-gunzip -c /var/backups/zedral/zedral_m1_db_2026-06-11_020001.sql.gz | \
+# 2. Decrypt + restore into PostgreSQL (DESTRUCTIVE)
+age -d -i /path/to/age-identity.txt \
+  /var/backups/zedral/zedral_m1_db_2026-06-11_020001.sql.gz.age \
+  | gunzip -c | \
   docker compose -f deploy/docker-compose.prod.yml exec -T db \
   psql -U m1_user -d m1_db
 
 # 3. Restart stack
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
 
-# 4. Verify
+# 4. Verify row counts / smoke
 curl -s http://127.0.0.1/health | jq
 ```
 
@@ -113,7 +119,8 @@ Before relying on backups, restore to a separate VM or local Docker instance and
 
 `verify-backup.sh` runs weekly via cron:
 
-- Finds latest `.sql.gz` in backup directory
+- Finds latest `.sql.gz.age` in backup directory
+- Decrypts with `AGE_IDENTITY` (private key must be available to the verify host)
 - Validates gzip integrity (`gzip -t`)
 - Confirms file contains SQL content (≥5 lines in header)
 
@@ -136,7 +143,7 @@ Alert if:
 Simple check script for monitoring:
 
 ```bash
-find /var/backups/zedral -name '*.sql.gz' -mtime -1 | grep -q . || echo "ALERT: No backup in 24h"
+find /var/backups/zedral -name '*.sql.gz.age' -mtime -1 | grep -q . || echo "ALERT: No backup in 24h"
 ```
 
 ---

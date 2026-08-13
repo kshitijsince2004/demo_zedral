@@ -456,7 +456,7 @@ export function TwoHiRewindingCapturePage() {
             const startable = orderStatus === 'PENDING' || orderStatus === 'PREPARING' || orderStatus === 'STOPPAGE';
             if (!startable) return;
             if (picks.length >= 2) {
-              await startCombinedRwdOrders(picks);
+              await startCombinedRwdOrders(picks, machineCode === '2HI' ? '2HI' : 'RWD');
               setCombinedBatchNumbers(picks);
               setCombinedPicked(picks);
               const primary = picks.includes(batchNumber) ? batchNumber : picks[0];

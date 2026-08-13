@@ -30,6 +30,7 @@ import { BacklogDetailDrawer } from '../../components/plant-head/BacklogDetailDr
 import { RejectedOrdersDrawer } from '../../components/plant-head/RejectedOrdersDrawer';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { OrderDetailModal } from '../../components/live/OrderDetailModal';
+import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import type { LiveOrderDetail } from '@m1/shared-validation';
 import { PlantOperationsArea } from '../../components/plant-head/PlantOperationsArea';
 import { PlantOpsFeed } from '../../components/plant-head/PlantOpsFeed';
@@ -60,6 +61,7 @@ export function PlantHeadDashboard() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState<LiveOrderDetail | null>(null);
+  const [selectedMachineCode, setSelectedMachineCode] = useState<string | null>(null);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
   const [exportDate, setExportDate] = useState(currentPlantDate());
   const [exportShift, setExportShift] = useState('');
@@ -178,7 +180,8 @@ export function PlantHeadDashboard() {
     };
     loadOrders();
     const interval = setInterval(loadOrders, LIVE_POLL_MS);
-    return () => { active = false; clearInterval(interval); };
+    const unsub = subscribeProductionChanged(() => loadOrders());
+    return () => { active = false; clearInterval(interval); unsub(); };
   }, []);
 
   const liveKpis: LiveKpis | undefined = snapshot?.kpis;
@@ -307,6 +310,12 @@ export function PlantHeadDashboard() {
             setSelectedDetail(null);
           }}
         />
+        <MachineDetailModal
+          open={!!selectedMachineCode}
+          onClose={() => setSelectedMachineCode(null)}
+          machineCode={selectedMachineCode}
+          machineData={liveMachines.find((m) => m.machineCode === selectedMachineCode)}
+        />
 
         {/* 1–2. Machine Status + In Progress Orders (single canonical board) */}
         <section>
@@ -316,6 +325,7 @@ export function PlantHeadDashboard() {
             liveOrders={liveOrders}
             liveOrdersError={liveOrdersError}
             onOrderClick={(batchNumber) => void openOrderDetail(batchNumber)}
+            onMachineClick={setSelectedMachineCode}
           />
         </section>
 

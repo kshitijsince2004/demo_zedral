@@ -249,9 +249,54 @@ describe('sync engine replay', () => {
     const shortPage = [[mk('tail')]];
     vi.mocked(outbox.nextBatch)
       .mockResolvedValueOnce(fullPage)
-      .mockResolvedValueOnce(shortPage)
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce(shortPage);
     vi.mocked(apiFetch).mockResolvedValue({ ok: true, status: 200 } as Response);
+
+    await syncNow('test');
+
+    expect(outbox.nextBatch).toHaveBeenCalledTimes(2);
+    expect(outbox.markSynced).toHaveBeenCalledWith('tail');
+  });
+
+  it('drains later pending pages when the first aggregate is parked', async () => {
+    vi.mocked(outbox.nextBatch).mockReset();
+    const mkPending = (id: string) => ({
+      id,
+      aggregateKey: `zzz:${id}`,
+      seq: 1,
+      url: `/x/${id}`,
+      method: 'POST' as const,
+      payload: '{}',
+      status: 'pending' as const,
+      attempts: 0,
+      createdAt: Date.now(),
+    });
+    const parked = {
+      id: 'parked-aaa',
+      aggregateKey: 'aaa-parked',
+      seq: 1,
+      url: '/production/hrs',
+      method: 'POST' as const,
+      payload: '{}',
+      status: 'parked' as const,
+      attempts: 2,
+      createdAt: Date.now(),
+    };
+    const page1 = [[parked], ...Array.from({ length: 199 }, (_, i) => [mkPending(`p${i}`)])];
+    const page2 = [[mkPending('tail')]];
+    vi.mocked(outbox.nextBatch)
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2);
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      if (url === '/production/hrs') {
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ error: 'Invalid production payload' }),
+        } as Response;
+      }
+      return { ok: true, status: 200 } as Response;
+    });
 
     await syncNow('test');
 

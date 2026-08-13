@@ -1,4 +1,4 @@
-import type { SixHiOrderStatus } from '@m1/shared-validation';
+import type { SixHiOrderStatus, SixHiQueueCard, SixHiRollFinish } from '@m1/shared-validation';
 import { combinedRunKey } from './sixHiOrderIdentity';
 
 export const MANUAL_REROLL_TAB = { id: 'reroll', label: 'Manual Re-Roll' } as const;
@@ -12,6 +12,92 @@ export function manualRerollStatusToPill(status: string): { status: SixHiOrderSt
   if (s === 'ON_HOLD') return { status: 'REJECTED', preparing: false };
   if (s === 'COMPLETED') return { status: 'COMPLETED', preparing: false };
   return { status: 'PENDING', preparing: false };
+}
+
+export function rerollStatusToQueueStatus(status: string): SixHiOrderStatus {
+  const s = status.toUpperCase();
+  if (s === 'ON_HOLD') return 'REJECTED';
+  if (s === 'PREPARING' || s === 'IN_PROGRESS' || s === 'STOPPAGE' || s === 'COMPLETED' || s === 'PENDING') {
+    return s;
+  }
+  return 'PENDING';
+}
+
+export function rerollHitToQueueCard(hit: {
+  orderId: string;
+  batchNumber: string;
+  coilNo: string;
+  status: string;
+  customer: string;
+  grade: string | null;
+  slitId?: string | null;
+  rollFinish?: string | null;
+  subProcess?: string | null;
+  weightMt?: number | null;
+  thkMm?: number | null;
+  widthMm?: number | null;
+  machineCode?: string;
+}, mill: string): SixHiQueueCard {
+  const status = rerollStatusToQueueStatus(hit.status || 'PENDING');
+  return {
+    batchNumber: hit.batchNumber,
+    motherCoil: hit.coilNo,
+    slitId: hit.slitId ?? undefined,
+    customer: hit.customer,
+    grade: hit.grade ?? '',
+    widthMm: hit.widthMm ?? 0,
+    inputThkMm: hit.thkMm ?? 0,
+    targetThkMm: hit.thkMm ?? 0,
+    machineCode: hit.machineCode || mill,
+    machineAllocated: true,
+    weightMt: hit.weightMt ?? 0,
+    rollFinish: (hit.rollFinish as SixHiRollFinish | undefined) || undefined,
+    status,
+    prepReady: status === 'PREPARING',
+    subProcess: hit.subProcess === 'SKIN_PASS' ? 'SKIN_PASS' : 'ROLLING',
+    queuePosition: 0,
+    orderId: hit.orderId,
+  };
+}
+
+export function rerollSessionToQueueCard(card: {
+  sessionId: string;
+  batchNumber: string | null;
+  batchNumbers?: string[];
+  status: string;
+  machineCode: string;
+  weightMt: number | null;
+  coilNo?: string;
+  customer?: string;
+  grade?: string | null;
+  slitId?: string | null;
+  rollFinish?: string | null;
+  thkMm?: number | null;
+  widthMm?: number | null;
+  activeStoppage?: { categoryCode: string } | null;
+}, mill: string): SixHiQueueCard {
+  const batch = card.batchNumber || card.batchNumbers?.[0] || card.sessionId;
+  const status = rerollStatusToQueueStatus(card.status);
+  return {
+    batchNumber: batch,
+    motherCoil: card.coilNo || batch,
+    slitId: card.slitId ?? undefined,
+    customer: card.customer ?? '',
+    grade: card.grade ?? '',
+    widthMm: card.widthMm ?? 0,
+    inputThkMm: card.thkMm ?? 0,
+    targetThkMm: card.thkMm ?? 0,
+    machineCode: card.machineCode || mill,
+    machineAllocated: true,
+    weightMt: card.weightMt ?? 0,
+    rollFinish: (card.rollFinish as SixHiRollFinish | undefined) || undefined,
+    status,
+    prepReady: status === 'PREPARING',
+    subProcess: 'ROLLING',
+    queuePosition: 0,
+    orderId: card.sessionId,
+    activeStoppageCategory: card.activeStoppage?.categoryCode,
+  };
 }
 
 export type ManualRerollStatusFilter = 'ALL' | 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED';

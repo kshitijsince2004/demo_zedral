@@ -383,11 +383,11 @@ export function PklMhLiveDashboard() {
     return datedHistory.filter((r) => `${r.coilNo} ${r.gradeCode ?? ''}`.toLowerCase().includes(q));
   }, [datedHistory, search]);
 
-  async function handleReinstate(coilNo: string) {
+  async function handleReinstate(coilNo: string, batchNumber?: string) {
     setBusy(true);
     setError(null);
     try {
-      await reinstateHrsPklOrder('PKL', coilNo, 'PREPARING');
+      await reinstateHrsPklOrder('PKL', coilNo, 'PREPARING', { batchNumber });
       setSelectedCoil(null);
       await reload();
     } catch (e) {
@@ -424,7 +424,7 @@ export function PklMhLiveDashboard() {
       busy={busy}
       onShowPklDetails={() => selected && openDrawer('pkl', selected)}
       onShowCompleteInfo={() => selected && openDrawer('complete', selected)}
-      onReinstatePreparing={canReinstate && selected ? () => void handleReinstate(selected.coilNo) : undefined}
+      onReinstatePreparing={canReinstate && selected ? () => void handleReinstate(selected.coilNo, selected.batchNumber) : undefined}
       onDelete={canDelete && selected ? () => void handleDelete(selected.coilNo) : undefined}
     />
   );

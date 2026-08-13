@@ -13,8 +13,10 @@ import {
 } from '../src/utils/orderLifecycleHelpers';
 import {
   assertRewindingMachine,
+  belongsOnRewindingDesk,
   isRewindingPpcBatch,
   parseRewindingMachineCode,
+  resolveRewindingWriteMachine,
   REWINDING_MACHINES,
 } from '../src/utils/rewindingMachines';
 
@@ -120,6 +122,29 @@ describe('rewindingMachines', () => {
     expect(parseRewindingMachineCode('6HI')).toBeNull();
     expect(assertRewindingMachine('2HI')).toBe('2HI');
     expect(() => assertRewindingMachine('6HI')).toThrow(/Invalid rewinding machine/);
+  });
+
+  it('2HI desk includes unallocated RWD-coded plans and excludes allocated RWD', () => {
+    expect(belongsOnRewindingDesk('2HI', { machine_code: 'RWD', machine_allocated: false })).toBe(true);
+    expect(belongsOnRewindingDesk('2HI', { machine_code: '2HI', machine_allocated: true })).toBe(true);
+    expect(belongsOnRewindingDesk('2HI', { machine_code: 'RWD', machine_allocated: true })).toBe(false);
+    expect(belongsOnRewindingDesk('RWD', { machine_code: '2HI', machine_allocated: true })).toBe(false);
+    expect(belongsOnRewindingDesk('RWD', { machine_code: 'RWD', machine_allocated: false })).toBe(true);
+  });
+
+  it('unallocated write auth uses hub mill so 2HI-only operators can cancel-combine', () => {
+    expect(resolveRewindingWriteMachine(
+      { machineCode: 'RWD', machineAllocated: false },
+      '2HI',
+    )).toBe('2HI');
+    expect(resolveRewindingWriteMachine(
+      { machineCode: '2HI', machineAllocated: true },
+      '2HI',
+    )).toBe('2HI');
+    expect(resolveRewindingWriteMachine(
+      { machineCode: 'RWD', machineAllocated: true },
+      '2HI',
+    )).toBe('RWD');
   });
 });
 

@@ -208,4 +208,49 @@ describe('MachineHandoverService.ensureActiveSession stale session', () => {
     expect(result.needsCrew).toBe(true);
   });
 
+  it('resumes leftover own ACTIVE instead of inserting (unique 400)', async () => {
+    const leftover = {
+      session_id: 'leftover-1',
+      machine_code: '4HI',
+      operator_user_id: 8,
+      prod_date: new Date('2026-08-13'),
+      shift_code: 'A',
+      status: 'ACTIVE',
+    };
+
+    mockIsSessionLiveById.mockResolvedValue(false);
+    mockCloseStale.mockResolvedValue(0);
+    mockCloseStaleOnMachine.mockResolvedValue(0);
+
+    const selectChains = [
+      () => ({
+        select: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        executeTakeFirst: vi.fn().mockResolvedValue(leftover),
+      }),
+      () => ({
+        select: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        executeTakeFirst: vi.fn().mockResolvedValue(leftover),
+      }),
+      () => ({
+        select: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        executeTakeFirst: vi.fn().mockResolvedValue(null),
+      }),
+    ];
+    let selectIdx = 0;
+    vi.mocked(db.selectFrom).mockImplementation(() => {
+      const factory = selectChains[Math.min(selectIdx++, selectChains.length - 1)];
+      return factory() as never;
+    });
+
+    const result = await MachineHandoverService.ensureActiveSession('4HI', 8);
+
+    expect(db.insertInto).not.toHaveBeenCalled();
+    expect(result.session).toEqual(leftover);
+    expect(result.created).toBe(false);
+  });
+
 });

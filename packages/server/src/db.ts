@@ -3,6 +3,7 @@ import { Kysely, PostgresDialect, sql, CompiledQuery, Driver, DatabaseConnection
 
 import type { DB } from './db-types';
 import { getTenantId, getCorrelationId, requestContext } from './context';
+import { logger } from './utils/logger';
 
 export type Database = DB;
 
@@ -62,10 +63,19 @@ class RlsPostgresDialect extends PostgresDialect {
   }
 }
 
+function resolveSsl(): boolean | { rejectUnauthorized: boolean } | undefined {
+  if (process.env.DATABASE_SSL !== 'true' && process.env.DATABASE_SSL !== '1') {
+    return undefined;
+  }
+  const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false';
+  return { rejectUnauthorized };
+}
+
 function resolvePrimaryPoolConfig(): ConstructorParameters<typeof Pool>[0] {
+  const ssl = resolveSsl();
   const url = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
   if (url) {
-    return { connectionString: url, max: 20 };
+    return { connectionString: url, max: 20, ...(ssl ? { ssl } : {}) };
   }
 
   return {
@@ -75,6 +85,7 @@ function resolvePrimaryPoolConfig(): ConstructorParameters<typeof Pool>[0] {
     password: process.env.DB_PASSWORD || 'm1_password',
     database: process.env.DB_NAME || 'm1_db',
     max: 20,
+    ...(ssl ? { ssl } : {}),
   };
 }
 
@@ -83,6 +94,7 @@ function resolveReplicaPoolConfig(): ConstructorParameters<typeof Pool>[0] | nul
     return null;
   }
 
+  const ssl = resolveSsl();
   return {
     host: process.env.DB_REPLICA_HOST,
     port: parseInt(process.env.DB_REPLICA_PORT || '5432', 10),
@@ -90,6 +102,7 @@ function resolveReplicaPoolConfig(): ConstructorParameters<typeof Pool>[0] | nul
     password: process.env.DB_PASSWORD || 'm1_password',
     database: process.env.DB_NAME || 'm1_db',
     max: 20,
+    ...(ssl ? { ssl } : {}),
   };
 }
 
@@ -99,10 +112,22 @@ const primaryPool = new Pool(resolvePrimaryPoolConfig());
 const replicaPoolConfig = resolveReplicaPoolConfig();
 const replicaPool = replicaPoolConfig ? new Pool(replicaPoolConfig) : primaryPool;
 
+const SLOW_QUERY_MS = Number(process.env.SLOW_QUERY_MS ?? 250);
+
+function kyselyLog(event: { level: string; queryDurationMillis?: number; query?: { sql?: string } }) {
+  if (event.level !== 'query') return;
+  const ms = event.queryDurationMillis ?? 0;
+  if (ms < SLOW_QUERY_MS) return;
+  const sqlText = event.query?.sql ?? '';
+  const name = sqlText.slice(0, 120).replace(/\s+/g, ' ');
+  logger.warn(`[slow-query] ${ms.toFixed(0)}ms ${name}`);
+}
+
 export const db = new Kysely<Database>({
   dialect: new RlsPostgresDialect({
     pool: primaryPool,
   }),
+  log: kyselyLog as never,
 });
 
 export const readDb = replicaPoolConfig
@@ -110,6 +135,7 @@ export const readDb = replicaPoolConfig
       dialect: new RlsPostgresDialect({
         pool: replicaPool,
       }),
+      log: kyselyLog as never,
     })
   : db;
 

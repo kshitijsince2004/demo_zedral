@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { db } from '../db';
 import { assertQuantityWithinProduction } from '../validation/manufacturingValidation';
 import { publishDefectLogged } from '../platform/m1Events';
+import { logger } from '../utils/logger';
 
 export { StoppageService } from './StoppageService';
 
@@ -254,7 +255,7 @@ export class DefectService {
       defectCode: payload.defectCode,
       quantityMt: qtyMt == null ? undefined : Number(qtyMt),
     }).catch((error) => {
-      console.error('[M1] failed to publish defect.logged', error);
+      logger.error('[M1] failed to publish defect.logged', error);
     });
 
     return defectId;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiFetch } from '../../src/lib/apiClient';
+import { ApiError, apiClient, apiFetch } from '../../src/lib/apiClient';
 
 describe('apiClient timeout', () => {
   beforeEach(() => {
@@ -33,5 +33,26 @@ describe('apiClient timeout', () => {
 
     await vi.advanceTimersByTimeAsync(60);
     await expectRejection;
+  });
+});
+
+describe('apiClient 429', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sets preventRetry so SWR does not hammer the limiter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'Too Many Requests' }), { status: 429 }),
+      ),
+    );
+
+    await expect(apiClient.get('/6hi/queue')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 429,
+      preventRetry: true,
+    } satisfies Partial<ApiError>);
   });
 });

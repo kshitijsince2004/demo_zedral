@@ -83,6 +83,7 @@ function matchesFilter(card: ProcessQueueCard, filter: QueueStatusFilter, separa
 
 /** RWD (and multi-batch slits share coil_no — key/select by batch when present. */
 function queueCardKey(card: ProcessQueueCard): string {
+  if (card.slitId) return `${card.coilNo}::${card.slitId}::${card.batchNumber ?? ''}`;
   return card.batchNumber || card.journeyId || card.coilNo;
 }
 
@@ -156,7 +157,10 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     if (!window.confirm(`Move ${card.coilNo} to Pending?`)) return;
     setActionError(null);
     try {
-      await reinstateHrsPklOrder('HRS', card.coilNo, 'PENDING');
+      await reinstateHrsPklOrder('HRS', card.coilNo, 'PENDING', {
+        slitId: card.slitId,
+        batchNumber: card.batchNumber,
+      });
       await mutateQueue();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to move to pending');
@@ -361,7 +365,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       finishLocal();
       return;
     }
-    void cancelCombinedRwdOrders(preparing)
+    void cancelCombinedRwdOrders(preparing, 'RWD')
       .then(async () => {
         notifyProductionChanged();
         await mutateQueue();
@@ -395,7 +399,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         || c.status === 'REJECTED',
       );
       if (picked.length > 1 && startable) {
-        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber!));
+        await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber!), machine);
         notifyProductionChanged();
         rwdSelectionManual.current = false;
         setRwdSelectedBatches(new Set());
@@ -473,6 +477,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         motherCoilNo: card.motherCoilNo,
         slitId: card.slitId,
         routeRaw: card.routeRaw,
+        batchNumber: card.batchNumber,
       });
       navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(card.coilNo)));
       return;
@@ -488,6 +493,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       motherCoilNo: card.motherCoilNo,
       slitId: card.slitId,
       combination: card.combination,
+      batchNumber: card.batchNumber,
       ...(card.routeRaw ? { routeRaw: card.routeRaw } : {}),
     });
     navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(card.coilNo)));

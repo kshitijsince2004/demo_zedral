@@ -50,6 +50,15 @@ const PklChartPage = lazy(() =>
 const AnnChargePage = lazy(() =>
   import('../pages/process/AnnChargePage').then((m) => ({ default: m.AnnChargePage })),
 );
+const AnnOperatorBatchingPage = lazy(() =>
+  import('../pages/process/AnnOperatorBatchingPage').then((m) => ({ default: m.AnnOperatorBatchingPage })),
+);
+const AnnOperatorOrdersPage = lazy(() =>
+  import('../pages/process/AnnOperatorOrdersPage').then((m) => ({ default: m.AnnOperatorOrdersPage })),
+);
+const AnnOperatorStoppagePage = lazy(() =>
+  import('../pages/process/AnnOperatorStoppagePage').then((m) => ({ default: m.AnnOperatorStoppagePage })),
+);
 
 function OperatorRouteFallback() {
   return <RouteSpinner />;
@@ -146,6 +155,9 @@ function OperatorApp() {
             <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
             <Route path="chart" element={<PklChartPage />} />
             <Route path="charge/:chargeNo" element={<AnnChargePage />} />
+            <Route path="batching" element={<AnnOperatorBatchingPage />} />
+            <Route path="orders" element={<AnnOperatorOrdersPage />} />
+            <Route path="stoppage" element={<AnnOperatorStoppagePage />} />
             <Route path="history" element={<ProcessOperatorHistoryPage />} />
             <Route path="handover" element={<ScopeHandoverRoute />} />
             <Route path="shift-summary" element={<Navigate to="../handover" replace />} />

@@ -17,6 +17,26 @@ export function assertRewindingMachine(machineCode: string): RewindingMachineCod
   return parsed;
 }
 
+/** Desk membership: allocated work stays on its mill; unallocated RWD|2HI plans appear on both desks. */
+export function belongsOnRewindingDesk(
+  desk: RewindingMachineCode,
+  batch: { machine_code?: string | null; machine_allocated?: boolean | null },
+): boolean {
+  const code = String(batch.machine_code ?? '').toUpperCase();
+  if (code !== 'RWD' && code !== '2HI') return false;
+  if (batch.machine_allocated) return code === desk;
+  return true;
+}
+
+/** Allocated → that mill. Unallocated → hub mill (query), else ppc code. */
+export function resolveRewindingWriteMachine(
+  peek: { machineCode: string | null; machineAllocated: boolean },
+  hubMachine: RewindingMachineCode | null,
+): RewindingMachineCode | null {
+  if (peek.machineAllocated) return parseRewindingMachineCode(peek.machineCode ?? '');
+  return hubMachine ?? parseRewindingMachineCode(peek.machineCode ?? '');
+}
+
 /** ppc_batch row qualifies for the rewinding queue / rwd_order ensure (rewinding import/manual only). */
 export function isRewindingPpcBatch(batch: {
   from_work_center?: string | null;

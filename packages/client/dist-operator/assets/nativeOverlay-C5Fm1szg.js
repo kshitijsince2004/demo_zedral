@@ -1,0 +1,1 @@
+import{Nt as e}from"./vendor-NwTFhOzN.js";function t(t,n){return e.isNativePlatform()?t:`${t} ${n}`}export{t};

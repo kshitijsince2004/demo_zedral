@@ -10,6 +10,7 @@ import {
 } from '../read/ExportReadRepository';
 import type { ExportFormat, ReportExecutionResult } from '../types';
 import type { ReportDefinition } from './ReportDefinition';
+import { logger } from '../../utils/logger';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -70,7 +71,7 @@ export const DprReport: ReportDefinition = {
     const rdm = DprAggregator.aggregate(input);
     const fieldCatalog = catalogSummary();
     if (fieldCatalog.byStatus.missing > 0) {
-      console.warn(
+      logger.warn(
         `[DPR export] ${fieldCatalog.byStatus.missing} catalog fields still marked missing`,
       );
     }
@@ -96,7 +97,7 @@ export const DprReport: ReportDefinition = {
         deterministic: true,
       };
     } catch (err) {
-      console.error(
+      logger.error(
         `[DPR] Template injection failed for month ${month}; failing export (no non-template fallback). Reason:`,
         err,
       );

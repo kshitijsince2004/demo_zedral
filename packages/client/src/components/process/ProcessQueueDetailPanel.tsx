@@ -1,5 +1,5 @@
 import { Eye, Play, RotateCcw } from 'lucide-react';
-import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
+import { asDisplayText, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { processQueueStatusLabel, type ProcessQueueCard } from '../../store/processStore';
 import { ZButton } from '../primitives/ZButton';
 
@@ -34,19 +34,23 @@ export function ProcessQueueDetailPanel({
     );
   }
 
-  const title = displayMotherCoilId(card);
+  const title = displayMotherCoilId(card) || '—';
   const lines = card.orderLines ?? [];
   const fields: [string, string, boolean?][] = [
-    ['Process Route', card.routeRaw?.trim() || '—', true],
+    ['Process Route', asDisplayText(card.routeRaw) || '—', true],
     ['Station', stationCode],
-    ['Customer', card.customerName || '—'],
-    ['Grade', card.gradeCode || '—', true],
+    ['Customer', asDisplayText(card.customerName) || '—'],
+    ['Grade', asDisplayText(card.gradeCode) || '—', true],
     ['Coil', title, true],
-    ...(card.batchNumber ? [['Batch Number', card.batchNumber, true] as [string, string, boolean?]] : []),
-    ['Width', `${card.widthMm} mm`, true],
-    ['Thickness', `${card.thicknessMm} mm`, true],
-    ['Weight', `${card.weightMt} MT`, true],
-    ...(card.combination ? [['Combination', card.combination, true] as [string, string, boolean?]] : []),
+    ...(asDisplayText(card.batchNumber)
+      ? [['Batch Number', asDisplayText(card.batchNumber), true] as [string, string, boolean?]]
+      : []),
+    ['Width', `${card.widthMm ?? '—'} mm`, true],
+    ['Thickness', `${card.thicknessMm ?? '—'} mm`, true],
+    ['Weight', `${card.weightMt ?? '—'} MT`, true],
+    ...(asDisplayText(card.combination)
+      ? [['Combination', asDisplayText(card.combination), true] as [string, string, boolean?]]
+      : []),
     ...(card.lineCount != null && card.lineCount > 1
       ? [['Lines', String(card.lineCount), true] as [string, string, boolean?]]
       : []),
@@ -59,9 +63,9 @@ export function ProcessQueueDetailPanel({
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border/60">
         <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
         <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{title}</h2>
-        {card.batchNumber ? (
+        {card.batchNumber && asDisplayText(card.batchNumber) ? (
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
-            Batch {card.batchNumber}
+            Batch {asDisplayText(card.batchNumber)}
           </p>
         ) : null}
       </div>

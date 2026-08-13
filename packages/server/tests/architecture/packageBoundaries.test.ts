@@ -56,14 +56,20 @@ describe('D12 package boundary governance', () => {
     expect(dockerfile).toContain('packages/platform/package.json');
     expect(dockerfile).toContain('packages/connectors/package.json');
     expect(dockerfile).toContain('packages/modules/m1-collection/package.json');
-    // Backend copies pruned workspace trees (includes dist/) from prod-deps — not
-    // per-path COPY …/dist from builder (that pattern broke prod zod resolution).
+    // Dist-only runtime from prod-deps (SAFE_CHANGE #1–2) — package.json + dist, not full src trees.
     expect(dockerfile).toContain('FROM builder AS prod-deps');
-    expect(dockerfile).toContain('COPY --from=prod-deps /app/packages/platform ./packages/platform');
     expect(dockerfile).toContain(
-      'COPY --from=prod-deps /app/packages/modules/m1-collection ./packages/modules/m1-collection',
+      'COPY --from=prod-deps /app/packages/platform/dist ./packages/platform/dist',
     );
-    expect(dockerfile).toContain('COPY --from=prod-deps /app/packages/server ./packages/server');
+    expect(dockerfile).toContain(
+      'COPY --from=prod-deps /app/packages/modules/m1-collection/dist ./packages/modules/m1-collection/dist',
+    );
+    expect(dockerfile).toContain(
+      'COPY --from=prod-deps /app/packages/server/dist ./packages/server/dist',
+    );
+    // Builder may still COPY doc for build context; runtime backend stage must not.
+    const backendStage = dockerfile.split('AS backend')[1]?.split('AS nginx')[0] ?? '';
+    expect(backendStage).not.toContain('COPY doc doc');
   });
 
   it('does not introduce static imports from M1 server modules into other module packages', () => {

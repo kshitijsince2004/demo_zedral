@@ -22,9 +22,10 @@ import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { MachineRegistryService } from './MachineRegistryService';
-import { formatPlantDate, parsePlantDateOnly, postgresDateOnly } from '@m1/shared-validation';
+import { formatPlantDate, parsePlantDateOnly, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
 import { MachineStateEventService } from './MachineStateEventService';
 import { earlierShiftCodesOnSameDay } from './sixHi/shiftCycle';
+import { mapDestination, mapRollFinish } from './sixHi/mappers';
 import {
   loadRecentOrderMachineTransfersGlobal,
   recordOrderMachineTransfer,
@@ -49,18 +50,9 @@ import {
   assertOrderRuntimeAccounting,
   assertShiftLogRuntimeAccounting,
 } from '../validation/crm6ProductionValidation';
+import { resolveRollingProcessId } from '../utils/rollingProcess';
+import { logger } from '../utils/logger';
 
-const SIX_HI_PROCESS_CODE = 'ROLLING';
-
-function mapDestination(raw: string | null): 'REWINDING' | 'ANNEALING' {
-  return raw === 'REWINDING' ? 'REWINDING' : 'ANNEALING';
-}
-
-function mapRollFinish(raw: string | null): 'MATT' | 'BRIGHT' | 'LOW_MATT' {
-  if (raw === 'BRIGHT') return 'BRIGHT';
-  if (raw === 'LOW_MATT') return 'LOW_MATT';
-  return 'MATT';
-}
 
 type DbExecutor = Kysely<Database> | Transaction<Database>;
 
@@ -68,12 +60,7 @@ const SIXHI_HOLD_MAX_ROWS = Number(process.env.SIXHI_HOLD_MAX_ROWS ?? 50);
 
 export class SixHiService {
   static async getProcessId(): Promise<number> {
-    // DB seed uses CRM; some envs alias ROLLING — accept either (same as ShiftDetectionService).
-    const p =
-      (await db.selectFrom('master.process').select('process_id').where('code', '=', SIX_HI_PROCESS_CODE).executeTakeFirst()) ??
-      (await db.selectFrom('master.process').select('process_id').where('code', '=', 'CRM').executeTakeFirst());
-    if (!p) throw new Error('6HI process not configured (expected ROLLING or CRM)');
-    return p.process_id;
+    return resolveRollingProcessId();
   }
 
   static async ensureActiveShiftLog(userId: number, planDate?: string | Date, shiftCode?: string): Promise<string> {
@@ -168,17 +155,17 @@ export class SixHiService {
       .set({ shift_log_id: targetShiftLogId, shift_code: shiftCode, prod_date: prodDate } as any)
       .where('order_id', '=', id)
       .execute()
-      .catch((err) => console.error('[SixHi] reattribute attribution slice move failed:', err));
+      .catch((err) => logger.error('[SixHi] reattribute attribution slice move failed:', err));
     await ShiftAttributionService.attributeOrder(id, targetShiftLogId, { machineCode });
 
     // Recompute cached production totals for BOTH shifts: the old shift must no longer
     // count this order, the new shift must now include it.
     if (oldShiftLogId) {
       await this.syncShiftProductionCache(oldShiftLogId).catch((err) =>
-        console.error('[SixHi] reattribute old-shift cache refresh failed:', err));
+        logger.error('[SixHi] reattribute old-shift cache refresh failed:', err));
     }
     await this.syncShiftProductionCache(String(targetShiftLogId)).catch((err) =>
-      console.error('[SixHi] reattribute new-shift cache refresh failed:', err));
+      logger.error('[SixHi] reattribute new-shift cache refresh failed:', err));
 
     return String(targetShiftLogId);
   }
@@ -735,13 +722,16 @@ export class SixHiService {
         ? []
         : await base()
             .where('o.status', '=', 'COMPLETED')
-            .where('o.shift_log_id', 'in', logIds)
+            .where((eb) => eb.or([
+              eb('o.shift_log_id', 'in', logIds),
+              sql<boolean>`(o.prod_end_at AT TIME ZONE ${PLANT_TIME_ZONE})::date = ${postgresDateOnly(prodDate)}::date`,
+            ]))
             .orderBy('o.updated_at', 'desc')
             .orderBy('pb.batch_number', 'asc')
             .execute();
 
     if (logIds.length === 0) {
-      console.warn(
+      logger.warn(
         `[SixHi] fetchTerminalBatches: no shift_log for ${prodDate}/${shiftCode} — completed list empty`,
       );
     }
@@ -1430,7 +1420,7 @@ export class SixHiService {
         meta: resumeTargets.length > 1
           ? { combinedResumeBatchNumbers: resumeTargets.map((t) => t.batch_number) }
           : undefined,
-      }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+      }).catch((err) => logger.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
       return this.getOrder(batchNumber, userId);
     }
     if (status !== 'PENDING' && status !== 'PREPARING') {
@@ -1466,7 +1456,7 @@ export class SixHiService {
       batchNumber,
       operatorId: userId,
       shiftCode: attributed?.shift_code ?? batch.shift_code,
-    }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+    }).catch((err) => logger.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
 
     return this.getOrder(batchNumber, userId);
   }
@@ -1687,7 +1677,7 @@ export class SixHiService {
         combinedRunBatchNumbers: uniqueBatchNumbers,
         combinedResume: isResume || undefined,
       },
-    }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
+    }).catch((err) => logger.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
 
     return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
   }
@@ -1854,7 +1844,7 @@ export class SixHiService {
     // but do it fire-and-forget to keep end response latency low.
     void Promise.all(
       targets.map((target) => this.refreshShiftProductionFromOrder(String(target.order_id))),
-    ).catch((err) => console.error('[SixHi] refreshShiftProductionFromOrder failed:', err));
+    ).catch((err) => logger.error('[SixHi] refreshShiftProductionFromOrder failed:', err));
 
     // One machine IDLE after the whole combined group completes.
     MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', {
@@ -1870,7 +1860,7 @@ export class SixHiService {
         operatorId: userId,
         shiftCode: batchPre?.shift_code ?? undefined,
       }),
-    ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
+    ).catch((err) => logger.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
 
     // Slim end payload: client re-syncs full details via queue/state refresh.
     return {
@@ -2244,7 +2234,7 @@ export class SixHiService {
           shiftCode,
           categoryCode: defectCode,
           reason: 'Minor defect logged at completion',
-        }).catch((err) => console.error('[MachineStateEvent] DEFECT_REPORTED failed:', err));
+        }).catch((err) => logger.error('[MachineStateEvent] DEFECT_REPORTED failed:', err));
       }
     }
 
@@ -2288,7 +2278,7 @@ export class SixHiService {
           operatorId: order.logged_in_user_id ?? undefined,
           shiftCode: batch?.shift_code ?? shiftCode,
         }),
-      ).catch((err) => console.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
+      ).catch((err) => logger.error('[MachineStateEvent] RUNNING_ENDED/IDLE_STARTED failed:', err));
     }
 
     // Combined end refreshes shift cache once after the outer transaction commits.
@@ -2529,7 +2519,7 @@ export class SixHiService {
         meta: eligible.length > 1
           ? { combinedStoppageBatchNumbers: eligible.map((t) => t.batch_number) }
           : undefined,
-      }).catch((err) => console.error('[MachineStateEvent] STOPPAGE_STARTED failed:', err));
+      }).catch((err) => logger.error('[MachineStateEvent] STOPPAGE_STARTED failed:', err));
     }
 
     return this.getOrder(batchNumber, userId);
@@ -2674,7 +2664,7 @@ export class SixHiService {
           shiftCode: ppc.shift_code,
         });
       } catch (err) {
-        console.error('[MachineStateEvent] STOPPAGE_ENDED follow-up failed:', err);
+        logger.error('[MachineStateEvent] STOPPAGE_ENDED follow-up failed:', err);
       }
     }
 
@@ -3135,7 +3125,7 @@ export class SixHiService {
             });
           }
         })
-        .catch((err) => console.error('[MachineStateEvent] REJECT events failed:', err));
+        .catch((err) => logger.error('[MachineStateEvent] REJECT events failed:', err));
     }
   }
 
@@ -3244,7 +3234,7 @@ export class SixHiService {
           operatorId: userId,
           shiftCode: shiftCode ?? undefined,
         }))
-        .catch((err) => console.error('[MachineStateEvent] REINSTATE events failed:', err));
+        .catch((err) => logger.error('[MachineStateEvent] REINSTATE events failed:', err));
     }
   }
 
@@ -3861,7 +3851,7 @@ export class SixHiService {
     const shiftLogId = await this.resolveShiftLogIdForOrder(orderId);
     if (!shiftLogId) return;
     await this.syncShiftProductionCache(shiftLogId).catch((err) => {
-      console.error('[SixHi] syncShiftProductionCache failed:', err);
+      logger.error('[SixHi] syncShiftProductionCache failed:', err);
     });
   }
 }

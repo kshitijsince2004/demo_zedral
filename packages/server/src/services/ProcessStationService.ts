@@ -4,9 +4,20 @@ import { db } from '../db';
 import { AutoSourceService } from './AutoSourceService';
 import { ProcessRouteService } from './ProcessRouteService';
 import { parseCoilIdentity } from '../utils/rwdFieldMappers';
+import { derivedChildCoilNo } from '../utils/childCoil';
 import { ANN_BASE_REQUIRED_MSG, annCreateStatus, assertAnnBaseAssigned } from '../lib/annBaseAssignment';
 import { throwVersionConflict } from '../utils/versionConflict';
 import { buildAnnPlanDetailSections, type AnnDetailSection } from '../utils/annQueueOrderDetail';
+import { logger } from '../utils/logger';
+import {
+  mapStepStatus,
+  pageProcessQueue,
+  planAnnealingBatchFromRaw,
+  toOptionalNumber,
+  type ProcessQueueCard,
+} from './process/processQueuePaging';
+
+export type { ProcessQueueCard } from './process/processQueuePaging';
 
 /** PERF-C1: explicit columns for hot reads (no selectAll). */
 const PKL_CHART_COLS = [
@@ -41,91 +52,6 @@ const ANN_STOPPAGE_COLS = [
 ] as const;
 
 export type ProcessStationCode = 'HRS' | 'PKL' | 'ANN' | 'RWD' | 'CRS' | 'CTL';
-
-/** PERF-C2: in-memory page when limit set; full list otherwise (exports / legacy). */
-// ponytail: journey queue is small enough that DB cursor isn't worth a second code path yet
-function pageProcessQueue(
-  cards: ProcessQueueCard[],
-  paging?: { limit?: number; cursor?: string },
-): { queue: ProcessQueueCard[]; nextCursor?: string | null } {
-  const limit = paging?.limit != null && paging.limit > 0
-    ? Math.min(200, Math.max(1, Math.floor(paging.limit)))
-    : undefined;
-  if (!limit) return { queue: cards };
-  let start = 0;
-  if (paging?.cursor) {
-    const idx = cards.findIndex((c) => c.journeyId === paging.cursor || c.coilNo === paging.cursor);
-    start = idx >= 0 ? idx + 1 : 0;
-  }
-  const page = cards.slice(start, start + limit);
-  const nextCursor = start + limit < cards.length && page.length > 0
-    ? (page[page.length - 1].journeyId || page[page.length - 1].coilNo)
-    : null;
-  return { queue: page, nextCursor };
-}
-
-/** Plan Annealing Batch from ppc_batch.raw_row_json (ANN import extras). */
-function planAnnealingBatchFromRaw(raw: unknown): string | undefined {
-  if (raw == null) return undefined;
-  let obj: Record<string, unknown> | null = null;
-  if (typeof raw === 'object' && !Array.isArray(raw)) obj = raw as Record<string, unknown>;
-  else if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed as Record<string, unknown>;
-    } catch {
-      return undefined;
-    }
-  }
-  if (!obj) return undefined;
-  const v = obj.annealingBatch ?? obj.annealing_batch;
-  const s = v != null ? String(v).trim() : '';
-  return s || undefined;
-}
-
-function toOptionalNumber(value: unknown): number | undefined {
-  if (value == null || value === '') return undefined;
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-export interface ProcessQueueCard {
-  coilNo: string;
-  displayCoilNo?: string;
-  gradeCode: string;
-  customerName: string;
-  widthMm?: number;
-  thicknessMm?: number;
-  weightMt?: number;
-  status: 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'STOPPAGE' | 'HOLD' | 'REJECTED' | 'COMPLETED';
-  journeyId: string;
-  stepNo: number;
-  batchNumber?: string;
-  /** ANN plan Annealing Batch (raw_row_json) — MH create default when body omits. */
-  annealingBatch?: string;
-  /** PKL sibling key */
-  motherCoilNo?: string;
-  slitId?: string;
-  /** Pass: number of order-lines on this mother coil */
-  lineCount?: number;
-  /** HRS combination display e.g. 483+483+536 */
-  combination?: string;
-  /** Pass order-lines from ppc_batch */
-  orderLines?: Array<{
-    batchNumber?: string;
-    widthMm?: number;
-    weightMt?: number;
-    thicknessMm?: number;
-    finishThicknessMm?: number;
-    customerName?: string;
-    routeRaw?: string;
-    slitId?: string;
-    surfaceFinish?: string;
-    toWorkCenter?: string;
-    suggestedMachine?: string;
-  }>;
-  prefill?: Awaited<ReturnType<typeof AutoSourceService.resolvePrefill>>;
-}
 
 export interface CrsShiftMetrics {
   totalProdMt: number;
@@ -173,13 +99,6 @@ const DEFAULT_ROUTES: Record<ProcessStationCode, string> = {
 const PROCESS_ROUTE_CODE: Record<ProcessStationCode, string> = {
   HRS: 'S', PKL: 'P', ANN: 'F', RWD: 'R', CRS: 'C', CTL: 'LE',
 };
-
-function mapStepStatus(status: string, journeyStatus: string): ProcessQueueCard['status'] {
-  if (journeyStatus === 'HOLD') return 'HOLD';
-  if (status === 'COMPLETED') return 'COMPLETED';
-  if (status === 'ACTIVE') return 'IN_PROGRESS';
-  return 'PENDING';
-}
 
 export class ProcessStationService {
   static assertProcessCode(raw: string): ProcessStationCode {
@@ -239,72 +158,43 @@ export class ProcessStationService {
         'oj.journey_id', 'oj.coil_no', 'oj.status as journey_status', 'ojs.step_no', 'ojs.status as step_status',
         'c.grade_code', 'c.nominal_width_mm', 'c.coil_width_mm', 'c.coil_thk_mm', 'c.weight_mt',
         'cu.customer_name as customer_name', 'pb.batch_number', 'pb.slit_id', 'pb.raw_row_json',
+        'pb.process_route_raw',
       ])
       .where('oj.status', 'in', ['ACTIVE', 'HOLD']).where('ojs.process_code', '=', code).where('ojs.status', 'in', ['PENDING', 'ACTIVE', 'HOLD'])
       .orderBy('ojs.started_at', 'asc').orderBy('oj.journey_id', 'asc').execute();
-    const cards: ProcessQueueCard[] = [];
-    for (const row of rows) {
-      const prefill = await AutoSourceService.resolvePrefill(code, row.coil_no);
-      // Prefill-first so queue card values match the capture workspace (§4).
-      const card: ProcessQueueCard = {
-        coilNo: row.coil_no,
-        displayCoilNo: prefill.displayCoilNo ?? row.coil_no,
-        gradeCode: prefill.gradeCode?.value ?? row.grade_code ?? '-',
-        customerName: prefill.customerName?.value ?? row.customer_name ?? '-',
-        widthMm: toOptionalNumber(prefill.widthMm?.value ?? row.nominal_width_mm ?? row.coil_width_mm),
-        thicknessMm: toOptionalNumber(prefill.thicknessMm?.value ?? row.coil_thk_mm),
-        weightMt: toOptionalNumber(prefill.weightMt?.value ?? row.weight_mt),
-        status: mapStepStatus(row.step_status, row.journey_status),
-        journeyId: String(row.journey_id),
-        stepNo: row.step_no,
-        batchNumber: prefill.batchNumber?.value ?? row.batch_number ?? undefined,
-        slitId: row.slit_id ? String(row.slit_id) : undefined,
-        annealingBatch: planAnnealingBatchFromRaw(row.raw_row_json),
-        prefill,
-      };
 
-      if (code === 'CRS') {
-        const lines = await db.selectFrom('planning.ppc_batch')
-          .select([
-            'batch_number', 'width_mm', 'customer_name', 'process_route_raw',
-            'machine_code', 'slit_id', 'ppc_weight_mt', 'finish_thk_mm',
-            'input_thk_mm', 'to_work_center', 'roll_finish',
-          ])
-          .where('coil_no', '=', row.coil_no)
-          .where((eb) => eb.or([
-            eb('machine_code', 'like', 'CRS%'),
-            eb('sub_process', '=', 'CRS'),
-            eb('from_work_center', 'in', ['C', 'CRS']),
-          ]))
-          .orderBy('slit_id', 'asc')
-          .orderBy('batch_number', 'asc')
-          .execute();
-        card.orderLines = lines.map((l) => ({
-          batchNumber: l.batch_number ?? undefined,
-          widthMm: l.width_mm != null ? Number(l.width_mm) : undefined,
-          weightMt: l.ppc_weight_mt != null ? Number(l.ppc_weight_mt) : undefined,
-          thicknessMm: l.input_thk_mm != null ? Number(l.input_thk_mm) : undefined,
-          finishThicknessMm: l.finish_thk_mm != null ? Number(l.finish_thk_mm) : undefined,
-          customerName: l.customer_name ?? undefined,
-          routeRaw: l.process_route_raw ?? undefined,
-          slitId: l.slit_id ?? undefined,
-          surfaceFinish: l.roll_finish ?? undefined,
-          toWorkCenter: l.to_work_center ?? undefined,
-          suggestedMachine: l.machine_code?.startsWith('CRS') ? l.machine_code : undefined,
-        }));
-        card.lineCount = Math.max(1, card.orderLines.length);
-      }
+    // Build cards without per-row prefill; attach prefill only for the paged set (H-P1).
+    const cards: ProcessQueueCard[] = rows.map((row) => ({
+      coilNo: row.coil_no,
+      displayCoilNo: row.coil_no,
+      gradeCode: row.grade_code ?? '-',
+      customerName: row.customer_name ?? '-',
+      widthMm: toOptionalNumber(row.nominal_width_mm ?? row.coil_width_mm),
+      thicknessMm: toOptionalNumber(row.coil_thk_mm),
+      weightMt: toOptionalNumber(row.weight_mt),
+      status: mapStepStatus(row.step_status, row.journey_status),
+      journeyId: String(row.journey_id),
+      stepNo: row.step_no,
+      batchNumber: row.batch_number ?? undefined,
+      slitId: row.slit_id ? String(row.slit_id) : undefined,
+      annealingBatch: planAnnealingBatchFromRaw(row.raw_row_json),
+      routeRaw: row.process_route_raw ?? undefined,
+    }));
 
-      cards.push(card);
-    }
+    let paged: { queue: ProcessQueueCard[]; nextCursor?: string | null };
 
     if (code === 'ANN') {
+      // Union: (1) journey current-step ANN (flowed from prior line) + (2) PPC ANN plan rows.
       const chargedRows = await db.selectFrom('txn.ann_charge_coil as acc')
         .innerJoin('txn.ann_charge as ac', 'ac.charge_no', 'acc.charge_no')
         .select('acc.coil_no')
         .where('ac.status', '!=', 'DONE')
         .execute();
       const charged = new Set(chargedRows.map((r) => r.coil_no));
+      // ponytail: identity = coil+slit — batch-number keys dropped same coil from one source
+      const annIdentity = (coilNo: string, slitId?: string | null) =>
+        `${coilNo}::${String(slitId ?? '').toUpperCase()}`;
+
       const waiting = cards
         .filter((c) => !charged.has(c.coilNo))
         .map((c) => (
@@ -312,12 +202,39 @@ export class ProcessStationService {
             ? { ...c, status: 'PENDING' as const }
             : c
         ));
-      const have = new Set(waiting.map((c) => c.coilNo));
+      const have = new Set(waiting.map((c) => annIdentity(c.coilNo, c.slitId)));
+
+      // Coils whose ANN step(s) are all done and current step is past ANN — drop stale PPC rows.
+      const pastAnn = new Set<string>();
+      const annStepRows = await db.selectFrom('planning.order_journey as oj')
+        .innerJoin('planning.order_journey_step as ojs', 'ojs.journey_id', 'oj.journey_id')
+        .select(['oj.coil_no', 'oj.current_step_no', 'ojs.step_no', 'ojs.status as step_status', 'ojs.process_code'])
+        .where('oj.status', 'in', ['ACTIVE', 'HOLD'])
+        .where('ojs.process_code', '=', 'ANN')
+        .execute();
+      const byCoil = new Map<string, Array<{ step_no: number; step_status: string; current_step_no: number }>>();
+      for (const r of annStepRows) {
+        const list = byCoil.get(r.coil_no) ?? [];
+        list.push({
+          step_no: Number(r.step_no),
+          step_status: String(r.step_status),
+          current_step_no: Number(r.current_step_no),
+        });
+        byCoil.set(r.coil_no, list);
+      }
+      for (const [coilNo, steps] of byCoil) {
+        const openAnn = steps.some((s) => s.step_status === 'PENDING' || s.step_status === 'ACTIVE' || s.step_status === 'HOLD');
+        if (openAnn) continue;
+        const maxAnn = Math.max(...steps.map((s) => s.step_no));
+        const current = steps[0]?.current_step_no ?? 0;
+        if (current > maxAnn) pastAnn.add(coilNo);
+      }
+
       const planned = await db.selectFrom('planning.ppc_batch as pb')
         .select([
           'pb.batch_id', 'pb.batch_number', 'pb.coil_no', 'pb.customer_name',
           'pb.grade_code', 'pb.width_mm', 'pb.input_thk_mm', 'pb.ppc_thk_mm', 'pb.ppc_weight_mt',
-          'pb.slit_id', 'pb.raw_row_json',
+          'pb.slit_id', 'pb.raw_row_json', 'pb.process_route_raw',
         ])
         .where((eb) => eb.or([
           eb('pb.machine_code', '=', 'ANN'),
@@ -325,11 +242,14 @@ export class ProcessStationService {
           eb('pb.from_work_center', 'in', ['F', 'ANN']),
         ]))
         .orderBy('pb.plan_date', 'desc')
-        .limit(500)
+        .orderBy('pb.batch_id', 'desc')
         .execute();
+
       for (const row of planned) {
-        if (charged.has(row.coil_no) || have.has(row.coil_no)) continue;
-        have.add(row.coil_no);
+        if (charged.has(row.coil_no) || pastAnn.has(row.coil_no)) continue;
+        const key = annIdentity(row.coil_no, row.slit_id);
+        if (have.has(key)) continue;
+        have.add(key);
         waiting.push({
           coilNo: row.coil_no,
           displayCoilNo: row.coil_no,
@@ -348,12 +268,77 @@ export class ProcessStationService {
           batchNumber: row.batch_number ?? undefined,
           slitId: row.slit_id ? String(row.slit_id) : undefined,
           annealingBatch: planAnnealingBatchFromRaw(row.raw_row_json),
+          routeRaw: row.process_route_raw ?? undefined,
         });
       }
-      return pageProcessQueue(waiting, paging);
+      paged = pageProcessQueue(waiting, paging);
+    } else {
+      paged = pageProcessQueue(cards, paging);
     }
 
-    return pageProcessQueue(cards, paging);
+    // Prefill + CRS orderLines only for the returned page (≤200).
+    const pageCoils = paged.queue.map((c) => c.coilNo);
+    const prefills = await AutoSourceService.resolvePrefillMany(code, pageCoils);
+
+    let crsLinesByCoil: Map<string, ProcessQueueCard['orderLines']> | undefined;
+    if (code === 'CRS' && pageCoils.length > 0) {
+      const lines = await db.selectFrom('planning.ppc_batch')
+        .select([
+          'coil_no',
+          'batch_number', 'width_mm', 'customer_name', 'process_route_raw',
+          'machine_code', 'slit_id', 'ppc_weight_mt', 'finish_thk_mm',
+          'input_thk_mm', 'to_work_center', 'roll_finish',
+        ])
+        .where('coil_no', 'in', pageCoils)
+        .where((eb) => eb.or([
+          eb('machine_code', 'like', 'CRS%'),
+          eb('sub_process', '=', 'CRS'),
+          eb('from_work_center', 'in', ['C', 'CRS']),
+        ]))
+        .orderBy('slit_id', 'asc')
+        .orderBy('batch_number', 'asc')
+        .execute();
+      crsLinesByCoil = new Map();
+      for (const l of lines) {
+        const list = crsLinesByCoil.get(l.coil_no) ?? [];
+        list.push({
+          batchNumber: l.batch_number ?? undefined,
+          widthMm: l.width_mm != null ? Number(l.width_mm) : undefined,
+          weightMt: l.ppc_weight_mt != null ? Number(l.ppc_weight_mt) : undefined,
+          thicknessMm: l.input_thk_mm != null ? Number(l.input_thk_mm) : undefined,
+          finishThicknessMm: l.finish_thk_mm != null ? Number(l.finish_thk_mm) : undefined,
+          customerName: l.customer_name ?? undefined,
+          routeRaw: l.process_route_raw ?? undefined,
+          slitId: l.slit_id ?? undefined,
+          surfaceFinish: l.roll_finish ?? undefined,
+          toWorkCenter: l.to_work_center ?? undefined,
+          suggestedMachine: l.machine_code?.startsWith('CRS') ? l.machine_code : undefined,
+        });
+        crsLinesByCoil.set(l.coil_no, list);
+      }
+    }
+
+    for (const card of paged.queue) {
+      const prefill = prefills.get(card.coilNo);
+      if (prefill) {
+        card.displayCoilNo = prefill.displayCoilNo ?? card.displayCoilNo;
+        card.gradeCode = prefill.gradeCode?.value ?? card.gradeCode;
+        card.customerName = prefill.customerName?.value ?? card.customerName;
+        card.widthMm = toOptionalNumber(prefill.widthMm?.value ?? card.widthMm);
+        card.thicknessMm = toOptionalNumber(prefill.thicknessMm?.value ?? card.thicknessMm);
+        card.weightMt = toOptionalNumber(prefill.weightMt?.value ?? card.weightMt);
+        card.batchNumber = prefill.batchNumber?.value ?? card.batchNumber;
+        card.routeRaw = prefill.routeRaw?.value ?? card.routeRaw;
+        card.prefill = prefill;
+      }
+      if (code === 'CRS') {
+        const orderLines = crsLinesByCoil?.get(card.coilNo) ?? [];
+        card.orderLines = orderLines;
+        card.lineCount = Math.max(1, orderLines.length);
+      }
+    }
+
+    return paged;
   }
 
   static async getCrsShiftMetrics(shiftLogId: string): Promise<CrsShiftMetrics> {
@@ -410,6 +395,7 @@ export class ProcessStationService {
     const rows = await db.selectFrom('txn.prod_hrs')
       .select(['weight_mt', 'scrap_mt', 'mother_coil_weight_mt', 'setting_count', 'entry_id'])
       .where('shift_log_id', '=', shiftLogId)
+      .where((eb) => eb.or([eb('status', '=', 'COMPLETED'), eb('status', 'is', null)]))
       .execute();
 
     let totalProdMt = 0;
@@ -559,6 +545,7 @@ export class ProcessStationService {
   private static async loadPklCaptureSnapshot(coilNo: string) {
     const select = [
       'weight_mt', 'ppc_weight_mt', 'line_speed_mpm', 'wp', 'end_filling', 'remarks',
+      'repeats', 'ht', 'crew_ref', 'status',
     ] as const;
 
     let header = await db.selectFrom('txn.prod_pkl')
@@ -596,13 +583,17 @@ export class ProcessStationService {
       wp,
       endFilling: header.end_filling ?? undefined,
       remarks: header.remarks ?? undefined,
+      repeats: header.repeats != null ? Number(header.repeats) : undefined,
+      ht: header.ht ?? undefined,
+      operatorName: header.crew_ref ?? undefined,
+      status: header.status ?? undefined,
     };
   }
 
   /** Latest saved prod_hrs + width / slit readings for completed (or in-progress) view. */
   private static async loadHrsCaptureSnapshot(coilNo: string) {
     const header = await db.selectFrom('txn.prod_hrs')
-      .select(['entry_id', 'actual_width_mm', 'scrap_mt', 'weight_mt'])
+      .select(['entry_id', 'actual_width_mm', 'scrap_mt', 'weight_mt', 'crew_ref'])
       .where('coil_no', '=', coilNo)
       .orderBy('entry_id', 'desc')
       .executeTakeFirst();
@@ -650,6 +641,7 @@ export class ProcessStationService {
       actualWidthMm: header.actual_width_mm != null ? Number(header.actual_width_mm) : undefined,
       scrapMt: header.scrap_mt != null ? Number(header.scrap_mt) : undefined,
       weightMt: header.weight_mt != null ? Number(header.weight_mt) : undefined,
+      operatorName: header.crew_ref ?? undefined,
       motherWidthReadings: widths.map((w) => ({
         time: formatPlantTime(new Date(String(w.reading_time))),
         widthMm: Number(w.actual_width_mm),
@@ -806,7 +798,7 @@ export class ProcessStationService {
     processCode: string,
     coilNo: string,
     userId?: number,
-    options?: { expectedUpdatedAt?: string },
+    options?: { expectedUpdatedAt?: string; batchNumber?: string; slitId?: string },
   ) {
     const code = this.assertProcessCode(processCode);
     if (code === 'HRS' && userId != null) {
@@ -815,7 +807,7 @@ export class ProcessStationService {
     }
     if (code === 'PKL' && userId != null) {
       const { PklOrderService } = await import('./PklOrderService');
-      await PklOrderService.startProduction(coilNo, userId);
+      await PklOrderService.startProduction(coilNo, userId, options?.batchNumber);
     }
     if (code === 'RWD' && userId != null) {
       // coilNo may be batch_number for RWD order line — prefer batch when journey missing.
@@ -889,36 +881,49 @@ export class ProcessStationService {
     userId?: number,
     reason = 'HOLD',
     remarks = 'Operator hold',
-    options?: { expectedUpdatedAt?: string },
+    options?: { expectedUpdatedAt?: string; batchNumber?: string; slitId?: string },
   ) {
     const code = this.assertProcessCode(processCode);
     if (code === 'HRS' && userId != null) {
       const { HrsOrderService } = await import('./HrsOrderService');
-      await HrsOrderService.rejectOrder(coilNo, reason, remarks, userId);
+      await HrsOrderService.rejectOrder(coilNo, reason, remarks, userId, {
+        slitId: options?.slitId,
+        batchNumber: options?.batchNumber,
+      });
+      return { coilNo, status: 'HOLD' as const };
     }
     if (code === 'PKL' && userId != null) {
       const { PklOrderService } = await import('./PklOrderService');
-      await PklOrderService.rejectOrder(coilNo, reason, remarks, userId);
+      await PklOrderService.rejectOrder(coilNo, reason, remarks, userId, options?.batchNumber);
     }
     if (code === 'RWD' && userId != null) {
       const { RewindingOrderService } = await import('./RewindingOrderService');
-      const batch = await db
-        .selectFrom('planning.ppc_batch')
-        .select('batch_number')
-        .where('coil_no', '=', coilNo)
-        .where((eb) =>
-          eb.or([
-            eb('machine_code', '=', 'RWD'),
-            eb('machine_code', '=', '2HI'),
-            eb('from_work_center', '=', 'R'),
-          ]),
-        )
-        .orderBy('plan_date', 'desc')
-        .executeTakeFirst();
-      if (batch?.batch_number) {
-        await RewindingOrderService.rejectOrder(String(batch.batch_number), reason, remarks, userId);
+      const batchNumber = options?.batchNumber
+        ?? (await db
+          .selectFrom('planning.ppc_batch')
+          .select('batch_number')
+          .where('coil_no', '=', coilNo)
+          .where((eb) =>
+            eb.or([
+              eb('machine_code', '=', 'RWD'),
+              eb('machine_code', '=', '2HI'),
+              eb('from_work_center', '=', 'R'),
+            ]),
+          )
+          .orderBy('plan_date', 'desc')
+          .executeTakeFirst())?.batch_number;
+      if (batchNumber) {
+        await RewindingOrderService.rejectOrder(String(batchNumber), reason, remarks, userId);
         return { coilNo, status: 'HOLD' as const };
       }
+    }
+    if (code === 'PKL' && options?.batchNumber) {
+      const siblings = await db
+        .selectFrom('txn.pkl_order')
+        .select('order_id')
+        .where('coil_no', '=', coilNo)
+        .execute();
+      if (siblings.length > 1) return { coilNo, status: 'HOLD' as const };
     }
     const row = await db.selectFrom('planning.order_journey as oj')
       .innerJoin('planning.order_journey_step as ojs', (join) =>
@@ -1351,7 +1356,7 @@ export class ProcessStationService {
     } as never).execute();
     if (status === 'IN_PROCESS') await this.seedAnnStages(input.chargeNo);
     if (input.coils?.length) {
-      for (const c of input.coils) await this.rosterAnnCoil(input.chargeNo, c.coilNo, c.seqNo);
+      await this.rosterAnnCoils(input.chargeNo, input.coils);
     }
     return input.chargeNo;
   }
@@ -1447,16 +1452,16 @@ export class ProcessStationService {
     if (defs.length === 0) throw new Error('master.ann_stage is empty — run ANN stage seed migration');
 
     const now = new Date();
-    for (const d of defs) {
-      await db.insertInto('txn.ann_charge_stage').values({
-        charge_no: chargeNo,
-        stage_code: d.stage_code,
-        seq: d.seq,
-        start_at: d.seq === 1 ? now : null,
-        skipped: false,
-      } as never)
-        .onConflict((oc) => oc.columns(['charge_no', 'stage_code']).doNothing())
-        .execute();
+    if (defs.length > 0) {
+      await db.insertInto('txn.ann_charge_stage').values(
+        defs.map((d) => ({
+          charge_no: chargeNo,
+          stage_code: d.stage_code,
+          seq: d.seq,
+          start_at: d.seq === 1 ? now : null,
+          skipped: false,
+        })) as never,
+      ).onConflict((oc) => oc.columns(['charge_no', 'stage_code']).doNothing()).execute();
     }
 
     const active = await db.selectFrom('txn.ann_charge_stage')
@@ -1492,8 +1497,34 @@ export class ProcessStationService {
   }
 
   static async rosterAnnCoil(chargeNo: string, coilNo: string, seqNo?: number) {
-    const dup = await db.selectFrom('txn.ann_charge_coil').select('coil_no').where('charge_no', '=', chargeNo).where('coil_no', '=', coilNo).executeTakeFirst();
-    if (!dup) await db.insertInto('txn.ann_charge_coil').values({ charge_no: chargeNo, coil_no: coilNo, seq_no: seqNo ?? null, disposition: 'ADVANCE' } as never).execute();
+    await this.rosterAnnCoils(chargeNo, [{ coilNo, seqNo }]);
+  }
+
+  /** Batch roster insert + single derived refresh (fail-as-unit via transaction). */
+  static async rosterAnnCoils(
+    chargeNo: string,
+    coils: Array<{ coilNo: string; seqNo?: number }>,
+  ) {
+    if (!coils.length) return;
+    await db.transaction().execute(async (trx) => {
+      const existing = await trx.selectFrom('txn.ann_charge_coil')
+        .select('coil_no')
+        .where('charge_no', '=', chargeNo)
+        .where('coil_no', 'in', coils.map((c) => c.coilNo))
+        .execute();
+      const have = new Set(existing.map((r) => r.coil_no));
+      const toInsert = coils.filter((c) => !have.has(c.coilNo));
+      if (toInsert.length) {
+        await trx.insertInto('txn.ann_charge_coil').values(
+          toInsert.map((c) => ({
+            charge_no: chargeNo,
+            coil_no: c.coilNo,
+            seq_no: c.seqNo ?? null,
+            disposition: 'ADVANCE',
+          })) as never,
+        ).execute();
+      }
+    });
     await this.refreshAnnChargeDerived(chargeNo);
   }
 
@@ -2044,6 +2075,8 @@ export class ProcessStationService {
       .where('charge_no', '=', chargeNo)
       .execute();
 
+    const failedCoils: string[] = [];
+
     for (const row of roster) {
       if (row.disposition && row.disposition !== 'ADVANCE') continue;
 
@@ -2061,23 +2094,38 @@ export class ProcessStationService {
         .where('process_code', '=', 'ANN')
         .executeTakeFirst();
 
-      if (!currentAnnStep || currentAnnStep.status !== 'ACTIVE') continue;
+      // A4: PENDING|ACTIVE both mean "current ANN step" after enqueue.
+      if (!currentAnnStep || (currentAnnStep.status !== 'ACTIVE' && currentAnnStep.status !== 'PENDING')) {
+        continue;
+      }
 
-      try {
-        await ProcessRouteService.advanceJourneyByCoil(row.coil_no, {});
-      } catch (err) {
-        // JourneyHandoffScheduler heals stranded coils; keep fan-out non-blocking.
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await ProcessRouteService.advanceJourneyByCoil(row.coil_no, {});
+          lastErr = undefined;
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (lastErr) {
         const { recordAnnFanoutAdvanceFailed } = await import('./handoffMetrics');
         recordAnnFanoutAdvanceFailed();
-        console.error(
+        logger.error(
           JSON.stringify({
             msg: 'ann_fanout_advance_failed',
             coilNo: row.coil_no,
             chargeNo,
-            error: err instanceof Error ? err.message : String(err),
+            error: lastErr instanceof Error ? lastErr.message : String(lastErr),
           }),
         );
+        failedCoils.push(row.coil_no);
       }
+    }
+
+    if (failedCoils.length) {
+      throw new Error(`ann_fanout_advance_failed: ${failedCoils.join(',')}`);
     }
   }
 
@@ -2110,6 +2158,34 @@ export class ProcessStationService {
     await db.updateTable('txn.ann_charge').set({ no_of_coils: roster.length, charge_wt_mt: chargeWt }).where('charge_no', '=', chargeNo).execute();
   }
 
+  /** ANN operator history — readings in a datetime range, not live-board charges. */
+  static async listAnnReadings(from: Date, to: Date) {
+    const rows = await db.selectFrom('txn.ann_charge_reading as r')
+      .innerJoin('txn.ann_charge as c', 'c.charge_no', 'r.charge_no')
+      .select([
+        'r.reading_id', 'r.taken_at', 'r.stage_code', 'r.charge_temp', 'r.gas_temp', 'r.fc_temp',
+        'r.base_press', 'r.base_fan_rpm', 'r.base_no', 'r.charge_no', 'c.annealing_batch_no',
+      ])
+      .where('r.taken_at', '>=', from)
+      .where('r.taken_at', '<=', to)
+      .orderBy('r.taken_at', 'desc')
+      .limit(2000)
+      .execute();
+    return rows.map((r) => ({
+      reading_id: String(r.reading_id),
+      taken_at: r.taken_at ? new Date(String(r.taken_at)).toISOString() : '',
+      stage_code: r.stage_code,
+      charge_temp: r.charge_temp,
+      gas_temp: r.gas_temp,
+      fc_temp: r.fc_temp,
+      base_press: r.base_press,
+      base_fan_rpm: r.base_fan_rpm,
+      base_no: r.base_no ?? '',
+      charge_no: r.charge_no,
+      batch_no: String(r.annealing_batch_no ?? '—'),
+    }));
+  }
+
   /** Order-level production history for operator History tab (HRS/PKL/RWD). */
   static async getProcessOrderHistory(process: string, shiftLogId: string) {
     const code = process.toUpperCase();
@@ -2122,7 +2198,12 @@ export class ProcessStationService {
           'ph.net_runtime_min', 'ph.status', 'ph.time_from', 'ph.time_to', 'ph.shift_code',
           'c.grade_code as coil_grade_code', 'c.surface_finish as coil_surface_finish',
         ])
-        .where('ph.shift_log_id', '=', shiftLogId as never)
+        .where((eb) => eb.or([
+          eb('ph.shift_log_id', '=', shiftLogId as never),
+          eb('ph.coil_no', 'in',
+            eb.selectFrom('txn.hrs_order').select('coil_no').where('shift_log_id', '=', shiftLogId as never),
+          ),
+        ]))
         .orderBy('ph.entry_id', 'desc')
         .limit(200)
         .execute();
@@ -2130,18 +2211,24 @@ export class ProcessStationService {
       const entryIds = rows.map((r) => r.entry_id).filter((id) => id != null);
       const coilNos = [...new Set(rows.map((r) => String(r.coil_no ?? '')).filter(Boolean))];
 
-      const slitFinishByEntry = new Map<string, string>();
-      if (entryIds.length > 0) {
-        const slits = await db.selectFrom('txn.prod_hrs_slit')
-          .select(['entry_id', 'surface_finish'])
+      const slitRows = entryIds.length > 0
+        ? await db.selectFrom('txn.prod_hrs_slit')
+          .select([
+            'entry_id', 'slot', 'child_coil_no', 'hold_flag', 'held_at',
+            'planned_weight_mt', 'surface_finish', 'sap_batch_number',
+          ])
           .where('entry_id', 'in', entryIds as never[])
-          .where('surface_finish', 'is not', null)
-          .execute();
-        for (const s of slits) {
-          const key = String(s.entry_id);
-          const finish = String(s.surface_finish ?? '').trim();
-          if (finish && !slitFinishByEntry.has(key)) slitFinishByEntry.set(key, finish);
-        }
+          .execute()
+        : [];
+      const slitFinishByEntry = new Map<string, string>();
+      const slitsByEntry = new Map<string, typeof slitRows>();
+      for (const s of slitRows) {
+        const key = String(s.entry_id);
+        const list = slitsByEntry.get(key) ?? [];
+        list.push(s);
+        slitsByEntry.set(key, list);
+        const finish = String(s.surface_finish ?? '').trim();
+        if (finish && !slitFinishByEntry.has(key)) slitFinishByEntry.set(key, finish);
       }
 
       const ppcFinishByCoil = new Map<string, string>();
@@ -2160,30 +2247,68 @@ export class ProcessStationService {
         }
       }
 
-      const completed = rows.map((r) => {
+      const completed: Array<{
+        id: string;
+        coilNo: string | null;
+        gradeCode: string | null;
+        surfaceFinish: string | null;
+        weightMt: number | null;
+        scrapMt: number | null;
+        durationMin: number | null;
+        status: string;
+        timeFrom: Date | string | null;
+        timeTo: Date | string | null;
+        shiftCode: string | null;
+        slitId?: string;
+      }> = [];
+      const holdRows: typeof completed = [];
+      for (const r of rows) {
         const entryKey = String(r.entry_id);
         const coil = String(r.coil_no ?? '');
         const surfaceFinish = (r.coil_surface_finish && String(r.coil_surface_finish).trim())
           || slitFinishByEntry.get(entryKey)
           || ppcFinishByCoil.get(coil)
           || null;
-        return {
-          id: entryKey,
-          coilNo: r.coil_no,
-          gradeCode: r.grade_code ?? r.coil_grade_code ?? null,
-          surfaceFinish,
-          weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
-          scrapMt: r.scrap_mt != null ? Number(r.scrap_mt) : null,
-          durationMin: r.net_runtime_min != null ? Number(r.net_runtime_min) : null,
-          status: r.status || 'COMPLETED',
-          timeFrom: r.time_from,
-          timeTo: r.time_to,
-          shiftCode: r.shift_code,
-        };
-      });
+        const slits = slitsByEntry.get(entryKey) ?? [];
+        if (!slits.length) {
+          completed.push({
+            id: entryKey,
+            coilNo: r.coil_no,
+            gradeCode: r.grade_code ?? r.coil_grade_code ?? null,
+            surfaceFinish,
+            weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
+            scrapMt: r.scrap_mt != null ? Number(r.scrap_mt) : null,
+            durationMin: r.net_runtime_min != null ? Number(r.net_runtime_min) : null,
+            status: String(r.status ?? '').trim() || 'COMPLETED',
+            timeFrom: r.time_from,
+            timeTo: r.time_to,
+            shiftCode: r.shift_code,
+          });
+          continue;
+        }
+        for (const s of slits) {
+          const slot = String(s.slot ?? '');
+          const child = s.child_coil_no || (slot ? derivedChildCoilNo(coil, slot) : coil);
+          const row = {
+            id: `${entryKey}-${slot || 'x'}`,
+            coilNo: child,
+            gradeCode: r.grade_code ?? r.coil_grade_code ?? null,
+            surfaceFinish: (s.surface_finish && String(s.surface_finish).trim()) || surfaceFinish,
+            weightMt: s.planned_weight_mt != null ? Number(s.planned_weight_mt) : (r.weight_mt != null ? Number(r.weight_mt) : null),
+            scrapMt: null as number | null,
+            durationMin: r.net_runtime_min != null ? Number(r.net_runtime_min) : null,
+            status: s.hold_flag ? 'REJECTED' : (String(r.status ?? '').trim() || 'COMPLETED'),
+            timeFrom: s.hold_flag ? (s.held_at ?? r.time_from) : r.time_from,
+            timeTo: s.hold_flag ? null : r.time_to,
+            shiftCode: r.shift_code,
+            slitId: slot || undefined,
+          };
+          if (s.hold_flag) holdRows.push(row);
+          else completed.push(row);
+        }
+      }
 
-      // Hold lives on hrs_order (REJECTED), not prod_hrs — surface for Order Hold pill.
-      const held = await db.selectFrom('txn.hrs_order as ho')
+      const heldLegacy = await db.selectFrom('txn.hrs_order as ho')
         .leftJoin('coil.coil as c', 'c.coil_no', 'ho.coil_no')
         .select([
           'ho.order_id', 'ho.coil_no', 'ho.grade_code', 'ho.mother_coil_weight_mt',
@@ -2196,7 +2321,7 @@ export class ProcessStationService {
         .limit(200)
         .execute();
 
-      const heldCoilNos = [...new Set(held.map((r) => String(r.coil_no ?? '')).filter(Boolean))];
+      const heldCoilNos = [...new Set(heldLegacy.map((r) => String(r.coil_no ?? '')).filter(Boolean))];
       const heldPpcFinish = new Map<string, string>();
       if (heldCoilNos.length > 0) {
         const batches = await db.selectFrom('planning.ppc_batch')
@@ -2213,36 +2338,47 @@ export class ProcessStationService {
         }
       }
 
-      const holdRows = held.map((r) => {
+      const slitHeldMothers = new Set(
+        holdRows.map((r) => String(r.coilNo ?? '')).flatMap((no) => {
+          const cut = no.lastIndexOf('-');
+          return cut > 0 ? [no.slice(0, cut), no] : [no];
+        }),
+      );
+      for (const r of heldLegacy) {
         const coil = String(r.coil_no ?? '');
-        const surfaceFinish = (r.coil_surface_finish && String(r.coil_surface_finish).trim())
-          || heldPpcFinish.get(coil)
-          || null;
-        return {
+        if (slitHeldMothers.has(coil)) continue;
+        holdRows.push({
           id: `hold-${r.order_id}`,
           coilNo: r.coil_no,
           gradeCode: r.grade_code ?? r.coil_grade_code ?? null,
-          surfaceFinish,
+          surfaceFinish: (r.coil_surface_finish && String(r.coil_surface_finish).trim())
+            || heldPpcFinish.get(coil)
+            || null,
           weightMt: r.mother_coil_weight_mt != null ? Number(r.mother_coil_weight_mt) : null,
-          scrapMt: null as number | null,
-          durationMin: null as number | null,
+          scrapMt: null,
+          durationMin: null,
           status: 'REJECTED',
           timeFrom: r.held_at,
-          timeTo: null as Date | null,
+          timeTo: null,
           shiftCode: r.shift_code,
-        };
-      });
+        });
+      }
 
       return [...holdRows, ...completed];
     }
     if (code === 'PKL') {
       const rows = await db.selectFrom('txn.prod_pkl')
-        .select(['entry_id', 'coil_no', 'grade_code', 'weight_mt', 'line_speed_mpm', 'repeats', 'wp', 'end_filling', 'shift_code'])
-        .where('shift_log_id', '=', shiftLogId as never)
+        .select(['entry_id', 'coil_no', 'grade_code', 'weight_mt', 'line_speed_mpm', 'repeats', 'wp', 'end_filling', 'shift_code', 'status'])
+        .where((eb) => eb.or([
+          eb('shift_log_id', '=', shiftLogId as never),
+          eb('coil_no', 'in',
+            eb.selectFrom('txn.pkl_order').select('coil_no').where('shift_log_id', '=', shiftLogId as never),
+          ),
+        ]))
         .orderBy('entry_id', 'desc')
         .limit(200)
         .execute();
-      return rows.map((r) => ({
+      const completed = rows.map((r) => ({
         id: String(r.entry_id),
         coilNo: r.coil_no,
         gradeCode: r.grade_code,
@@ -2252,7 +2388,28 @@ export class ProcessStationService {
         wp: r.wp,
         endFilling: r.end_filling,
         shiftCode: r.shift_code,
+        status: String(r.status ?? '').trim() || 'COMPLETED',
       }));
+      const held = await db.selectFrom('txn.pkl_order')
+        .select(['order_id', 'coil_no', 'grade_code', 'mother_coil_weight_mt', 'held_at', 'shift_code'])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .where('status', '=', 'REJECTED')
+        .orderBy('held_at', 'desc')
+        .limit(200)
+        .execute();
+      const holdRows = held.map((r) => ({
+        id: `hold-${r.order_id}`,
+        coilNo: r.coil_no,
+        gradeCode: r.grade_code,
+        weightMt: r.mother_coil_weight_mt != null ? Number(r.mother_coil_weight_mt) : null,
+        lineSpeedMpm: null as number | null,
+        repeats: null as number | null,
+        wp: null as string | null,
+        endFilling: null as boolean | null,
+        shiftCode: r.shift_code,
+        status: 'REJECTED',
+      }));
+      return [...holdRows, ...completed];
     }
     if (code === 'RWD') {
       const rows = await db.selectFrom('txn.prod_rwd')
@@ -2260,11 +2417,16 @@ export class ProcessStationService {
           'entry_id', 'coil_no', 'weight_mt', 'surface_finish', 'shift_code',
           'rw_tension_1_kg', 'rw_tension_2_kg', 'rw_tension_3_kg', 'time_from', 'time_to',
         ])
-        .where('shift_log_id', '=', shiftLogId as never)
+        .where((eb) => eb.or([
+          eb('shift_log_id', '=', shiftLogId as never),
+          eb('coil_no', 'in',
+            eb.selectFrom('txn.rwd_order').select('coil_no').where('shift_log_id', '=', shiftLogId as never),
+          ),
+        ]))
         .orderBy('entry_id', 'desc')
         .limit(200)
         .execute();
-      return rows.map((r) => ({
+      const completed = rows.map((r) => ({
         id: String(r.entry_id),
         coilNo: r.coil_no,
         weightMt: r.weight_mt != null ? Number(r.weight_mt) : null,
@@ -2275,7 +2437,29 @@ export class ProcessStationService {
         timeFrom: r.time_from,
         timeTo: r.time_to,
         shiftCode: r.shift_code,
+        status: 'COMPLETED',
       }));
+      const held = await db.selectFrom('txn.rwd_order')
+        .select(['order_id', 'coil_no', 'ppc_weight_mt', 'held_at', 'shift_code'])
+        .where('shift_log_id', '=', shiftLogId as never)
+        .where('status', '=', 'REJECTED')
+        .orderBy('held_at', 'desc')
+        .limit(200)
+        .execute();
+      const holdRows = held.map((r) => ({
+        id: `hold-${r.order_id}`,
+        coilNo: r.coil_no,
+        weightMt: r.ppc_weight_mt != null ? Number(r.ppc_weight_mt) : null,
+        surfaceFinish: null as string | null,
+        tension1Kg: null as number | null,
+        tension2Kg: null as number | null,
+        tension3Kg: null as number | null,
+        timeFrom: r.held_at,
+        timeTo: null as Date | null,
+        shiftCode: r.shift_code,
+        status: 'REJECTED',
+      }));
+      return [...holdRows, ...completed];
     }
     throw new Error(`History not supported for ${code}`);
   }

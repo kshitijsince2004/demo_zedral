@@ -55,6 +55,8 @@ jobs:
       - run: npm ci
       - run: node scripts/ensure-native-bindings.mjs
       - run: npm run lint
+      - name: Safe-change guard rails (sourcemap / ES)
+        run: bash deploy/scripts/check-safe-change-guards.sh
       - name: Validate nginx /auth proxy (source)
         run: bash deploy/scripts/validate-nginx-auth-proxy.sh
 
@@ -252,6 +254,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     outputs:
       backend_image: ${{ steps.meta.outputs.backend }}
       nginx_image: ${{ steps.meta.outputs.nginx }}
@@ -355,3 +358,17 @@ jobs:
             echo ""
             echo "AWS QA auto-deploys the **SHA** tag after CI succeeds. Promote to Factory via **Deploy Production** (\`latest-main\`, SHA, or \`vX.Y.Z\`)."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.1
+
+      - name: Sign images (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_SHA}"
+          cosign sign --yes "${IMAGE_PREFIX}/backend:${TAG}"
+          cosign sign --yes "${IMAGE_PREFIX}/backend:latest-main"
+          cosign sign --yes "${IMAGE_PREFIX}/nginx:${TAG}"
+          cosign sign --yes "${IMAGE_PREFIX}/nginx:latest-main"

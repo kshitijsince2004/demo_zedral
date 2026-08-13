@@ -31,14 +31,27 @@ import { navItemsForMachines } from '../../../lib/mhLineCapabilities';
 
 const SUPERVISOR_NAV_IDS = new Set(['live', 'order-assignment', 'crs-assignment', 'import', 'traceability']);
 
-/** Line-scoped Import item(s) for MH desks — one per assigned importable line. */
+const IMPORT_LABEL: Record<ImportableLine, string> = {
+  HRS: 'HRS',
+  PKL: 'PKL',
+  ANN: 'ANN',
+  RWD: 'RWD',
+  ROLLING: 'Rolling',
+};
+
+/** Line-scoped Import item(s) for MH desks — one per assigned importable process. */
 function lineScopedImportItems(lines: ImportableLine[]): DeskNavItem[] {
   return lines.map((line) => ({
     id: lines.length === 1 ? 'import' : `import-${line.toLowerCase()}`,
-    label: lines.length === 1 ? 'Import' : `Import ${line}`,
+    label: lines.length === 1 ? 'Import' : `Import ${IMPORT_LABEL[line]}`,
     icon: Upload,
     path: importPathForLine(line),
-    match: (p: string) => p.startsWith(importPathForLine(line)),
+    match: (p: string) =>
+      p.startsWith(importPathForLine(line))
+      || (line === 'ROLLING' && (p.startsWith('/machine-head/6hi/import')
+        || p.startsWith('/machine-head/4hi/import')
+        || p.startsWith('/machine-head/2hi/import')
+        || p.startsWith('/import/rolling'))),
   }));
 }
 

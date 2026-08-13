@@ -1,0 +1,6 @@
+# Optional TLS material for Postgres (SAFE_CHANGE #15).
+# Generate for QA first, then set ssl=on on db and DATABASE_SSL=true on backend.
+# server.crt / server.key — never commit private keys.
+*.crt
+*.key
+*.pem

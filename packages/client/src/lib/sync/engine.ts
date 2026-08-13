@@ -11,6 +11,8 @@ import { useSyncStatus } from './syncStatusStore';
 const SYNC_INTERVAL_MS = 5 * 60_000;
 const BACKOFF_BASE_MS = 5_000;
 const BACKOFF_FACTOR = 3;
+/** Match server syncBatchRoutes MAX_ITEMS — avoid 400 then sequential fallback. */
+const SYNC_BATCH_MAX_ITEMS = 100;
 
 /** Opt-out: set VITE_SYNC_BATCH=false to force sequential outbox replay. */
 function syncBatchEnabled(): boolean {
@@ -155,6 +157,17 @@ async function pushOutboxBatch(groups: outbox.OutboxAction[][]): Promise<'ok' | 
   const flat = groups.flat();
   if (flat.length === 0) return 'ok';
 
+  let hadTransient = false;
+  for (let i = 0; i < flat.length; i += SYNC_BATCH_MAX_ITEMS) {
+    const chunk = flat.slice(i, i + SYNC_BATCH_MAX_ITEMS);
+    const result = await pushOutboxBatchChunk(chunk);
+    if (result === 'fallback') return 'fallback';
+    if (result === 'transient') hadTransient = true;
+  }
+  return hadTransient ? 'transient' : 'ok';
+}
+
+async function pushOutboxBatchChunk(flat: outbox.OutboxAction[]): Promise<'ok' | 'transient' | 'fallback'> {
   try {
     const res = await apiFetch('/sync/batch', {
       method: 'POST',
@@ -252,16 +265,20 @@ async function pushOutbox(): Promise<'ok' | 'transient'> {
   await outbox.reconcileBenignParked(isBenignSyncClientError);
 
   // Drain full native pages (LIMIT 200) in one syncNow so long offline shifts catch up.
-  let prevHead: string | null = null;
+  // Progress is keyed on pending ids so a parked lex-first aggregate cannot stall later pages.
+  let prevPendingHead: string | null = null;
   for (;;) {
     const groups = await outbox.nextBatch();
     const flat = groups.flat();
     if (flat.length === 0) return 'ok';
 
-    const head = flat[0]!.id;
-    // Same head as last round → no progress (e.g. parked stuck); stop.
-    if (head === prevHead) return 'ok';
-    prevHead = head;
+    const pendingHead = flat.find((a) => a.status === 'pending')?.id ?? null;
+    if (!pendingHead) {
+      const parkedResult = await pushOutboxPage(groups);
+      return parkedResult === 'transient' ? 'transient' : 'ok';
+    }
+    if (pendingHead === prevPendingHead) return 'ok';
+    prevPendingHead = pendingHead;
 
     const result = await pushOutboxPage(groups);
     if (result === 'transient') return 'transient';

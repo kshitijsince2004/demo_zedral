@@ -17,7 +17,7 @@ export function hrsPklAssigned(operationalMachines: string[]): Array<'HRS' | 'PK
 }
 
 /** Lines that have a dedicated MH import page (independent of desk focus). */
-export type ImportableLine = 'HRS' | 'PKL' | 'ANN' | 'RWD' | '6HI' | '4HI' | '2HI';
+export type ImportableLine = 'HRS' | 'PKL' | 'ANN' | 'RWD' | 'ROLLING';
 
 export function resolveImportableAssignedLines(operationalMachines: string[]): ImportableLine[] {
   const ops = new Set(opsUpper(operationalMachines));
@@ -25,10 +25,8 @@ export function resolveImportableAssignedLines(operationalMachines: string[]): I
   if (ops.has('HRS')) out.push('HRS');
   if (ops.has('PKL')) out.push('PKL');
   if (ops.has('ANN')) out.push('ANN');
-  if (ops.has('RWD')) out.push('RWD');
-  if (ops.has('6HI')) out.push('6HI');
-  if (ops.has('4HI')) out.push('4HI');
-  if (ops.has('2HI')) out.push('2HI');
+  if (ops.has('RWD') || ops.has('2HI')) out.push('RWD');
+  if (ops.has('6HI') || ops.has('4HI') || ops.has('2HI')) out.push('ROLLING');
   return out;
 }
 

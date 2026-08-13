@@ -160,6 +160,8 @@ export function machineFromPvDesc(raw: string): PpcMillCode | null {
 /** Skin-pass plans may use route work-center codes (X/Y/Z); also accepts PV-Desc-style values. */
 export function machineFromWorkCenter(raw: string): PpcMillCode | null {
   const v = raw.trim().toUpperCase();
+  if (v === '4' || v === '4HI') return '4HI';
+  if (v === '6' || v === '6HI') return '6HI';
   if (v === 'X') return '2HI';
   if (v === 'Y') return '4HI';
   if (v === 'Z') return '6HI';

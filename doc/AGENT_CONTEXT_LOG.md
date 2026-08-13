@@ -3203,10 +3203,31 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Re-GRANT USAGE on schema txn (not CREATE). Body `machineCode` wins over query. Canonicalize `6HI:1` → `6HI`. PG permission → 500. Did not grant schema CREATE to `m1_app`.
 - **Follow-ups:** Apply `1977` and `1979` on QA as `m1_user`. Smoke Move to Production on 6HI/4HI/2HI and 2HI rewinding allocate.
 
-### 2026-08-13 — CI: ship missing txn DDL removal
+### 2026-08-13 — Drop leftover ensureOrderMachineTransferTable import
 
-- **Goal:** Unblock Server unit on #214 (`noRuntimeTxnDdl` + `routeCodeFromBatch` expectations).
-- **Touched:** `packages/server/src/services/orderMachineTransferAudit.ts`, `packages/server/src/services/ProcessRouteService.ts`, `packages/server/tests/noRuntimeTxnDdl.test.ts`
-- **Decisions / skipped:** Removed runtime `CREATE TABLE` / `ensureOrderMachineTransferTable`. Dropped generic 4/X override in `routeCodeFromBatch`. DDL guard scoped to the audit file (Manual Re-Roll DDL still on main). Did not commit journey A3/A4.
-- **Follow-ups:** Remove Manual Re-Roll runtime DDL in its own commit; re-widen `noRuntimeTxnDdl`.
+- **Goal:** Unblock CI #215 typecheck after runtime DDL was removed.
+- **Touched:** `packages/server/src/services/SixHiService.ts`
+- **Decisions / skipped:** Removed import + `allocateMachine` call only. Did not mix other SixHiService WIP.
+- **Follow-ups:** Confirm CI #215 / follow-up run is green.
 
+
+### 2026-08-14 � SAFE_CHANGE full implementation (items 1�19 + harness)
+
+- **Goal:** Implement SAFE_CHANGE_IMPLEMENTATION_PLAN invisibility hardening end-to-end in-repo.
+- **Touched:** `Dockerfile`, `deploy/docker-compose.prod.yml`, `deploy/docker-entrypoint.sh`, `deploy/scripts/backup-db.sh`, `deploy/scripts/verify-backup.sh`, `deploy/scripts/verify-image-signatures.sh`, `deploy/scripts/check-safe-change-guards.sh`, `deploy/postgres/*`, `deploy/docs/LUKS_PGDATA.md`, `deploy/nginx.prod.conf`, `deploy/.env.production.example`, `BACKUP_STRATEGY.md`, `.github/workflows/ci.yml`, `packages/server/src/utils/logger.ts`, `packages/server/src/db.ts`, `packages/server/src/export/jobs/*`, `packages/server/src/services/AutoSourceService.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/services/process/processQueuePaging.ts`, `packages/server/src/services/sixHi/mappers.ts`, `packages/server/scripts/golden-*`, `packages/client/src/lib/silentRefresh.ts`, `packages/client/src/pages/machinehead/pkl/PklMhLiveCharts.tsx`
+- **Decisions / skipped:** Plant LUKS/CSP-enforce/cosign-enforce/secret-rotation left as runbooks/soak flips. pgaudit via `POSTGRES_IMAGE` (default still alpine). Golden baseline not committed (API up but badge users not seeded). Pre-existing unit fails: `crsForCtlRouting`, `hrsSlitScopedHold`.
+- **Follow-ups:** Seed badges ? `golden-api-snapshot` + commit baseline; QA soak Phase 1�2; build/push pgaudit image; enable `DATABASE_SSL` after certs; `COSIGN_ENFORCE=1` / CSP enforce after clean weeks.
+
+### 2026-08-14 — Plant Head audit + operator history object bug
+
+- **Goal:** Audit Plant Head menus/sync (machine cards) and fix operator History showing `[object Object]` instead of order identity.
+- **Touched:** `packages/client/src/lib/sixHiOrderIdentity.ts`, `packages/client/src/components/orders/OrderIdentityDisplay.tsx`, `packages/client/src/pages/process/ProcessOperatorHistoryPage.tsx`, `packages/client/src/pages/sixHi/CrmOperatorHistoryPage.tsx`, `packages/client/src/components/process/ProcessQueueDetailPanel.tsx`, `packages/client/src/components/plant-head/PlantOperationsArea.tsx`, `packages/client/src/pages/reports/PlantHeadDashboard.tsx`, `packages/client/src/hooks/usePlantHeadReportData.ts`, `packages/server/src/services/LiveService.ts`, `packages/client/tests/lib/sixHiOrderIdentity.test.ts`
+- **Decisions / skipped:** Dashboard now uses live `MachineStatusBoard` cards. HRS/PKL open orders overlay the same slot as RWD. ANN live overlay skipped (charge/base, not a single currentOrder). Shift Review stays on Machine Head.
+- **Follow-ups:** Confirm History on HRS/PKL/RWD/6HI shows coil+batch; confirm Plant Head dashboard cards show running HRS/PKL coils.
+
+### 2026-08-14 — Local CI + AWS QA gate, then commit/push
+
+- **Goal:** Run the CI quality mirror and AWS QA health; commit and push only if green.
+- **Touched:** `packages/client/src/lib/sync/engine.ts`, `packages/server/src/services/ProcessRouteService.ts`, `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** Fixed `no-useless-assignment` on parked-only replay. `advanceJourney` now skips SKIPPED steps, activates the next queued step, and aborts on `queue_batch_id` mismatch. Local `scripts/run-ci-quality-local.sh` PASSED (lint/build/client/unit/integration/arch/docker + QA `/health`). Playwright smoke skipped locally (no `SMOKE_*` secrets). Excluded root audit plans, `screen.png`, `.github/an`, and the console-to-logger codemod.
+- **Follow-ups:** Watch GitHub Actions CI + Deploy AWS QA Playwright after push (`gh` not authenticated locally).

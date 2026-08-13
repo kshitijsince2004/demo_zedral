@@ -265,6 +265,17 @@ export class PklOrderService {
     return String(order.order_id);
   }
 
+  /** Key PKL writes by batch when present so sibling coils are not mixed. */
+  private static async resolveOrderId(
+    coilNo: string,
+    userId: number,
+    batchNumber?: string,
+  ): Promise<string> {
+    const batch = batchNumber?.trim();
+    if (batch) return this.ensureOrderForBatch(batch, userId, coilNo);
+    return this.ensureOrder(coilNo, userId);
+  }
+
   /** Legacy ensure for coil routes; picks/creates one best-fit batch order. */
   static async ensureOrder(coilNo: string, userId: number): Promise<string> {
     const identity = parseCoilIdentity(coilNo);
@@ -357,8 +368,8 @@ export class PklOrderService {
       : undefined;
   }
 
-  static async getOrder(coilNo: string, userId: number): Promise<PklOrderDetail> {
-    const ensuredOrderId = await this.ensureOrder(coilNo, userId);
+  static async getOrder(coilNo: string, userId: number, batchNumber?: string): Promise<PklOrderDetail> {
+    const ensuredOrderId = await this.resolveOrderId(coilNo, userId, batchNumber);
     const order = await db
       .selectFrom('txn.pkl_order')
       .selectAll()
@@ -533,7 +544,7 @@ export class PklOrderService {
     const extraOrders = await db
       .selectFrom('txn.pkl_order')
       .selectAll()
-      .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
+      .where('status', 'in', ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
       .execute();
     for (const order of extraOrders) {
       await pushOrder(order);
@@ -595,7 +606,7 @@ export class PklOrderService {
     return row ? { coilNo: row.coil_no, orderId: row.order_id, status: row.status } : null;
   }
 
-  static async startProduction(coilNo: string, userId: number): Promise<PklOrderDetail> {
+  static async startProduction(coilNo: string, userId: number, batchNumber?: string): Promise<PklOrderDetail> {
     const { MachineHandoverService } = await import('./MachineHandoverService');
     await MachineHandoverService.assertProductionAllowed('PKL', userId);
 
@@ -604,14 +615,14 @@ export class PklOrderService {
       throw new Error(`ACTIVE_ORDER_CONFLICT:${active.coilNo}`);
     }
 
-    const orderId = await this.ensureOrder(coilNo, userId);
+    const orderId = await this.resolveOrderId(coilNo, userId, batchNumber);
     const orderRow = await db
       .selectFrom('txn.pkl_order')
       .select(['order_id', 'status', 'coil_no', 'prod_start_at', 'shift_code'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
 
-    if (orderRow.status === 'IN_PROGRESS') return this.getOrder(coilNo, userId);
+    if (orderRow.status === 'IN_PROGRESS') return this.getOrder(coilNo, userId, batchNumber);
 
     if (orderRow.status === 'STOPPAGE') {
       await this.assertNoOpenStoppage(orderId);
@@ -626,7 +637,7 @@ export class PklOrderService {
         operatorId: userId,
         shiftCode: orderRow.shift_code ?? undefined,
       }).catch(() => undefined);
-      return this.getOrder(coilNo, userId);
+      return this.getOrder(coilNo, userId, batchNumber);
     }
 
     if (orderRow.status !== 'PENDING' && orderRow.status !== 'PREPARING') {
@@ -655,11 +666,11 @@ export class PklOrderService {
       shiftCode: orderRow.shift_code ?? undefined,
     }).catch(() => undefined);
 
-    return this.getOrder(coilNo, userId);
+    return this.getOrder(coilNo, userId, batchNumber);
   }
 
-  static async endProduction(coilNo: string, userId: number): Promise<PklOrderDetail> {
-    const orderId = await this.ensureOrder(coilNo, userId);
+  static async endProduction(coilNo: string, userId: number, batchNumber?: string): Promise<PklOrderDetail> {
+    const orderId = await this.resolveOrderId(coilNo, userId, batchNumber);
     const order = await db
       .selectFrom('txn.pkl_order')
       .selectAll()
@@ -710,7 +721,7 @@ export class PklOrderService {
       shiftCode: order.shift_code ?? undefined,
     }).catch(() => undefined);
 
-    return this.getOrder(coilNo, userId);
+    return this.getOrder(coilNo, userId, batchNumber);
   }
 
   static async addStoppage(
@@ -852,18 +863,19 @@ export class PklOrderService {
     rejectionReason: string,
     remarks: string,
     userId: number,
+    batchNumber?: string,
   ): Promise<PklOrderDetail> {
     if (!rejectionReason?.trim()) throw new Error('Hold reason is required');
     if (!remarks?.trim()) throw new Error('Hold remarks are required');
 
-    const orderId = await this.ensureOrder(coilNo, userId);
+    const orderId = await this.resolveOrderId(coilNo, userId, batchNumber);
     const current = await db
       .selectFrom('txn.pkl_order')
       .select(['status'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
 
-    if (current.status === 'REJECTED') return this.getOrder(coilNo, userId);
+    if (current.status === 'REJECTED') return this.getOrder(coilNo, userId, batchNumber);
 
     const heldAt = new Date();
     await db.transaction().execute(async (trx) => {
@@ -896,15 +908,16 @@ export class PklOrderService {
         .execute();
     });
 
-    return this.getOrder(coilNo, userId);
+    return this.getOrder(coilNo, userId, batchNumber);
   }
 
   static async reinstateOrder(
     coilNo: string,
     userId: number,
     target: 'PREPARING' | 'PENDING' = 'PREPARING',
+    batchNumber?: string,
   ): Promise<PklOrderDetail> {
-    const orderId = await this.ensureOrder(coilNo, userId);
+    const orderId = await this.resolveOrderId(coilNo, userId, batchNumber);
     const order = await db
       .selectFrom('txn.pkl_order')
       .select(['status'])
@@ -943,7 +956,7 @@ export class PklOrderService {
       .where('order_id', '=', orderId as any)
       .execute();
 
-    return this.getOrder(coilNo, userId);
+    return this.getOrder(coilNo, userId, batchNumber);
   }
 
   static async deleteOrder(coilNo: string, _userId: number): Promise<{ coilNo: string }> {

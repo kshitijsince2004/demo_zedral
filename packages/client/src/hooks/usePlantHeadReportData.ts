@@ -6,6 +6,7 @@ import {
 import { mergePlantHeadWithLive } from '../lib/plantHeadLiveMerge';
 import { useLiveSnapshot, LIVE_POLL_MS } from './useLiveSnapshot';
 import { liveService } from '../lib/liveService';
+import { subscribeProductionChanged } from '../lib/productionSync';
 import { jsonFingerprint } from '../lib/silentRefresh';
 import type { LiveOrderRow } from '@m1/shared-validation';
 
@@ -61,9 +62,11 @@ export function usePlantHeadReportData(defaultWindow: PlantReportWindow = 7) {
     };
     pullOrders();
     const id = setInterval(pullOrders, LIVE_POLL_MS);
+    const unsub = subscribeProductionChanged(() => pullOrders());
     return () => {
       active = false;
       clearInterval(id);
+      unsub();
     };
   }, []);
 

@@ -20,6 +20,7 @@ import {
 } from '../utils/orderLifecycleHelpers';
 import {
   assertRewindingMachine,
+  belongsOnRewindingDesk,
   isRewindingPpcBatch,
   parseRewindingMachineCode,
   REWINDING_MACHINES,
@@ -28,6 +29,7 @@ import {
 import { ProductionService } from '../modules/m1-collection/services/ProductionService';
 import { assertMachineClaimOrIdempotent } from '../utils/machineAllocation';
 import { throwVersionConflict } from '../utils/versionConflict';
+import { logger } from '../utils/logger';
 
 export type RwdOrderStatus =
   | 'PENDING'
@@ -433,14 +435,16 @@ export class RewindingOrderService {
       .orderBy('pb.batch_number', 'asc')
       .execute();
 
+    const deskRows = rows.filter((b) => belongsOnRewindingDesk(machine, b));
+
     if (opts?.backfillUserId) {
-      const missing = rows.filter((r) => r.order_id == null).map((r) => r.batch_number);
+      const missing = deskRows.filter((r) => r.order_id == null).map((r) => r.batch_number);
       if (missing.length > 0) {
         for (const batchNumber of missing) {
           try {
             await this.ensureOrder(batchNumber, opts.backfillUserId);
           } catch (err) {
-            console.warn(`rewinding.ensureMissingQueueOrder ${batchNumber}:`, err);
+            logger.warn(`rewinding.ensureMissingQueueOrder ${batchNumber}:`, err);
           }
         }
         return this.getQueue(machineCode);
@@ -449,7 +453,7 @@ export class RewindingOrderService {
 
     return {
       machineCode: machine,
-      queue: rows.map((b) => {
+      queue: deskRows.map((b) => {
         const thk = b.input_thk_mm ?? b.ppc_thk_mm;
         return {
           batchNumber: b.batch_number,

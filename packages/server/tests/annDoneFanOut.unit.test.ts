@@ -25,9 +25,9 @@ const dbMock = {
             : { journey_id: 20, current_step_no: 2 };
         }
         if (table === 'planning.order_journey_step') {
-          return String(ctx.journey_id) === '10' || String(ctx.journey_id) === '30'
-            ? { status: 'ACTIVE' }
-            : null;
+          if (String(ctx.journey_id) === '10') return { status: 'PENDING' };
+          if (String(ctx.journey_id) === '30') return { status: 'ACTIVE' };
+          return null;
         }
         return null;
       },
@@ -64,10 +64,11 @@ vi.mock('../src/db', () => ({
 
 describe('ANN charge DONE fan-out', () => {
   beforeEach(() => {
-    advanceJourneyByCoil.mockClear();
+    advanceJourneyByCoil.mockReset();
+    advanceJourneyByCoil.mockResolvedValue(null);
   });
 
-  it('advances ADVANCE coils with ACTIVE ANN step; skips HOLD', async () => {
+  it('advances ADVANCE coils with PENDING|ACTIVE ANN step; skips HOLD', async () => {
     const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
     const { ProcessStationService } = await import('../src/services/ProcessStationService');
 
@@ -77,6 +78,19 @@ describe('ANN charge DONE fan-out', () => {
 
     expect(advanceJourneyByCoil).toHaveBeenCalledTimes(1);
     expect(advanceJourneyByCoil).toHaveBeenCalledWith('C1', {});
+  });
+
+  it('retries once then rethrows when ADVANCE coil fails', async () => {
+    const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
+    const { ProcessStationService } = await import('../src/services/ProcessStationService');
+
+    advanceJourneyByCoil.mockRejectedValue(new Error('boom'));
+    vi.spyOn(ProcessRouteService, 'advanceJourneyByCoil').mockImplementation(advanceJourneyByCoil as any);
+
+    await expect(ProcessStationService.transitionAnnCharge('CH-1', 'DONE', {})).rejects.toThrow(
+      /ann_fanout_advance_failed: C1/,
+    );
+    expect(advanceJourneyByCoil).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 import { finalizeDprMonth } from '../export/jobs/DprMonthLock';
 import { ExportJobService, parseExportRequest, parseQueryParams } from '../export/jobs/ExportJobService';
+import { unlinkArtifact } from '../export/jobs/artifactStore';
 import type { ExportType } from '../export/types';
 
 const router = Router();
@@ -55,7 +56,9 @@ router.get('/download/:jobId', async (req, res) => {
       'Content-Disposition',
       `attachment; filename="export_${req.params.jobId}.${ext}"`,
     );
-    res.sendFile(filePath);
+    res.sendFile(filePath, (err) => {
+      if (!err) unlinkArtifact(filePath);
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Download failed';
     const status =

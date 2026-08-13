@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
-import { calculateScrapPct, formatPlantTime } from '@m1/shared-validation';
+import { formatPlantTime } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
 import { submitProcessCapture } from '../../../store/processStore';
 import { apiClient } from '../../../lib/apiClient';
@@ -349,8 +349,6 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
         nominalThkMm: positiveOrUndef(rmThk),
         motherCoilWeightMt: positiveOrUndef(motherWt),
         weightMt: positiveOrUndef(producedMt),
-        scrapMt: 0,
-        scrapPct: calculateScrapPct(0, positiveOrUndef(motherWt) ?? 0),
         gradeCode: prefill.gradeCode ? String(prefill.gradeCode) : undefined,
         specVersionId,
         slitSlots,
@@ -439,6 +437,28 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
                         ? { ...l, holdFlag: hold, forCtlFlag: hold ? false : l.forCtlFlag }
                         : l
                     )));
+                    void (async () => {
+                      try {
+                        if (hold) {
+                          await apiClient.post(`/hrs-order/orders/${encodeURIComponent(coilNo)}/reject`, {
+                            slitId: line.slot,
+                            batchNumber: line.sapBatchNumber || undefined,
+                            rejectionReason: 'HOLD',
+                            remarks: 'Capture HOLD',
+                          });
+                        } else {
+                          await apiClient.post(`/hrs-order/orders/${encodeURIComponent(coilNo)}/reinstate`, {
+                            slitId: line.slot,
+                            batchNumber: line.sapBatchNumber || undefined,
+                          });
+                        }
+                      } catch (e) {
+                        setLines((prev) => prev.map((l) => (
+                          l.slot === line.slot ? { ...l, holdFlag: !hold } : l
+                        )));
+                        setError(e instanceof Error ? e.message : 'Hold failed');
+                      }
+                    })();
                   }}
                 />
               ))}

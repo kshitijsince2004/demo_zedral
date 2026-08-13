@@ -28,6 +28,7 @@ import { indexBulk, indexBatch } from '../elastic/traceabilityIndexer';
 import { currentPlantDate, postgresDateOnly } from '../utils/dateOnly';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { derivedChildCoilNo } from '../utils/childCoil';
+import { logger } from '../utils/logger';
 
 /** Thrown when an import row would overwrite active production data. */
 export class ProductionSafetyError extends Error {
@@ -754,7 +755,7 @@ export class PPCImportService {
         await indexBatch(insertedRow);
       }
     } catch (e) {
-      console.error('[elastic] Failed to index manual batch:', e);
+      logger.error('[elastic] Failed to index manual batch:', e);
     }
 
     return { batchNumber: data.batch_number };
@@ -931,7 +932,7 @@ export class PPCImportService {
         trx,
       });
     } catch (err) {
-      console.error('[PPCImportService] plan_order_spec attach failed safely:', err);
+      logger.error('[PPCImportService] plan_order_spec attach failed safely:', err);
     }
 
     if (row.process_route) {
@@ -1049,7 +1050,7 @@ export class PPCImportService {
           await indexBulk(rowsToIndex);
         }
       } catch (e) {
-        console.error('[elastic] Failed to bulk index CSV import:', e);
+        logger.error('[elastic] Failed to bulk index CSV import:', e);
       }
     }
 
@@ -1474,7 +1475,7 @@ export class PPCImportService {
           await indexBulk(rowsToIndex);
         }
       } catch (e) {
-        console.error('[elastic] Failed to bulk index rolling import:', e);
+        logger.error('[elastic] Failed to bulk index rolling import:', e);
       }
     }
 

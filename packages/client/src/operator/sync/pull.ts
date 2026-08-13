@@ -12,16 +12,6 @@ const WEB_MASTER_KEY = 'm1operator:master-cache';
 const WEB_PLAN_KEY = 'm1operator:plan-cache';
 const WEB_META_KEY = 'm1operator:sync-meta';
 
-async function getMeta(key: string): Promise<string | null> {
-  if (!hasNativeDb()) {
-    const meta = (await get<Record<string, string>>(WEB_META_KEY)) ?? {};
-    return meta[key] ?? null;
-  }
-
-  const result = await getDb().query('SELECT v FROM sync_meta WHERE k = ?', [key]);
-  return typeof result.values?.[0]?.v === 'string' ? result.values[0].v : null;
-}
-
 async function setMeta(key: string, value: string): Promise<void> {
   if (!hasNativeDb()) {
     const meta = (await get<Record<string, string>>(WEB_META_KEY)) ?? {};
@@ -42,6 +32,7 @@ async function cacheMasters(rows: Record<string, unknown>[]): Promise<void> {
     return;
   }
 
+  await getDb().run('DELETE FROM master_cache');
   const now = Date.now();
   const batch = rows.flatMap((row) => {
     const tableName = String(row.tableName ?? row.table_name ?? row.entityType ?? 'master');
@@ -61,6 +52,7 @@ async function cachePlan(rows: Record<string, unknown>[]): Promise<void> {
     return;
   }
 
+  await getDb().run('DELETE FROM plan_cache');
   const now = Date.now();
   const batch = rows.flatMap((row) => {
     const coilNo = String(row.coilNo ?? row.coil_no ?? row.batchNumber ?? row.batch_number);
@@ -78,11 +70,8 @@ function isUnavailable(error: unknown): boolean {
 }
 
 export async function pullMasters(): Promise<void> {
-  const since = await getMeta('masters_since');
-  const suffix = since ? `?since=${encodeURIComponent(since)}` : '';
-
   try {
-    const response = await apiClient.get<DeltaResponse>(`/master-data/delta${suffix}`);
+    const response = await apiClient.get<DeltaResponse>('/master-data/delta');
     await cacheMasters(response.rows ?? []);
     if (response.serverTime) await setMeta('masters_since', response.serverTime);
   } catch (error) {
@@ -92,19 +81,26 @@ export async function pullMasters(): Promise<void> {
 
 export async function pullPlan(): Promise<void> {
   const state = useAuthStore.getState();
-  const lineCode = state.activeMachine ?? state.lineAccess[0];
-  if (!lineCode) return;
+  const lines = [...new Set(
+    [state.activeMachine, ...(state.lineAccess ?? [])].filter((c): c is string => !!c),
+  )];
+  if (lines.length === 0) return;
 
-  const since = await getMeta(`plan_since:${lineCode}`);
-  const params = new URLSearchParams({ line: lineCode });
-  if (since) params.set('since', since);
-
-  try {
-    const response = await apiClient.get<DeltaResponse>(`/planned-coils/delta?${params.toString()}`);
-    await cachePlan(response.rows ?? []);
-    if (response.serverTime) await setMeta(`plan_since:${lineCode}`, response.serverTime);
-  } catch (error) {
-    if (!isUnavailable(error)) throw error;
+  const all: Record<string, unknown>[] = [];
+  let serverTime: string | undefined;
+  for (const lineCode of lines) {
+    try {
+      const params = new URLSearchParams({ line: lineCode });
+      const response = await apiClient.get<DeltaResponse>(`/planned-coils/delta?${params.toString()}`);
+      all.push(...(response.rows ?? []));
+      if (response.serverTime) serverTime = response.serverTime;
+    } catch (error) {
+      if (!isUnavailable(error)) throw error;
+    }
+  }
+  await cachePlan(all);
+  if (serverTime) {
+    for (const lineCode of lines) await setMeta(`plan_since:${lineCode}`, serverTime);
   }
 }
 

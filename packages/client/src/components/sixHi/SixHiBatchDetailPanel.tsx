@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SixHiQueueCard, SixHiOrderDetail } from '@m1/shared-validation';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { SixHiBacklogBadge } from './SixHiBacklogBadge';
@@ -24,6 +24,9 @@ interface SixHiBatchDetailPanelProps {
   onOpen: () => void;
   onViewCompleted?: () => void;
   onMoveToMachine?: () => void;
+  primaryActionLabel?: string;
+  footer?: ReactNode;
+  loadHistory?: boolean;
 }
 
 export function SixHiBatchDetailPanel({
@@ -38,6 +41,9 @@ export function SixHiBatchDetailPanel({
   onOpen,
   onViewCompleted,
   onMoveToMachine,
+  primaryActionLabel,
+  footer,
+  loadHistory = true,
 }: SixHiBatchDetailPanelProps) {
   const [orderDetail, setOrderDetail] = useState<SixHiOrderDetail | null>(null);
   const [combinedDetails, setCombinedDetails] = useState<SixHiOrderDetail[]>([]);
@@ -52,9 +58,10 @@ export function SixHiBatchDetailPanel({
   const combinedBatchNumbersKey = combinedBatchNumbers.join(',');
   const isCombinedTerminal = isTerminal && combinedCount > 1 && combinedBatchNumbers.length > 1;
   const isActiveOnMachine = batchNumber === machineActiveBatch;
+  const shouldLoadHistory = loadHistory && isTerminal;
 
   useEffect(() => {
-    if (!batchNumber || !isTerminal) {
+    if (!batchNumber || !shouldLoadHistory) {
       setOrderDetail(null);
       setCombinedDetails([]);
       detailLoadKeyRef.current = '';
@@ -101,7 +108,7 @@ export function SixHiBatchDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [batchNumber, isTerminal, isCombinedTerminal, combinedBatchNumbersKey]);
+  }, [batchNumber, shouldLoadHistory, isCombinedTerminal, combinedBatchNumbersKey]);
 
   if (!batch) {
     return (
@@ -164,7 +171,7 @@ export function SixHiBatchDetailPanel({
     fields.push(['Re-Roll', batch.rerollFlag ? 'Yes' : 'No']);
   }
 
-  const primaryLabel = isTerminal
+  const computedPrimaryLabel = isTerminal
     ? combinedCount > 1
       ? `View Combined History (${combinedCount})`
       : isRejected
@@ -175,6 +182,7 @@ export function SixHiBatchDetailPanel({
       : assignedToCurrentMill
         ? 'Open Production'
         : 'Move to Production…';
+  const actionLabel = primaryActionLabel ?? computedPrimaryLabel;
 
   return (
     <div className="bg-white border border-border rounded-2xl h-full flex flex-col shadow-sm overflow-hidden">
@@ -210,7 +218,7 @@ export function SixHiBatchDetailPanel({
           </div>
         ))}
 
-        {loadingDetail && isTerminal && (
+        {loadingDetail && shouldLoadHistory && (
           <p className="col-span-2 text-sm text-muted-foreground">Loading production history…</p>
         )}
         {isCombinedTerminal && combinedDetails.length > 0 && (
@@ -218,7 +226,7 @@ export function SixHiBatchDetailPanel({
             <CombinedProductionHistory orders={combinedDetails} />
           </div>
         )}
-        {!isCombinedTerminal && orderDetail && isTerminal && (
+        {!isCombinedTerminal && orderDetail && shouldLoadHistory && (
           <div className="col-span-2"><OrderProductionHistory order={orderDetail} /></div>
         )}
       </dl>
@@ -236,28 +244,32 @@ export function SixHiBatchDetailPanel({
             {combinedCount} compatible orders selected{isTerminal ? ' for combined history' : ' for combined production'}
           </p>
         )}
-        <ZButton
-          variant="accent"
-          size="lg"
-          fullWidth
-          className="min-h-14 text-base font-bold disabled:opacity-70"
-          onClick={isTerminal ? (onViewCompleted ?? onOpen) : onOpen}
-          disabled={isTerminal && !onViewCompleted && !orderDetail}
-        >
-          {isTerminal ? <Eye className="h-5 w-5" aria-hidden /> : <Play className="h-5 w-5" aria-hidden />}
-          {primaryLabel}
-        </ZButton>
-        {!isTerminal && batch.machineAllocated !== false && onMoveToMachine && (
-          <ZButton
-            variant="secondary"
-            size="lg"
-            fullWidth
-            className="min-h-12 text-base font-bold"
-            onClick={onMoveToMachine}
-          >
-            <ArrowRightLeft className="h-5 w-5" aria-hidden />
-            Move to Machine
-          </ZButton>
+        {footer ?? (
+          <>
+            <ZButton
+              variant="accent"
+              size="lg"
+              fullWidth
+              className="min-h-14 text-base font-bold disabled:opacity-70"
+              onClick={isTerminal ? (onViewCompleted ?? onOpen) : onOpen}
+              disabled={isTerminal && !onViewCompleted && !orderDetail}
+            >
+              {isTerminal ? <Eye className="h-5 w-5" aria-hidden /> : <Play className="h-5 w-5" aria-hidden />}
+              {actionLabel}
+            </ZButton>
+            {!isTerminal && batch.machineAllocated !== false && onMoveToMachine && (
+              <ZButton
+                variant="secondary"
+                size="lg"
+                fullWidth
+                className="min-h-12 text-base font-bold"
+                onClick={onMoveToMachine}
+              >
+                <ArrowRightLeft className="h-5 w-5" aria-hidden />
+                Move to Machine
+              </ZButton>
+            )}
+          </>
         )}
       </div>
     </div>

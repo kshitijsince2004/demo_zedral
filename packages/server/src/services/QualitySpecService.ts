@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { SpecResolverService } from './SpecResolverService';
+import { logger } from '../utils/logger';
 
 const k = db as any;
 
@@ -524,7 +525,7 @@ export class QualitySpecService {
         trx: input.trx,
       });
     } catch (err) {
-      console.error('[QualitySpecService.attachFromPpc] failed safely:', err);
+      logger.error('[QualitySpecService.attachFromPpc] failed safely:', err);
       return null;
     }
   }

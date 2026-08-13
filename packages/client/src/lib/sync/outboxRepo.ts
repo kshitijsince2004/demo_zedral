@@ -230,20 +230,45 @@ export async function enqueue(action: OutboxActionInput): Promise<OutboxAction> 
   };
 }
 
+const OUTBOX_SELECT =
+  `id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key`;
+
+function takePendingThenParked(rows: OutboxAction[]): OutboxAction[] {
+  const pending = rows
+    .filter((row) => row.status === 'pending')
+    .sort((a, b) => a.aggregateKey.localeCompare(b.aggregateKey) || a.seq - b.seq);
+  const parked = rows
+    .filter((row) => row.status === 'parked')
+    .sort((a, b) => a.aggregateKey.localeCompare(b.aggregateKey) || a.seq - b.seq);
+  if (pending.length >= OUTBOX_BATCH_LIMIT) return pending.slice(0, OUTBOX_BATCH_LIMIT);
+  return [...pending, ...parked.slice(0, OUTBOX_BATCH_LIMIT - pending.length)];
+}
+
 export async function nextBatch(): Promise<OutboxAction[][]> {
   if (!hasNativeDb()) {
-    const rows = await webRows();
-    return groupReplayable(rows.filter((row) => row.status === 'pending' || row.status === 'parked'));
+    return groupReplayable(takePendingThenParked(await webRows()));
   }
 
-  const result = await getDb().query(
-    `SELECT id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key
+  const db = getDb();
+  const pending = await db.query(
+    `SELECT ${OUTBOX_SELECT}
      FROM outbox
-     WHERE status IN ('pending', 'parked')
+     WHERE status = 'pending'
      ORDER BY aggregate_key ASC, seq ASC
      LIMIT ${OUTBOX_BATCH_LIMIT}`,
   );
-  return groupReplayable(((result.values ?? []) as DbRow[]).map(fromDbRow));
+  const pendingRows = ((pending.values ?? []) as DbRow[]).map(fromDbRow);
+  if (pendingRows.length >= OUTBOX_BATCH_LIMIT) return groupReplayable(pendingRows);
+
+  const parked = await db.query(
+    `SELECT ${OUTBOX_SELECT}
+     FROM outbox
+     WHERE status = 'parked'
+     ORDER BY aggregate_key ASC, seq ASC
+     LIMIT ${OUTBOX_BATCH_LIMIT - pendingRows.length}`,
+  );
+  const parkedRows = ((parked.values ?? []) as DbRow[]).map(fromDbRow);
+  return groupReplayable([...pendingRows, ...parkedRows]);
 }
 
 export async function markSynced(id: string): Promise<void> {

@@ -15,9 +15,42 @@ export function selectIdOf(order: { slitId?: string }): string {
   return normalizeSlit(order.slitId) || '—';
 }
 
+/**
+ * Coerce API / prefill scalars for UI. Nested `{ value }` and snake_case
+ * identity objects must never render as "[object Object]".
+ */
+export function asDisplayText(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    const s = String(value).trim();
+    return s === '[object Object]' ? '' : s;
+  }
+  if (typeof value !== 'object') return '';
+  const rec = value as Record<string, unknown>;
+  if ('value' in rec) return asDisplayText(rec.value);
+  for (const k of [
+    'coilNo', 'coil_no', 'motherCoil', 'mother_coil', 'motherCoilNo', 'displayCoilNo',
+    'batchNumber', 'batch_number', 'label', 'name',
+  ]) {
+    if (k in rec) {
+      const inner = asDisplayText(rec[k]);
+      if (inner) return inner;
+    }
+  }
+  return '';
+}
+
+function identityField(order: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const text = asDisplayText(order[k]);
+    if (text) return text;
+  }
+  return '';
+}
+
 /** Empty / dash placeholders = no slit (never render "1100038348 -"). */
-function normalizeSlit(slit: string | null | undefined): string {
-  const s = slit?.trim().toUpperCase() ?? '';
+function normalizeSlit(slit: unknown): string {
+  const s = asDisplayText(slit).toUpperCase();
   if (!s || s === '-' || s === '—') return '';
   return s;
 }
@@ -28,31 +61,32 @@ function normalizeSlit(slit: string | null | undefined): string {
  * Guards against double-append when displayCoilNo already ends with the slit token.
  */
 export function displayMotherCoilId(order: {
-  motherCoil?: string;
-  motherCoilNo?: string;
-  displayCoilNo?: string;
-  batchNumber?: string;
-  slitId?: string | null;
-  coilNo?: string;
+  motherCoil?: unknown;
+  motherCoilNo?: unknown;
+  displayCoilNo?: unknown;
+  batchNumber?: unknown;
+  slitId?: unknown;
+  coilNo?: unknown;
+  [key: string]: unknown;
 }): string {
-  const coil = (
-    order.motherCoil
-    ?? order.motherCoilNo
-    ?? order.displayCoilNo
-    ?? order.coilNo
-    ?? order.batchNumber
-    ?? ''
-  ).trim();
-  const slit = normalizeSlit(order.slitId ?? undefined);
+  const rec = order as Record<string, unknown>;
+  const coil = identityField(
+    rec,
+    'motherCoil', 'mother_coil',
+    'motherCoilNo', 'mother_coil_no',
+    'displayCoilNo', 'display_coil_no',
+    'coilNo', 'coil_no',
+    'batchNumber', 'batch_number',
+  );
+  const slit = normalizeSlit(order.slitId ?? rec.slit_id);
   if (!slit) return coil;
-  // displayCoilNo from server/prefill may already embed the slit
   const tokens = coil.split(/\s+/);
   if (tokens[tokens.length - 1]?.toUpperCase() === slit) return coil;
   return `${coil} ${slit}`;
 }
 
-export function primaryOrderId(order: { motherCoil: string; batchNumber: string }): string {
-  return order.motherCoil?.trim() || order.batchNumber;
+export function primaryOrderId(order: { motherCoil?: unknown; batchNumber?: unknown }): string {
+  return asDisplayText(order.motherCoil) || asDisplayText(order.batchNumber);
 }
 
 export function finalOutputThicknessOf(order: Pick<OrderIdentitySource, 'finishThkMm' | 'targetThkMm'>): number {
@@ -110,14 +144,11 @@ export function finishGroupOf(value: string | null | undefined): string {
 export function combinedRunKey(
   order: OrderIdentitySource & { subProcess?: string; inputThkMm?: number },
 ): string {
-  const raw = (
-    order.motherCoil
-    ?? order.motherCoilNo
-    ?? order.displayCoilNo
-    ?? order.coilNo
-    ?? order.batchNumber
-    ?? ''
-  ).trim();
+  const rec = order as Record<string, unknown>;
+  const raw = identityField(
+    rec,
+    'motherCoil', 'motherCoilNo', 'displayCoilNo', 'coilNo', 'batchNumber',
+  );
   const slit = normalizeSlit(order.slitId);
   const tokens = raw.split(/\s+/);
   const coil = slit && tokens[tokens.length - 1]?.toUpperCase() === slit
@@ -131,5 +162,6 @@ export function isCompatibleCombinedRunOrder(base: OrderIdentitySource, candidat
 }
 
 export function orderIdentitySubtitle(order: OrderIdentitySource): string {
-  return `Batch ${order.batchNumber}`;
+  const batch = asDisplayText(order.batchNumber);
+  return batch ? `Batch ${batch}` : '';
 }

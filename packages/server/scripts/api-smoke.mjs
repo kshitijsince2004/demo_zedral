@@ -76,11 +76,11 @@ async function main() {
     exportJob.data?.status || exportJob.data?.error,
   );
 
-  const daily = await req('GET', '/reports/daily', null, supToken);
+  const management = await req('GET', '/reports/management', null, supToken);
   check(
-    'GET /reports/daily',
-    daily.status === 200 && typeof daily.data.totalProductionMt === 'number',
-    `prod=${daily.data.totalProductionMt} MT`,
+    'GET /reports/management',
+    management.status === 200,
+    management.data?.error || `status=${management.status}`,
   );
 
   const failed = results.filter((r) => !r.ok).length;

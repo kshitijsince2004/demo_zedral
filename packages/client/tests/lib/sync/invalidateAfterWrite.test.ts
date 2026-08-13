@@ -16,6 +16,8 @@ describe('invalidateAfterWrite', () => {
     expect(shouldInvalidateCachesForUrl('/6hi/orders/B1/start')).toBe(true);
     expect(shouldInvalidateCachesForUrl('/production/hrs')).toBe(true);
     expect(shouldInvalidateCachesForUrl('/machines/handover/overview')).toBe(true);
+    expect(shouldInvalidateCachesForUrl('/rewinding/orders/B1/capture')).toBe(true);
+    expect(shouldInvalidateCachesForUrl('/stations/pkl/chart')).toBe(true);
     expect(shouldInvalidateCachesForUrl('/auth/badge-pin')).toBe(false);
     expect(shouldInvalidateCachesForUrl('/exports')).toBe(false);
   });
