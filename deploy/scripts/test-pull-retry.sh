@@ -34,6 +34,8 @@ source "${ROOT}/deploy/lib/common.sh"
 docker() {
   if [ "${1:-}" = "pull" ]; then
     MOCK_DIR="${TMP}" "${TMP}/docker_mock.sh" "$@"
+  elif [ "${1:-}" = "info" ]; then
+    return 0
   else
     echo "unexpected docker $*" >&2
     exit 1
@@ -47,6 +49,27 @@ pull_image_ref_with_retry "ghcr.io/example/backend:bbb" backend
 test "$(cat "${TMP}/ghcr.io_example_nginx_aaa.count")" = "3"
 test "$(cat "${TMP}/ghcr.io_example_backend_bbb.count")" = "3"
 echo PULL_RETRY_OK
+
+# Socket permission is not transient — one attempt then die.
+docker() {
+  if [ "${1:-}" = "pull" ]; then
+    echo "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock" >&2
+    n="$(cat "${TMP}/sock.count" 2>/dev/null || echo 0)"
+    echo $((n + 1)) > "${TMP}/sock.count"
+    return 1
+  elif [ "${1:-}" = "info" ]; then
+    return 1
+  else
+    echo "unexpected docker $*" >&2
+    exit 1
+  fi
+}
+if ( pull_image_ref_with_retry "ghcr.io/example/nginx:sock" nginx ); then
+  echo "expected socket pull to die" >&2
+  exit 1
+fi
+test "$(cat "${TMP}/sock.count")" = "1"
+echo PULL_SOCK_FAILFAST_OK
 
 # --- upsert dedupe ---
 ENV_FILE="${TMP}/env"

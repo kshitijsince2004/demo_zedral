@@ -12,6 +12,15 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/deploy/.env}"
 log() { echo "==> $*"; }
 die() { echo "::error::$*" >&2; exit 1; }
 
+# Daemon must be reachable. `docker --version` is client-only and hides
+# socket permission errors until a later pull wastes minutes retrying.
+assert_docker_daemon() {
+  docker info >/dev/null 2>&1 && return 0
+  echo "user=$(id -un) uid=$(id -u) groups=$(id -Gn)" >&2
+  ls -l /var/run/docker.sock >&2 || echo "no /var/run/docker.sock" >&2
+  die "Cannot talk to Docker daemon as $(id -un). sudo usermod -aG docker $(id -un) then restart the runner (cd runner dir; sudo ./svc.sh stop && sudo ./svc.sh start)."
+}
+
 require_docker() {
   command -v docker >/dev/null 2>&1 || die "Docker is not installed."
   docker --version
@@ -22,6 +31,7 @@ require_docker() {
   else
     die "Docker Compose plugin is not installed (docker compose / docker-compose)."
   fi
+  assert_docker_daemon
 }
 
 compose() {
@@ -487,6 +497,8 @@ pull_image_ref_with_retry() {
     fi
     end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
     log "Pull ${label} failed attempt ${attempt}/${max_attempts} end=${end}"
+    # Socket / group errors are not transient — do not backoff.
+    assert_docker_daemon
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       break
     fi
@@ -596,14 +608,14 @@ run_stack_deploy() {
 prune_docker_disk_before_pull() {
   log "Docker disk before prune:"
   df -h / /var/lib/docker 2>/dev/null || df -h / || true
-  docker system df 2>/dev/null || true
-  docker container prune -f >/dev/null 2>&1 || true
+  docker system df || log "WARNING: docker system df failed"
+  docker container prune -f >/dev/null || log "WARNING: docker container prune failed"
   # -a removes unused images (not just dangling); running stack images stay referenced.
-  docker image prune -af >/dev/null 2>&1 || true
-  docker builder prune -af >/dev/null 2>&1 || true
+  docker image prune -af >/dev/null || log "WARNING: docker image prune failed"
+  docker builder prune -af >/dev/null || log "WARNING: docker builder prune failed"
   log "Docker disk after prune:"
   df -h / /var/lib/docker 2>/dev/null || df -h / || true
-  docker system df 2>/dev/null || true
+  docker system df || log "WARNING: docker system df failed"
 }
 
 verify_deployment_health() {

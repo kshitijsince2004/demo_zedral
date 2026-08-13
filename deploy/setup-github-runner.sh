@@ -48,11 +48,20 @@ if [ "$(id -un)" != "ubuntu" ]; then
   echo "WARN: run as ubuntu (current: $(id -un))"
 fi
 
-# The runner user must own APP_DIR and be able to run docker (add to the docker group):
-#   sudo usermod -aG docker ubuntu   # then re-login / restart the runner service
+# Deploy jobs run docker locally. Current-shell `groups` is stale until re-login;
+# systemd only picks up `usermod -aG docker` after svc.sh stop/start.
 if ! docker info >/dev/null 2>&1; then
-  echo "WARN: docker not reachable as $(id -un). The deploy job runs docker LOCALLY —"
-  echo "      add this user to the docker group: sudo usermod -aG docker $(id -un)"
+  echo "==> Adding $(id -un) to group docker…"
+  sudo usermod -aG docker "$(id -un)"
+  if ! sg docker -c 'docker info' >/dev/null 2>&1; then
+    echo "ERROR: docker daemon not reachable as $(id -un) after usermod."
+    echo "  user=$(id -un) groups=$(id -Gn)"
+    ls -l /var/run/docker.sock || true
+    echo "  Fix: sudo usermod -aG docker $(id -un) && newgrp docker"
+    echo "  Then restart the runner: cd ${RUNNER_DIR} && sudo ./svc.sh stop && sudo ./svc.sh start"
+    exit 1
+  fi
+  echo "==> docker OK via group docker. Runner service restart (below) applies it to systemd."
 fi
 
 echo "==> Installing runner dependencies…"
@@ -74,9 +83,10 @@ if [ ! -f "./config.sh" ]; then
 fi
 
 if [ -f "./.runner" ]; then
-  echo "Runner already configured at ${RUNNER_DIR} — restarting service."
-  sudo ./svc.sh status || true
+  echo "Runner already configured at ${RUNNER_DIR} — restarting service (picks up docker group)."
+  sudo ./svc.sh stop || true
   sudo ./svc.sh start || true
+  sudo ./svc.sh status || true
   exit 0
 fi
 
@@ -99,3 +109,4 @@ echo "Runner online with labels: ${RUNNER_LABELS}"
 echo "  aws-qa  → matched by deploy-aws.yml        (runs-on: [self-hosted, linux, aws-qa])"
 echo "  factory → matched by deploy-production.yml (runs-on: [self-hosted, linux, factory])"
 echo "Verify in GitHub → Settings → Actions → Runners (should show Idle)."
+echo "If deploy jobs hit docker.sock permission denied: sudo ./svc.sh stop && sudo ./svc.sh start"

@@ -3140,3 +3140,17 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** 3 hits were the documented CI JWT placeholder `ci-test-secret-at-least-16-chars-long` (allowlisted by exact value; production still rejects it). 4th was a real OpenRouter token in `.claude/settings.json` (untracked + gitignored; historical fingerprint only). Did not rewrite git history; did not disable Gitleaks rules.
 - **Follow-ups:** Rotate the leaked OpenRouter token. Commit these files when ready.
 
+### 2026-08-13 — 4HI manual re-roll queue + process-wise rolling import
+
+- **Goal:** Show 4HI plans on the Manual Re-Roll queue; one Rolling/Skin Pass import for 2HI/4HI/6HI.
+- **Touched:** `manualRerollRoutes.ts`, `ManualRerollHub.tsx`, `pklMhDesk.ts`, `MachineHeadNav.tsx`, `LineMhImportPage.tsx`, `App.tsx`, `rollingPlanXlsxParser.ts`, tests
+- **Decisions / skipped:** Queue is ppc_batch LEFT JOIN crm_order (allocated mill + unallocated CRM pool). Did not clone Rolling date picker. 2HI also keeps RWD import. Work-center `4`/`6` map to 4HI/6HI.
+- **Follow-ups:** Smoke 4HI Manual Re-Roll tab against allocated + unallocated plans; MH Import Rolling from a 4HI or mixed CRM desk.
+
+### 2026-08-13 — Fail-fast docker.sock permission on QA deploy
+
+- **Goal:** Stop QA deploys retrying a permanent docker socket permission error for ~3 minutes.
+- **Touched:** `deploy/lib/common.sh`, `deploy/setup-github-runner.sh`, `deploy/scripts/test-pull-retry.sh`
+- **Decisions / skipped:** `assert_docker_daemon` via `docker info` (not client `--version`). Pull retries abort when the daemon is unreachable. Did not chmod 666 the socket. Did not add a duplicate workflow preflight step.
+- **Follow-ups:** On the QA box: `sudo usermod -aG docker ubuntu` then `cd ~/actions-runner && sudo ./svc.sh stop && sudo ./svc.sh start`. Re-run Deploy AWS QA.
+
