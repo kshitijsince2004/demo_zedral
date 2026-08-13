@@ -24,7 +24,7 @@ import {
   SixHiShiftService,
   SixHiStoppageService,
 } from '../services/sixHi';
-import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
+import { parseCrmMillCode, millFromAssignRequest, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
 import { parseActiveOrderConflictBatch } from '../utils/orderLifecycleHelpers';
 import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
 import { PPCImportService, parseImportLineScope } from '../services/PPCImportService';
@@ -36,7 +36,8 @@ import multer from 'multer';
 import { rateLimitMiddleware } from '../middleware/rateLimitMiddleware';
 
 const router = Router();
-router.use(rateLimitMiddleware(120, 60_000));
+// ponytail: hub+capture+Strict Mode burst past 120/min locally; keep prod tight
+router.use(rateLimitMiddleware(process.env.NODE_ENV === 'production' ? 120 : 600, 60_000));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function respondSixHiServerError(res: import('express').Response, context: string, error: unknown) {
@@ -152,12 +153,12 @@ function requireCrmMillAssignment() {
     if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
     try {
       // allocate-machine client sends body.machineCode (not body.machine).
-      const raw = req.body?.machine ?? req.query?.machine ?? req.body?.machineCode;
-      if (raw == null || String(raw).trim() === '') {
-        return res.status(400).json({ error: 'machine param required' });
-      }
-      const machine = parseCrmMillCode(String(raw).toUpperCase());
+      const machine = millFromAssignRequest(req.body, req.query);
       if (!machine) {
+        const raw = req.body?.machineCode ?? req.body?.machine ?? req.query?.machine;
+        if (raw == null || String(raw).trim() === '') {
+          return res.status(400).json({ error: 'machine param required' });
+        }
         return res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
       }
       if (req.user.roles.includes(UserRole.SUPERVISOR as string)) {
@@ -488,21 +489,6 @@ router.get('/queue', requireSixHi('READ'), async (req, res) => {
   }
 });
 
-/** Lightweight 2HI rewinding queue — separate from SixHi rolling/skin-pass getQueue. */
-router.get('/rewinding-queue', requireSixHi('READ'), async (req, res) => {
-  try {
-    const parsedMachine = resolveRequiredCrmMill(req, res);
-    if (!parsedMachine) return;
-    if (parsedMachine !== '2HI') {
-      return res.status(400).json({ error: 'Rewinding queue is only available for 2HI' });
-    }
-    const result = await SixHiQueueService.getRewindingQueue(parsedMachine);
-    res.json(result);
-  } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Rewinding queue load failed' });
-  }
-});
-
 router.post('/orders/manual', requireSixHi('WRITE'), async (req, res) => {
   try {
     const validation = SixHiManualOrderSchema.safeParse(req.body);
@@ -600,7 +586,17 @@ router.get('/orders/completed', async (req, res) => {
       q = q.where('pb.machine_code', 'in', scopedMachines);
     }
     if (shiftLogIds && shiftLogIds.length > 0) {
-      q = q.where('o.shift_log_id', 'in', shiftLogIds);
+      q = q.where((eb) => {
+        const byLog = eb('o.shift_log_id', 'in', shiftLogIds);
+        if (!date) return byLog;
+        return eb.or([
+          byLog,
+          eb.and([
+            eb('o.prod_end_at', '>=', startOfPlantDay(date)),
+            eb('o.prod_end_at', '<=', endOfPlantDay(date)),
+          ]),
+        ]);
+      });
     } else {
       if (date) {
         q = q.where('o.prod_end_at', '>=', startOfPlantDay(date))
@@ -732,7 +728,7 @@ router.post(
   requireCrmMillAssignment(),
   async (req, res) => {
   try {
-    const machineCode = String(req.body?.machineCode ?? '').trim();
+    const machineCode = millFromAssignRequest(req.body, req.query);
     if (!machineCode) return res.status(400).json({ error: 'machineCode required' });
     const order = await SixHiQueueService.allocateMachine(
       req.params.batchNo,
@@ -745,7 +741,11 @@ router.post(
     if (isVersionConflict(e)) {
       return res.status(409).json(versionConflictBody(e));
     }
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Machine allocation failed' });
+    const message = e instanceof Error ? e.message : 'Machine allocation failed';
+    if (/permission denied/i.test(message)) {
+      return res.status(500).json({ error: 'Database permission denied' });
+    }
+    res.status(400).json({ error: message });
   }
 });
 

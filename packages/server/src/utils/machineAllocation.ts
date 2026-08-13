@@ -12,8 +12,18 @@ export function millsForSubProcess(subProcess: SixHiSubProcess): CrmMillCode[] {
 }
 
 export function parseCrmMillCode(raw: string): CrmMillCode | null {
-  const v = raw.trim().toUpperCase();
+  const v = raw.trim().toUpperCase().replace(/:\d+$/, '');
   return CRM_MILL_CODES.includes(v as CrmMillCode) ? (v as CrmMillCode) : null;
+}
+
+/** allocate-machine: body.machineCode wins so a stale ?machine= cannot 400 a valid body. */
+export function millFromAssignRequest(
+  body?: { machineCode?: unknown; machine?: unknown } | null,
+  query?: { machine?: unknown } | null,
+): CrmMillCode | null {
+  const raw = body?.machineCode ?? body?.machine ?? query?.machine;
+  if (raw == null || String(raw).trim() === '') return null;
+  return parseCrmMillCode(String(raw));
 }
 
 export function assertMachineForSubProcess(subProcess: SixHiSubProcess, machineCode: string): CrmMillCode {

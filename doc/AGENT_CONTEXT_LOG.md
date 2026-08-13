@@ -3182,3 +3182,24 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Lookup by `emp_code OR username` (prefer username). Update sets username/emp_code. Did not change deploy health/pull. Did not mix unrelated dirty tree.
 - **Follow-ups:** Commit + push this script, wait for CI docker-build-push, re-run Deploy AWS QA.
 
+### 2026-08-13 — Full production build (local working tree)
+
+- **Goal:** Build all packages from current local changes; include operator bundle.
+- **Touched:** `packages/server/src/services/PklOrderService.ts`, `packages/client/dist`, `packages/client/dist-operator`, `packages/server/dist`
+- **Decisions / skipped:** `rejectOrder` was missing `batchNumber` (callers + `getOrder` already used it). Wired via `resolveOrderId` like start/end/reinstate. Did not build APK.
+- **Follow-ups:** User message was truncated (“include all changes of”); say if APK or commit is next.
+
+### 2026-08-13 — ANN Batch/Orders/Stop nav bounce
+
+- **Goal:** BATCH / ORDERS / STOP on operator ANN rail opened pages instead of bouncing to hub.
+- **Touched:** `packages/client/src/operator/OperatorApp.tsx`, `packages/client/dist-operator`
+- **Decisions / skipped:** Operator APK router was missing the three routes already in `App.tsx`; catch-all sent them home. Did not share a route table. Did not rebuild APK.
+- **Follow-ups:** Hard-refresh operator (or new APK) to pick up dist-operator.
+
+### 2026-08-13 — CRM allocate-machine txn grants + mill query
+
+- **Goal:** Fix operator CRM assign-machine 400 (`permission denied for schema txn` and `?machine=6HI:1`).
+- **Touched:** `packages/server/migrations/1977000000000_grant_order_machine_transfer.js`, `packages/server/src/utils/machineAllocation.ts`, `packages/server/src/routes/sixHiRoutes.ts`, `packages/server/src/routes/rewindingRoutes.ts`, `packages/server/src/routes/hrsOrderRoutes.ts`, `packages/server/src/routes/pklOrderRoutes.ts`, `packages/client/src/lib/apiClient.ts`, `packages/server/tests/machineAllocation.test.ts`, `packages/server/tests/noRuntimeTxnDdl.test.ts`
+- **Decisions / skipped:** Re-GRANT USAGE on schema txn (not CREATE). Body `machineCode` wins over query. Canonicalize `6HI:1` → `6HI`. PG permission → 500. Did not grant schema CREATE to `m1_app`.
+- **Follow-ups:** Apply `1977` and `1979` on QA as `m1_user`. Smoke Move to Production on 6HI/4HI/2HI and 2HI rewinding allocate.
+

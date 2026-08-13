@@ -14,6 +14,7 @@
 import { agentDebugLog, isHrsDebugPath } from './agentDebugLog';
 import { useAuthStore } from './authStore';
 import { getActiveCrmMill } from './crmMillContext';
+import { isCrmMillCode } from './millConfig';
 import { getNetworkQuality, startNetworkQualityProbe } from './networkQuality';
 
 let serverOffset = 0;
@@ -212,15 +213,22 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
   headers.set('X-App-Version', APP_VERSION);
 
   let finalPath = path;
-  if (typeof window !== 'undefined' && path.startsWith('/6hi/') && !path.includes('machine=')) {
+  if (typeof window !== 'undefined' && !path.includes('machine=')) {
     const pathname = window.location.pathname.toLowerCase();
-    let machine: string | null = null;
-    if (pathname.includes('/4hi')) machine = '4HI';
-    else if (pathname.includes('/2hi')) machine = '2HI';
-    else if (pathname.includes('/6hi')) machine = '6HI';
-    if (!machine) machine = getActiveCrmMill();
-    if (machine) {
-      finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
+    if (path.startsWith('/6hi/')) {
+      let machine: string | null = null;
+      if (pathname.includes('/4hi')) machine = '4HI';
+      else if (pathname.includes('/2hi')) machine = '2HI';
+      else if (pathname.includes('/6hi')) machine = '6HI';
+      if (!machine) machine = getActiveCrmMill();
+      if (machine && isCrmMillCode(machine)) {
+        finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
+      }
+    } else if (path.startsWith('/rewinding/')) {
+      const machine = pathname.includes('/2hi') ? '2HI' : pathname.includes('/rwd') ? 'RWD' : null;
+      if (machine) {
+        finalPath = path.includes('?') ? `${path}&machine=${machine}` : `${path}?machine=${machine}`;
+      }
     }
   }
 
@@ -344,7 +352,9 @@ async function requestOnce<T = unknown>(path: string, options: RequestOptions = 
 
   if (!res.ok && !raw) {
     const message = formatApiError(parsed, res.status);
-    throw new ApiError(message, res.status, parsed);
+    // 429 retries make the lockout worse; 403/404 will not become 200.
+    const preventRetry = res.status === 429 || res.status === 403 || res.status === 404;
+    throw new ApiError(message, res.status, parsed, false, preventRetry);
   }
 
   if (isApiEnvelope<T>(parsed)) {
