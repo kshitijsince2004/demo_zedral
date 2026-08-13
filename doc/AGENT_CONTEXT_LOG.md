@@ -3070,3 +3070,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Local scripts/run-ci-quality-local.sh PASSED (lint/build/client/unit/integration/arch/docker/QA curl). Moved idempotency status alter into m1 module (after table create); main 1976 is shim. Excluded root audit plans, screen.png, .github/an from commit.
 - **Follow-ups:** Watch GitHub Actions CI + Deploy AWS QA Playwright after push (gh not authenticated locally).
 
+### 2026-08-13 — Lockfile sync: @m1/client 1.2.11
+
+- **Goal:** Unblock CI lockfile job after #204 failed on package-lock drift.
+- **Touched:** `package-lock.json`
+- **Decisions / skipped:** Bumped workspace entry `packages/client` version 1.2.10 → 1.2.11 to match `packages/client/package.json`. No other lock changes.
+- **Follow-ups:** Re-run CI on main after push.
+
