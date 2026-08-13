@@ -42,17 +42,17 @@ async function cacheMasters(rows: Record<string, unknown>[]): Promise<void> {
     return;
   }
 
-  const db = getDb();
-  for (const row of rows) {
+  const now = Date.now();
+  const batch = rows.flatMap((row) => {
     const tableName = String(row.tableName ?? row.table_name ?? row.entityType ?? 'master');
     const rowId = String(row.id ?? row.code ?? row.rowId ?? row.row_id);
-    if (!rowId || rowId === 'undefined') continue;
-    await db.run(
-      `INSERT OR REPLACE INTO master_cache (table_name, row_id, data, updated_at)
-       VALUES (?, ?, ?, ?)`,
-      [tableName, rowId, JSON.stringify(row), Date.now()],
-    );
-  }
+    if (!rowId || rowId === 'undefined') return [];
+    return [{
+      statement: `INSERT OR REPLACE INTO master_cache (table_name, row_id, data, updated_at) VALUES (?, ?, ?, ?)`,
+      values: [tableName, rowId, JSON.stringify(row), now],
+    }];
+  });
+  if (batch.length) await getDb().executeSet(batch);
 }
 
 async function cachePlan(rows: Record<string, unknown>[]): Promise<void> {
@@ -61,16 +61,16 @@ async function cachePlan(rows: Record<string, unknown>[]): Promise<void> {
     return;
   }
 
-  const db = getDb();
-  for (const row of rows) {
+  const now = Date.now();
+  const batch = rows.flatMap((row) => {
     const coilNo = String(row.coilNo ?? row.coil_no ?? row.batchNumber ?? row.batch_number);
-    if (!coilNo || coilNo === 'undefined') continue;
-    await db.run(
-      `INSERT OR REPLACE INTO plan_cache (coil_no, data, updated_at)
-       VALUES (?, ?, ?)`,
-      [coilNo, JSON.stringify(row), Date.now()],
-    );
-  }
+    if (!coilNo || coilNo === 'undefined') return [];
+    return [{
+      statement: `INSERT OR REPLACE INTO plan_cache (coil_no, data, updated_at) VALUES (?, ?, ?)`,
+      values: [coilNo, JSON.stringify(row), now],
+    }];
+  });
+  if (batch.length) await getDb().executeSet(batch);
 }
 
 function isUnavailable(error: unknown): boolean {
@@ -108,9 +108,21 @@ export async function pullPlan(): Promise<void> {
   }
 }
 
-/** PERF-C4 — warm plan + masters at login / shift-start so the first screen paints from cache. */
-export async function prefetchOperatorCaches(): Promise<void> {
-  await Promise.allSettled([pullMasters(), pullPlan()]);
+/**
+ * PERF-C4 — warm plan + masters at login / shift-start so the first screen paints from cache.
+ * Login, engine start, and shift-detection can all call this within moments of each other —
+ * dedupe to a single in-flight run instead of firing duplicate delta pulls.
+ */
+let inflightPrefetch: Promise<void> | null = null;
+export function prefetchOperatorCaches(): Promise<void> {
+  if (!inflightPrefetch) {
+    inflightPrefetch = Promise.allSettled([pullMasters(), pullPlan()])
+      .then(() => undefined)
+      .finally(() => {
+        inflightPrefetch = null;
+      });
+  }
+  return inflightPrefetch;
 }
 
 export async function cachedGet<T>(url: string, cacheKey: string): Promise<T> {

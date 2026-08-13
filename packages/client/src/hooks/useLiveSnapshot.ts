@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveSnapshot, MachineLiveStatus } from '@m1/shared-validation';
 import { liveService } from '../lib/liveService';
+import { whenVisibleInterval } from '../lib/idleThrottle';
 import { subscribeProductionChanged } from '../lib/productionSync';
 import { jsonFingerprint } from '../lib/silentRefresh';
 
@@ -44,10 +45,10 @@ export function useLiveSnapshot(options?: { enabled?: boolean }) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const id = setInterval(() => void refresh(), LIVE_POLL_MS);
+    const stopPoll = whenVisibleInterval(LIVE_POLL_MS, () => void refresh());
     const unsub = subscribeProductionChanged(() => void refresh());
     return () => {
-      clearInterval(id);
+      stopPoll();
       unsub();
     };
   }, [enabled, refresh]);

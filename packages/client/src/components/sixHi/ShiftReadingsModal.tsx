@@ -3,6 +3,7 @@ import { Thermometer } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
 import { ShiftReadingsFields } from './shiftReadingsForm';
+import { overlayClass } from '../../lib/nativeOverlay';
 import {
   emptyShiftReadings,
   parseOptionalNumber,
@@ -73,7 +74,7 @@ export function ShiftReadingsModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[110] bg-primary/40 backdrop-blur-[1px]" aria-hidden onClick={onClose} />
+      <div className={overlayClass('fixed inset-0 z-[110] bg-primary/40', 'backdrop-blur-[1px]')} aria-hidden onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"

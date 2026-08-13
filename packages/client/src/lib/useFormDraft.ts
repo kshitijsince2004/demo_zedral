@@ -15,9 +15,11 @@ export function useFormDraft(
   options: UseFormDraftOptions = {}
 ) {
   const { debounceMs = 800, onRestored } = options;
+  const lastWrittenRef = useRef<string | null>(null);
 
   const clearDraft = useCallback(async () => {
     if (!draftKey) return;
+    lastWrittenRef.current = null;
     await Preferences.remove({ key: `draft_${draftKey}` });
   }, [draftKey]);
 
@@ -32,6 +34,7 @@ export function useFormDraft(
       try {
         const parsed = JSON.parse(res.value);
         if (Object.keys(parsed).length > 0) {
+          lastWrittenRef.current = res.value;
           form.reset(parsed);
           onRestored?.();
         }
@@ -51,7 +54,10 @@ export function useFormDraft(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     debounce(async (data: any) => {
       if (!draftKey) return;
-      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
+      const serialized = JSON.stringify(data);
+      if (serialized === lastWrittenRef.current) return;
+      lastWrittenRef.current = serialized;
+      await Preferences.set({ key: `draft_${draftKey}`, value: serialized });
     }, debounceMs),
     [draftKey, debounceMs]
   );
@@ -68,7 +74,12 @@ export function useFormDraft(
   }, [draftKey, form, save]);
 
   useEffect(() => {
-    return () => save.cancel();
+    return () => {
+      // Flush any pending debounced write before tearing down so the last
+      // keystroke isn't lost, then cancel to prevent a stray post-unmount call.
+      save.flush();
+      save.cancel();
+    };
   }, [save]);
 
   return { clearDraft };
@@ -82,9 +93,11 @@ export function useManualDraft<T extends Record<string, any>>(
   options: UseFormDraftOptions = {}
 ) {
   const { debounceMs = 800, onRestored } = options;
+  const lastWrittenRef = useRef<string | null>(null);
 
   const clearDraft = useCallback(async () => {
     if (!draftKey) return;
+    lastWrittenRef.current = null;
     await Preferences.remove({ key: `draft_${draftKey}` });
   }, [draftKey]);
 
@@ -103,6 +116,7 @@ export function useManualDraft<T extends Record<string, any>>(
         const parsed = JSON.parse(res.value);
         if (Object.keys(parsed).length > 0) {
           hasLoaded.current = true;
+          lastWrittenRef.current = res.value;
           setValues(parsed);
           onRestored?.();
         }
@@ -123,7 +137,10 @@ export function useManualDraft<T extends Record<string, any>>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     debounce(async (data: any) => {
       if (!draftKey) return;
-      await Preferences.set({ key: `draft_${draftKey}`, value: JSON.stringify(data) });
+      const serialized = JSON.stringify(data);
+      if (serialized === lastWrittenRef.current) return;
+      lastWrittenRef.current = serialized;
+      await Preferences.set({ key: `draft_${draftKey}`, value: serialized });
     }, debounceMs),
     [draftKey, debounceMs]
   );
@@ -135,7 +152,10 @@ export function useManualDraft<T extends Record<string, any>>(
   }, [draftKey, values, save]);
 
   useEffect(() => {
-    return () => save.cancel();
+    return () => {
+      save.flush();
+      save.cancel();
+    };
   }, [save]);
 
   return { clearDraft };

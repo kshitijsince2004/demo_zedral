@@ -6,6 +6,7 @@ import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
 import { SixHiStatusPill } from '../sixHi/SixHiStatusPill';
 import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
 import { OrderIdentityDisplay } from '../orders/OrderIdentityDisplay';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 interface MachineHeadOrderDetailModalProps {
   batchNumber: string | null;
@@ -58,7 +59,7 @@ export function MachineHeadOrderDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className={overlayClass('absolute inset-0 bg-black/40', 'backdrop-blur-sm')} onClick={onClose} aria-hidden />
       <div
         className="relative bg-background border border-border shadow-2xl rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden"
         role="dialog"

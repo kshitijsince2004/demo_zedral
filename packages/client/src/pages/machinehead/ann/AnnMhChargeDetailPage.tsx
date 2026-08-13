@@ -309,7 +309,14 @@ export function AnnMhChargeDetailPage() {
                 Start / In Progress
               </ZButton>
             )}
-            <SwipeAdvance disabled={busy || isPreparing || charge?.status === 'DONE' || !active} nextLabel={nextLabel} onAdvance={advanceStage} />
+            <SwipeAdvance
+              disabled={busy || isPreparing || charge?.status === 'DONE' || !active || Boolean(openStoppage)}
+              nextLabel={nextLabel}
+              onAdvance={advanceStage}
+            />
+            {openStoppage ? (
+              <p className="text-xs text-warning">End stoppage to advance</p>
+            ) : null}
           </section>
 
           <div className="space-y-3">

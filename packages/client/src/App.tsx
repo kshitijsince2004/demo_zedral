@@ -14,7 +14,7 @@ import { AdminShell } from './components/layout/admin/AdminShell';
 import { UserRole } from '@m1/shared-validation';
 import { AdminRoute, PlantRoute, MachineHeadRoute, QualityRoute, RoleRoute } from './components/RoleRoute';
 import { UnifiedShell } from './components/layout/UnifiedShell';
-import { UserScopeShell } from './components/UserScopeShell';
+import { UserScopeShell, UserScopeCatchAll } from './components/UserScopeShell';
 import { LegacyMillRedirect } from './components/LegacyMillRedirect';
 
 const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })));
@@ -34,6 +34,15 @@ const PklChartPage = lazy(() =>
 const AnnChargePage = lazy(() =>
   import('./pages/process/AnnChargePage').then((m) => ({ default: m.AnnChargePage })),
 );
+const AnnOperatorBatchingPage = lazy(() =>
+  import('./pages/process/AnnOperatorBatchingPage').then((m) => ({ default: m.AnnOperatorBatchingPage })),
+);
+const AnnOperatorOrdersPage = lazy(() =>
+  import('./pages/process/AnnOperatorOrdersPage').then((m) => ({ default: m.AnnOperatorOrdersPage })),
+);
+const AnnOperatorStoppagePage = lazy(() =>
+  import('./pages/process/AnnOperatorStoppagePage').then((m) => ({ default: m.AnnOperatorStoppagePage })),
+);
 const ProcessOperatorHistoryPage = lazy(() =>
   import('./pages/process/ProcessOperatorHistoryPage').then((m) => ({
     default: m.ProcessOperatorHistoryPage,
@@ -52,14 +61,14 @@ const PklMhLiveDashboard = lazy(() =>
     default: m.PklMhLiveDashboard,
   })),
 );
-const ProcessLineLiveDashboard = lazy(() =>
-  import('./pages/machinehead/pkl/PklMhLiveDashboard').then((m) => ({
-    default: m.ProcessLineLiveDashboard,
-  })),
-);
 const PklMhCoilDetailPage = lazy(() =>
   import('./pages/machinehead/pkl/PklMhCoilDetailPage').then((m) => ({
     default: m.PklMhCoilDetailPage,
+  })),
+);
+const HrsMhLiveDashboard = lazy(() =>
+  import('./pages/machinehead/hrs/HrsMhLiveDashboard').then((m) => ({
+    default: m.HrsMhLiveDashboard,
   })),
 );
 const HrsMhCoilDetailPage = lazy(() =>
@@ -209,6 +218,15 @@ const PklMhImportPage = lazy(() =>
 );
 const RwdMhImportPage = lazy(() =>
   import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.RwdMhImportPage })),
+);
+const SixHiMhImportPage = lazy(() =>
+  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.SixHiMhImportPage })),
+);
+const FourHiMhImportPage = lazy(() =>
+  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.FourHiMhImportPage })),
+);
+const TwoHiMhImportPage = lazy(() =>
+  import('./pages/machinehead/LineMhImportPage').then((m) => ({ default: m.TwoHiMhImportPage })),
 );
 const LiveDashboard = lazy(() =>
   import('./pages/live/LiveDashboard').then((m) => ({ default: m.LiveDashboard })),
@@ -381,10 +399,13 @@ function AppRoutes() {
           <Route path="/machine-head/hrs/import" element={<MachineHeadRoute><HrsMhImportPage /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/import" element={<MachineHeadRoute><PklMhImportPage /></MachineHeadRoute>} />
           <Route path="/machine-head/rwd/import" element={<MachineHeadRoute><RwdMhImportPage /></MachineHeadRoute>} />
+          <Route path="/machine-head/6hi/import" element={<MachineHeadRoute><SixHiMhImportPage /></MachineHeadRoute>} />
+          <Route path="/machine-head/4hi/import" element={<MachineHeadRoute><FourHiMhImportPage /></MachineHeadRoute>} />
+          <Route path="/machine-head/2hi/import" element={<MachineHeadRoute><TwoHiMhImportPage /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/live" element={<MachineHeadRoute><PklMhLiveDashboard /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/coil/:coilNo" element={<MachineHeadRoute><PklMhCoilDetailPage /></MachineHeadRoute>} />
           <Route path="/machine-head/pkl/specs" element={<MachineHeadRoute><PklSpecAdmin /></MachineHeadRoute>} />
-          <Route path="/machine-head/hrs/live" element={<MachineHeadRoute><ProcessLineLiveDashboard line="HRS" /></MachineHeadRoute>} />
+          <Route path="/machine-head/hrs/live" element={<MachineHeadRoute><HrsMhLiveDashboard /></MachineHeadRoute>} />
           <Route path="/machine-head/hrs/coil/:coilNo" element={<MachineHeadRoute><HrsMhCoilDetailPage /></MachineHeadRoute>} />
           <Route path="/machine-head/rwd/live" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR, UserRole.OPERATOR]}><RwdMhLiveDashboard /></MachineHeadRoute>} />
           <Route path="/machine-head/rwd/coil/:batchNo" element={<MachineHeadRoute allow={[UserRole.SUPERVISOR, UserRole.OPERATOR]}><RwdMhCoilDetailPage /></MachineHeadRoute>} />
@@ -423,6 +444,9 @@ function AppRoutes() {
             <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
             <Route path="chart" element={<PklChartPage />} />
             <Route path="charge/:chargeNo" element={<AnnChargePage />} />
+            <Route path="batching" element={<AnnOperatorBatchingPage />} />
+            <Route path="orders" element={<AnnOperatorOrdersPage />} />
+            <Route path="stoppage" element={<AnnOperatorStoppagePage />} />
             <Route path="history" element={<ProcessOperatorHistoryPage />} />
             <Route path="handover" element={<ScopeHandoverRoute />} />
             <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
@@ -431,6 +455,7 @@ function AppRoutes() {
             <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />
             <Route path="skinpass/order/:batchNo" element={<SixHiOrderPage />} />
             <Route path="rewinding/:coilNo" element={<TwoHiRewindingCapturePage />} />
+            <Route path="*" element={<UserScopeCatchAll />} />
           </Route>
 
           <Route path="*" element={<UnknownRouteRedirect />} />

@@ -8,6 +8,7 @@ import { OrderSpecReference } from '../orders/OrderSpecReference';
 import { SixHiOrderWorkspace } from '../sixHi/SixHiOrderWorkspace';
 import { OrderProductionHistory } from '../sixHi/OrderProductionHistory';
 import { useEffect, useState } from 'react';
+import { overlayClass } from '../../lib/nativeOverlay';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { apiClient } from '../../lib/apiClient';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
@@ -104,7 +105,7 @@ export function OrderDetailModal({ order, open, onClose, loading }: OrderDetailM
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-12">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className={overlayClass('absolute inset-0 bg-black/40', 'backdrop-blur-sm')} onClick={onClose} aria-hidden />
       
       <div
         className="relative bg-background border border-border shadow-2xl rounded-2xl w-full max-w-4xl max-h-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"

@@ -14,7 +14,7 @@ import {
   endOrderImmediate,
   endStoppage,
   patchManualStoppage,
-  rejectOrder,
+  rejectOrderImmediate,
   rollChange,
   startCombinedOrdersImmediate,
   startManualStoppage,
@@ -61,6 +61,18 @@ function manualStoppageAsOrderStoppage(active: ManualStoppageState['active']): S
   };
 }
 
+/** Pull active batch from 409 body / ACTIVE_ORDER_CONFLICT:xxx message. */
+function resolveConflictBatch(err: ApiError): string | undefined {
+  const body = err.body;
+  if (body && typeof body === 'object' && body !== null) {
+    const n = (body as { activeBatchNumber?: unknown }).activeBatchNumber;
+    if (typeof n === 'string' && n.trim()) return n.trim();
+  }
+  const fromMsg = err.message.match(/ACTIVE_ORDER_CONFLICT:(\S+)/i);
+  if (fromMsg?.[1]) return fromMsg[1].trim();
+  return undefined;
+}
+
 export function SixHiLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -77,29 +89,19 @@ export function SixHiLayout() {
   // Empty catalogue → OrderStoppageModal falls back to legacy stoppage_category
   const millStoppageCodes = machineStoppageCodes.length > 0 ? machineStoppageCodes : undefined;
 
-  const {
-    workspaceOpen,
-    workspaceBatch,
-    panelOrder,
-    combinedRun,
-    combinedSelectedBatches,
-    busy,
-    openWorkspace,
-    closeWorkspace,
-    runOrderAction,
-    refreshMachineState,
-    loadShiftSummary,
-    machineActive,
-    setMachineCode,
-    stoppageModalBatch,
-    closeStoppageDialog,
-    openStoppageDialog,
-    manualStoppage,
-    setCombinedRun,
-    manualOrderOpen,
-    closeManualOrder,
-    requestQueueRefresh,
-  } = useSixHiStore();
+  const workspaceOpen = useSixHiStore((s) => s.workspaceOpen);
+  const workspaceBatch = useSixHiStore((s) => s.workspaceBatch);
+  const panelOrder = useSixHiStore((s) => s.panelOrder);
+  const combinedRun = useSixHiStore((s) => s.combinedRun);
+  const combinedSelectedBatches = useSixHiStore((s) => s.combinedSelectedBatches);
+  const busy = useSixHiStore((s) => s.busy);
+  const closeWorkspace = useSixHiStore((s) => s.closeWorkspace);
+  const machineActive = useSixHiStore((s) => s.machineActive);
+  const stoppageModalBatch = useSixHiStore((s) => s.stoppageModalBatch);
+  const closeStoppageDialog = useSixHiStore((s) => s.closeStoppageDialog);
+  const manualStoppage = useSixHiStore((s) => s.manualStoppage);
+  const manualOrderOpen = useSixHiStore((s) => s.manualOrderOpen);
+  const closeManualOrder = useSixHiStore((s) => s.closeManualOrder);
 
   const [rejectionOpen, setRejectionOpen] = useState(false);
   const [rejectionBatch, setRejectionBatch] = useState<string | null>(null);
@@ -153,7 +155,7 @@ export function SixHiLayout() {
         if (Date.now() >= crewSnoozeUntil) setCrewPrompt({ sessionId: sid });
       }
       await bootstrapShiftContext(pathMill);
-      await refreshMachineState();
+      await useSixHiStore.getState().refreshMachineState();
       setActionError(null);
       setStartError(null);
     } catch (err) {
@@ -173,17 +175,17 @@ export function SixHiLayout() {
   };
 
   useEffect(() => {
-    setMachineCode(pathMill);
+    useSixHiStore.getState().setMachineCode(pathMill);
     setCrewPendingSessionId(null);
     setCrewPrompt(null);
     setCrewSnoozeUntil(0);
-  }, [pathMill, setMachineCode]);
+  }, [pathMill]);
 
   useEffect(() => {
     async function init() {
       try {
         if (!canWriteMachine(role, machineAccess, pathMill)) {
-          await refreshMachineState();
+          await useSixHiStore.getState().refreshMachineState();
           return;
         }
         // Ensure session first so /shifts/current?machine= pins to ACTIVE (not clock).
@@ -213,14 +215,14 @@ export function SixHiLayout() {
           producedMt: data.producedMt,
           processLine: CRM_SHIFT_PROCESS_CODE,
         });
-        if (data.shiftLogId) await loadShiftSummary(data.shiftLogId);
+        if (data.shiftLogId) await useSixHiStore.getState().loadShiftSummary(data.shiftLogId);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) logout();
       }
-      await refreshMachineState();
+      await useSixHiStore.getState().refreshMachineState();
     }
     init();
-  }, [pathMill, activeMachine, role, machineAccess, loadShiftSummary, refreshMachineState, logout]);
+  }, [pathMill, activeMachine, role, machineAccess, logout]);
 
   // Tablet left open past grace: re-ensure session when the tab becomes visible again.
   useEffect(() => {
@@ -236,18 +238,18 @@ export function SixHiLayout() {
 
   useEffect(() => {
     return subscribeProductionChanged(() => {
-      void refreshMachineState();
+      void useSixHiStore.getState().refreshMachineState();
     });
-  }, [refreshMachineState]);
+  }, []);
 
   useEffect(() => {
     const openBatch = searchParams.get('open');
     if (openBatch) {
-      openWorkspace(openBatch);
+      useSixHiStore.getState().openWorkspace(openBatch);
       searchParams.delete('open');
       setSearchParams(searchParams, { replace: true });
     }
-  }, [searchParams, setSearchParams, openWorkspace]);
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     useSixHiStore.setState({
@@ -307,10 +309,31 @@ export function SixHiLayout() {
     if (!activeBatch) return;
     if (combinedRun && pickedBatches.length === 0) return;
     setStartError(null);
+
+    const startPrimary = pickedPrimary ?? activeBatch;
+    const startBatch = pickedBatches[0] ?? startPrimary;
+    const startSet = new Set(
+      (pickedBatches.length >= 2 ? pickedBatches : [startBatch]).map((b) => b.trim()),
+    );
+
+    // Local gate — avoid opaque 409 when another CRM/run owns the mill.
+    // PREPARING / ON_HOLD Manual Re-Roll does not block CRM Start (server assert matches).
+    const machineActive = useSixHiStore.getState().machineActive;
+    const localActive = machineActive?.batchNumber?.trim();
+    const rerollAllowsCrmStart = machineActive?.subProcess === 'MANUAL_REROLL'
+      && (machineActive.status === 'PREPARING' || machineActive.status === 'ON_HOLD');
+    if (localActive && !rerollAllowsCrmStart && !startSet.has(localActive)) {
+      setStartError({
+        message: machineActive?.subProcess === 'MANUAL_REROLL'
+          ? `Manual Re-Roll (${localActive}) is already active on this machine. End it before starting production.`
+          : `Order ${localActive} is already active on this machine. End or reject it before starting another.`,
+        activeBatch: localActive,
+      });
+      return;
+    }
+
     try {
-      const startPrimary = pickedPrimary ?? activeBatch;
-      const startBatch = pickedBatches[0] ?? startPrimary;
-      await runOrderAction(startPrimary, async () => {
+      await useSixHiStore.getState().runOrderAction(startPrimary, async () => {
         if (pickedBatches.length >= 2) {
           const { orders } = await startCombinedOrdersImmediate(pickedBatches);
           return orders.find((o) => o.batchNumber === startBatch) ?? orders[0];
@@ -320,15 +343,25 @@ export function SixHiLayout() {
       // After start: matching list becomes the started subset (leftovers stay in queue).
       if (combinedRun && pickedBatches.length >= 2) {
         const started = buildCombinedRunFromSelected(combinedRun, pickedBatches);
-        setCombinedRun(started, { selectedBatches: pickedBatches });
+        useSixHiStore.getState().setCombinedRun(started, { selectedBatches: pickedBatches });
       } else {
-        setCombinedRun(null);
+        useSixHiStore.getState().setCombinedRun(null);
       }
-      if (shiftLogId) await loadShiftSummary(shiftLogId);
+      if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { activeBatchNumber?: string } | undefined;
-        const activeBatchNumber = body?.activeBatchNumber;
+        let activeBatchNumber = resolveConflictBatch(err);
+        if (!activeBatchNumber) {
+          try {
+            const active = await apiClient.get<{ batchNumber?: string } | null>(
+              `/6hi/active-order?machine=${encodeURIComponent(pathMill)}`,
+            );
+            activeBatchNumber = active?.batchNumber?.trim() || undefined;
+            void useSixHiStore.getState().refreshMachineState();
+          } catch {
+            /* keep unknown */
+          }
+        }
         setStartError({
           message: `Order ${activeBatchNumber ?? 'unknown'} is already active on this machine. End or reject it before starting another.`,
           activeBatch: activeBatchNumber,
@@ -357,7 +390,7 @@ export function SixHiLayout() {
   const handleStoppage = () => {
     if (!activeBatch) return;
     setActionError(null);
-    void openStoppageDialog(activeBatch).catch((err) => {
+    void useSixHiStore.getState().openStoppageDialog(activeBatch).catch((err) => {
       setActionError(err instanceof Error ? err.message : 'Stoppage unavailable');
     });
   };
@@ -380,7 +413,7 @@ export function SixHiLayout() {
         },
         onRemark: () => setRemarkOpen(true),
         onStoppage: handleStoppage,
-        onViewOrder: () => openWorkspace(panelOrder.batchNumber),
+        onViewOrder: () => useSixHiStore.getState().openWorkspace(panelOrder.batchNumber),
         onCloseWorkspace: workspaceOpen ? closeWorkspace : undefined,
       }
     : null;
@@ -446,20 +479,19 @@ export function SixHiLayout() {
                 // Form intent always wins — DB may only have partial/legacy per-order weights.
                 combinedActualMt = intent ?? fromDb;
               }
-              await runOrderAction(
+              await useSixHiStore.getState().runOrderAction(
                 activeBatch,
                 async () => endOrderImmediate(activeBatch, defectCodes, combinedActualMt),
                 { optimisticEndBatchNumbers: actionBatchNumbers },
               );
-              if (shiftLogId) await loadShiftSummary(shiftLogId);
-              setCombinedRun(null);
+              if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
+              useSixHiStore.getState().setCombinedRun(null);
               closeWorkspace();
             } catch (err) {
               if (err instanceof ApiError && err.status === 400) {
                 setStartError({ message: err.message });
-              } else {
-                throw err;
               }
+              throw err;
             }
           }}
         />
@@ -482,11 +514,11 @@ export function SixHiLayout() {
             throw new Error('No order selected for hold');
           }
           // Server cascades hold across combined_group_id — post once for the triggered batch.
-          await runOrderAction(target, async () =>
-            rejectOrder(target, { rejectionReason, defectCodes, remarks }),
+          await useSixHiStore.getState().runOrderAction(target, async () =>
+            rejectOrderImmediate(target, { rejectionReason, defectCodes, remarks }),
           );
-          if (shiftLogId) await loadShiftSummary(shiftLogId);
-          setCombinedRun(null);
+          if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
+          useSixHiStore.getState().setCombinedRun(null);
           setRejectionBatch(null);
           closeWorkspace();
         }}
@@ -505,7 +537,7 @@ export function SixHiLayout() {
                 variant="secondary"
                 size="sm"
                 onClick={() => {
-                  openWorkspace(startError.activeBatch!);
+                  useSixHiStore.getState().openWorkspace(startError.activeBatch!);
                   setStartError(null);
                 }}
               >
@@ -557,33 +589,33 @@ export function SixHiLayout() {
           onStart={async (categoryCode, breakdownCode, remarks) => {
             // Server cascades stoppage across combined_group_id — post once.
             const target = stoppageBatch;
-            await runOrderAction(target, async () =>
+            await useSixHiStore.getState().runOrderAction(target, async () =>
               startStoppage(target, { categoryCode, breakdownCode, remarks }),
             );
-            if (shiftLogId) await loadShiftSummary(shiftLogId);
+            if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
           }}
           onUpdate={async (stoppageId, categoryCode, breakdownCode, remarks) => {
             const target = stoppageBatch;
-            await runOrderAction(target, async () =>
+            await useSixHiStore.getState().runOrderAction(target, async () =>
               updateStoppage(target, stoppageId, {
                 categoryCode, breakdownCode, remarks,
               }),
             );
-            if (shiftLogId) await loadShiftSummary(shiftLogId);
+            if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
           }}
           onEnd={async (stoppageId, categoryCode, breakdownCode, remarks) => {
             const target = stoppageBatch;
-            await runOrderAction(target, async () => {
+            await useSixHiStore.getState().runOrderAction(target, async () => {
               await updateStoppage(target, stoppageId, {
                 categoryCode, breakdownCode, remarks,
               });
               return endStoppage(target, stoppageId);
             });
-            if (shiftLogId) await loadShiftSummary(shiftLogId);
+            if (shiftLogId) await useSixHiStore.getState().loadShiftSummary(shiftLogId);
           }}
           onRollChange={async (data) => {
             // Server cascades roll changes across the combined group.
-            await runOrderAction(stoppageBatch, () =>
+            await useSixHiStore.getState().runOrderAction(stoppageBatch, () =>
               rollChange(stoppageBatch, data),
             );
           }}
@@ -607,18 +639,18 @@ export function SixHiLayout() {
         onClose={() => setManualStoppageOpen(false)}
         onStart={async (categoryCode, breakdownCode, remarks) => {
           await startManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
-          await refreshMachineState();
+          await useSixHiStore.getState().refreshMachineState();
           invalidateAfterWrite();
         }}
         onUpdate={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
           await patchManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
-          await refreshMachineState();
+          await useSixHiStore.getState().refreshMachineState();
           invalidateAfterWrite();
         }}
         onEnd={async (_stoppageId, categoryCode, breakdownCode, remarks) => {
           await patchManualStoppage(pathMill, { categoryCode, breakdownCode, remarks });
           await endManualStoppage(pathMill);
-          await refreshMachineState();
+          await useSixHiStore.getState().refreshMachineState();
           invalidateAfterWrite();
         }}
         onRollChange={async (data) => {
@@ -630,7 +662,7 @@ export function SixHiLayout() {
             remarks: active.reason,
             rollChange: data,
           });
-          await refreshMachineState();
+          await useSixHiStore.getState().refreshMachineState();
           invalidateAfterWrite();
         }}
       />
@@ -640,7 +672,7 @@ export function SixHiLayout() {
           open={manualOrderOpen}
           defaultMachine="2HI"
           onClose={closeManualOrder}
-          onCreated={() => requestQueueRefresh()}
+          onCreated={() => useSixHiStore.getState().requestQueueRefresh()}
         />
       ) : (
         <SixHiManualOrderModal />
@@ -705,7 +737,7 @@ export function SixHiLayout() {
           onClose={() => setRemarkOpen(false)}
           onSave={async (text, defects) => {
             // Server cascades remarks across combined_group_id — post once.
-            await runOrderAction(activeBatch, async () =>
+            await useSixHiStore.getState().runOrderAction(activeBatch, async () =>
               addOrderRemark(activeBatch, text, defects),
             );
             setRemarkOpen(false);

@@ -95,6 +95,7 @@ export function AnnMhLiveDashboard() {
                   key={row.base_no}
                   row={row}
                   onOpen={(cn) => navigate(`/machine-head/ann/charge/${encodeURIComponent(cn)}`)}
+                  onOpenBase={() => navigate('/machine-head/ann/batching')}
                 />
               ))}
             </div>

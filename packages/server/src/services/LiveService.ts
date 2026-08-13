@@ -751,7 +751,7 @@ export class LiveService {
       .leftJoin('txn.crm_rolling as r', 'r.order_id', 'o.order_id')
       .leftJoin('txn.crm_skinpass as s', 's.order_id', 'o.order_id')
       .select([
-        'pb.batch_number', 'pb.coil_no', 'pb.customer_name', 'pb.grade_code', 'pb.sub_process',
+        'pb.batch_number', 'pb.coil_no', 'pb.slit_id', 'pb.customer_name', 'pb.grade_code', 'pb.sub_process',
         'pb.ppc_weight_mt', 'pb.ppc_thk_mm', 'pb.input_thk_mm',
         'o.status', 'o.prod_start_at', 'o.prod_duration_min',
         'r.actual_weight_mt as rolling_actual',
@@ -773,6 +773,8 @@ export class LiveService {
       return {
         batchNumber: row.batch_number,
         coilNo: row.coil_no ?? undefined,
+        motherCoil: row.coil_no ?? undefined,
+        slitId: row.slit_id ?? undefined,
         customer: row.customer_name,
         grade: row.grade_code,
         subProcess: row.sub_process,
@@ -789,6 +791,9 @@ export class LiveService {
       const summary = activeOrderSummaries[0];
       currentOrder = {
         batchNumber: summary.batchNumber,
+        motherCoil: summary.motherCoil,
+        coilNo: summary.coilNo,
+        slitId: summary.slitId,
         customer: summary.customer,
         grade: summary.grade,
         subProcess: summary.subProcess,
@@ -840,6 +845,8 @@ export class LiveService {
       .innerJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .select([
         'pb.batch_number',
+        'pb.coil_no',
+        'pb.slit_id',
         'pb.customer_name',
         'pb.ppc_weight_mt',
         'pb.sub_process',
@@ -857,6 +864,8 @@ export class LiveService {
       .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
       .select([
         'pb.batch_number',
+        'pb.coil_no',
+        'pb.slit_id',
         'pb.customer_name',
         'pb.ppc_weight_mt',
         'pb.sub_process',
@@ -885,6 +894,9 @@ export class LiveService {
       nextOrder: nextOrder ?? undefined,
       orderQueue: orderQueue.map((q) => ({
         batchNumber: q.batch_number,
+        motherCoil: q.coil_no ?? undefined,
+        coilNo: q.coil_no ?? undefined,
+        slitId: q.slit_id ?? undefined,
         customer: q.customer_name,
         status: q.status,
         weightMt: Number(q.ppc_weight_mt),
@@ -892,6 +904,9 @@ export class LiveService {
       })),
       completedOrders: completedOrders.map((c) => ({
         batchNumber: c.batch_number,
+        motherCoil: c.coil_no ?? undefined,
+        coilNo: c.coil_no ?? undefined,
+        slitId: c.slit_id ?? undefined,
         customer: c.customer_name,
         completedAt: c.prod_end_at ? new Date(c.prod_end_at).toISOString() : '',
         weightMt: Number(c.ppc_weight_mt),
@@ -904,7 +919,7 @@ export class LiveService {
   static async getNextOrder(machineCode: string) {
     const row = await db.selectFrom('planning.ppc_batch as pb')
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
-      .select(['pb.batch_number', 'pb.customer_name', 'pb.queue_seq', 'pb.ppc_weight_mt', 'pb.sub_process'])
+      .select(['pb.batch_number', 'pb.coil_no', 'pb.slit_id', 'pb.customer_name', 'pb.queue_seq', 'pb.ppc_weight_mt', 'pb.sub_process'])
       .where('pb.machine_code', '=', machineCode)
       .where('pb.machine_allocated', '=', true)
       .where((eb) => eb.or([
@@ -916,6 +931,9 @@ export class LiveService {
     if (!row) return null;
     return {
       batchNumber: row.batch_number,
+      motherCoil: row.coil_no ?? undefined,
+      coilNo: row.coil_no ?? undefined,
+      slitId: row.slit_id ?? undefined,
       customer: row.customer_name,
       queuePosition: row.queue_seq ?? 1,
       weightMt: Number(row.ppc_weight_mt),

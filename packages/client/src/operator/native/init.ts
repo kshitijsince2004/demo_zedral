@@ -6,6 +6,14 @@ import { startSyncEngine } from '../sync/engine';
 
 export const isNative = () => Capacitor.isNativePlatform();
 
+let offlineReady = false;
+let resolveOfflineReady: () => void;
+/** Resolves once initDb() has settled (success or failure) and the sync engine is armed. */
+export const offlineReadyPromise = new Promise<void>((resolve) => {
+  resolveOfflineReady = resolve;
+});
+export const isOfflineReady = () => offlineReady;
+
 export async function initNative(): Promise<void> {
   try {
     await initDb();
@@ -15,6 +23,8 @@ export async function initNative(): Promise<void> {
 
   startNetworkQualityProbe();
   startSyncEngine();
+  offlineReady = true;
+  resolveOfflineReady();
 
   if (isNative()) {
     try {

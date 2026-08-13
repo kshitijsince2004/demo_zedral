@@ -40,6 +40,7 @@ vi.mock('../src/services/ManualRerollService', () => ({
     listClaimedBatchNumbers: (...args: unknown[]) => mockClaimed(...args),
     getActiveSession: (...args: unknown[]) => mockActive(...args),
     getProductionSummary: (...args: unknown[]) => mockSummary(...args),
+    getOverlay: vi.fn(async () => []),
     holdSession: vi.fn(),
     resumeSession: vi.fn(),
   },
@@ -295,6 +296,16 @@ describe('manualRerollRoutes auth matrix', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/completed Manual Re-Roll/i);
+    expect(mockPrepare).not.toHaveBeenCalled();
+  });
+
+  it('rejects 2HI machine with 400', async () => {
+    const res = await request(app).post('/manual-reroll/sessions').send({
+      machine: '2HI',
+      batchNumber: 'B-1',
+      rerollQuantity: 1.5,
+    });
+    expect(res.status).toBe(400);
     expect(mockPrepare).not.toHaveBeenCalled();
   });
 });

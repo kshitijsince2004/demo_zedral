@@ -25,11 +25,12 @@ export function useManualRerollEntry(machineCode: string) {
   const { enabled, loading } = useTenantFlag('mode.manual_reroll');
   const role = useAuthStore((s) => s.role);
   const machineAccess = useAuthStore((s) => s.machineAccess);
+  const millOk = machineCode === '6HI' || machineCode === '4HI';
   return {
     ...manualRerollUiFlags({
       flagOn: enabled,
       role,
-      hasMachineAccess: isCrmMillCode(machineCode) || canAccessMachine(role, machineAccess, machineCode),
+      hasMachineAccess: millOk && (isCrmMillCode(machineCode) || canAccessMachine(role, machineAccess, machineCode)),
     }),
     loading,
   };

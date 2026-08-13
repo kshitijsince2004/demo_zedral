@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardList, X } from 'lucide-react';
 import { apiClient } from '../../lib/apiClient';
 import { currentPlantDate, formatPlantDateTime, formatShiftDate } from '../../lib/dateFormat';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
@@ -8,10 +8,12 @@ import { MachineHeadShell } from '../../components/layout/machinehead/MachineHea
 import { ZButton } from '../../components/primitives/ZButton';
 import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 import { isAnnMhDesk, useMhDeskFocus } from '../../lib/annMhDesk';
-import { isPklMhDesk } from '../../lib/pklMhDesk';
+import { isHrsMhDesk, isPklMhDesk } from '../../lib/pklMhDesk';
 import { AnnShiftReviewPanel } from '../../components/process/AnnShiftReviewPanel';
+import { HrsShiftReviewPanel } from '../../components/process/HrsShiftReviewPanel';
 import { PklShiftReviewPanel } from '../../components/process/PklShiftReviewPanel';
 import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
+import { overlayClass } from '../../lib/nativeOverlay';
 import {
   COMPLETED_STATES,
   SHIFT_ORDER,
@@ -122,14 +124,16 @@ export function PlantShiftReviewPage() {
   const deskFocus = useMhDeskFocus((s) => s.focus);
   const annDesk = isAnnMhDesk(machineAccess, deskFocus);
   const pklDesk = isPklMhDesk(machineAccess, deskFocus);
+  const hrsDesk = isHrsMhDesk(machineAccess, deskFocus);
 
   useEffect(() => {
     if (annDesk) setFilterMachine('ANN');
     if (pklDesk) setFilterMachine('PKL');
-  }, [annDesk, pklDesk]);
+    if (hrsDesk) setFilterMachine('HRS');
+  }, [annDesk, pklDesk, hrsDesk]);
 
   const resolveActiveShift = useCallback(() => {
-    const machine = annDesk ? 'ANN' : pklDesk ? 'PKL' : machineAccess[0];
+    const machine = annDesk ? 'ANN' : pklDesk ? 'PKL' : hrsDesk ? 'HRS' : machineAccess[0];
     void bootstrapShiftContext(machine)
       .then((shift) => {
         const prodDate = formatShiftDate(shift.prodDate);
@@ -147,7 +151,7 @@ export function PlantShiftReviewPage() {
         setActiveShiftCode(null);
         setCurrentShiftLabel(`${currentPlantDate()} · Shift detection unavailable`);
       });
-  }, [annDesk, pklDesk, machineAccess, shiftPinnedToActive]);
+  }, [annDesk, pklDesk, hrsDesk, machineAccess, shiftPinnedToActive]);
 
   useEffect(() => {
     resolveActiveShift();
@@ -158,6 +162,7 @@ export function PlantShiftReviewPage() {
   const machineOptions = useMemo(() => {
     if (annDesk) return ['ANN'];
     if (pklDesk) return ['PKL'];
+    if (hrsDesk) return ['HRS'];
     if (role === 'MACHINE_HEAD') return machineAccess;
     const all = new Set<string>();
     for (const log of logs) {
@@ -166,7 +171,7 @@ export function PlantShiftReviewPage() {
       if (log.millType) all.add(log.millType);
     }
     return [...all].sort();
-  }, [annDesk, pklDesk, logs, machineAccess, role]);
+  }, [annDesk, pklDesk, hrsDesk, logs, machineAccess, role]);
 
   const logsByDay = useMemo(() => {
     const map = new Map<string, ShiftLogRow[]>();
@@ -310,18 +315,9 @@ export function PlantShiftReviewPage() {
     });
   }, [annDesk, logs]);
 
-  const pklLogs = useMemo(() => {
-    if (!pklDesk) return [];
-    return logs.filter((log) => {
-      const codes = [log.machine, log.millType, log.processLine, ...(log.machines ?? [])]
-        .filter(Boolean)
-        .map((m) => String(m).toUpperCase());
-      return codes.includes('PKL') || log.processLine?.toUpperCase() === 'PKL';
-    });
-  }, [pklDesk, logs]);
-
   const [annSelectedLogId, setAnnSelectedLogId] = useState<string | null>(null);
-  const [pklSelectedLogId, setPklSelectedLogId] = useState<string | null>(null);
+  const [hrsPopupLog, setHrsPopupLog] = useState<ShiftLogRow | null>(null);
+  const [pklPopupLog, setPklPopupLog] = useState<ShiftLogRow | null>(null);
 
   useEffect(() => {
     if (!annDesk) return;
@@ -334,62 +330,14 @@ export function PlantShiftReviewPage() {
     setAnnSelectedLogId(active?.id ?? annLogs[0]?.id ?? null);
   }, [annDesk, annLogs, annSelectedLogId, activeProdDate, activeShiftCode]);
 
-  useEffect(() => {
-    if (!pklDesk) return;
-    if (pklSelectedLogId && pklLogs.some((l) => l.id === pklSelectedLogId)) return;
-    const active = activeProdDate && activeShiftCode
-      ? pklLogs.find(
-        (l) => formatShiftDate(l.shiftDate) === activeProdDate && l.shiftCode === activeShiftCode,
-      )
-      : null;
-    setPklSelectedLogId(active?.id ?? pklLogs[0]?.id ?? null);
-  }, [pklDesk, pklLogs, pklSelectedLogId, activeProdDate, activeShiftCode]);
-
-  if (pklDesk) {
-    return (
-      <MachineHeadShell
-        title="PKL Shift Review"
-        subtitle={currentShiftLabel ? `Active: ${currentShiftLabel}` : 'Pickling shift review'}
-        headerActions={<DataFreshnessBadge />}
-      >
-        <div className="flex flex-col gap-4 max-w-5xl">
-          <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Shift log
-            <select
-              value={pklSelectedLogId ?? ''}
-              onChange={(e) => setPklSelectedLogId(e.target.value || null)}
-              className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm font-mono"
-            >
-              {pklLogs.length === 0 && <option value="">No PKL logs</option>}
-              {pklLogs.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {formatShiftDate(l.shiftDate)} · {l.shiftCode} · {l.state}
-                </option>
-              ))}
-            </select>
-          </label>
-          {error && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          ) : (
-            <>
-              <PklShiftReviewPanel shiftLogId={pklSelectedLogId} />
-              {pklSelectedLogId && (
-                <ShiftCompleteForm
-                  shiftLogId={pklSelectedLogId}
-                  onCompleted={() => void load()}
-                />
-              )}
-            </>
-          )}
-        </div>
-      </MachineHeadShell>
-    );
-  }
+  const pageTitle = pklDesk ? 'PKL Shift Review' : 'Shift Review';
+  const pageSubtitle = pklDesk
+    ? (currentShiftLabel
+      ? `Active: ${currentShiftLabel} — also lists previous production days`
+      : 'Pickling — active and previous-date shifts')
+    : (currentShiftLabel
+      ? `Active: ${currentShiftLabel} — also lists previous production days`
+      : 'Active and previous-date shifts — open a row for production summary');
 
   if (annDesk) {
     return (
@@ -483,12 +431,8 @@ export function PlantShiftReviewPage() {
 
   return (
     <MachineHeadShell
-      title="Shift Review"
-      subtitle={
-        currentShiftLabel
-          ? `Active: ${currentShiftLabel} — also lists previous production days`
-          : 'Active and previous-date shifts — open a row for production summary'
-      }
+      title={pageTitle}
+      subtitle={pageSubtitle}
       headerActions={<DataFreshnessBadge />}
     >
       <div className="flex flex-col gap-6 max-w-5xl">
@@ -556,7 +500,7 @@ export function PlantShiftReviewPage() {
             <select
               value={filterMachine}
               onChange={(e) => setFilterMachine(e.target.value)}
-              disabled={annDesk}
+              disabled={annDesk || pklDesk || hrsDesk}
               className="mt-1 block w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm disabled:opacity-70"
             >
               {!annDesk && <option value="">All machines</option>}
@@ -674,7 +618,17 @@ export function PlantShiftReviewPage() {
                     >
                       <button
                         type="button"
-                        onClick={() => void toggleReview(log)}
+                        onClick={() => {
+                          if (hrsDesk) {
+                            setHrsPopupLog(log);
+                            return;
+                          }
+                          if (pklDesk) {
+                            setPklPopupLog(log);
+                            return;
+                          }
+                          void toggleReview(log);
+                        }}
                         className="w-full text-left"
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -709,7 +663,7 @@ export function PlantShiftReviewPage() {
                         </div>
                       </button>
 
-                      {expandedId === key && (
+                      {expandedId === key && !hrsDesk && !pklDesk && (
                         <div className="mt-3 rounded-xl border border-border bg-muted/10 p-4">
                           {reviewLoadingId === key ? (
                             <p className="text-sm text-muted-foreground">Loading shift summary…</p>
@@ -751,6 +705,90 @@ export function PlantShiftReviewPage() {
           })}
         </div>
       </div>
+
+      {hrsPopupLog && (
+        <>
+          <button
+            type="button"
+            className={overlayClass('fixed inset-0 z-[100] bg-primary/50', 'backdrop-blur-[2px]')}
+            onClick={() => setHrsPopupLog(null)}
+            aria-label="Close"
+          />
+          <div
+            className="fixed left-1/2 top-1/2 z-[105] w-full max-w-2xl max-h-[85vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-2xl"
+            role="dialog"
+            aria-labelledby="hrs-shift-review-title"
+          >
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  HRS shift review
+                </p>
+                <h2 id="hrs-shift-review-title" className="font-mono text-lg font-bold mt-1">
+                  {formatShiftDate(hrsPopupLog.shiftDate)} · Shift {hrsPopupLog.shiftCode}
+                </h2>
+              </div>
+              <ZButton type="button" variant="ghost" size="sm" onClick={() => setHrsPopupLog(null)} className="!h-10 !w-10 !min-h-10 !px-0" aria-label="Close">
+                <X className="h-5 w-5" />
+              </ZButton>
+            </div>
+            <HrsShiftReviewPanel shiftLogId={hrsPopupLog.id} />
+            {isActiveState(hrsPopupLog.state) && (
+              <div className="mt-4">
+                <ShiftCompleteForm
+                  shiftLogId={hrsPopupLog.id}
+                  onCompleted={() => {
+                    setHrsPopupLog(null);
+                    void load();
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {pklPopupLog && (
+        <>
+          <button
+            type="button"
+            className={overlayClass('fixed inset-0 z-[100] bg-primary/50', 'backdrop-blur-[2px]')}
+            onClick={() => setPklPopupLog(null)}
+            aria-label="Close"
+          />
+          <div
+            className="fixed left-1/2 top-1/2 z-[105] w-full max-w-3xl max-h-[85vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-2xl"
+            role="dialog"
+            aria-labelledby="pkl-shift-review-title"
+          >
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  PKL shift review
+                </p>
+                <h2 id="pkl-shift-review-title" className="font-mono text-lg font-bold mt-1">
+                  {formatShiftDate(pklPopupLog.shiftDate)} · Shift {pklPopupLog.shiftCode}
+                </h2>
+              </div>
+              <ZButton type="button" variant="ghost" size="sm" onClick={() => setPklPopupLog(null)} className="!h-10 !w-10 !min-h-10 !px-0" aria-label="Close">
+                <X className="h-5 w-5" />
+              </ZButton>
+            </div>
+            <PklShiftReviewPanel shiftLogId={pklPopupLog.id} variant="full" />
+            {isActiveState(pklPopupLog.state) && (
+              <div className="mt-4">
+                <ShiftCompleteForm
+                  shiftLogId={pklPopupLog.id}
+                  onCompleted={() => {
+                    setPklPopupLog(null);
+                    void load();
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </MachineHeadShell>
   );
 }

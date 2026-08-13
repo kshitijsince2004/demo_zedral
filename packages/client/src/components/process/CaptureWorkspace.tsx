@@ -18,6 +18,7 @@ import { QcCapturePanel } from './QcCapturePanel';
 import { ProcessPPCCards } from './ProcessPPCCards';
 import { ProcessStatusBanner } from './ProcessStatusBanner';
 import type { MachineCrewMember } from '../../lib/machineCrewService';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 interface CaptureWorkspaceProps {
   processCode: string;
@@ -39,33 +40,22 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   const { basePath } = useProcessWorkspaceBase();
   const config = getProcessConfig(processCode);
   const { shiftLogId } = useShiftStore();
-  const {
-    activePrefill,
-    loadPrefill,
-    setActiveCoil,
-    requestQueueRefresh,
-    captureStatus,
-    defectPanelOpen,
-    crewPanelOpen,
-    closeDefectPanel,
-    closeCrewPanel,
-    closeRemarkPanel,
-    stoppageCode,
-    stoppageRemarks,
-    stoppageStartedAt,
-    setStoppageCode,
-    setStoppageRemarks,
-    startCapture,
-    pklGroupCoilNos,
-    pklGroupWeightMt,
-    advancePklGroup,
-    clearPklGroup,
-    endCaptureToken,
-    finishCapture,
-    queue,
-    stoppageManageToken,
-  } = useProcessStore();
-  const [prefill, setPrefill] = useState<Record<string, unknown>>(activePrefill ?? {});
+  const captureStatus = useProcessStore((s) => s.captureStatus);
+  const defectPanelOpen = useProcessStore((s) => s.defectPanelOpen);
+  const crewPanelOpen = useProcessStore((s) => s.crewPanelOpen);
+  const closeDefectPanel = useProcessStore((s) => s.closeDefectPanel);
+  const closeCrewPanel = useProcessStore((s) => s.closeCrewPanel);
+  const stoppageCode = useProcessStore((s) => s.stoppageCode);
+  const stoppageRemarks = useProcessStore((s) => s.stoppageRemarks);
+  const stoppageStartedAt = useProcessStore((s) => s.stoppageStartedAt);
+  const pklGroupCoilNos = useProcessStore((s) => s.pklGroupCoilNos);
+  const pklGroupWeightMt = useProcessStore((s) => s.pklGroupWeightMt);
+  const endCaptureToken = useProcessStore((s) => s.endCaptureToken);
+  const queue = useProcessStore((s) => s.queue);
+  const stoppageManageToken = useProcessStore((s) => s.stoppageManageToken);
+  const [prefill, setPrefill] = useState<Record<string, unknown>>(
+    () => useProcessStore.getState().activePrefill ?? {},
+  );
   const queueStatus = queue.find((c) => c.coilNo === coilNo)?.status;
   const isCompleted = queueStatus === 'COMPLETED';
 
@@ -107,9 +97,9 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     if (isCompleted) {
       closeDefectPanel();
       closeCrewPanel();
-      closeRemarkPanel();
+      useProcessStore.getState().closeRemarkPanel();
     }
-  }, [isCompleted, closeDefectPanel, closeCrewPanel, closeRemarkPanel]);
+  }, [isCompleted, closeDefectPanel, closeCrewPanel]);
 
   useEffect(() => {
     if (defectPanelOpen) {
@@ -122,8 +112,8 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
   useEffect(() => {
     // Keep hub-seeded orderLines until entry prefill returns (do not wipe to null).
     const seeded = useProcessStore.getState().activePrefill;
-    setActiveCoil(coilNo, seeded);
-    void loadPrefill(coilNo).then((p) => {
+    useProcessStore.getState().setActiveCoil(coilNo, seeded);
+    void useProcessStore.getState().loadPrefill(coilNo).then((p) => {
       const orderLines = (p as { orderLines?: unknown[] }).orderLines;
       const seededLines = (seeded as { orderLines?: unknown[] } | null)?.orderLines;
       if ((!orderLines || orderLines.length === 0) && seededLines?.length) {
@@ -136,18 +126,28 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     }).catch(() => {
       /* soft: missing line access must not block Start/End rail */
     });
-  }, [coilNo, loadPrefill, setActiveCoil]);
+  }, [coilNo]);
 
   // Rail End → OrderEndModal → form.requestSubmit (finalize only; Save uses draft endpoint).
   useEffect(() => {
     if (!endCaptureToken || isCompleted) return;
     const root = document.getElementById('process-capture-form');
     const form = root?.querySelector('form') ?? null;
-    if (form) {
-      form.requestSubmit();
+    if (!form) {
+      useProcessStore.getState().settleEndCaptureError(
+        'Capture form not ready — open Capture and try End again.',
+      );
+      root?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    root?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const onInvalid = () => {
+      useProcessStore.getState().settleEndCaptureError(
+        'Fix required capture fields before ending production.',
+      );
+    };
+    form.addEventListener('invalid', onInvalid, true);
+    form.requestSubmit();
+    return () => form.removeEventListener('invalid', onInvalid, true);
   }, [endCaptureToken, isCompleted]);
 
   const Body = config.bodyComponent;
@@ -185,6 +185,14 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
     route: fieldVal(prefill.routeRaw),
     batch: fieldVal(prefill.batchNumber),
   };
+
+  const coilIdentity = displayMotherCoilId({
+    motherCoilNo: ppc.motherCoilNo,
+    displayCoilNo: fieldVal(prefill.displayCoilNo),
+    coilNo,
+    batchNumber: ppc.batch ?? coilNo,
+    slitId: ppc.slitId,
+  });
 
   const stoppageActive = captureStatus === 'stoppage';
 
@@ -237,19 +245,21 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         machineCode={processCode}
         onSubmitted={() => {
           if (isCompleted) return;
-          requestQueueRefresh();
+          const store = useProcessStore.getState();
+          store.settleEndCaptureOk();
+          store.requestQueueRefresh();
           closeDefectPanel();
           closeCrewPanel();
-          closeRemarkPanel();
+          store.closeRemarkPanel();
           if (processCode === 'PKL') {
-            const next = advancePklGroup(coilNo);
+            const next = store.advancePklGroup(coilNo);
             if (next) {
               navigate(`${basePath}/capture/${encodeURIComponent(next)}`);
               return;
             }
-            clearPklGroup();
+            store.clearPklGroup();
           }
-          finishCapture();
+          store.finishCapture();
           navigate(isHrsOrPkl ? `${basePath}?status=COMPLETED` : basePath);
         }}
       />
@@ -262,7 +272,7 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
       <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-primary text-white h-16">
         <div className="flex items-center gap-3 min-w-0">
           <p className="text-base font-bold shrink-0">Production Console</p>
-          <span className="font-mono text-lg font-bold truncate">{coilNo}</span>
+          <span className="font-mono text-lg font-bold truncate">{coilIdentity}</span>
           <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/15">
             {processCode}
           </span>
@@ -321,20 +331,22 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
           startAt: stoppageStartedAt ?? new Date().toISOString(),
           remarks: stoppageRemarks,
         }}
-        subtitle={`${processCode} · ${coilNo}`}
+        subtitle={`${processCode} · ${coilIdentity}`}
         title="Manage Stoppage"
         stoppageCodes={stoppageCodes}
         stoppageCodesLoading={stoppageCodesLoading}
         onClose={() => setManageStoppageOpen(false)}
         onUpdate={async (_id, categoryCode, _breakdownCode, remarks) => {
-          setStoppageCode(toStoppageCategoryCode(categoryCode));
-          setStoppageRemarks(remarks ?? '');
+          const store = useProcessStore.getState();
+          store.setStoppageCode(toStoppageCategoryCode(categoryCode));
+          store.setStoppageRemarks(remarks ?? '');
         }}
         onEnd={async (_id, categoryCode, _breakdownCode, remarks) => {
-          setStoppageCode(toStoppageCategoryCode(categoryCode));
-          setStoppageRemarks(remarks ?? '');
+          const store = useProcessStore.getState();
+          store.setStoppageCode(toStoppageCategoryCode(categoryCode));
+          store.setStoppageRemarks(remarks ?? '');
           setManageStoppageOpen(false);
-          startCapture(coilNo);
+          store.startCapture(coilNo);
         }}
       />
 
@@ -409,7 +421,7 @@ export function CaptureWorkspace({ processCode, coilNo }: CaptureWorkspaceProps)
         onDone={closeCrewPanel}
         onSnooze={closeCrewPanel}
         title="Roster crew for this shift"
-        subtitle={`${processCode} · ${coilNo}`}
+        subtitle={`${processCode} · ${coilIdentity}`}
         onConfirm={async (members: MachineCrewMember[]) => {
           if (!shiftLogId) throw new Error('No active shift');
           await Promise.all(members.map((m) => submitOrQueue({

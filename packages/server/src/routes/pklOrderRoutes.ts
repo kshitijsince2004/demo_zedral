@@ -106,4 +106,14 @@ router.post('/orders/:coilNo/reinstate', async (req, res) => {
   }
 });
 
+router.delete('/orders/:coilNo', async (req, res) => {
+  try {
+    if (!authorizeLine(req, res, 'WRITE')) return;
+    const result = await PklOrderService.deleteOrder(req.params.coilNo, req.user!.id);
+    res.json(result);
+  } catch (e) {
+    respondError(res, 'pkl.delete', e);
+  }
+});
+
 export default router;

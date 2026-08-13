@@ -9,9 +9,12 @@ import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
 import { FieldWrapper } from '../../components/forms/FieldWrapper';
 import { formatPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
 import { useAuthStore } from '../../lib/authStore';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 type AssignmentOrder = {
   batchNumber: string;
+  motherCoil?: string;
+  slitId?: string;
   planDate: string;
   shiftCode: string;
   customer: string;
@@ -187,7 +190,7 @@ export function OrderAssignmentPanel() {
         machineCode: targetMachine,
         reason: reason.trim() || undefined,
       });
-      const failed = res.data?.results?.filter((r) => !r.ok) ?? [];
+      const failed = res.results?.filter((r) => !r.ok) ?? [];
       if (failed.length > 0) {
         setActionError(failed.map((f) => `${f.batchNumber}: ${f.error}`).join('; '));
       }
@@ -298,8 +301,15 @@ export function OrderAssignmentPanel() {
                     }}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="font-mono font-bold text-sm">{order.batchNumber}</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                      <div className="min-w-0">
+                        <span className="font-mono font-bold text-sm block truncate">
+                          {displayMotherCoilId(order)}
+                        </span>
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          Batch {order.batchNumber}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground shrink-0">
                         {order.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
                       </span>
                     </div>
@@ -335,7 +345,11 @@ export function OrderAssignmentPanel() {
               <>
                 {selectedOrders.length === 1 && primaryOrder && (
                   <div className="space-y-2 text-sm">
-                    <p><span className="text-muted-foreground">Order:</span> <span className="font-mono font-bold">{primaryOrder.batchNumber}</span></p>
+                    <p>
+                      <span className="text-muted-foreground">Order:</span>{' '}
+                      <span className="font-mono font-bold">{displayMotherCoilId(primaryOrder)}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono">Batch {primaryOrder.batchNumber}</p>
                     <p><span className="text-muted-foreground">Current:</span> <span className="font-semibold">{primaryOrder.currentMachine ?? 'Unassigned'}</span></p>
                   </div>
                 )}

@@ -6,6 +6,8 @@ import { Activity, AlertTriangle, Power, ShieldAlert, X } from 'lucide-react';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { formatPlantClock } from '../../lib/dateFormat';
 import { liveService } from '../../lib/liveService';
+import { overlayClass } from '../../lib/nativeOverlay';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 interface MachineDetailModalProps {
   open: boolean;
@@ -105,9 +107,12 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
   const machineName = detail?.machineName ?? machineData?.machineName ?? machineCode;
   const showCurrentOrder = !detail?.currentOrder
     || matchesProcess(detail.currentOrder.subProcess, processFilter);
-  const currentOrder = showCurrentOrder
-    ? (detail?.currentOrder?.batchNumber ?? machineData?.currentOrder)
+  const currentOrderLabel = showCurrentOrder
+    ? (detail?.currentOrder
+      ? displayMotherCoilId(detail.currentOrder)
+      : machineData?.currentOrder)
     : undefined;
+  const currentOrderBatch = showCurrentOrder ? detail?.currentOrder?.batchNumber : undefined;
   const operator = detail?.currentOperator ?? machineData?.currentOperator;
   const shift = detail?.shiftCode ?? machineData?.shiftCode;
   const utilization = detail?.utilization;
@@ -133,7 +138,7 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
+      <div className={overlayClass('fixed inset-0 z-40 bg-background/80 transition-opacity', 'backdrop-blur-sm')} onClick={onClose} />
       <div className="fixed inset-y-4 right-4 z-50 w-full max-w-2xl bg-card text-card-foreground border border-border rounded-xl shadow-2xl overflow-hidden flex flex-col">
         <div className="p-6 border-b border-border/50 flex items-center justify-between bg-muted/10">
           <div className="flex flex-col space-y-1.5">
@@ -174,7 +179,7 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
               <div>
                 <span className="text-xs font-semibold text-muted-foreground block mb-1">Production Status</span>
                 <span className="font-bold">
-                  {activeOrderCount > 1 ? `${activeOrderCount} Orders Running` : currentOrder ? 'Active Order' : 'No Active Order'}
+                  {activeOrderCount > 1 ? `${activeOrderCount} Orders Running` : currentOrderLabel ? 'Active Order' : 'No Active Order'}
                 </span>
               </div>
               {activeOrderCount > 1 && activeOrders ? (
@@ -187,9 +192,9 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
                     const thk = rich && 'targetThkMm' in rich ? thicknessLine(rich) : null;
                     return (
                       <div key={o.batchNumber} className="rounded-lg border border-border/60 px-3 py-2">
-                        <p className="font-mono text-sm font-bold">{o.coilNo ?? o.batchNumber}</p>
+                        <p className="font-mono text-sm font-bold">{displayMotherCoilId(o)}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {o.customer ?? '—'} · {formatOrderStatusLabel(o.status)}
+                          Batch {o.batchNumber} · {o.customer ?? '—'} · {formatOrderStatusLabel(o.status)}
                           {o.weightMt != null ? ` · ${o.weightMt} MT` : ''}
                         </p>
                         {thk && <p className="text-[11px] font-mono text-muted-foreground mt-1">{thk}</p>}
@@ -200,10 +205,13 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
                     );
                   })}
                 </div>
-              ) : currentOrder && (
+              ) : currentOrderLabel && (
                 <div className="col-span-2 bg-background border border-border/40 shadow-sm rounded-lg p-4 mt-2 mb-2">
                   <span className="text-xs font-semibold text-muted-foreground block mb-1">Current Order</span>
-                  <span className="font-mono text-lg font-bold">{currentOrder}</span>
+                  <span className="font-mono text-lg font-bold">{currentOrderLabel}</span>
+                  {currentOrderBatch && (
+                    <p className="text-xs font-mono text-muted-foreground mt-0.5">Batch {currentOrderBatch}</p>
+                  )}
                   {detail?.currentOrder?.customer && (
                     <p className="text-sm mt-1 text-muted-foreground">{detail.currentOrder.customer} · {detail.currentOrder.weightMt} MT</p>
                   )}
@@ -256,7 +264,8 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
           {detail?.nextOrder && matchesProcess(detail.nextOrder.subProcess, processFilter) && (
             <section className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow">
               <h3 className="text-sm font-semibold tracking-tight mb-2">Next In Queue</h3>
-              <p className="font-mono text-lg font-semibold">{detail.nextOrder.batchNumber}</p>
+              <p className="font-mono text-lg font-semibold">{displayMotherCoilId(detail.nextOrder)}</p>
+              <p className="text-xs font-mono text-muted-foreground mt-0.5">Batch {detail.nextOrder.batchNumber}</p>
               <p className="text-sm text-muted-foreground mt-1">
                 {detail.nextOrder.customer} · Position #{detail.nextOrder.queuePosition}
                 {detail.nextOrder.subProcess ? ` · ${processLabel(detail.nextOrder.subProcess)}` : ''}
@@ -270,7 +279,10 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
               <ul className="divide-y divide-border text-sm">
                 {filteredQueue.map((o) => (
                   <li key={o.batchNumber} className="py-2 flex justify-between gap-2 items-center">
-                    <span className="font-mono font-semibold">{o.batchNumber}</span>
+                    <span className="min-w-0">
+                      <span className="font-mono font-semibold block truncate">{displayMotherCoilId(o)}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground">Batch {o.batchNumber}</span>
+                    </span>
                     <span className="text-muted-foreground truncate">{o.customer}</span>
                     {o.subProcess && (
                       <span className="text-[10px] text-muted-foreground shrink-0">{processLabel(o.subProcess)}</span>
@@ -288,7 +300,10 @@ export function MachineDetailModal({ open, onClose, machineCode, machineData, pr
               <ul className="divide-y divide-border text-sm">
                 {filteredCompleted.map((o) => (
                   <li key={`${o.batchNumber}-${o.completedAt}`} className="py-2 flex justify-between gap-2 items-center">
-                    <span className="font-mono font-semibold">{o.batchNumber}</span>
+                    <span className="min-w-0">
+                      <span className="font-mono font-semibold block truncate">{displayMotherCoilId(o)}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground">Batch {o.batchNumber}</span>
+                    </span>
                     <span className="text-muted-foreground">{o.weightMt} MT</span>
                     {o.subProcess && (
                       <span className="text-[10px] text-muted-foreground shrink-0">{processLabel(o.subProcess)}</span>

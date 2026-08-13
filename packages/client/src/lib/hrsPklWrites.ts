@@ -99,3 +99,17 @@ export function patchHrsManualStoppage(payload: {
 export function endHrsManualStoppage(): Promise<ProcessManualStoppageStatus> {
   return apiClient.post('/stations/hrs/manual-stoppage/end', {});
 }
+
+export function reinstateHrsPklOrder(
+  line: 'HRS' | 'PKL',
+  coilNo: string,
+  target: 'PREPARING' | 'PENDING' = 'PREPARING',
+) {
+  const base = line === 'HRS' ? '/hrs-order' : '/pkl-order';
+  return apiClient.post(`${base}/orders/${encodeURIComponent(coilNo)}/reinstate`, { target });
+}
+
+export function deleteHrsPklOrder(line: 'HRS' | 'PKL', coilNo: string) {
+  const base = line === 'HRS' ? '/hrs-order' : '/pkl-order';
+  return apiClient.delete(`${base}/orders/${encodeURIComponent(coilNo)}`);
+}

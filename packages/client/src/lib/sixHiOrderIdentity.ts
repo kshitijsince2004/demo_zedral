@@ -7,22 +7,48 @@ type OrderIdentitySource = Pick<
   rollFinish?: SixHiQueueCard['rollFinish'];
   ppcRollFinish?: SixHiOrderDetail['ppcRollFinish'];
   coilNo?: string;
+  motherCoilNo?: string;
+  displayCoilNo?: string;
 };
 
 export function selectIdOf(order: { slitId?: string }): string {
-  return order.slitId?.trim() || '—';
+  return normalizeSlit(order.slitId) || '—';
 }
 
-/** Display: mother coil + slit when slit exists (e.g. "1100038319 A"). */
+/** Empty / dash placeholders = no slit (never render "1100038348 -"). */
+function normalizeSlit(slit: string | null | undefined): string {
+  const s = slit?.trim().toUpperCase() ?? '';
+  if (!s || s === '-' || s === '—') return '';
+  return s;
+}
+
+/**
+ * Display: mother coil + slit when slit exists (e.g. "1100038319 A").
+ * Coil resolution: motherCoil ?? motherCoilNo ?? displayCoilNo ?? coilNo ?? batchNumber.
+ * Guards against double-append when displayCoilNo already ends with the slit token.
+ */
 export function displayMotherCoilId(order: {
   motherCoil?: string;
-  batchNumber: string;
-  slitId?: string;
+  motherCoilNo?: string;
+  displayCoilNo?: string;
+  batchNumber?: string;
+  slitId?: string | null;
   coilNo?: string;
 }): string {
-  const coil = (order.motherCoil ?? order.coilNo ?? order.batchNumber).trim();
-  const slit = order.slitId?.trim();
-  return slit ? `${coil} ${slit}` : coil;
+  const coil = (
+    order.motherCoil
+    ?? order.motherCoilNo
+    ?? order.displayCoilNo
+    ?? order.coilNo
+    ?? order.batchNumber
+    ?? ''
+  ).trim();
+  const slit = normalizeSlit(order.slitId ?? undefined);
+  if (!slit) return coil;
+  // displayCoilNo from server/prefill may already embed the slit
+  const tokens = coil.split(/\s+/);
+  if (tokens[tokens.length - 1]?.toUpperCase() === slit) return coil;
+  return `${coil} ${slit}`;
 }
 
 export function primaryOrderId(order: { motherCoil: string; batchNumber: string }): string {
@@ -84,8 +110,19 @@ export function finishGroupOf(value: string | null | undefined): string {
 export function combinedRunKey(
   order: OrderIdentitySource & { subProcess?: string; inputThkMm?: number },
 ): string {
-  const coil = (order.motherCoil ?? order.coilNo ?? order.batchNumber)?.trim() || '';
-  const slit = order.slitId?.trim() || '';
+  const raw = (
+    order.motherCoil
+    ?? order.motherCoilNo
+    ?? order.displayCoilNo
+    ?? order.coilNo
+    ?? order.batchNumber
+    ?? ''
+  ).trim();
+  const slit = normalizeSlit(order.slitId);
+  const tokens = raw.split(/\s+/);
+  const coil = slit && tokens[tokens.length - 1]?.toUpperCase() === slit
+    ? tokens.slice(0, -1).join(' ')
+    : raw;
   return [coil, slit, finishGroupOf(finishOf(order))].join('|');
 }
 

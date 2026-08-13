@@ -37,7 +37,7 @@ export function AnnChargePage() {
   const { chargeNo = '' } = useParams();
   const navigate = useNavigate();
   const { basePath } = useProcessWorkspaceBase();
-  const { queue, loadQueue } = useProcessStore();
+  const queue = useProcessStore((s) => s.queue);
   const shiftCode = useShiftStore((s) => s.shiftCode);
   const [detail, setDetail] = useState<{
     charge: Record<string, unknown>;
@@ -75,7 +75,7 @@ export function AnnChargePage() {
   }
 
   useEffect(() => {
-    void loadQueue();
+    void useProcessStore.getState().loadQueue();
     void reload();
     void apiClient
       .get<{ categories: { category_code: string; description: string | null }[] }>('/stations/ann/stoppage-categories')
@@ -86,7 +86,7 @@ export function AnnChargePage() {
       .catch(() => undefined);
     // ponytail: same deps as before ? reload is chargeNo-scoped, not a stable callback
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chargeNo, loadQueue]);
+  }, [chargeNo]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
@@ -426,10 +426,13 @@ export function AnnChargePage() {
                 </ZButton>
               )}
               <SwipeAdvance
-                disabled={busy || isPreparing || !active || charge?.status === 'DONE'}
+                disabled={busy || isPreparing || !active || charge?.status === 'DONE' || Boolean(openStoppage)}
                 nextLabel={nextLabel}
                 onAdvance={advanceStage}
               />
+              {openStoppage ? (
+                <p className="text-xs text-warning">End stoppage to advance</p>
+              ) : null}
 
               {skippable.length > 0 && (
                 <div className="flex flex-col gap-2">
@@ -440,6 +443,7 @@ export function AnnChargePage() {
                       variant="secondary"
                       fullWidth
                       className="!h-12 !min-h-12 rounded-lg text-xs"
+                      disabled={busy || Boolean(openStoppage)}
                       onClick={() => void skipStage(s.stage_code)}
                     >
                       Skip {humanizeStage(s.stage_code)}

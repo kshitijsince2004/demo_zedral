@@ -1,7 +1,7 @@
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 import { formatPlantDateTime } from '../../lib/dateFormat';
 import { combinedTargetMt, resolveCombinedActualMt } from '../../lib/combinedWeightAllocation';
-import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
 import {
@@ -103,7 +103,7 @@ export function CombinedProductionHistory({ orders }: CombinedProductionHistoryP
                 <div className="min-w-0">
                   <p className="font-mono font-bold text-primary truncate">{displayMotherCoilId(order)}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    Slit {selectIdOf(order)} · Batch {order.batchNumber}
+                    Batch {order.batchNumber}
                   </p>
                 </div>
                 <p className="font-mono text-xs font-semibold shrink-0">

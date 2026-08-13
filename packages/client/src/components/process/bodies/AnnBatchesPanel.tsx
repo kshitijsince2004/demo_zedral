@@ -100,7 +100,13 @@ export function AnnBatchesPanel() {
                   onClick={() => navigate(`${basePath}/charge/${encodeURIComponent(c.charge_no)}`)}
                 >
                   <div className="flex justify-between gap-2 items-start">
-                    <span className="font-bold font-mono tabular-nums text-foreground">{c.annealing_batch_no ?? c.charge_no}</span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Ann batch no.</p>
+                      <span className="font-bold font-mono tabular-nums text-foreground">
+                        {c.annealing_batch_no?.trim() ? c.annealing_batch_no : '—'}
+                      </span>
+                      <p className="text-[10px] font-mono text-muted-foreground mt-0.5">Charge {c.charge_no}</p>
+                    </div>
                     <ZBadge tone={chargeTone(status)} label={status} />
                   </div>
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mt-2">

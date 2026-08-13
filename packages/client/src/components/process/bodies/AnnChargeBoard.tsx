@@ -17,10 +17,16 @@ export function AnnChargeBoard() {
   const [board, setBoard] = useState<AnnBoardRow[]>([]);
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [assignForBase, setAssignForBase] = useState<string | null>(null);
+  const [preparingCharges, setPreparingCharges] = useState<{ charge_no: string; annealing_batch_no: string | null }[]>([]);
 
   async function reload() {
-    const b = await apiClient.get<{ board: AnnBoardRow[] }>('/stations/ann/board');
+    const [b, c] = await Promise.all([
+      apiClient.get<{ board: AnnBoardRow[] }>('/stations/ann/board'),
+      apiClient.get<{ charges: { charge_no: string; annealing_batch_no: string | null; status: string; base_no: string | null }[] }>('/stations/ann/charges'),
+    ]);
     setBoard(b.board ?? []);
+    setPreparingCharges(c.charges.filter((x) => !x.base_no || x.status === 'PREPARING'));
   }
 
   useEffect(() => {
@@ -105,8 +111,41 @@ export function AnnChargeBoard() {
               key={row.base_no}
               row={row}
               onOpen={(cn) => navigate(`${basePath}/charge/${encodeURIComponent(cn)}`)}
+              onOpenBase={(bn) => setAssignForBase(bn)}
             />
           ))}
+        </div>
+      )}
+
+      {assignForBase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl space-y-4">
+            <h2 className="text-lg font-bold">Base {assignForBase}</h2>
+            <p className="text-sm text-muted-foreground">This base is vacant. Assign an active batch to it:</p>
+            <div className="space-y-2">
+              {preparingCharges.length === 0 ? (
+                <p className="text-xs italic text-muted-foreground py-4">No preparing batches available. Create one in MH Ann Batching.</p>
+              ) : (
+                preparingCharges.map((c) => (
+                  <button
+                    key={c.charge_no}
+                    type="button"
+                    className="w-full rounded-lg border border-border bg-card p-3 text-left hover:bg-muted transition-colors"
+                    onClick={async () => {
+                      if (!window.confirm(`Assign batch ${c.annealing_batch_no ?? c.charge_no} to base ${assignForBase}?`)) return;
+                      await apiClient.post(`/stations/ann/charges/${encodeURIComponent(c.charge_no)}/assign-base`, { baseNo: assignForBase });
+                      setAssignForBase(null);
+                      void reload();
+                    }}
+                  >
+                    <p className="font-bold font-mono">{c.annealing_batch_no ?? c.charge_no}</p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">ID: {c.charge_no}</p>
+                  </button>
+                ))
+              )}
+            </div>
+            <ZButton variant="secondary" fullWidth onClick={() => setAssignForBase(null)}>Cancel</ZButton>
+          </div>
         </div>
       )}
     </div>

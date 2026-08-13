@@ -1,5 +1,7 @@
 import { Network } from '@capacitor/network';
 import { measurePingMs } from '../operator/native/deviceStatus';
+import { debugLog } from './debugLog';
+import { idleThrottleEnabled } from './idleThrottle';
 
 export type NetworkQualityLevel = 'good' | 'degraded' | 'bad';
 
@@ -21,6 +23,9 @@ const samples: number[] = [];
 const listeners = new Set<(q: NetworkQuality) => void>();
 
 let started = false;
+let listenersWired = false;
+let probeIntervalId: ReturnType<typeof setInterval> | null = null;
+let visibilityWired = false;
 let online = typeof navigator === 'undefined' ? true : navigator.onLine;
 let level: NetworkQualityLevel = online ? 'good' : 'bad';
 let p95RttMs: number | null = null;
@@ -90,7 +95,7 @@ async function probeOnce(): Promise<void> {
 
   p95RttMs = percentile95(samples);
   level = classify(p95RttMs, online);
-  console.info(`[networkQuality] Probe. RTT: ${rtt}ms, P95: ${p95RttMs}ms, Level: ${level}, Samples: ${samples.length}`);
+  debugLog(`[networkQuality] Probe. RTT: ${rtt}ms, P95: ${p95RttMs}ms, Level: ${level}, Samples: ${samples.length}`);
   emit();
 }
 
@@ -112,40 +117,78 @@ export function adaptiveTimeoutMs(): number {
   return Math.min(30_000, Math.max(3_000, Math.round(p95RttMs * 3)));
 }
 
+function clearProbeInterval(): void {
+  if (probeIntervalId != null) {
+    clearInterval(probeIntervalId);
+    probeIntervalId = null;
+  }
+}
+
+function startProbeInterval(): void {
+  if (probeIntervalId != null) return;
+  probeIntervalId = setInterval(() => void probeOnce(), PROBE_MS);
+}
+
+/** Stop the 20s probe interval so it can be restarted (idle throttle / teardown). */
+export function stopNetworkQualityProbe(): void {
+  clearProbeInterval();
+  started = false;
+}
+
+function wireIdleVisibility(): void {
+  if (visibilityWired || typeof document === 'undefined' || !idleThrottleEnabled()) return;
+  visibilityWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      clearProbeInterval();
+    } else {
+      void probeOnce();
+      startProbeInterval();
+    }
+  });
+}
+
 export function startNetworkQualityProbe(): void {
-  if (started) return;
-  started = true;
+  if (!listenersWired) {
+    listenersWired = true;
 
-  const onBrowserOnline = () => {
-    online = true;
-    console.info('[networkQuality] Browser reported ONLINE');
-    void probeOnce();
-  };
-  const onBrowserOffline = () => {
-    online = false;
-    level = 'bad';
-    console.warn('[networkQuality] Browser reported OFFLINE');
-    emit();
-  };
+    const onBrowserOnline = () => {
+      online = true;
+      debugLog('[networkQuality] Browser reported ONLINE');
+      void probeOnce();
+    };
+    const onBrowserOffline = () => {
+      online = false;
+      level = 'bad';
+      console.warn('[networkQuality] Browser reported OFFLINE');
+      emit();
+    };
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', onBrowserOnline);
-    window.addEventListener('offline', onBrowserOffline);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', onBrowserOnline);
+      window.addEventListener('offline', onBrowserOffline);
+    }
+
+    void Network.addListener('networkStatusChange', (status) => {
+      online = status.connected;
+      debugLog(`[networkQuality] Network plugin reported connected: ${status.connected}, type: ${status.connectionType}`);
+      if (!status.connected) {
+        level = 'bad';
+        emit();
+        return;
+      }
+      void probeOnce();
+    }).catch(() => {
+      // Web / missing plugin — browser events still work.
+    });
   }
 
-  void Network.addListener('networkStatusChange', (status) => {
-    online = status.connected;
-    console.info(`[networkQuality] Network plugin reported connected: ${status.connected}, type: ${status.connectionType}`);
-    if (!status.connected) {
-      level = 'bad';
-      emit();
-      return;
-    }
-    void probeOnce();
-  }).catch(() => {
-    // Web / missing plugin — browser events still work.
-  });
+  if (started && probeIntervalId != null) return;
+  started = true;
 
   void probeOnce();
-  setInterval(() => void probeOnce(), PROBE_MS);
+  if (!(idleThrottleEnabled() && typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+    startProbeInterval();
+  }
+  wireIdleVisibility();
 }

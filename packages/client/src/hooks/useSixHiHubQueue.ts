@@ -68,7 +68,7 @@ export function useSixHiHubQueue(input: {
   const queueUrl = buildQueueUrl(input);
 
   const { data, error, isLoading, isValidating, mutate } = useSWR(queueUrl, fetchHubQueue, {
-    refreshInterval: networkAwareRefreshInterval(15_000),
+    refreshInterval: networkAwareRefreshInterval(15_000, { pauseWhileTyping: true }),
     revalidateOnFocus: false,
     keepPreviousData: true,
     compare: (a, b) => jsonEqual(a, b),

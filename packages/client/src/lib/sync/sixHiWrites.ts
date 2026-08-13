@@ -1,42 +1,70 @@
-import { deleteQueued, patchQueued, postQueued } from './queuedApi';
 import { apiClient } from '../apiClient';
-import { getActiveCrmMill } from '../crmMillContext';
+import { computeIdempotencyKey, withTapLock } from '../idempotencyKey';
 import type { SixHiOrderDetail } from '@m1/shared-validation';
 
 const enc = encodeURIComponent;
 
-/** Stamp mill on outbox URLs so replay works off the mill page (apiFetch pathname inject may miss). */
-function withMillQuery(path: string): string {
-  if (path.includes('machine=')) return path;
-  const mill = getActiveCrmMill();
-  if (!mill) return path;
-  return path.includes('?') ? `${path}&machine=${enc(mill)}` : `${path}?machine=${enc(mill)}`;
+async function withIdempotentWrite<T>(
+  aggregateKey: string,
+  method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+  url: string,
+  payload: unknown,
+  send: (headers: Record<string, string>) => Promise<T>,
+): Promise<T> {
+  const key = await computeIdempotencyKey({ aggregateKey, method, url, payload });
+  return withTapLock(aggregateKey, () => send({ 'X-Idempotency-Key': key }));
 }
 
 /** Production PATCH must hit the server immediately — outbox queue causes end-before-sync failures. */
 export function patchOrderImmediate(batchNumber: string, suffix: string, payload: unknown) {
-  return apiClient.patch(`/6hi/orders/${enc(batchNumber)}/${suffix}`, payload);
+  const url = `/6hi/orders/${enc(batchNumber)}/${suffix}`;
+  return withIdempotentWrite(orderAggregateKey(batchNumber), 'PATCH', url, payload, (headers) =>
+    apiClient.patch(url, payload, { headers }),
+  );
 }
 
 /** Start must hit the server immediately so prodStartAt is available for the live timer. */
 export function startOrderImmediate(batchNumber: string) {
-  return apiClient.post<SixHiOrderDetail>(`/6hi/orders/${enc(batchNumber)}/start`, {});
+  const url = `/6hi/orders/${enc(batchNumber)}/start`;
+  return withIdempotentWrite(orderAggregateKey(batchNumber), 'POST', url, {}, (headers) =>
+    apiClient.post<SixHiOrderDetail>(url, {}, { headers }),
+  );
 }
 
 /** Combined start must return prodStartAt before the operator timer can tick. */
 export function startCombinedOrdersImmediate(batchNumbers: string[]) {
-  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', {
-    batchNumbers,
-    mode: 'start',
-  });
+  const payload = { batchNumbers, mode: 'start' };
+  return withIdempotentWrite(
+    orderAggregateKey(batchNumbers[0] ?? 'combined'),
+    'POST',
+    '/6hi/orders/start-combined',
+    payload,
+    (headers) => apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', payload, { headers }),
+  );
 }
 
 /** Hub combine — group + PREPARING only; Start on the rail runs production. */
 export function prepareCombinedOrdersImmediate(batchNumbers: string[]) {
-  return apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', {
-    batchNumbers,
-    mode: 'prepare',
-  });
+  const payload = { batchNumbers, mode: 'prepare' };
+  return withIdempotentWrite(
+    orderAggregateKey(batchNumbers[0] ?? 'combined'),
+    'POST',
+    '/6hi/orders/start-combined',
+    payload,
+    (headers) => apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/start-combined', payload, { headers }),
+  );
+}
+
+/** Dissolve PREPARING combined_group_id (hub Cancel Combined after prepare). */
+export function cancelCombinedOrdersImmediate(batchNumbers: string[]) {
+  const payload = { batchNumbers };
+  return withIdempotentWrite(
+    orderAggregateKey(batchNumbers[0] ?? 'combined'),
+    'POST',
+    '/6hi/orders/cancel-combined',
+    payload,
+    (headers) => apiClient.post<{ orders: SixHiOrderDetail[] }>('/6hi/orders/cancel-combined', payload, { headers }),
+  );
 }
 
 /** Combined end must carry combinedActualMt to the server in the same request (not a parked outbox row). */
@@ -49,7 +77,10 @@ export function endOrderImmediate(
   if (typeof combinedActualMt === 'number') {
     payload.combinedActualMt = combinedActualMt;
   }
-  return apiClient.post(`/6hi/orders/${enc(batchNumber)}/end`, payload);
+  const url = `/6hi/orders/${enc(batchNumber)}/end`;
+  return withIdempotentWrite(orderAggregateKey(batchNumber), 'POST', url, payload, (headers) =>
+    apiClient.post(url, payload, { headers }),
+  );
 }
 
 export function orderAggregateKey(batchNumber: string): string {
@@ -60,63 +91,47 @@ export function machineAggregateKey(machineCode: string): string {
   return `6hi-machine:${machineCode}`;
 }
 
-export function postOrder(batchNumber: string, suffix: string, payload: unknown = {}) {
-  return postQueued(
-    withMillQuery(`/6hi/orders/${enc(batchNumber)}/${suffix}`),
-    payload,
-    orderAggregateKey(batchNumber),
-  );
-}
-
-export function patchOrder(batchNumber: string, suffix: string, payload: unknown) {
-  return patchQueued(
-    withMillQuery(`/6hi/orders/${enc(batchNumber)}/${suffix}`),
-    payload,
-    orderAggregateKey(batchNumber),
-  );
-}
-
-export function deleteOrder(batchNumber: string) {
-  return deleteQueued(withMillQuery(`/6hi/orders/${enc(batchNumber)}`), orderAggregateKey(batchNumber));
-}
-
+/** @deprecated Prefer startOrderImmediate — kept as alias so old imports cannot reintroduce outbox races. */
 export function startOrder(batchNumber: string) {
-  return postOrder(batchNumber, 'start');
+  return startOrderImmediate(batchNumber);
 }
 
-export function startCombinedOrders(batchNumbers: string[]) {
-  const key = `6hi-combined:${[...batchNumbers].sort().join(',')}`;
-  return postQueued('/6hi/orders/start-combined', { batchNumbers, mode: 'start' }, key);
-}
-
+/** @deprecated Prefer endOrderImmediate. */
 export function endOrder(
   batchNumber: string,
   defectCodes: unknown,
   combinedActualMt?: number,
 ) {
-  const payload: { defectCodes: unknown; combinedActualMt?: number } = { defectCodes };
-  if (typeof combinedActualMt === 'number') {
-    payload.combinedActualMt = combinedActualMt;
-  }
-  return postOrder(batchNumber, 'end', payload);
+  return endOrderImmediate(batchNumber, defectCodes, combinedActualMt);
+}
+
+/** Hold/reject must hit the server immediately — outbox race closed the console while status stayed live. */
+export function rejectOrderImmediate(
+  batchNumber: string,
+  payload: { rejectionReason: string; defectCodes: unknown; remarks?: string },
+) {
+  const url = `/6hi/orders/${enc(batchNumber)}/reject`;
+  return withIdempotentWrite(orderAggregateKey(batchNumber), 'POST', url, payload, (headers) =>
+    apiClient.post<SixHiOrderDetail>(url, payload, { headers }),
+  );
 }
 
 export function rejectOrder(
   batchNumber: string,
   payload: { rejectionReason: string; defectCodes: unknown; remarks?: string },
 ) {
-  return postOrder(batchNumber, 'reject', payload);
+  return rejectOrderImmediate(batchNumber, payload);
 }
 
 export function addOrderRemark(batchNumber: string, text: string, defects: unknown) {
-  return postOrder(batchNumber, 'remarks', { text, defects });
+  return apiClient.post(`/6hi/orders/${enc(batchNumber)}/remarks`, { text, defects });
 }
 
 export function startStoppage(
   batchNumber: string,
   payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
 ) {
-  return postOrder(batchNumber, 'stoppages', payload);
+  return apiClient.post(`/6hi/orders/${enc(batchNumber)}/stoppages`, payload);
 }
 
 export function updateStoppage(
@@ -124,58 +139,58 @@ export function updateStoppage(
   stoppageId: string,
   payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
 ) {
-  return patchOrder(batchNumber, `stoppages/${enc(stoppageId)}`, payload);
+  return apiClient.patch(`/6hi/orders/${enc(batchNumber)}/stoppages/${enc(stoppageId)}`, payload);
 }
 
 export function endStoppage(batchNumber: string, stoppageId: string) {
-  return patchOrder(batchNumber, `stoppages/${enc(stoppageId)}/end`, {});
+  return apiClient.patch(`/6hi/orders/${enc(batchNumber)}/stoppages/${enc(stoppageId)}/end`, {});
 }
 
 export function rollChange(batchNumber: string, data: unknown) {
-  return postOrder(batchNumber, 'roll-change', data);
+  return apiClient.post(`/6hi/orders/${enc(batchNumber)}/roll-change`, data);
 }
 
 export function allocateMachine(batchNumber: string, machineCode: string) {
-  return postQueued(
-    `/6hi/orders/${enc(batchNumber)}/allocate-machine`,
-    { machineCode },
-    orderAggregateKey(batchNumber),
+  const url = `/6hi/orders/${enc(batchNumber)}/allocate-machine`;
+  const payload = { machineCode };
+  return withIdempotentWrite(orderAggregateKey(batchNumber), 'POST', url, payload, (headers) =>
+    apiClient.post(url, payload, { headers }),
   );
 }
 
 export function transferMachines(machineCode: string, batchNumbers: string[]) {
-  return postQueued(
-    '/6hi/orders/transfer-machines',
-    { machineCode, batchNumbers },
-    `6hi-transfer:${machineCode}`,
-  );
+  return apiClient.post('/6hi/orders/transfer-machines', { machineCode, batchNumbers });
 }
 
-export async function transferOrderAssignment(
+export function transferOrderAssignment(
   payload: { batchNumbers: string[]; machineCode: string; reason?: string },
 ) {
-  return postQueued<{ ok: boolean; results?: { batchNumber: string; ok: boolean; error?: string }[] }>(
+  return apiClient.post<{ ok: boolean; results?: { batchNumber: string; ok: boolean; error?: string }[] }>(
     '/6hi/order-assignment/transfer',
     payload,
-    `order-assignment:${payload.machineCode}`,
   );
 }
 
 export function createManualOrder(payload: unknown, machineCode: string) {
-  return postQueued('/6hi/orders/manual', payload, machineAggregateKey(machineCode));
+  void machineCode;
+  return apiClient.post('/6hi/orders/manual', payload);
+}
+
+export function deleteOrder(batchNumber: string) {
+  return apiClient.delete(`/6hi/orders/${enc(batchNumber)}`);
 }
 
 export function startManualStoppage(
   machine: string,
   payload: { categoryCode: string; breakdownCode?: string; remarks?: string },
 ) {
-  return postQueued('/6hi/manual-stoppage/start', { machine, ...payload }, machineAggregateKey(machine));
+  return apiClient.post('/6hi/manual-stoppage/start', { machine, ...payload });
 }
 
 export function patchManualStoppage(machine: string, payload: Record<string, unknown>) {
-  return patchQueued('/6hi/manual-stoppage', { machine, ...payload }, machineAggregateKey(machine));
+  return apiClient.patch('/6hi/manual-stoppage', { machine, ...payload });
 }
 
 export function endManualStoppage(machine: string) {
-  return postQueued('/6hi/manual-stoppage/end', { machine }, machineAggregateKey(machine));
+  return apiClient.post('/6hi/manual-stoppage/end', { machine });
 }

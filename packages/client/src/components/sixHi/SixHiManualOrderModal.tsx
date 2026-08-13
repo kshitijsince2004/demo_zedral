@@ -31,7 +31,9 @@ const EMPTY_FORM = {
 };
 
 export function SixHiManualOrderModal() {
-  const { manualOrderOpen, closeManualOrder, requestQueueRefresh, busy, setBusy, machineCode } = useSixHiStore();
+  const manualOrderOpen = useSixHiStore((s) => s.manualOrderOpen);
+  const busy = useSixHiStore((s) => s.busy);
+  const machineCode = useSixHiStore((s) => s.machineCode);
   const { shiftDate, shiftCode } = useShiftStore();
   const [step, setStep] = useState<Step>('warning');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -53,12 +55,12 @@ export function SixHiManualOrderModal() {
 
   const handleClose = () => {
     reset();
-    closeManualOrder();
+    useSixHiStore.getState().closeManualOrder();
   };
 
   const handleSubmit = async () => {
     setError(null);
-    setBusy(true);
+    useSixHiStore.getState().setBusy(true);
     try {
       const payload = {
         batch_number: form.batch_number.trim(),
@@ -81,7 +83,7 @@ export function SixHiManualOrderModal() {
       };
 
       await createManualOrder(payload, machineCode);
-      requestQueueRefresh();
+      useSixHiStore.getState().requestQueueRefresh();
       invalidateAfterWrite();
       handleClose();
     } catch (err) {
@@ -90,7 +92,7 @@ export function SixHiManualOrderModal() {
         : 'Failed to create order';
       setError(msg);
     } finally {
-      setBusy(false);
+      useSixHiStore.getState().setBusy(false);
     }
   };
 

@@ -34,4 +34,14 @@ describe('classifyOperatorNav (debug H-F)', () => {
     const c = classifyOperatorNav('RWD', '/rwd.operator/');
     expect(c).toMatchObject({ isProcess: true, isRwd: true, wantsHistory: true });
   });
+
+  it('PKL wants chart+history surfaces; HRS wants history (nav flags)', () => {
+    const pkl = classifyOperatorNav('PKL', '/pkl.operator');
+    expect(pkl.isPkl).toBe(true);
+    expect(pkl.wantsHistory).toBe(true);
+    const hrs = classifyOperatorNav('HRS', '/hrs.operator');
+    expect(hrs.isHrs).toBe(true);
+    expect(hrs.wantsHistory).toBe(true);
+    expect(hrs.isPkl).toBe(false);
+  });
 });

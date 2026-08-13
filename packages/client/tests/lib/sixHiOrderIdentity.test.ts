@@ -33,6 +33,52 @@ describe('displayMotherCoilId — Operator / MH / PH parity', () => {
     );
     expect(displayMotherCoilId({ batchNumber: 'B-1' })).toBe('B-1');
   });
+
+  it('renders coil alone when no slit', () => {
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1' })).toBe('1100038348');
+  });
+
+  it('accepts motherCoilNo (process module)', () => {
+    expect(displayMotherCoilId({ motherCoilNo: '1100038348', batchNumber: 'B-1', slitId: 'A' })).toBe(
+      '1100038348 A',
+    );
+  });
+
+  it('accepts displayCoilNo (process/rewinding)', () => {
+    expect(displayMotherCoilId({ displayCoilNo: '1100038348', batchNumber: 'B-1', slitId: 'A' })).toBe(
+      '1100038348 A',
+    );
+  });
+
+  it('does not double-append when displayCoilNo already embeds the slit', () => {
+    expect(
+      displayMotherCoilId({ displayCoilNo: '1100038348 A', batchNumber: 'B-1', slitId: 'A' }),
+    ).toBe('1100038348 A');
+    expect(
+      displayMotherCoilId({ displayCoilNo: '1100038348 a', batchNumber: 'B-1', slitId: 'A' }),
+    ).toBe('1100038348 a');
+  });
+
+  it('treats dash/empty/em-dash slit as no slit', () => {
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: '-' })).toBe(
+      '1100038348',
+    );
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: '—' })).toBe(
+      '1100038348',
+    );
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: '  ' })).toBe(
+      '1100038348',
+    );
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: null })).toBe(
+      '1100038348',
+    );
+  });
+
+  it('uppercases slit token', () => {
+    expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: 'a' })).toBe(
+      '1100038348 A',
+    );
+  });
 });
 
 describe('combinedRunKey — Coil+Slit+Finish family (no thickness)', () => {

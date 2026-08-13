@@ -35,12 +35,29 @@ export function SyncStatusBadge() {
       await authApi.supervisorOverride(pin, 'Discard parked sync action');
       await outbox.discardParked(selectedId);
       const counts = await outbox.counts();
-      useSyncStatus.getState().set(counts);
+      const pendingByAggregate = await outbox.pendingByAggregate();
+      useSyncStatus.getState().set({ ...counts, pendingByAggregate });
       setPin('');
       setSelectedId(null);
       setParkedRows(await outbox.parkedActions());
     } catch {
       setError('Supervisor PIN failed or network is unavailable.');
+    }
+  };
+
+  const handleClearResolved = async () => {
+    setError(null);
+    try {
+      const { syncNow } = await import('./engine');
+      await syncNow('clear-resolved');
+      const { isBenignSyncClientError } = await import('./outboxPolicy');
+      await outbox.reconcileBenignParked(isBenignSyncClientError);
+      const counts = await outbox.counts();
+      const pendingByAggregate = await outbox.pendingByAggregate();
+      useSyncStatus.getState().set({ ...counts, pendingByAggregate });
+      setParkedRows(await outbox.parkedActions());
+    } catch {
+      setError('Could not clear resolved duplicates. Try again when online.');
     }
   };
 
@@ -85,6 +102,23 @@ export function SyncStatusBadge() {
               {parkedRows.length === 0 && <p className="text-sm text-muted-foreground">No parked actions.</p>}
             </div>
 
+            {parkedRows.length > 0 && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-foreground underline"
+                  onClick={() => void handleClearResolved()}
+                >
+                  Clear resolved duplicates
+                </button>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Replays parked rows that the server now treats as already applied. No PIN required.
+                </p>
+              </div>
+            )}
+
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+
             {selectedId && (
               <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
                 <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor="supervisor-pin">
@@ -107,7 +141,6 @@ export function SyncStatusBadge() {
                     Discard
                   </button>
                 </div>
-                {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
             )}
           </div>

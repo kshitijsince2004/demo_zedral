@@ -25,6 +25,7 @@ import {
   SixHiStoppageService,
 } from '../services/sixHi';
 import { parseCrmMillCode, assertMachineForSubProcess, type CrmMillCode } from '../utils/machineAllocation';
+import { parseActiveOrderConflictBatch } from '../utils/orderLifecycleHelpers';
 import { isVersionConflict, versionConflictBody } from '../utils/versionConflict';
 import { PPCImportService, parseImportLineScope } from '../services/PPCImportService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
@@ -832,13 +833,27 @@ router.post('/orders/start-combined', requireSixHi('WRITE'), async (req, res) =>
     if (msg.startsWith('ACTIVE_ORDER_CONFLICT:')) {
       return res.status(409).json({
         error: 'Another order is already active on this machine',
-        activeBatchNumber: msg.split(':')[1],
+        activeBatchNumber: parseActiveOrderConflictBatch(msg),
       });
     }
     if (msg === 'ACTIVE_REROLL_CONFLICT') {
       return res.status(409).json({ error: 'Finish the active Manual Re-Roll session before starting production' });
     }
     res.status(400).json({ error: msg });
+  }
+});
+
+router.post('/orders/cancel-combined', requireSixHi('WRITE'), async (req, res) => {
+  try {
+    const { batchNumbers } = req.body;
+    if (!Array.isArray(batchNumbers) || batchNumbers.length === 0) {
+      return res.status(400).json({ error: 'batchNumbers array required' });
+    }
+    const cleanBatchNumbers = batchNumbers.filter((batch): batch is string => typeof batch === 'string' && batch.trim().length > 0);
+    const orders = await SixHiExecutionService.cancelCombinedProduction(cleanBatchNumbers, req.user!.id);
+    res.json({ orders });
+  } catch (e: unknown) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Cancel combined failed' });
   }
 });
 
@@ -856,7 +871,7 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
       const mc = batch?.machine_code ?? 'unknown';
       return res.status(409).json({
         error: `Another order is already active on CRM ${mc}`,
-        activeBatchNumber: msg.split(':')[1],
+        activeBatchNumber: parseActiveOrderConflictBatch(msg),
         machineCode: mc,
       });
     }

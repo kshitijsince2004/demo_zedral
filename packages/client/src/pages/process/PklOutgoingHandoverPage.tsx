@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, FlaskConical, Lock } from 'lucide-react';
+import { CheckCircle2, Clock, FlaskConical, Lock } from 'lucide-react';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import {
   HandoverLockedField,
@@ -11,6 +11,14 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
 import { useShiftStore } from '../../store/shiftStore';
 import { useProcessStore } from '../../store/processStore';
+
+type HistoryOrder = {
+  id?: string;
+  coilNo?: string;
+  gradeCode?: string | null;
+  weightMt?: number | null;
+  status?: string;
+};
 
 /** PKL outgoing handover — metrics / chart / stoppages / next coils inside shared shell. */
 export function PklOutgoingHandoverPage() {
@@ -27,6 +35,7 @@ export function PklOutgoingHandoverPage() {
   const [stoppages, setStoppages] = useState<Array<{
     category_code?: string; start_at?: string; duration_min?: number; remarks?: string;
   }>>([]);
+  const [historyOrders, setHistoryOrders] = useState<HistoryOrder[]>([]);
 
   useEffect(() => { void loadQueue(); }, [loadQueue]);
 
@@ -40,7 +49,20 @@ export function PklOutgoingHandoverPage() {
     )
       .then((r) => setStoppages(r.stoppages ?? []))
       .catch(() => setStoppages([]));
+    void apiClient.get<{ orders: HistoryOrder[] }>(
+      `/stations/pkl/history?shiftLogId=${encodeURIComponent(shiftLogId)}`,
+    )
+      .then((r) => setHistoryOrders(r.orders ?? []))
+      .catch(() => setHistoryOrders([]));
   }, [shiftLogId]);
+
+  const completedThisShift = useMemo(() => {
+    return historyOrders.filter((row) => {
+      const s = String(row.status ?? '').toUpperCase();
+      // prod_pkl history rows are completed production (status often omitted).
+      return !s || s === 'COMPLETED' || s === 'DONE';
+    });
+  }, [historyOrders]);
 
   const nextCoils = useMemo(
     () => queue.filter((c) => c.status === 'PENDING' || c.status === 'IN_PROGRESS').slice(0, 5),
@@ -82,6 +104,24 @@ export function PklOutgoingHandoverPage() {
               <li key={i} className="flex justify-between gap-2 border-b border-border/50 pb-2 font-mono text-xs">
                 <span>{s.category_code ?? '—'} · {s.remarks ?? ''}</span>
                 <span>{s.duration_min ?? '—'} min</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5">
+        <HandoverSectionHeader icon={<CheckCircle2 className="h-4 w-4" />} title="Completed this shift" locked />
+        {completedThisShift.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No completed coils this shift</p>
+        ) : (
+          <ul className="space-y-2">
+            {completedThisShift.map((c) => (
+              <li key={c.id ?? c.coilNo} className="text-sm flex justify-between gap-2">
+                <span className="font-mono font-bold">{c.coilNo ?? '—'}</span>
+                <span className="text-muted-foreground">
+                  {c.gradeCode ?? '—'} · {c.weightMt != null ? `${Number(c.weightMt).toFixed(2)} MT` : '—'}
+                </span>
               </li>
             ))}
           </ul>

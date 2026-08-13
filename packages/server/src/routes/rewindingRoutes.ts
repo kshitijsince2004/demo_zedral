@@ -167,6 +167,21 @@ router.post('/orders/start-combined', async (req, res) => {
   }
 });
 
+router.post('/orders/cancel-combined', async (req, res) => {
+  try {
+    const batchNumbers = Array.isArray(req.body?.batchNumbers)
+      ? req.body.batchNumbers.map(String)
+      : [];
+    for (const batchNo of batchNumbers) {
+      if (!(await authorizeOrderBatch(req, res, batchNo))) return;
+    }
+    const orders = await RewindingOrderService.cancelCombinedProduction(batchNumbers, req.user!.id);
+    res.json({ orders });
+  } catch (e) {
+    respondError(res, 'rewinding.cancelCombined', e);
+  }
+});
+
 router.get('/orders/:batchNo', async (req, res) => {
   try {
     // Read-only: do not create rwd_order on GET; fall back to plan row for pending cards.

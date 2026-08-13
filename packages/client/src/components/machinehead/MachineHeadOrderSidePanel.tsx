@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { LiveOrderRow, SixHiOrderDetail } from '@m1/shared-validation';
-import { Eye, RotateCcw, Trash2 } from 'lucide-react';
+import { Eye, RotateCcw, Trash2, ArrowRightLeft } from 'lucide-react';
 import { SixHiStatusPill } from '../sixHi/SixHiStatusPill';
 import { ZButton } from '../primitives/ZButton';
 import { apiClient } from '../../lib/apiClient';
@@ -15,6 +15,10 @@ interface MachineHeadOrderSidePanelProps {
   deleteBusy?: boolean;
   onReinstate?: () => void;
   reinstateBusy?: boolean;
+  /** Rewinding rows — skip CRM detail fetch; allocate via RWD pipeline. */
+  hideCrmActions?: boolean;
+  onAllocate?: () => void;
+  allocateBusy?: boolean;
 }
 
 function isDeletable(detail: SixHiOrderDetail | null, row: LiveOrderRow | null): boolean {
@@ -35,14 +39,18 @@ export function MachineHeadOrderSidePanel({
   deleteBusy,
   onReinstate,
   reinstateBusy,
+  hideCrmActions,
+  onAllocate,
+  allocateBusy,
 }: MachineHeadOrderSidePanelProps) {
   const [detail, setDetail] = useState<SixHiOrderDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const batchNumber = order?.batchNumber;
 
   useEffect(() => {
-    if (!batchNumber) {
+    if (!batchNumber || hideCrmActions) {
       setDetail(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
@@ -61,7 +69,7 @@ export function MachineHeadOrderSidePanel({
     return () => {
       cancelled = true;
     };
-  }, [batchNumber]);
+  }, [batchNumber, hideCrmActions]);
 
   if (!order) {
     return (
@@ -127,12 +135,21 @@ export function MachineHeadOrderSidePanel({
         )}
       </dl>
 
+      {(onAllocate || !hideCrmActions) && (
       <div className="shrink-0 p-4 border-t border-border space-y-2">
+        {onAllocate && (
+          <ZButton variant="primary" fullWidth onClick={onAllocate} disabled={allocateBusy} className="gap-2 min-h-12">
+            <ArrowRightLeft className="w-4 h-4" />
+            Assign RWD / 2HI
+          </ZButton>
+        )}
+        {!hideCrmActions && (
         <ZButton variant="primary" fullWidth onClick={onViewDetails} className="gap-2 min-h-12">
           <Eye className="w-4 h-4" />
           {terminal ? 'View Full History' : 'View Full Details'}
         </ZButton>
-        {canDelete && onDelete && (
+        )}
+        {!hideCrmActions && canDelete && onDelete && (
           <ZButton
             variant="outline"
             fullWidth
@@ -144,7 +161,7 @@ export function MachineHeadOrderSidePanel({
             Delete Order
           </ZButton>
         )}
-        {canReinstate && onReinstate && (
+        {!hideCrmActions && canReinstate && onReinstate && (
           <ZButton
             variant="outline"
             fullWidth
@@ -157,6 +174,7 @@ export function MachineHeadOrderSidePanel({
           </ZButton>
         )}
       </div>
+      )}
     </div>
   );
 }

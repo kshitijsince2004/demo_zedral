@@ -5,7 +5,7 @@ import { SixHiBacklogBadge } from './SixHiBacklogBadge';
 import { ZButton } from '../primitives/ZButton';
 import { ArrowRightLeft, Eye, Play } from 'lucide-react';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
-import { finishOf, displayMotherCoilId, selectIdOf, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
+import { finishOf, displayMotherCoilId, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
 import { apiClient } from '../../lib/apiClient';
 import { OrderProductionHistory } from './OrderProductionHistory';
 import { CombinedProductionHistory } from './CombinedProductionHistory';
@@ -18,6 +18,9 @@ interface SixHiBatchDetailPanelProps {
   machineActiveBatch?: string | null;
   combinedCount?: number;
   combinedBatchNumbers?: string[];
+  /** Display-only manual re-roll overlay. */
+  wasRerolled?: boolean;
+  lastRerolledThicknessMm?: number | null;
   onOpen: () => void;
   onViewCompleted?: () => void;
   onMoveToMachine?: () => void;
@@ -30,6 +33,8 @@ export function SixHiBatchDetailPanel({
   machineActiveBatch,
   combinedCount = 1,
   combinedBatchNumbers = [],
+  wasRerolled,
+  lastRerolledThicknessMm,
   onOpen,
   onViewCompleted,
   onMoveToMachine,
@@ -113,20 +118,27 @@ export function SixHiBatchDetailPanel({
     && batch.machineCode === currentMill;
 
   const thickness = thicknessDisplayForProcess(batch);
+  const displayTarget = wasRerolled && lastRerolledThicknessMm != null
+    ? lastRerolledThicknessMm
+    : thickness.targetValue;
   const fields: [string, string, boolean?][] = [
     ['Process Route', `${subProcessLabel} (route ${routeCode})`],
     ['Customer', batch.customer],
     ['Grade', batch.grade, true],
-    ['Slit ID', selectIdOf(batch), true],
+    ['Coil', displayMotherCoilId(batch), true],
     ['Batch Number', batch.batchNumber, true],
     ['Width', `${batch.widthMm} mm`, true],
     [thickness.preLabel, `${thickness.preValue} mm`, true],
-    ...(thickness.targetLabel && thickness.targetValue != null
-      ? [[thickness.targetLabel, `${thickness.targetValue} mm`, true] as [string, string, boolean?]]
+    ...(thickness.targetLabel && displayTarget != null
+      ? [[thickness.targetLabel, `${displayTarget} mm`, true] as [string, string, boolean?]]
       : []),
     ['Finish', finishOf(batch), true],
     ['Weight', `${batch.weightMt} Metric Tons`, true],
   ];
+
+  if (wasRerolled) {
+    fields.push(['Manual Re-Roll', 'Yes']);
+  }
 
   if (batch.isBacklog && batch.planDate) {
     fields.splice(1, 0, ['Planned Date', `${formatPlantDate(batch.planDate)}${batch.shiftCode ? ` · Shift ${batch.shiftCode}` : ''}`]);
@@ -178,8 +190,13 @@ export function SixHiBatchDetailPanel({
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
             <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{displayMotherCoilId(batch)}</h2>
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
-              Slit ID {selectIdOf(batch)} · Batch {batch.batchNumber}
+              Batch {batch.batchNumber}
             </p>
+            {wasRerolled && (
+              <span className="inline-block mt-2 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                Re-rolled
+              </span>
+            )}
           </div>
           {batch.isBacklog && <SixHiBacklogBadge planDate={batch.planDate} large />}
         </div>

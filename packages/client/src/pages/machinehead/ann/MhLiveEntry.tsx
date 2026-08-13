@@ -13,9 +13,12 @@ import { syncRwdDeskFocus } from '../../../lib/rwdMhDesk';
 import { AnnMhLiveDashboard } from './AnnMhLiveDashboard';
 import { RwdMhLiveDashboard } from '../RwdMhLiveDashboard';
 
-// PERF-A3 — PKL/HRS live (recharts) only when that desk is active
-const ProcessLineLiveDashboard = lazy(() =>
-  import('../pkl/PklMhLiveDashboard').then((m) => ({ default: m.ProcessLineLiveDashboard })),
+// PERF-A3 — PKL live (recharts) only when PKL desk is active
+const PklMhLiveDashboard = lazy(() =>
+  import('../pkl/PklMhLiveDashboard').then((m) => ({ default: m.PklMhLiveDashboard })),
+);
+const HrsMhLiveDashboard = lazy(() =>
+  import('../hrs/HrsMhLiveDashboard').then((m) => ({ default: m.HrsMhLiveDashboard })),
 );
 
 /** `/live` — ANN → ANN live; RWD → RWD live; HRS/PKL desk → line live; else rolling MH. */
@@ -40,7 +43,7 @@ export function MhLiveEntry() {
     const line = resolveHrsPklLiveLine(machines, focus);
     return (
       <Suspense fallback={<RouteSpinner />}>
-        <ProcessLineLiveDashboard line={line} />
+        {line === 'HRS' ? <HrsMhLiveDashboard /> : <PklMhLiveDashboard />}
       </Suspense>
     );
   }

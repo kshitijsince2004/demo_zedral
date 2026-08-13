@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ZButton } from '../../primitives/ZButton';
-import { submitProcessCapture } from '../../../store/processStore';
+import { submitProcessCapture, useProcessStore } from '../../../store/processStore';
 import { captureRwdOrder } from '../../../lib/rewindingWrites';
 import type { BodyProps } from '../../../lib/processConfig';
 
@@ -80,15 +80,44 @@ export function RwdTensionForm({
   const planSurface = pv<'M' | 'B'>(prefill.surfaceFinish) ?? null;
   const planSurfaceBlank = planSurface == null;
 
-  const [t1, setT1] = useState('');
-  const [t2, setT2] = useState('');
-  const [t3, setT3] = useState('');
-  const [weightMt, setWeightMt] = useState(planWeight ? String(planWeight) : '');
-  const [observedThk, setObservedThk] = useState('');
+  const savedWeight = pv<number>(prefill.finishWeightMt);
+  const savedT1 = pv<number>(prefill.rwTension1Kg);
+  const savedT2 = pv<number>(prefill.rwTension2Kg);
+  const savedT3 = pv<number>(prefill.rwTension3Kg);
+  const savedThk = pv<number>(prefill.outputThkMm);
+  const hydrateKey = [
+    batchNumber ?? '',
+    savedWeight ?? '',
+    savedT1 ?? '',
+    savedT2 ?? '',
+    savedT3 ?? '',
+    savedThk ?? '',
+  ].join('|');
+
+  const [t1, setT1] = useState(() => (savedT1 != null ? String(savedT1) : ''));
+  const [t2, setT2] = useState(() => (savedT2 != null ? String(savedT2) : ''));
+  const [t3, setT3] = useState(() => (savedT3 != null ? String(savedT3) : ''));
+  const [weightMt, setWeightMt] = useState(() =>
+    savedWeight != null ? String(savedWeight) : (planWeight ? String(planWeight) : ''),
+  );
+  const [observedThk, setObservedThk] = useState(() => (savedThk != null ? String(savedThk) : ''));
   // RWD-Q2: operator picks Matt/Bright only when plan surface is blank.
   const [surfacePick, setSurfacePick] = useState<'M' | 'B' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [seenHydrateKey, setSeenHydrateKey] = useState(hydrateKey);
+
+  useEffect(() => {
+    if (hydrateKey === seenHydrateKey) return;
+    setSeenHydrateKey(hydrateKey);
+    setT1(savedT1 != null ? String(savedT1) : '');
+    setT2(savedT2 != null ? String(savedT2) : '');
+    setT3(savedT3 != null ? String(savedT3) : '');
+    setWeightMt(
+      savedWeight != null ? String(savedWeight) : (planWeight ? String(planWeight) : ''),
+    );
+    setObservedThk(savedThk != null ? String(savedThk) : '');
+  }, [hydrateKey, seenHydrateKey, savedT1, savedT2, savedT3, savedWeight, savedThk, planWeight]);
 
   const surfaceFinish = planSurfaceBlank ? surfacePick : planSurface;
 
@@ -97,7 +126,9 @@ export function RwdTensionForm({
     setError(null);
 
     if (planSurfaceBlank && !surfacePick) {
-      setError('Select Matt or Bright surface finish');
+      const msg = 'Select Matt or Bright surface finish';
+      setError(msg);
+      useProcessStore.getState().settleEndCaptureError(msg);
       return;
     }
 
@@ -134,7 +165,9 @@ export function RwdTensionForm({
       }
       await onSubmitted?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submit failed');
+      const msg = err instanceof Error ? err.message : 'Submit failed';
+      setError(msg);
+      useProcessStore.getState().settleEndCaptureError(msg);
     } finally {
       setSubmitting(false);
     }

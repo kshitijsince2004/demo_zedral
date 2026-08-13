@@ -80,15 +80,17 @@ function Metric({ label, value }: { label: string; value: string }) {
 export function AnnBaseCard({
   row,
   onOpen,
+  onOpenBase,
 }: {
   row: AnnBoardRow;
   onOpen?: (chargeNo: string) => void;
+  onOpenBase?: (baseNo: string) => void;
 }) {
   const status = boardCardStatus(row);
   const total = Math.max(1, row.stages_total || 10);
   const pct = status === 'IDLE' ? 0 : Math.round((row.stages_done / total) * 100);
   const elapsed = stageElapsed(row.active_stage_start_at);
-  const clickable = Boolean(row.charge?.charge_no);
+  const hasCharge = Boolean(row.charge?.charge_no);
   const setpoint = row.charge?.soak_temp_degc != null ? Number(row.charge.soak_temp_degc) : null;
   const tempVal =
     row.latest_reading?.charge_temp != null
@@ -103,21 +105,24 @@ export function AnnBaseCard({
       className={[
         'flex overflow-hidden rounded-lg border border-border bg-background text-left shadow-sm',
         'transition-[box-shadow,transform] duration-150 min-h-[5.5rem]',
-        clickable
-          ? 'cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          : '',
+        'cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       ].join(' ')}
       onClick={() => {
-        if (row.charge?.charge_no && onOpen) onOpen(row.charge.charge_no);
-      }}
-      onKeyDown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && row.charge?.charge_no && onOpen) {
-          e.preventDefault();
-          onOpen(row.charge.charge_no);
+        if (hasCharge && onOpen) {
+          onOpen(row.charge!.charge_no);
+        } else if (!hasCharge && onOpenBase) {
+          onOpenBase(row.base_no);
         }
       }}
-      role={clickable ? 'button' : undefined}
-      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (hasCharge && onOpen) onOpen(row.charge!.charge_no);
+          else if (!hasCharge && onOpenBase) onOpenBase(row.base_no);
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <div
         className={`w-8 shrink-0 flex items-center justify-center ${STATUS_STRIP[status]}`}
@@ -136,9 +141,9 @@ export function AnnBaseCard({
               <p className="text-[13px] font-bold font-mono tabular-nums text-foreground truncate">{row.base_no}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Batch</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Ann batch no.</p>
               <p className="text-[13px] font-bold font-mono tabular-nums text-foreground truncate">
-                {row.charge?.annealing_batch_no ?? '—'}
+                {row.charge?.annealing_batch_no?.trim() ? row.charge.annealing_batch_no : '—'}
               </p>
             </div>
             <div className="min-w-0">

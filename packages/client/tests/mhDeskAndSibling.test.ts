@@ -26,20 +26,22 @@ describe('resolveMhDesk (ANN wins)', () => {
 });
 
 describe('resolveImportableAssignedLines (F4 mixed desk)', () => {
-  it('MH with HRS + CRM still yields HRS import path', () => {
+  it('MH with HRS + CRM still yields HRS and mill import paths', () => {
     const lines = resolveImportableAssignedLines(['HRS', '6HI']);
-    expect(lines).toEqual(['HRS']);
+    expect(lines).toEqual(['HRS', '6HI']);
     expect(importPathForLine(lines[0]!)).toBe('/machine-head/hrs/import');
+    expect(importPathForLine(lines[1]!)).toBe('/machine-head/6hi/import');
   });
 
   it('lists every importable line independently of desk focus', () => {
     expect(resolveImportableAssignedLines(['HRS', 'PKL', 'ANN', 'RWD', '6HI'])).toEqual([
-      'HRS', 'PKL', 'ANN', 'RWD',
+      'HRS', 'PKL', 'ANN', 'RWD', '6HI',
     ]);
   });
 
-  it('returns empty when only CRM mills assigned', () => {
-    expect(resolveImportableAssignedLines(['6HI', '4HI'])).toEqual([]);
+  it('returns mill import lines when only CRM mills assigned', () => {
+    expect(resolveImportableAssignedLines(['6HI', '4HI'])).toEqual(['6HI', '4HI']);
+    expect(importPathForLine('2HI')).toBe('/machine-head/2hi/import');
   });
 });
 

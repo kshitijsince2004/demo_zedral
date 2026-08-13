@@ -89,9 +89,10 @@ describe('manual reroll helpers', () => {
     expect(rerollCombineKey(a)).not.toBe(rerollCombineKey(d));
   });
 
-  it('buckets STOPPAGE + session PREPARING under In Progress; CRM PREPARING under Pending', () => {
+  it('buckets session PREPARING under Preparing; STOPPAGE under In Progress; CRM PREPARING under Pending', () => {
     expect(matchesRerollStatusFilter('STOPPAGE', 'IN_PROGRESS')).toBe(true);
-    expect(matchesRerollStatusFilter('PREPARING', 'IN_PROGRESS', 'session')).toBe(true);
+    expect(matchesRerollStatusFilter('PREPARING', 'IN_PROGRESS', 'session')).toBe(false);
+    expect(matchesRerollStatusFilter('PREPARING', 'PREPARING', 'session')).toBe(true);
     expect(matchesRerollStatusFilter('PREPARING', 'PENDING', 'session')).toBe(false);
     expect(matchesRerollStatusFilter('ON_HOLD', 'ON_HOLD')).toBe(true);
     expect(matchesRerollStatusFilter('PENDING', 'PENDING')).toBe(true);
@@ -107,7 +108,8 @@ describe('manual reroll helpers', () => {
     ])).toEqual({
       ALL: 7,
       PENDING: 2,
-      IN_PROGRESS: 3,
+      PREPARING: 1,
+      IN_PROGRESS: 2,
       ON_HOLD: 1,
       COMPLETED: 1,
     });

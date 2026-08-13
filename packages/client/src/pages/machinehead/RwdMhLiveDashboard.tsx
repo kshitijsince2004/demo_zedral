@@ -7,6 +7,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZBadge } from '../../components/primitives/ZBadge';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
+import { ZPillTabs } from '../../components/ui/operator/ZPillTabs';
 import { RewindingMachineAllocationModal } from '../../components/rewinding/RewindingMachineAllocationModal';
 import { apiClient } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
@@ -21,6 +22,7 @@ import {
 import { userScopePath } from '../../lib/userScope';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import type { Tone } from '../../lib/tones';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 function statusTone(status: string): Tone {
   const s = status.toUpperCase();
@@ -32,6 +34,7 @@ function statusTone(status: string): Tone {
 }
 
 type StatusFilter = 'ALL' | 'PENDING' | 'IN_PROGRESS' | 'HOLD' | 'COMPLETED';
+type LiveView = 'overview' | 'history' | 'completed';
 
 /** MH Live for Rewinding line — backed by /rewinding/queue?machine=RWD|2HI. */
 export function RwdMhLiveDashboard() {
@@ -48,6 +51,7 @@ export function RwdMhLiveDashboard() {
   const [allocCard, setAllocCard] = useState<RewindingQueueCard | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [view, setView] = useState<LiveView>('overview');
 
   const { data, error, isLoading, mutate, isValidating } = useSWR(
     `/rewinding/queue?machine=${liveLine}`,
@@ -59,6 +63,16 @@ export function RwdMhLiveDashboard() {
   );
 
   const queue = useMemo(() => data ?? [], [data]);
+  const running = useMemo(
+    () => queue.find((c) => {
+      const s = (c.status ?? '').toUpperCase();
+      return s === 'IN_PROGRESS' || s === 'STOPPAGE' || s === 'PREPARING';
+    }) ?? null,
+    [queue],
+  );
+  const lineStatus = running
+    ? ((running.status ?? '').toUpperCase() === 'STOPPAGE' ? 'STOPPAGE' : 'RUNNING')
+    : 'IDLE';
   const counts = useMemo(() => {
     const c: Record<StatusFilter, number> = { ALL: 0, PENDING: 0, IN_PROGRESS: 0, HOLD: 0, COMPLETED: 0 };
     for (const card of queue) {
@@ -136,10 +150,43 @@ export function RwdMhLiveDashboard() {
     <MachineHeadShell
       title={`${liveLine} Live Dashboard`}
       subtitle="Rewinding orders"
+      fillViewport
       onRefresh={() => void mutate()}
     >
-      <div className="flex flex-col gap-4 p-4 max-w-6xl mx-auto w-full">
-        <div className="flex flex-wrap items-end gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-1">
+        <ZPillTabs
+          tabs={[
+            { id: 'overview', label: 'Overview' },
+            { id: 'history', label: 'History' },
+            { id: 'completed', label: 'Orders completed' },
+          ]}
+          activeId={view}
+          onChange={(id) => {
+            setView(id as LiveView);
+            if (id === 'completed') setStatusFilter('COMPLETED');
+            else if (id === 'history') setStatusFilter('ALL');
+          }}
+        />
+        {view === 'overview' && (
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm shrink-0">
+            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground mb-2">{liveLine} machine</p>
+            <ZBadge
+              tone={lineStatus === 'RUNNING' ? 'success' : lineStatus === 'STOPPAGE' ? 'warning' : 'muted'}
+              label={lineStatus}
+              dot
+            />
+            {running ? (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground mb-1">Processing</p>
+                <p className="font-mono text-xl font-bold tabular-nums">{displayMotherCoilId(running)}</p>
+                <p className="text-sm text-muted-foreground">{running.customerName} · {running.gradeCode}</p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">No coil in progress</p>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3 shrink-0">
           <div className="w-full max-w-xs">
             <ZInput
               value={search}
@@ -160,6 +207,7 @@ export function RwdMhLiveDashboard() {
             Refresh
           </ZButton>
         </div>
+        {view !== 'overview' && (
         <ZFilterPills
           options={[
             { id: 'ALL', label: 'All', count: counts.ALL },
@@ -171,12 +219,13 @@ export function RwdMhLiveDashboard() {
           activeId={statusFilter}
           onChange={setStatusFilter}
         />
+        )}
 
         {err && <p className="text-sm text-destructive">{err}</p>}
         {error && <p className="text-sm text-destructive">Failed to load queue</p>}
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-        <div className="space-y-2">
+        <div className="min-h-0 flex-1 overflow-auto space-y-2">
           {filtered.map((card) => {
             const status = (card.status ?? 'PENDING').toUpperCase();
             return (
@@ -190,7 +239,7 @@ export function RwdMhLiveDashboard() {
                   onClick={() => navigate(`/machine-head/rwd/coil/${encodeURIComponent(card.batchNumber)}`)}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-bold tabular-nums text-foreground">{card.displayCoilNo || card.coilNo}</span>
+                    <span className="font-mono font-bold tabular-nums text-foreground">{displayMotherCoilId(card)}</span>
                     <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(status)} />
                     {card.machineAllocated && (
                       <ZBadge tone="info" label={card.machineCode ?? liveLine} />
@@ -224,7 +273,7 @@ export function RwdMhLiveDashboard() {
       <RewindingMachineAllocationModal
         open={!!allocCard}
         batchNumber={allocCard?.batchNumber ?? ''}
-        coilLabel={allocCard?.displayCoilNo || allocCard?.coilNo || ''}
+        coilLabel={allocCard ? displayMotherCoilId(allocCard) : ''}
         suggested={liveLine}
         onClose={() => setAllocCard(null)}
         onConfirm={async (machineCode) => {

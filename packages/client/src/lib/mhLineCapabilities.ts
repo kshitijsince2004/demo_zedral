@@ -185,18 +185,20 @@ export const LINE_NAV: Record<MhCapabilityLine, DeskNavItemId[]> = {
     'ann-specs',
   ],
   RWD: ['rwd-live', 'order-assignment', 'crew', 'shift-review', 'import', 'dpr-export', 'traceability'],
-  CRS: ['live', 'crs-assignment', 'crew', 'shift-review', 'import', 'dpr-export', 'traceability'],
-  CTL: [...SHARED],
-  '6HI': ['live', 'order-assignment', 'machine-specs', 'import', 'dpr-export', 'traceability'],
-  '4HI': ['live', 'order-assignment', 'machine-specs', 'import', 'dpr-export', 'traceability'],
-  '2HI': ['rwd-live', 'order-assignment', 'crew', 'shift-review', 'import', 'dpr-export', 'traceability'],
+  CRS: ['live', 'crs-assignment', 'crew', 'shift-review', 'machine-specs', 'import', 'dpr-export', 'traceability'],
+  CTL: [...SHARED, 'machine-specs'],
+  '6HI': ['live', 'order-assignment', 'import', 'dpr-export', 'traceability'],
+  '4HI': ['live', 'order-assignment', 'import', 'dpr-export', 'traceability'],
+  '2HI': ['live', 'order-assignment', 'crew', 'shift-review', 'import', 'dpr-export', 'traceability'],
 };
 
 function isCapabilityLine(code: string): code is MhCapabilityLine {
   return Object.prototype.hasOwnProperty.call(LINE_NAV, code);
 }
 
-/** Ordered, de-duplicated nav ids for assigned machines. */
+const LIVE_NAV_IDS = new Set<DeskNavItemId>(['live', 'ann-live', 'rwd-live']);
+
+/** Ordered, de-duplicated nav ids for assigned machines. One Live Dashboard row. */
 export function navIdsForMachines(machines: string[]): DeskNavItemId[] {
   const ids = new Set<DeskNavItemId>();
   for (const raw of machines) {
@@ -204,7 +206,11 @@ export function navIdsForMachines(machines: string[]): DeskNavItemId[] {
     if (!isCapabilityLine(code)) continue;
     for (const id of LINE_NAV[code]) ids.add(id);
   }
-  return NAV_DISPLAY_ORDER.filter((id) => ids.has(id));
+  const ordered = NAV_DISPLAY_ORDER.filter((id) => ids.has(id));
+  const liveIds = ordered.filter((id) => LIVE_NAV_IDS.has(id));
+  if (liveIds.length <= 1) return ordered;
+  const keep = liveIds.includes('live') ? 'live' : liveIds[0];
+  return ordered.filter((id) => !LIVE_NAV_IDS.has(id) || id === keep);
 }
 
 /** Resolve catalogue items for the MH fallback desk (before line-scoped import rewrite). */

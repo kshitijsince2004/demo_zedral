@@ -2204,28 +2204,28 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** `zod` was only on `@m1/shared-validation`; server imports it directly; prod `npm ci --workspace=packages/server` did not expose it for Node resolution from server dist. Declared direct dep; Dockerfile smoke-requires zod/pg/express after ci.
 - **Follow-ups:** Commit/push; Deploy AWS QA.
 
-### 2026-08-07 â Fix Docker prod zod: lockfile + prune-from-builder
+### 2026-08-07 Ã¢ÂÂ Fix Docker prod zod: lockfile + prune-from-builder
 
 - **Goal:** CI Docker build failed `require('zod')` after prior direct-dep patch; QA crash `MODULE_NOT_FOUND`.
 - **Touched:** `Dockerfile`, `package.json`, `package-lock.json`, `packages/server/package.json`, `packages/shared-validation/package.json`, `doc/AGENT_CONTEXT_LOG.md`
 - **Decisions / skipped:** Root cause: lockfile had root `zod@4` as `dev:true` (kysely-codegen/eslint); `npm ci --omit=dev --workspace=server` installed neither root nor `packages/server` zod (only deep puppeteer nest). Fix: root prod dep + override pin `zod@3.25.76`; backend image copies `npm prune --omit=dev` from builder (no second workspace ci). Verified clean temp prod-ci resolves zod 3.25.76. Local full test suite blocked by Windows EBUSY/OneDrive locks on node_modules.
 - **Follow-ups:** CI quality + Docker + Deploy AWS QA on push.
 
-### 2026-08-07 â Align D12 Docker boundary test with prod-deps stage
+### 2026-08-07 Ã¢ÂÂ Align D12 Docker boundary test with prod-deps stage
 
-- **Goal:** Fix `packageBoundaries` unit assert still expecting `COPY â¦/platform/dist` from builder.
+- **Goal:** Fix `packageBoundaries` unit assert still expecting `COPY Ã¢ÂÂ¦/platform/dist` from builder.
 - **Touched:** `packages/server/tests/architecture/packageBoundaries.test.ts`, `doc/AGENT_CONTEXT_LOG.md`
 - **Decisions / skipped:** Assert `prod-deps` + full package COPY paths (dist included via prune tree).
 - **Follow-ups:** Commit/push.
 
-### 2026-08-07 â CI mirror + prod-deps prune ignore-scripts
+### 2026-08-07 Ã¢ÂÂ CI mirror + prod-deps prune ignore-scripts
 
 - **Goal:** Run full CI quality + backend image locally; fix real Docker fail (`npm prune` esbuild install mismatch).
 - **Touched:** `Dockerfile` (`npm prune --omit=dev --ignore-scripts`), `scripts/run-ci-quality-local.sh`
-- **Decisions / skipped:** Not a smoke-check dodge â prune must not re-run install scripts; builder already has natives. Script mirrors CI quality job in node:20 container.
+- **Decisions / skipped:** Not a smoke-check dodge Ã¢ÂÂ prune must not re-run install scripts; builder already has natives. Script mirrors CI quality job in node:20 container.
 - **Follow-ups:** Re-run local CI mirror + backend build; commit/push prune fix.
 
-### 2026-08-07 â Local CI/QA test results (no product patches)
+### 2026-08-07 Ã¢ÂÂ Local CI/QA test results (no product patches)
 
 - **Goal:** Exercise CI quality + AWS QA smoke without papering over failures.
 - **Touched:** `scripts/run-ci-quality-local.sh` (cygpath mount + exclude `*.tsbuildinfo`), `scripts/diag-server-build.sh`, `Dockerfile` (already had `--ignore-scripts`)
@@ -2239,314 +2239,834 @@ equireCrmMill derives mill from order batch when ?machine= omitted (outbox repla
 - **Decisions / skipped:** No version bump needed (already 1.2.9 / vc12); API via existing `.env.operator` ? qa.zedral.com; debug-signed (no `ZEDRAL_KEYSTORE_*`); no fleet upload.
 - **Follow-ups:** Sideload APK; smoke CRM Manual Re-Roll, HRS/PKL/ANN operator routes against QA.
 
-### 2026-08-07 â Pipeline reliability plan (Phases 0â5)
+### 2026-08-07 Ã¢ÂÂ Pipeline reliability plan (Phases 0Ã¢ÂÂ5)
 
 - **Goal:** Implement `PIPELINE_RELIABILITY_PLAN.md` end-to-end in-repo.
 - **Touched:** `.gitattributes`, `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `runner-health.yml`, `dependabot.yml`, `.github/actions/setup-node-npm`, `deploy/lib/common.sh`, `deploy/docker-compose.prod.yml`, `deploy/scripts/drill-rollback.sh`, `doc/MIGRATION_RUNBOOK.md`, `doc/BRANCH_PROTECTION.md`, `package.json` (overrides undici/uuid/xlsx CDN), `package-lock.json`, `vendor/xlsx-0.20.3.tgz`, `packages/server/scripts/{run-migrate,check-migration-order}.mjs`, `e2e/playwright.config.ts`, deploy workflows (Playwright cache/retries)
-- **Decisions / skipped:** xlsx Path A2 (CDN 0.20.3 + vendored tarball), not exceljs rewrite; off-OneDrive / WSL move and long-lived branch collapse left to humans; `gh` absent so branch protection only documented; full Linux lockfile regen aborted (OneDrive docker hangs) â surgical lock patches for undici/xlsx/uuid instead; `--no-check-order` kept for deploy DBs, `MIGRATE_STRICT_ORDER=1` on CI.
-- **Follow-ups:** Move checkout off OneDrive; apply `doc/BRANCH_PROTECTION.md`; run `bash scripts/run-ci-quality-local.sh`; commit/push; watch first PR matrix + migrate down-all; optional Dependabot/gitleaks license for private repos. Fixed `exceljs>uuid` override â nested `exceljs.uuid` (npm rejected `>` key).
+- **Decisions / skipped:** xlsx Path A2 (CDN 0.20.3 + vendored tarball), not exceljs rewrite; off-OneDrive / WSL move and long-lived branch collapse left to humans; `gh` absent so branch protection only documented; full Linux lockfile regen aborted (OneDrive docker hangs) Ã¢ÂÂ surgical lock patches for undici/xlsx/uuid instead; `--no-check-order` kept for deploy DBs, `MIGRATE_STRICT_ORDER=1` on CI.
+- **Follow-ups:** Move checkout off OneDrive; apply `doc/BRANCH_PROTECTION.md`; run `bash scripts/run-ci-quality-local.sh`; commit/push; watch first PR matrix + migrate down-all; optional Dependabot/gitleaks license for private repos. Fixed `exceljs>uuid` override Ã¢ÂÂ nested `exceljs.uuid` (npm rejected `>` key).
 
 
 
-### 2026-08-07 â Local CI/QA green; commit pipeline reliability
+### 2026-08-07 Ã¢ÂÂ Local CI/QA green; commit pipeline reliability
 
 - **Goal:** Run CI quality + Docker + QA health; commit/push pipeline plan work if green.
 - **Touched:** pipeline reliability set (workflows, deploy migrate-before-boot, deps overrides, vendor xlsx, CONTRIBUTING, scripts/run-ci-quality-local.sh)
 - **Decisions / skipped:** Full local mirror PASSED (lint/build/client/unit/integration/arch/migrate up-down-up/docker require smoke). QA curl /health+/login+/api/health 200. Playwright login skipped locally (no SMOKE_* secrets; health request test passed). Excluded dist-operator/capacitor APK churn and AUDIT_REPORT from commit.
 - **Follow-ups:** Watch Actions CI + Deploy AWS QA Playwright (uses repo secrets); apply branch protection; collapse long-lived branches.
 
-### 2026-08-07 â CI_FIX_PLAN: four CI blockers
+### 2026-08-07 Ã¢ÂÂ CI_FIX_PLAN: four CI blockers
 
 - **Goal:** Fix integration missing workspace builds, unit DB leak, gitleaks 403, docker-pr chdir ENOENT.
 - **Touched:** .github/workflows/ci.yml, packages/server/tests/handoverDraftJsonb.integration.test.ts (renamed from .test.ts)
 - **Decisions / skipped:** Recommended options only (A/A/A/B absolute chdir). No vite-tsconfig-paths. Verified: unit 539 pass without handoverDraftJsonb; renamed integration test pass; docker absolute chdir pr image ok (relative still ENOENT). Gitleaks permissions only verifiable on GitHub PR.
 - **Follow-ups:** Push/re-run PR CI for secrets job confirmation.
 
-### 2026-08-08 â CI_FIX_PLAN_2: natives, runner-health, audit hygiene
+### 2026-08-08 Ã¢ÂÂ CI_FIX_PLAN_2: natives, runner-health, audit hygiene
 
 - **Goal:** Implement CI_FIX_PLAN_2.md (A/B/C + hygiene).
 - **Touched:** .github/workflows/runner-health.yml (contents+administration), .npmrc (fetch retries), scripts/ensure-native-bindings.mjs (esbuild 0.28 + dir present check + install retries), package.json (esbuild/tar/nodemailer overrides, optionalDeps 0.28), package-lock.json (Linux regen), workflows checkout@v5/setup-node@v5/cache@v5, endor/README.md
-- **Decisions / skipped:** A1+A2 landed â ensure-native OK no-op after 
-pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11âall would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept 
+- **Decisions / skipped:** A1+A2 landed Ã¢ÂÂ ensure-native OK no-op after 
+pm ci on Linux. Nested glob override skipped (npm ignored nested override; glob@11Ã¢ÂÂall would break glob@7 consumers). Kysely 0.28.17 deferred (typecheck break). Nodemailer 9.0.5 pinned under @m1/server; hoisted 8.0.11 may remain until ST upgrades. Lint fast-refresh file splits skipped (already warn-only). Kept 
 egen helper scripts deleted after use.
 - **Follow-ups:** Confirm runner-health via workflow_dispatch; staged kysely upgrade PR; clear remaining audit (vitest nested esbuild, kysely, ST/nodemailer hoist).
 
-### 2026-08-08 â CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
+### 2026-08-08 Ã¢ÂÂ CI_FINAL_FIX_PLAN: lock sync + kysely 0.28 + drift guard
 
-- **Goal:** Implement CI_FINAL_FIX_PLAN.md â fix lock desync, kysely CVE migration, Dependabot policy, drift guard.
+- **Goal:** Implement CI_FINAL_FIX_PLAN.md Ã¢ÂÂ fix lock desync, kysely CVE migration, Dependabot policy, drift guard.
 - **Touched:** package-lock.json, package.json (overrides), packages/server/package.json (kysely 0.28.17, nodemailer), packages/server/src/repositories/BaseRepository.ts, .github/workflows/ci.yml (lockfile job), .github/dependabot.yml (exclude kysely from groups), Dockerfile (drop nested nodemailer 8.x), CI_FINAL_FIX_PLAN.md
 - **Decisions / skipped:** Primary kysely path (not trivyignore). BaseRepository uses (trx as any) for generic table .where under 0.28. Nested ST nodemailer removed at image build. Hygiene lint/Node22 deferred.
 - **Follow-ups:** Watch Trivy on main; close/rebase Dependabot #173/#175 after lock lands.
 
-### 2026-08-08 â Durable CI: 3 workflows, lock/xlsx vendor, Trivy clear
+### 2026-08-08 Ã¢ÂÂ Durable CI: 3 workflows, lock/xlsx vendor, Trivy clear
 
 - **Goal:** Collapse Actions to CI + Deploy AWS + Deploy Production; stop Dependabot/runner-health noise; fix Lockfile sync (xlsx) and Trivy HIGH (glob/nodemailer).
 - **Touched:** `.github/workflows/ci.yml` (schedule runners job; delete runner-health), `.github/workflows/runner-health.yml` (deleted), `.github/dependabot.yml`, `package.json`/`packages/server/package.json`/`package-lock.json` (xlsx file:vendor, glob 11.1.0), `Dockerfile` + `scripts/purge-nodemailer-lt9.mjs`, `CONTRIBUTING.md`, `doc/BRANCH_PROTECTION.md`, `vendor/README.md`
 - **Decisions / skipped:** Quality jobs skip on schedule; docker-pr skips dependabot; server xlsx pin `0.20.3` + root `file:vendor` (workspace `file:../../vendor` broke npm path). Local quality mirror PASSED; image has glob@11.1.0 + nodemailer@9.0.5; Trivy CRITICAL/HIGH clean. Did not commit `.github/an` / AUDIT_REPORT.
 - **Follow-ups:** Apply branch protection contexts including Lockfile sync; close stale Dependabot PRs; confirm Actions shows only CI (no runner-health) and QA auto-deploy after main green.
 
-### 2026-08-08 â Rebuild CI from CURSOR_PROMPT_rebuild_ci.md
+### 2026-08-08 Ã¢ÂÂ Rebuild CI from CURSOR_PROMPT_rebuild_ci.md
 
 - **Goal:** Fix invalid `administration` permission; rewrite CI/CD workflows cleanly; cut Dependabot noise.
 - **Touched:** `.github/workflows/ci.yml` (rewritten; runners job removed), `deploy-aws.yml`/`deploy-production.yml` (top-level `permissions: contents: read`), `.github/dependabot.yml` (1 npm + 1 actions group), `.github/actionlint.yaml`
-- **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (promptâs 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
+- **Decisions / skipped:** QA still uses `workflow_run` after CI success (not bare `push`) so deploy cannot race GHCR. Kept kysely 0.28 in tree (promptÃ¢ÂÂs 0.27 note is stale). actionlint exit 0; Linux lockfile drift check OK. No app source changes.
 - **Follow-ups:** Push and confirm CI parses on GitHub; close stale Dependabot PRs.
 
-### 2026-08-08 â QA deploy pull resilience (QA_DEPLOY_FIX_PLAN)
+### 2026-08-08 Ã¢ÂÂ QA deploy pull resilience (QA_DEPLOY_FIX_PLAN)
 
 - **Goal:** Stop GHCR pull stalls from aborting AWS QA deploy; shrink backend image pull window.
 - **Touched:** `deploy/lib/common.sh` (per-service pull retry/backoff + GHCR probe), `Dockerfile` (`PUPPETEER_SKIP_DOWNLOAD`), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Option 1+2 only; ECR mirror deferred. PdfRenderer already falls back to HTML without Chromium.
-- **Follow-ups:** Push â CI image rebuild â workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
+- **Follow-ups:** Push Ã¢ÂÂ CI image rebuild Ã¢ÂÂ workflow_dispatch Deploy AWS QA; confirm pull retries in logs if stall recurs.
 
-### 2026-08-08 â QA #177: image tag split-brain + nginx sticky upstream
+### 2026-08-08 Ã¢ÂÂ QA #177: image tag split-brain + nginx sticky upstream
 
 - **Goal:** Fix deploy logging SHA A while running SHA B; nginx unrecreated/unhealthy after backend recreate.
 - **Touched:** `deploy/lib/common.sh` (dedupe upsert, assert_compose_images, docker pull by ref, force-recreate backend+nginx, running-tag assert, nginx health gate), `deploy/nginx.prod.conf` (Docker DNS + variable proxy_pass), `deploy/scripts/test-pull-retry.sh`
 - **Decisions / skipped:** Root cause was Compose env-file/soft-recreate split-brain + static upstream DNS, not pull stalls. ECR mirror still deferred.
 - **Follow-ups:** Re-run Deploy AWS QA after CI builds nginx with new conf; confirm running images == intended SHA and nginx healthy.
 
-### 2026-08-08 â Deploy preflight: CORS_ORIGIN + resolve_repo_root
+### 2026-08-08 Ã¢ÂÂ Deploy preflight: CORS_ORIGIN + resolve_repo_root
 
 - **Goal:** Fail fast when CORS_ORIGIN missing/empty; define missing resolve_repo_root used by rollback-images.sh.
 - **Touched:** `deploy/lib/common.sh`
-- **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root â no edit needed. remote-ghcr left as-is.
+- **Decisions / skipped:** Parse semantics match getConfiguredCorsOrigins; non-http origins warn only. rollback-images.sh already called resolve_repo_root Ã¢ÂÂ no edit needed. remote-ghcr left as-is.
 - **Follow-ups:** Set CORS_ORIGIN=https://qa.zedral.com on QA box /opt/zedral/deploy/.env (ops).
 
-### 2026-08-08 â Auto-heal CORS_ORIGIN from WEBSITE_DOMAIN
+### 2026-08-08 Ã¢ÂÂ Auto-heal CORS_ORIGIN from WEBSITE_DOMAIN
 
 - **Goal:** Unblock QA #179 fail-fast when CORS_ORIGIN empty but WEBSITE_DOMAIN is set.
 - **Touched:** `deploy/lib/common.sh` (auto_heal), `deploy/.env.production.example`
 - **Decisions / skipped:** Heal only when no non-empty CORS origins; still die if both empty.
 - **Follow-ups:** Re-run Deploy AWS QA.
 
-### 2026-08-08 â Fix Playwright smoke secrets + rollback gate
+### 2026-08-08 Ã¢ÂÂ Fix Playwright smoke secrets + rollback gate
 
 - **Goal:** Stop silent 1001 login fails; do not image-rollback on secrets/CDN/UI smoke failures.
 - **Touched:** `e2e/tests/smoke.spec.ts` (seed default 3000; CI requires secrets), `.github/workflows/deploy-aws.yml` (preflight secrets + wait-public-health; rollback only if failure_kind=app)
 - **Decisions / skipped:** Rollback only when public /health fails as app/origin issue, not login flake.
 - **Follow-ups:** Set staging secrets SMOKE_BADGE_ID=3000 and SMOKE_PIN=1234 (or real PIN); re-run Deploy AWS QA.
 
-### 2026-08-08 â QA smoke login: domain sync + seed profiles
+### 2026-08-08 Ã¢ÂÂ QA smoke login: domain sync + seed profiles
 
 - **Goal:** Fix Deploy AWS smoke stuck on /login (wrong SuperTokens host and/or missing badge 3000).
 - **Touched:** deploy/lib/common.sh (sync_public_origin, ensure_login_profiles), deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/deploy-aws.yml (pass AWS_PUBLIC_URL/ENSURE_SMOKE_USERS; report no exit 1), e2e/tests/smoke.spec.ts (surface UI error), deploy/.env.production.example
 - **Decisions / skipped:** Seed gated to QA only via ENSURE_SMOKE_USERS=true. Report job stays green when smoke already failed.
 - **Follow-ups:** Staging secrets AWS_PUBLIC_URL=https://qa.zedral.com, SMOKE_BADGE_ID=3000, SMOKE_PIN matching seed; re-run Deploy AWS QA.
 
-### 2026-08-08 â QA seed via node + non-fatal edge/auth checks
+### 2026-08-08 Ã¢ÂÂ QA seed via node + non-fatal edge/auth checks
 
 - **Goal:** Fix npm-not-found seed abort/rollback; document QA host edge; warn on public /auth 404.
 - **Touched:** deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, deploy/scripts/post-deploy-setup.sh, deploy/bootstrap-aws-vm.sh, deploy/nginx/host-qa.zedral.com.conf
 - **Decisions / skipped:** Seed + edge check always return 0 / || true under set -e; no Dockerfile/nginx.prod changes.
-- **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com â nginx:80.
+- **Follow-ups:** Ops: SMOKE_BADGE_ID=3000 + matching SMOKE_PIN; fix Cloudflare tunnel ingress for qa.zedral.com Ã¢ÂÂ nginx:80.
 
-### 2026-08-08 â Fix nginx /auth URI preserve (variable proxy_pass)
+### 2026-08-08 Ã¢ÂÂ Fix nginx /auth URI preserve (variable proxy_pass)
 
-- **Goal:** Stop Express 404 on /auth/* caused by variable proxy_pass â¦/auth/ replacing entire URI.
+- **Goal:** Stop Express 404 on /auth/* caused by variable proxy_pass Ã¢ÂÂ¦/auth/ replacing entire URI.
 - **Touched:** deploy/nginx.prod.conf, deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, deploy/scripts/remote-ghcr-deploy.sh, .github/workflows/ci.yml, e2e/tests/smoke.spec.ts
 - **Decisions / skipped:** /api/ unchanged (intentional strip). Auth 404 fails local+public deploy checks. No auth app code changes.
-- **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh â 401 not 404.
+- **Follow-ups:** CI builds/pushes nginx SHA; Deploy AWS QA recreates zedral-nginx; confirm POST /auth/session/refresh Ã¢ÂÂ 401 not 404.
 
-### 2026-08-08 â Fix nginx /api strip under variable proxy_pass
+### 2026-08-08 Ã¢ÂÂ Fix nginx /api strip under variable proxy_pass
 
-- **Goal:** Stop Cannot GET / on /api/* (variable proxy_pass â¦/; replaced entire URI with /).
+- **Goal:** Stop Cannot GET / on /api/* (variable proxy_pass Ã¢ÂÂ¦/; replaced entire URI with /).
 - **Touched:** deploy/nginx.prod.conf (rewrite + proxy_pass), deploy/scripts/validate-nginx-auth-proxy.sh, deploy/lib/common.sh, e2e/tests/smoke.spec.ts
 - **Decisions / skipped:** Kept variable upstream for Docker DNS; did not use static upstream. /auth/ unchanged.
-- **Follow-ups:** CI push nginx SHA â Deploy AWS QA recreate zedral-nginx; expect GET /api/shifts/current â 401 not 404.
+- **Follow-ups:** CI push nginx SHA Ã¢ÂÂ Deploy AWS QA recreate zedral-nginx; expect GET /api/shifts/current Ã¢ÂÂ 401 not 404.
 
-### 2026-08-08  Operator QA APK 1.2.10 (vc13)
+### 2026-08-08 Â Operator QA APK 1.2.10 (vc13)
 
 - **Goal:** Rebuild operator APK with latest console bundle pointed at QA.
 - **Touched:** `packages/client/android/app/build.gradle` (1.2.10 / vc13), `packages/client/.env.operator` (qa.zedral.com), `dist-operator` + cap sync, `Zedral-Operator-QA-1.2.10-vc13.apk`
 - **Decisions / skipped:** In-tree `gradlew assembleRelease` hit Windows file locks under `C:\dev`; assembled successfully from `C:\temp\zedral-apk-build` mirror. Debug-signed (no `ZEDRAL_KEYSTORE_*`). No HeadWind upload.
 - **Follow-ups:** Sideload APK; badge/PIN smoke against `https://qa.zedral.com`.
 
-### 2026-08-08  Fix AnnChargePage Check import
+### 2026-08-08 Â Fix AnnChargePage Check import
 
 - **Goal:** Fix Uncaught ReferenceError: Check is not defined on ANN charge page.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Added missing lucide-react `Check` import only.
 - **Follow-ups:** None.
 
-### 2026-08-08  Drop StatusRail produced/target strip
+### 2026-08-08 Â Drop StatusRail produced/target strip
 
 - **Goal:** Remove Produced / shift-target / Stoppage minutes from operator StatusRail on all process profiles.
 - **Touched:** `packages/client/src/components/layout/operator/StatusRail.tsx`
 - **Decisions / skipped:** Kept line/shift, Active Order (CRM), Running/Idle, device/sync, End Shift. Did not move strip elsewhere.
 - **Follow-ups:** None unless shift MT should live on hub pages instead.
 
-### 2026-08-08  APK OPERATOR-only session gate
+### 2026-08-08 Â APK OPERATOR-only session gate
 
 - **Goal:** Operator APK accepts only OPERATOR role (badge+PIN staff blocked).
 - **Touched:** `packages/client/src/pages/Login.tsx`, `packages/client/src/operator/OperatorApp.tsx`
 - **Decisions / skipped:** UI already operatorOnly; added post-login + SuperTokensSync role check. Web App unchanged.
 - **Follow-ups:** Rebuild operator APK to ship gate.
 
-### 2026-08-08  Audit/fix APK status-bar false-bad ping
+### 2026-08-08 Â Audit/fix APK status-bar false-bad ping
 
 - **Goal:** Status bar showed bad despite good Wi-Fi; probe was failing / thresholds too tight.
 - **Touched:** `packages/client/src/lib/supertokens.ts`, `packages/client/src/operator/native/deviceStatus.ts`, `packages/client/src/lib/networkQuality.ts`
 - **Decisions / skipped:** Skip ST intercept on `/health`; cors+omit ping; cold miss=degraded not 5s penalty; good<=800ms / degraded<=2s for Cloudflare QA. No native ICMP.
 - **Follow-ups:** Rebuild operator APK; confirm console `measurePingMs ... success` and label good/degraded not stuck bad.
 
-### 2026-08-09  Fix PpcRollingImportPanel duplicate React keys
+### 2026-08-09 Â Fix PpcRollingImportPanel duplicate React keys
 
 - **Goal:** Stop duplicate-key warnings when preview rows share a batch number.
 - **Touched:** `packages/client/src/components/admin/PpcRollingImportPanel.tsx`
 - **Decisions / skipped:** Key rows by `row.rowNum` (already unique). Left selection/commit keyed by `batchNumber` (API contract; dup rows already non-importable). Did not chase preview 401.
 - **Follow-ups:** If preview 401 persists after refresh/login, check auth on `/api/6hi/import/ppc/preview`.
 
-### 2026-08-09  Fix PklCoilForm NaN input value
+### 2026-08-09 Â Fix PklCoilForm NaN input value
 
 - **Goal:** Stop React warning `Received NaN for the value attribute` on PKL coil capture.
 - **Touched:** `packages/client/src/components/process/bodies/PklCoilForm.tsx`
 - **Decisions / skipped:** Guard weight + line speed with `Number.isFinite`; ignore incomplete numeric keystrokes (`-`, `.`) instead of storing NaN. No ZInput change.
 - **Follow-ups:** None.
 
-### 2026-08-09  PklCoilForm allow decimal typing
+### 2026-08-09 Â PklCoilForm allow decimal typing
 
 - **Goal:** Operators can type decimal weights/speeds (e.g. `1.5`); prior NaN guard collapsed `1.` via `Number()`.
 - **Touched:** `packages/client/src/components/process/bodies/PklCoilForm.tsx`
 - **Decisions / skipped:** Store weight + line speed as draft strings; parse on submit/cue. Reject non-decimal keystrokes via regex.
 - **Follow-ups:** None.
 
-### 2026-08-09  PKL chart reading form UX fixes
+### 2026-08-09 Â PKL chart reading form UX fixes
 
 - **Goal:** Chart time read-only; inputs keep focus while typing; Save Reading always visible.
 - **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
 - **Decisions / skipped:** Moved `ChartField` outside component (nested Field remounted every keystroke). Sticky modal footer for Save. Time display only (set on open via `formatPlantTime`).
 - **Follow-ups:** None.
 
-### 2026-08-09  PKL chart date+shift filter
+### 2026-08-09 Â PKL chart date+shift filter
 
 - **Goal:** Default process chart to current running shift; allow date + shift A/B/C to view past readings.
 - **Touched:** `packages/client/src/components/process/bodies/PklChartGrid.tsx`
 - **Decisions / skipped:** Resolve past logs via `/shift-logs?line=PKL`. Add Reading / save only on live shift. Reused existing shift-logs API (no new endpoint).
 - **Follow-ups:** None.
 
-### 2026-08-09  Fix badge-pin 429 rate limit
+### 2026-08-09 Â Fix badge-pin 429 rate limit
 
 - **Goal:** Stop local `/auth/badge-pin` 429 lockouts during login retries.
 - **Touched:** `packages/server/src/middleware/rateLimitMiddleware.ts`, `packages/server/src/routes/authRoutes.ts`, `packages/client/src/pages/Login.tsx`
 - **Decisions / skipped:** Per-middleware rate-limit buckets (shared store was cross-charging routes). Dev badge-pin limit 200/min (prod stays 20). Login shows RFC7807 `detail` for 429.
 - **Follow-ups:** Restart API once to clear in-memory counters from the old keying.
 
-### 2026-08-09  Screen lock idle = 2h all roles
+### 2026-08-09 Â Screen lock idle = 2h all roles
 
 - **Goal:** Screen lock after 2 hours idle for every role.
 - **Touched:** `packages/client/src/lib/authStore.ts`
 - **Decisions / skipped:** Set both default and desk timeouts to 2h (was 15m / 1h).
 - **Follow-ups:** None.
 
-### 2026-08-09  Stop false Session expired on login
+### 2026-08-09 Â Stop false Session expired on login
 
 - **Goal:** `Session expired. Please sign in again.` was always showing on login.
 - **Touched:** `packages/client/src/components/ProtectedRoute.tsx`, `packages/client/src/pages/Login.tsx`
 - **Decisions / skipped:** ProtectedRoute sends unauthenticated users to `/login` (not `?session=expired`). Only apiClient mid-session 401 still sets expired. Login strips the query after showing once.
 - **Follow-ups:** None.
 
-### 2026-08-09  ANN console stoppage color + History/Orders drawers
+### 2026-08-09 Â ANN console stoppage color + History/Orders drawers
 
 - **Goal:** Open stoppage matches End Shift accent; History/Orders panels clearer.
 - **Touched:** `packages/client/src/pages/process/AnnChargePage.tsx`
 - **Decisions / skipped:** Accent button for Open stoppage + active header Stoppage. Orders/History drawers larger with labeled cards (not dense mono dumps).
 - **Follow-ups:** None.
 
-### 2026-08-09  Fix 2HI session 400 + RWD entry 500
+### 2026-08-09 Â Fix 2HI session 400 + RWD entry 500
 
 - **Goal:** `POST /machines/handover/2HI/session` 400 and `GET /stations/RWD/entry/...` 500 on 2HI rewinding.
 - **Touched:** `packages/server/src/services/SixHiService.ts`, `packages/server/src/routes/processStationRoutes.ts`
 - **Decisions / skipped:** `getProcessId` falls back `ROLLING`?`CRM` (seed has CRM). RWD entry allows 2HI/RWD machine access when line RWD missing; Forbidden?403 not 500.
 - **Follow-ups:** Restart API and retry 2HI capture.
 
-### 2026-08-09  Combine ? PREPARING (not Start)
+### 2026-08-09 Â Combine ? PREPARING (not Start)
 
 - **Goal:** Hub combine groups orders into PREPARING; Start on rail/capture begins production.
 - **Touched:** `packages/client/src/lib/sync/sixHiWrites.ts`, `packages/client/src/lib/rewindingWrites.ts`, `packages/client/src/lib/combinedProductionRun.ts`, `packages/client/src/lib/rwdSiblingSelect.ts`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/components/process/ProcessHub.tsx`
 - **Decisions / skipped:** Hubs call `mode: 'prepare'`; `SixHiLayout` + `TwoHiRewindingCapturePage` keep `mode: 'start'`. Manual re-roll combine unchanged.
 - **Follow-ups:** None.
 
-### 2026-08-09  RWD capture decimal typing
+### 2026-08-09 Â RWD capture decimal typing
 
 - **Goal:** 2HI/RWD production console rejected mid-decimal entry (`1.` / `1.0`).
 - **Touched:** `packages/client/src/components/process/bodies/RwdTensionForm.tsx`
 - **Decisions / skipped:** Store draft strings in `UnitField`; parse on submit. Same root cause as PKL coil form.
 - **Follow-ups:** None.
 
-### 2026-08-09  Skin pass form grid align
+### 2026-08-09 Â Skin pass form grid align
 
 - **Goal:** Align option toggles + inputs; responsive skin-pass console layout.
 - **Touched:** `packages/client/src/components/sixHi/SharedSkinPassForm.tsx`
 - **Decisions / skipped:** Replaced mixed 2/3-col auto-flow with labeled `OptionToggle` + `sm:grid-cols-2` rows. Logic unchanged.
 - **Follow-ups:** None.
 
-### 2026-08-09  Skin Pass form layout cleanup
+### 2026-08-09 Â Skin Pass form layout cleanup
 
 - **Goal:** Align inputs; shrink Ann Hard / SP Tension / Load / Stretch toggles vs input height.
 - **Touched:** `packages/client/src/components/sixHi/SharedSkinPassForm.tsx`, `packages/client/src/components/sixHi/ActualWeightCaptureField.tsx`
 - **Decisions / skipped:** Compact segmented toggles (h-8); 1?2-col input grids; no visual restyle of brand tokens.
 - **Follow-ups:** None.
 
-### 2026-08-09  Hold status showed REJECTED
+### 2026-08-09 Â Hold status showed REJECTED
 
 - **Goal:** Held orders displayed raw `REJECTED` instead of Order Hold.
 - **Touched:** `packages/client/src/lib/orderLabels.ts`, `packages/client/src/store/processStore.ts`, `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx`, `packages/client/src/pages/sixHi/TwoHiRewindingCapturePage.tsx`, `packages/client/src/pages/machinehead/RwdMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/rwd/RwdMhCoilDetailPage.tsx`, `packages/client/src/pages/live/LiveDashboard.tsx`, `packages/client/src/components/plant-head/PlantOperationsArea.tsx`, `packages/client/src/components/sixHi/SixHiStatusPill.tsx`
 - **Decisions / skipped:** `formatOrderStatusLabel` is the single display map (HOLD+REJECTED ? Order Hold); internal status code unchanged.
 - **Follow-ups:** None.
 
-### 2026-08-09  Manual Re-Roll prepare + console
+### 2026-08-09 Â Manual Re-Roll prepare + console
 
 - **Goal:** Rolling-parity flow: prepare ? PREPARING ? console (weight/passes) ? Start ? Save/End; overlay only (no CRM mutation).
 - **Touched:** `packages/server/migrations/1974000000000_manual_reroll_preparing_capture.js`, `ManualRerollService.ts`, `manualRerollRoutes.ts`, `manualRerollRules.ts`, `db-types.ts`, `manualRerollService.ts` (client), `manualRerollUi.ts`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`, `ManualRerollCaptureForm.tsx`, `ManualRerollWorkspaceModal.tsx`, tests
 - **Decisions / skipped:** Destination/ETR/DTR out of scope; capture on session + `manual_reroll_pass`.
 - **Follow-ups:** Run migration `1974000000000` on deploy DBs.
 
-### 2026-08-09  Manual Re-Roll console matches rolling
+### 2026-08-09 Â Manual Re-Roll console matches rolling
 
 - **Goal:** Production console shell + compact form match SixHi rolling workspace.
 - **Touched:** `ManualRerollWorkspaceModal.tsx`, `ManualRerollCaptureForm.tsx`, `ManualRerollHub.tsx`
 - **Decisions / skipped:** Destination/ETR/DTR UI parity; weight+passes still the persisted capture. Full-bleed `left-16` shell + rail inside console.
 - **Follow-ups:** Persist destination/tension on session if operators need them after reopen.
 
-### 2026-08-09  Re-roll console: drop tension + order details
+### 2026-08-09 Â Re-roll console: drop tension + order details
 
 - **Goal:** Remove destination/tension/rewinder; show running order details (single + combined).
 - **Touched:** `ManualRerollCaptureForm.tsx`, `ManualRerollWorkspaceModal.tsx`, `ManualRerollHub.tsx`
 - **Decisions / skipped:** Combined strip + side Order Details panel (rolling parity); weight+passes only on save.
 - **Follow-ups:** None.
 
-### 2026-08-09 — Re-roll console: combined + Current Order parity
+### 2026-08-09 â Re-roll console: combined + Current Order parity
 
 - **Goal:** Match rolling Combined Production strip and Current Order card for single/combined Manual Re-Roll.
 - **Touched:** `packages/client/src/components/sixHi/manualReroll/ManualRerollWorkspaceModal.tsx`
 - **Decisions / skipped:** Reused `PPCInfoCards` (SKIN_PASS map for Pre-stage/Target + Finish); combined strip mirrors `CombinedProductionOrdersPanel` (Target/Produced/Balance). Skipped untick checkboxes (batches locked at prepare).
 - **Follow-ups:** Wire prepare-time untick only if operators need mid-prepare membership edits.
 
-### 2026-08-09 � Fix Manual Re-Roll lint errors
+### 2026-08-09  Fix Manual Re-Roll lint errors
 
 - **Goal:** Unblock CI eslint on unused `canStart` and useEffect deps.
 - **Touched:** `ManualRerollActionRail.tsx`, `ManualRerollWorkspaceModal.tsx`
 - **Decisions / skipped:** Gate Start on `canStart`; reset detail batch without referencing full `session`.
 - **Follow-ups:** None.
 
-### 2026-08-09 � Fix QA smoke Invalid badge or PIN
+### 2026-08-09  Fix QA smoke Invalid badge or PIN
 
 - **Goal:** Staging Playwright login failed with Invalid badge or PIN; QA `3000/1234` also 401.
 - **Touched:** `seed-pilot-users.mjs`, `authService.ts`, `Login.tsx`, `e2e/tests/smoke.spec.ts`, `deploy/lib/common.sh`, `remote-ghcr-deploy.sh`, `deploy-aws.yml`
 - **Decisions / skipped:** Trim PIN/badge everywhere (secret newlines); fatal QA seed + post-seed/public badge-pin assert; keep rollback semantics for config failures.
 - **Follow-ups:** Confirm staging `SMOKE_BADGE_ID=3000` and `SMOKE_PIN` is exactly 4 digits (no quotes/newline).
 
-### 2026-08-09 � Fix QA seed dotenv + PIN 5678
+### 2026-08-09  Fix QA seed dotenv + PIN 5678
 
 - **Goal:** Deploy seed failed `Cannot find package 'dotenv'`; set pilot PIN default to 5678.
 - **Touched:** `seed-pilot-users.mjs`, `deploy/lib/common.sh`, `e2e/tests/smoke.spec.ts`, `Login.tsx`, `deploy-aws.yml`
 - **Decisions / skipped:** Drop dotenv (compose injects env); default PIN 5678.
 - **Follow-ups:** Set staging secret `SMOKE_PIN=5678` (exact 4 digits).
 
-### 2026-08-09 � Seed as owner (MIGRATE_DATABASE_URL)
+### 2026-08-09  Seed as owner (MIGRATE_DATABASE_URL)
 
-- **Goal:** QA seed 42501 RLS on `security.role` � was connecting as `m1_app`.
+- **Goal:** QA seed 42501 RLS on `security.role`  was connecting as `m1_app`.
 - **Touched:** `scripts/lib/database-url.mjs` (`resolveOwnerDatabaseUrl`), `seed-login-profiles.mjs`, `seed-pilot-users.mjs`, `seed-admin/supervisor/quality/machines/planner.mjs`
 - **Decisions / skipped:** Prefer `MIGRATE_DATABASE_URL` / `DB_USER` owner; refuse `m1_app` URL in login-profiles; seed stays fatal.
 - **Follow-ups:** None.
+
+### 2026-08-09 - PERF 0.2/0.5: weight-on-blur + debounced hub search
+
+- **Goal:** Stop per-keystroke store writes for combined weight capture; debounce hub search filters (~250ms) without delaying typed input.
+- **Touched:** packages/client/src/components/sixHi/FourHiRollingForm.tsx, SharedSkinPassForm.tsx, components/process/ProcessHub.tsx, pages/sixHi/SixHiHub.tsx, pages/sixHi/TwoHiRewindingHub.tsx, components/sixHi/manualReroll/ManualRerollHub.tsx
+- **Decisions / skipped:** Removed setCombinedActualMtIntent calls from updateDecimalDraft (onChange) in both rolling/skin-pass forms; kept blur (commitDecimalDraft) and save writes. Save handlers already parse weight fresh from local drafts.actualWeightMt state at the top of save(), so the Android save-while-focused guardrail was already satisfied - no extra flush code needed. SixHiWorkspaceModal.tsx L144 write verified action-driven (inside patchCombinedProduction, only called from save handlers), left untouched. Added useDebouncedValue(search, 250) and swapped into filter memos in ProcessHub, SixHiHub (6 memos), TwoHiRewindingHub; replaced ManualRerollHub's inline setTimeout debounce effect with the shared hook.
+- **Follow-ups:** None.
+
+### 2026-08-09 - PERF P2-a/P2-b: native-gated blur + shared 1Hz clocks
+
+- **Goal:** Drop `backdrop-blur` cost on native (Mali-G57 tablet) while keeping it on desktop; collapse duplicate 1Hz `setInterval` clocks onto the shared `subscribeTimerTick`.
+- **Touched:** `lib/nativeOverlay.ts` (new `overlayClass` helper, gates on `Capacitor.isNativePlatform()`); 21 `backdrop-blur` call sites across `ManualRerollWorkspaceModal.tsx`, `PlanningImportHub.tsx`, `PlantHeadDashboard.tsx`, `ManualRerollHoldModal.tsx`, `OrderRemarkModal.tsx`, `OrderRejectionModal.tsx`, `OrderEndModal.tsx`, `CrewCaptureModal.tsx`, `RewindingMachineAllocationModal.tsx`, `OrderDetailModal.tsx`, `LogoutConfirmModal.tsx`, `SixHiWorkspaceModal.tsx`, `ShiftReadingsModal.tsx`, `ShiftEndModal.tsx`, `MachineAllocationModal.tsx`, `ZDrawer.tsx`, `MachineHeadOrderDetailModal.tsx`, `MachineDetailModal.tsx`, `UnifiedHeader.tsx`, `ConfirmationDialog.tsx`, `HandoverAcceptGate.tsx`; `components/sixHi/manualReroll/ManualRerollHub.tsx` (extracted memoized `ActiveElapsedClock` leaf, dropped hub-level `now`/interval), `ManualRerollActionRail.tsx` (`NetRuntimeText` now memoized + uses `subscribeTimerTick`), `components/layout/operator/StatusRail.tsx` (`RailClock` memoized + uses `subscribeTimerTick`).
+- **Decisions / skipped:** `now` in `ManualRerollHub` was single-use (console-card elapsed display only) so extracted to a leaf per the plan's "ideally extract" guidance, rather than switching the whole hub to the shared tick (which would still re-render the hub every second). Left `UnifiedHeader`'s blur gated even though its `.z-tint` bg is opaque (no visual regression either way, keeps the pattern consistent). Did not touch `PPCInfoCards`/other timers outside the 3 named files.
+- **Follow-ups:** None.
+
+### 2026-08-09 - PERF Wave 2: focus-pause polls, paint-before-initDb, splash, keyboard, draft soften
+
+- **Goal:** Ship Wave 2 of `PERF_IMPLEMENTATION_PLAN.md` — pause capture-path polling while typing, paint the operator UI before native SQLCipher init, hide splash on offline-ready, fix Android keyboard reflow, soften draft-write frequency. Minimal diffs (ponytail).
+- **Touched:**
+  - `packages/client/src/hooks/useSixHiHubQueue.ts`, `useProcessHubQueue.ts` — `pauseWhileTyping: true` on the 15s SWR poll.
+  - `packages/client/src/pages/sixHi/SixHiCapturePage.tsx` — `isInputFocused()` guard on the `refreshMachineState` interval; `pauseWhileTyping` on both SWR polls (queue + shift stoppages).
+  - `packages/client/src/components/process/ProcessLayout.tsx` — `isInputFocused()` guard on the PKL/HRS manual-stoppage refresh interval.
+  - `packages/client/src/hooks/useAndroidDeviceStatus.ts`, `useShiftEndWatcher.ts` — `isInputFocused()` guard on the device-status poll and the `/shifts/current` poll; left the 20s clock check (`resolveShiftEndInstant` comparison) unpaused per plan.
+  - `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx` — left as-is: its `refreshInterval: 15_000` is a plain number, not `networkAwareRefreshInterval`, so the conditional "if it uses networkAwareRefreshInterval" instruction doesn't apply; noted as a follow-up.
+  - `packages/client/src/operator/native/init.ts` — added `offlineReadyPromise` (resolves once `initDb()` settles and `startSyncEngine()` is armed, success or failure) and `isOfflineReady()`; unchanged ordering (`initDb()` → `startSyncEngine()`).
+  - `packages/client/src/operator/main.tsx` — `root.render(...)` now happens immediately; `initNative()` runs unawaited in the background (`void initNative().catch(...)`).
+  - `packages/client/src/lib/sync/submitOrQueue.ts` — `await offlineReadyPromise` before `outbox.enqueue(...)` so an early write can't land in the web/IndexedDB fallback (`hasNativeDb()` false) and get orphaned once SQLite comes online; login/UI render is not blocked, only the write path waits.
+  - `packages/client/src/operator/OperatorApp.tsx` — small `OfflinePreparingBanner` (native-only, non-blocking) shown until `offlineReadyPromise` resolves; also calls `SplashScreen.hide()` on offline-ready (native only) — `capacitor.config.ts`'s `launchShowDuration: 800` stays as a fallback cap.
+  - `packages/client/android/app/src/main/AndroidManifest.xml` — `android:windowSoftInputMode="adjustPan"` on `MainActivity` (chosen over the `Keyboard: {resize:'none'}` config alternative per plan default).
+  - `packages/client/src/lib/useFormDraft.ts` — both `useFormDraft` and `useManualDraft`: skip the `Preferences.set` write if `JSON.stringify(data)` matches a `lastWrittenRef` (seeded on load-restore too, so restoring a draft doesn't immediately rewrite it); unmount cleanup now does `save.flush()` then `save.cancel()` so the last pending write isn't dropped. Debounce left at 800ms.
+- **Decisions / skipped:** Offline-ready gate is a promise await inside `submitOrQueue`, not a route-level blocker — satisfies "don't block login forever, only gate offline writes." Skipped the optional 0.3 refresh-on-blur nicety (would exceed the ~10-line ponytail budget; the existing 60s max-pause cap in `networkAwareRefreshInterval` already bounds staleness). `tsc --noEmit` shows only pre-existing errors (verified via `git diff` that touched lines are additive-only); no new lint/type errors from this wave.
+- **Follow-ups:** `TwoHiRewindingHub.tsx`'s rewinding queue poll (`refreshInterval: 15_000`) isn't wired through `networkAwareRefreshInterval`/`pauseWhileTyping` at all — worth a follow-up if that hub gets the same capture-path treatment as SixHi/Process.
+
+### 2026-08-09 - PERF 0.6: localize HRS/CRS grid cell state (memo + draft-on-blur)
+
+- **Goal:** Editing one HRS/CRS slit-slot cell shouldn't re-render every other slot card. Isolate per-cell/per-card render trees; keep `lines`/`widthReadings`/`thkPasses` as parent `useState` arrays.
+- **Touched:** `packages/client/src/components/process/bodies/HrsSlitBuilder.tsx`, `packages/client/src/components/process/bodies/CrsQualityForm.tsx`
+- **Decisions / skipped:**
+  - HRS: extracted memo'd `SlotSummaryCard` (read-only card), `SlotThkHeader` (thead delta cue, primitive props), `ThkCell` (thickness matrix input), and made `ReadingChip` (mother-width/taper chips) memo'd too. Each editable cell owns a local `draft` state synced from its committed prop via `useEffect`; keystrokes only call `setDraft` + write into a shared `pendingRef` (`useRef<Map<string,string>>`), never touching parent state. Commit to parent (`setWidthReadings`/`setTaperReadings`/`setThkPasses`, all `useCallback`-stabilized functional updaters) happens only on blur, and the `pendingRef` entry is cleared. Since the parent doesn't re-render mid-typing, and unaffected siblings get stable/unchanged props on the next render, memo bails for everyone except the edited cell/card.
+  - CRS: extracted memo'd `CrsSlotCard` per slit line; card keeps a full local `draft: CrsLine` copy, each field commits individually on blur via `onCommit` (stable `useCallback`-wrapped `patch`, now using functional `setLines`). Checkboxes (`forCtlFlag`/`holdFlag`) commit immediately on change (discrete action, not typed text) rather than deferring to blur.
+  - `massWarn`/`widthCheck` (CRS) and the thk-header delta cue / `packedMm` (HRS) already derive from committed `lines`/`thkPasses` state, so moving edits to blur automatically defers those too - no extra wiring needed, per instructions ("massWarn on blur is OK").
+  - MANDATORY flush-on-submit: both `persist()` (HRS) and `handleSubmit()` (CRS) call a `flushDrafts()`/`flushPendingLines()` helper as their first statement. It walks the shared pending-drafts map/ref, merges any not-yet-blurred values into local snapshot copies (also pushed into parent state via the normal commit path for UI consistency), clears the pending map, and returns the merged snapshot - which the rest of the submit handler uses (instead of the possibly-stale `widthReadings`/`taperReadings`/`thkPasses`/`lines`) to build the payload. This covers Android Save-without-blur.
+  - `buildSlitSlot` (HRS) changed from closing over `thkPasses`/`cleanTaper` to taking them as params, so the flushed values (not stale render-scope state) go into the submitted `slitSlots`.
+- **Follow-ups:** None.
+
+### 2026-08-09 - PERF 0.1: per-field selectors for SixHi/Process stores
+
+- **Goal:** Convert whole-store `useSixHiStore()` / `useProcessStore()` destructures to per-field selectors so components only re-render on the fields they actually read; actions used purely in handlers/effects moved to `getState()` at call time.
+- **Touched:** `components/sixHi/SixHiLayout.tsx`, `SixHiWorkspaceModal.tsx`, `SixHiManualOrderModal.tsx`, `components/process/CaptureWorkspace.tsx`, `ProcessHub.tsx`, `ProcessLayout.tsx`, `pages/process/AnnChargePage.tsx`, `ProcessLiveStatusPage.tsx`
+- **Decisions / skipped:** State fields (rendered values) got one `useXStore((s) => s.field)` selector each. Actions kept as selectors only where a bare function reference is passed directly as a prop (e.g. `onClose={closeWorkspace}`, `onClose={closeManualOrder}`, `onClose={closeStoppageDialog}`, `onClose={closeRemarkPanel}`, `clearCaptureError` in `ProcessLayout`) — all others (`runOrderAction`, `refreshMachineState`, `loadShiftSummary`, `setMachineCode`, `openWorkspace`, `openStoppageDialog`, `setCombinedRun`, `requestQueueRefresh`, `setBusy`, `setStatusFilter`, `setHubTab`, `setActiveCoil`, `setPklGroup`, `clearPklGroup`, `createManualCoil`, `consumeManualCoilRequest`, `setProcessCode`, `startCapture`, `stopCapture`, `openRemarkPanel`, `requestEndCapture`, `requestManageStoppage`, `loadPrefill`, `closeRemarkPanel` in `CaptureWorkspace`, `loadQueue`, `loadQueueFor`, `hydrateProcessRun`, `setStoppageCode`, `setStoppageRemarks`) converted to `useXStore.getState().action(...)` at call sites; removed them from the now-unnecessary `useEffect`/`useLayoutEffect` dependency arrays. `CaptureWorkspace`'s local `activePrefill` init switched to a lazy `useState(() => useProcessStore.getState().activePrefill ?? {})` to avoid subscribing at all. No behavior changes; `tsc --noEmit` passes and no new lints.
+- **Follow-ups:** None.
+
+### 2026-08-09 — PERF 0.4: virtualize remaining operator hub lists
+
+- **Goal:** Reuse `components/VirtualizedList.tsx` (no rewrite) for the operator hub queue lists still doing plain `.map()`, matching `SixHiHub`'s existing "virtualize only when >12 items" pattern.
+- **Touched:**
+  - `packages/client/src/components/process/ProcessQueueRow.tsx` — wrapped in `memo()`; `onSelect`/`onOpen` now take `(card)` so the row calls them internally, letting parent pass one stable callback instead of a per-row closure.
+  - `packages/client/src/components/process/ProcessHub.tsx` — queue-desk list (`filtered.map`, ~L605): extracted `renderProcessRow` (`useCallback`), conditional `VirtualizedList` (`estimateSize={104}`) when `filtered.length > 12`, else the original `space-y-2` map. `openCapture`, `commitRwdCapture`, `toggleRwdCombinedBatch` moved to `useCallback` (were plain closures); added stable `selectQueueCard`/`handleOpenCard`. Left the archetype-B grid fallback (`filtered.map` ~L650, `sm:grid-cols-2 lg:grid-cols-3` buttons) **unvirtualized** — it's dead code today (ANN is the only archetype-B config and its only tabs are `coils`/`charges`, both short-circuited before this branch), and `VirtualizedList`'s single-column row model can't safely chunk a responsive multi-column grid without risking row-height/overlap bugs on mobile; not worth the risk for unreachable code (ponytail/YAGNI).
+  - `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx` — extracted memo'd `RewindingQueueRow` (mirrors `SixHiQueueRow`'s stable-callback pattern); `filtered.map` (~L400) → `renderRewindingRow` + conditional `VirtualizedList` (`estimateSize={104}`) at `>12`. `openCapture` and `toggleCombinedBatch` moved to `useCallback`.
+  - `packages/client/src/pages/sixHi/SixHiHub.tsx` — backlog and pending sections (previously unconditional `.map`) now follow the assigned section's exact pattern: `sortedBacklog`/`sortedPending` memos + `VirtualizedList` (`estimateSize={88}`, same className as assigned) when `>12`, else plain map. `renderQueueRow` and `toggleCombinedBatch` moved to `useCallback` (were plain closures) so row `memo()` actually skips re-renders.
+  - `packages/client/src/components/sixHi/manualReroll/ManualRerollHub.tsx` — extracted memo'd `ManualRerollRow` (handles both `pending`/`session` `QueueRow` kinds; per-row `border-b` replaces the `<ul className="divide-y">` since virtualized rows aren't guaranteed-adjacent siblings). `filteredRows.map` (~L556) → `renderQueueRow` + conditional `VirtualizedList` (`estimateSize={64}`) at `>12`. `selectPending`, `selectSession`, `toggleCombined` moved to `useCallback`.
+- **Decisions / skipped:** Did not touch `VirtualizedList.tsx` itself (fixed `estimateSize` is fine per plan). Kept the `>12` threshold everywhere to match `SixHiHub`'s pre-existing assigned-list convention. `tsc --noEmit` and `eslint` show no new errors in any touched file (pre-existing unrelated baseline errors confirmed via `git diff` on untouched lines, e.g. `SixHiHub.tsx:166` `AuthState.user`).
+- **Follow-ups:** The archetype-B grid fallback in `ProcessHub.tsx` (~L650) stays unvirtualized/dead; revisit only if a future archetype-B station actually reaches that branch with a large list.
+
+### 2026-08-09 — PERF Wave 3: outbox batching/indexing, mill shell lazy-split, SWR IDB TTL
+
+- **Goal:** Implement PERF plan Wave 3 (1.5 batch SQLite writes + dedupe pulls, 1.6 lazy-split mill shells, P2-c SWR IndexedDB TTL) with minimal diffs.
+- **Touched:**
+  - `packages/client/src/operator/db/sqlite.ts` — added `idx_outbox_status` index (SCHEMA already `IF NOT EXISTS`, runs on every open).
+  - `packages/client/src/lib/sync/outboxRepo.ts` — `nextBatch()`/`parkedActions()` narrowed `SELECT *` to explicit columns + added `LIMIT 200`/`LIMIT 500`.
+  - `packages/client/src/operator/sync/pull.ts` — `cacheMasters`/`cachePlan` per-row `.run()` loops → single `getDb().executeSet(batch)` transaction each; `prefetchOperatorCaches` (called from `OperatorApp.tsx` login, `engine.ts` startup, `shiftDetection.ts`) now dedupes via a module-level `inflightPrefetch` promise instead of firing concurrent delta pulls.
+  - `packages/client/src/components/UserScopeShell.tsx` — `SixHiLayout`/`ProcessLayout` static imports → `lazyNamed()` (existing helper in `RouteSpinner.tsx`, previously unused), each render site wrapped in `<Suspense fallback={<RouteSpinner />}>` inside the existing access gates.
+  - `packages/client/src/lib/swrCacheProvider.ts` — persisted entries now wrap as `{v, t}`; `loadMap()` drops entries older than 24h unless the key matches `/queue|hub/i` (offline-critical hub queues always kept); legacy untimestamped entries kept once then re-persisted with a timestamp.
+  - `packages/client/src/pages/sixHi/TwoHiRewindingHub.tsx` — Wave 2 follow-up: `refreshInterval: 15_000` → `networkAwareRefreshInterval(15_000, { pauseWhileTyping: true })`.
+- **Decisions / skipped:**
+  - Fixed a self-introduced bug during batching: named a local variable `set` in `pull.ts`, which shadowed the module-level `set` import from `idb-keyval` used earlier in the same function (TDZ hazard) — renamed to `batch`.
+  - Searched for other `master_cache`/`plan_cache` insert-loop sites — `pull.ts` is the only one; nothing else to batch.
+  - Searched for other prefetch/inflight-dedupe candidates — only `prefetchOperatorCaches` had concurrent callers; no other pull sites needed a shared-promise guard.
+  - `tsc --noEmit -p packages/client/tsconfig.json` passes; no new lints on touched files.
+- **Follow-ups:** None.
+
+### 2026-08-09 — PERF_IMPLEMENTATION_PLAN Waves 1–3 shipped + verified
+
+- **Goal:** Implement full `PERF_IMPLEMENTATION_PLAN.md` (rendering → timing → offline-sensitive) and verify.
+- **Touched:** helpers (`useDebouncedValue`, `isInputFocused`/`pauseWhileTyping`, `nativeOverlay`); Wave 1 selectors/weight-blur/virtualize/debounce/HRS-CRS/blur-gate/clocks; Wave 2 focus-pause/paint-before-initDb/splash/adjustPan/draft-soften; Wave 3 outbox index+SELECT/LIMIT, pull `executeSet` + prefetch dedupe, lazy mill shells, SWR IDB TTL.
+- **Decisions / skipped:** ProcessHub archetype-B grid left unvirtualized (dead path). Headwind MDM §5 is policy, not code. On-device OnePlus Pad Lite profiling / airplane gating test still operator QA.
+- **Follow-ups:** On-device Wave gating test (airplane → combined capture → Save-while-focused → reconnect → outbox drain); cold-start `adb shell am start -W` before/after.
+
+### 2026-08-09 — PERF 1.6 bundle gate + QA pull timeout
+
+- **Goal:** Harden post-PERF verification / leftover QA deploy resilience.
+- **Touched:** `packages/client/scripts/check-operator-bundle.mjs` (assert separate `SixHiLayout-*.js` + `ProcessLayout-*.js`), `deploy/lib/common.sh` (`COMPOSE_HTTP_TIMEOUT=300` on image pull).
+- **Decisions / skipped:** QA Options 1–2 already landed in `2cb02c0`; Option 3 ECR left as ops follow-up. Bundle check passed: `SixHiLayout-DdBDyywz.js` / `ProcessLayout-OO7980lz.js`.
+- **Follow-ups:** Commit PERF diff; on-device tablet gating; optional ECR pull-through.
+
+### 2026-08-09 — Operator QA APK 1.2.12 (vc15)
+
+- **Goal:** Build latest operator APK with PERF hardening + QA API.
+- **Touched:** `android/app/build.gradle` (1.2.12 / vc15), `.env.operator` (`VITE_APP_VERSION=1.2.12`, `qa.zedral.com`), cap sync, `Zedral-Operator-QA-1.2.12-vc15.apk`
+- **Decisions / skipped:** In-tree gradle hung under `C:\dev`; assembled from `C:\temp\zedral-apk-build2` mirror. Debug-signed (no `ZEDRAL_KEYSTORE_*`).
+- **Follow-ups:** Sideload APK; badge/PIN smoke against `https://qa.zedral.com`.
+
+### 2026-08-09 � Fix queue row overlap in VirtualizedList
+
+- **Goal:** Fix Skin Pass Queue backlog rows overlapping (and same bug on sibling virtualized queues).
+- **Touched:** `packages/client/src/components/VirtualizedList.tsx`
+- **Decisions / skipped:** Root cause was fixed `estimateSize` + absolute `translateY` without `measureElement`; rows taller than estimate (SixHi `min-h-[88px]` + wrapping grid) stacked. Measured real height once in shared list � covers SixHiHub, ProcessHub, Rewinding, ManualReroll, live dashboards. Did not bump per-hub estimates or touch row components.
+- **Follow-ups:** Reload Skin Pass backlog (>12) and confirm no overlap; check Process/Rewinding lists if wrapping is common.
+
+### 2026-08-10 � Combined Order cancel-ungroup + RWD panel parity
+
+- **Goal:** Implement Combined Order audit plan: Cancel Combined ungroups PREPARING server groups; unify CRM eligibility; RWD capture selectable strip; cleanup.
+- **Touched:**
+  - `packages/server/src/utils/orderLifecycleHelpers.ts` � `statusAfterUngroupCombine`
+  - `packages/server/src/services/SixHiService.ts` � `assertCombineEligible` + `cancelCombinedProduction`
+  - `packages/server/src/services/RewindingOrderService.ts` � `cancelCombinedProduction`
+  - `packages/server/src/services/sixHi/SixHiExecutionService.ts`, `sixHiRoutes.ts`, `rewindingRoutes.ts`
+  - `packages/client/src/lib/sync/sixHiWrites.ts` � `cancelCombinedOrdersImmediate`; removed orphaned queued `startCombinedOrders`
+  - `packages/client/src/lib/rewindingWrites.ts` � `cancelCombinedRwdOrders`
+  - `SixHiHub.tsx`, `ProcessHub.tsx`, `TwoHiRewindingHub.tsx` � Cancel Combined calls ungroup when PREPARING
+  - `CombinedProductionOrdersPanel.tsx` + `TwoHiRewindingCapturePage.tsx` � RWD selectable pre-start strip
+  - `ManualRerollHub.tsx` � Combined `ZBadge`
+  - `packages/server/tests/combinedEndProduction.test.ts`
+- **Decisions / skipped:** Manual Re-Roll Cancel Combined stays selection-only (pre-prepare); prepared multi-batch uses existing `cancelManualReroll`. HRS/PKL/ANN untouched. No Combined History on RWD (strip only).
+- **Follow-ups:** QA prepare?Cancel Combined on CRM + RWD; RWD capture untick?Start subset.
+
+### 2026-08-10 � Fix SixHiHub cancelCombinedSelection ReferenceError
+
+- **Goal:** Fix runtime `cancelCombinedSelection is not defined` crash on CRM hub.
+- **Touched:** `packages/client/src/pages/sixHi/SixHiHub.tsx`
+- **Decisions / skipped:** Moved handler to `useCallback` next to combine toggles (avoids HMR/order issues from earlier move after `selectedProductionOrders`).
+- **Follow-ups:** Hard-refresh browser if HMR still shows the old error.
+
+### 2026-08-10 � Fix assign-machine not opening production (CRM)
+
+- **Goal:** 6HI/4HI/2HI Move to Production after machine assign was not opening the production workspace.
+- **Touched:** `packages/client/src/lib/sync/sixHiWrites.ts`, `MachineAllocationModal.tsx`, `SixHiHub.tsx`
+- **Decisions / skipped:** Root causes: (1) `allocateMachine` was outbox-queued while prepare/open assumed server allocation already stuck; (2) production modal defaulted to import hint (often other mill) then `machineCode === queueMachine` skipped `openWorkspace` silently; (3) used bare `openWorkspace` instead of `openProductionForCard`. Made allocate immediate; prefer hub mill in production mode; snapshot batches; cross-mill shows explicit error. RWD already immediate+navigate � no change.
+- **Follow-ups:** Smoke 6HI pending ? Assign to 6HI ? workspace opens; combined multi same path.
+
+### 2026-08-10 � Fix Start 409 'Order unknown' active conflict
+
+- **Goal:** Combined/single Start showed `Order unknown is already active` (409) without a usable Open target.
+- **Touched:** `orderLifecycleHelpers.ts` (parse/build conflict batch), `SixHiService.ts` (trim active batch; conflict helpers), `sixHiRoutes.ts`, `SixHiLayout.tsx` (local machineActive gate + 409 body/message/active-order fallback)
+- **Decisions / skipped:** 409 itself is correct when another IN_PROGRESS/STOPPAGE owns the mill � fix was identifying that batch. `split(':')[1]` dropped ids with colons; client now falls back to `/6hi/active-order`.
+- **Follow-ups:** If conflict names a real batch, Open it ? End/Hold; then Start the new combined run.
+
+### 2026-08-10 � Always show saved production details on consoles
+
+- **Goal:** Production consoles showed blank fields after hub open even when rolling/skinPass/RWD capture was saved.
+- **Touched:** `FourHiRollingForm.tsx`, `SharedSkinPassForm.tsx`, `RwdTensionForm.tsx`, `TwoHiRewindingCapturePage.tsx`, `sixHiStore.ts` (`openWorkspace` keep saved panelOrder)
+- **Decisions / skipped:** Root cause was queue-card seed without production fields + mount-only form state; forms now rehydrate on saved fingerprint. HRS/PKL already rehydrate � untouched.
+- **Follow-ups:** Open an IN_PROGRESS order with prior Save � weight/tensions/passes should appear without retyping.
+
+### 2026-08-10 � Manual Re-Roll Preparing / In Progress split
+
+- **Goal:** Session PREPARING under Preparing pill; IN_PROGRESS under Progress (CRM parity filters/nav).
+- **Touched:** `manualRerollUi.ts`, `manualRerollUi.test.ts`, `ManualRerollHub.tsx`, `ManualRerollActionRail.tsx`
+- **Decisions / skipped:** Server prepare/start unchanged. After prepare ? `setStatus('PREPARING')`; after Start ? `IN_PROGRESS`. Detail Start + Prepared label; rail `Move to Preparing`.
+- **Follow-ups:** Smoke Pending ? Preparing ? Start ? In Progress; Cancel Prepare back to Pending.
+
+### 2026-08-10 � Block CRM Start while Manual Re-Roll PREPARING
+
+- **Goal:** CRM Rolling could still prepare/start while a Manual Re-Roll session was PREPARING (client ignored PREPARING for `machineActive`; hub prepare skipped re-roll assert; same-batch overlay bypassed local Start gate).
+- **Touched:** `ManualRerollService.ts`, `SixHiService.ts`, `sixHiRoutes.ts`, `manualRerollRoutes.ts`, `sixHiStore.ts`, `SixHiLayout.tsx`, `SixHiHub.tsx`, `SixHiCapturePage.tsx`, `manualRerollService.test.ts`
+- **Decisions / skipped:** PREPARING is already in `BLOCKING_REROLL_STATUSES`; assert now carries batch id. Did not expand CRM PREPARING ? block re-roll (only IN_PROGRESS/STOPPAGE today).
+- **Follow-ups:** Smoke: prepare Manual Re-Roll ? try CRM Start / hub Start ? expect block + banner; cancel re-roll ? Start works.
+
+### 2026-08-10 — Unblock CRM Start while Manual Re-Roll PREPARING + capture status
+
+- **Goal:** PREPARING re-roll must not block CRM Start; show Manual Re-Roll status on capture/rail/hub with `SixHiStatusPill`.
+- **Touched:** `ManualRerollService.ts`, `manualRerollService.test.ts`, `sixHiStore.ts`, `SixHiLayout.tsx`, `SixHiCapturePage.tsx`, `SixHiHub.tsx`, `ManualRerollActionRail.tsx`, `ManualRerollHub.tsx`, `ManualRerollWorkspaceModal.tsx`, `manualRerollUi.ts`
+- **Decisions / skipped:** `BLOCKING_REROLL_STATUSES` = IN_PROGRESS+STOPPAGE; hub/prepare still uses `HUB_ACTIVE_REROLL_STATUSES` (incl. PREPARING). Client Start gate skips PREPARING/ON_HOLD re-roll. ON_HOLD still not in mill-block set.
+- **Follow-ups:** Smoke prepare re-roll → Start Rolling OK; start re-roll → CRM Start 409; capture shows Preparing/In Progress pills.
+
+### 2026-08-10 � Fix CRM Hold freeze (outbox race)
+
+- **Goal:** Hold Order appeared to do nothing / freeze � same class of bug as Assign machine.
+- **Touched:** sixHiWrites.ts (
+ejectOrderImmediate), SixHiLayout.tsx
+- **Decisions / skipped:** Reject/hold now POSTs immediately like allocate/end; 
+ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct API).
+- **Follow-ups:** Hard-refresh; Hold from rail with remarks � order should move to Order Hold without hanging.
+
+### 2026-08-10 � Outbox race audit: lifecycle writes immediate
+
+- **Goal:** Same Assign/Hold class: UI treated outbox enqueue as done � stoppage/transfer/remarks/MH/shift complete + Process End await.
+- **Touched:** sixHiWrites.ts, submitOrQueue.ts, SixHiLayout.tsx, SixHiHub.tsx, OrderAssignmentPanel.tsx, MachineHeadDashboard.tsx, PlantShiftReviewPanels.tsx, TwoHiRewindingHub.tsx, ProcessHub.tsx, ProcessLayout.tsx, CaptureWorkspace.tsx, processStore.ts, OrderEndModal.tsx, process form bodies
+- **Decisions / skipped:** Offline capture (captureRwdOrder / submitProcessCapture) stays queued. Dead startOrder/endOrder aliased to immediate.
+- **Follow-ups:** Smoke stoppage/transfer/Hold/Assign; Process End waits for form settle.
+
+### 2026-08-10 � ANN APK base click console missing route
+
+- **Goal:** Operator APK click on ANN base did not open ca1 reading console (dead click).
+- **Touched:** OperatorApp.tsx (add charge/:chargeNo ? AnnChargePage), AnnChargeBoard.tsx, AnnBatchesPanel.tsx, AnnChargePage.tsx (absolute //� navigates)
+- **Decisions / skipped:** Root cause was APK router catch-all bouncing to /station � not outbox. Web already had the route.
+- **Follow-ups:** Rebuild APK; tap RUNNING base AB01 ? charge console with SAVE READING / stage rail.
+
+### 2026-08-10 — HRS operator History / Manual / Orders polish
+
+- **Goal:** History grade+finish, Order Hold list, drop Meta, APK search/pills; Manual PPC fields; Pending default + Preparing pill.
+- **Touched:** `ProcessStationService.ts`, `ProcessOperatorHistoryPage.tsx`, `ProcessHub.tsx`, `processStore.ts`
+- **Decisions / skipped:** Finish from coil → slit → PPC roll_finish; Hold from `hrs_order` REJECTED. Meta column removed as “the reading”.
+- **Follow-ups:** Smoke Completed grade/finish; Hold pill; Manual Add with route; Orders Pending URL + Preparing filter.
+
+### 2026-08-10 — HRS tab nav dead click (relative basePath)
+
+- **Goal:** Operator could not switch History / Capture / Orders — same ANN-class bounce to `/station`.
+- **Touched:** `useProcessWorkspaceBase.ts` (keep leading `/`), ANN navigates that used `` `/${basePath}` `` → `` `${basePath}` ``
+- **Decisions / skipped:** Routes already registered; root cause was stripped basePath making relative navigates double the scope.
+- **Follow-ups:** Rebuild APK; tap Orders / Capture / History on HRS — URLs stay `/user.operator/...`.
+
+### 2026-08-11 � PKL + ANN display polish
+
+- **Goal:** Expose existing PPC/order fields in PKL detail + ANN MH Incoming; darken PKL Save; handover completed list; Ann batch no on preparing/base cards with plan default on create.
+- **Touched:** `PklOrderService.ts`, `processStore.ts`, `PklCoilForm.tsx`, `PklOutgoingHandoverPage.tsx`, `ProcessStationService.ts`, `AnnMhBatchingPage.tsx`, `AnnBatchesPanel.tsx`, `AnnBaseCard.tsx`
+- **Decisions / skipped:** No new input forms. PKL history rows = completed (status often omitted). MH create no longer falls back annealing batch to charge no; server resolves plan `raw_row_json.annealingBatch` when body omits.
+- **Follow-ups:** Smoke PKL detail Batch; dark Save; handover completed; MH Incoming slit/W/T; Preparing Ann batch no / �.
+
+### 2026-08-11 � PKL/HRS tab nav + MTP (HashRouter + absolute scope paths)
+
+- **Goal:** Capture / Process Chart / History and Move to Production stuck on Orders (same ANN-class bounce).
+- **Touched:** `OperatorApp.tsx` (HashRouter on native), `scopeNavPath.ts`, `UserScopeShell.tsx` (doubled-path repair + `UserScopeCatchAll`), `OperatorNavRail.tsx`, `ProcessHub.tsx` (MTP empty-base guard), `ProcessLayout.tsx`, `OperatorShell.tsx` (ml-16), `App.tsx`, `tests/scopeNavPath.test.ts`
+- **Decisions / skipped:** No auto-Start on MTP; desk App stays BrowserRouter. APK URLs become `/#/user.operator/...`.
+- **Follow-ups:** Rebuild APK (`npm run build:operator` ? `npx cap sync android` ? reinstall). Smoke HRS/PKL Orders?Capture?History (PKL+Chart) and MTP ? capture + Start rail.
+
+### 2026-08-11 � Long-running-tab performance fixes
+
+- **Goal:** Bound SWR heap, quiet loop logs, idle-throttle display polls, periodic IDB persist, typing-resume, outbox drain � flags default off / unlimited.
+- **Touched:** `swrCacheProvider.ts`, `debugLog.ts`, `idleThrottle.ts`, `networkQuality.ts`, `networkAwareInterval.ts`, `deviceStatus.ts`, `useLiveSnapshot.ts`, `useAndroidDeviceStatus.ts`, `useShiftEndWatcher.ts`, `engine.ts`, `outboxRepo.ts`, `.env.example`, tests
+- **Decisions / skipped:** No new deps; LRU skips TTL timer; sync 5-min cadence untouched; drain stops on same-head (parked stuck).
+- **Follow-ups:** Soak with `VITE_SWR_CACHE_MAX=500` then `VITE_IDLE_THROTTLE=true`; enable `VITE_SWR_PERIODIC_PERSIST` on kiosk.
+
+### 2026-08-11 � Coil+slit display identity (client)
+
+- **Goal:** Display-only: always show `<coilNo> <slitId>` via displayMotherCoilId / OrderIdentityDisplay; no bare slit or coil-without-slit when slit exists.
+- **Touched:** sixHiOrderIdentity.ts (+ tests), OrderIdentityDisplay.tsx, process (ProcessHub, ProcessQueueRow, ProcessQueueDetailPanel, ProcessPPCCards, CtlPieceCounter, CaptureWorkspace, ProcessLiveStatusPage), MH (AnnMhBatchingPage, HrsMhCoilDetailPage, PklMhCoilDetailPage, PklMhLiveDashboard, RwdMhCoilDetailPage, RwdMhLiveDashboard), live (MachineDetailModal, MachineStatusBoard), rewinding (TwoHiRewindingHub, TwoHiRewindingCapturePage), reports (PlantOrderTracking), manual reroll (ManualRerollHub, ManualRerollWorkspaceModal), 6-Hi subtitle/detail cleanups (SixHiQueueRow, SixHiBatchDetailPanel, PPCInfoCards, OrderDetailSlidePanel, OrderProductionHistory, CombinedProductionHistory, SixHiCapturePage, SixHiProductionActionRail)
+- **Decisions / skipped:** No API/DB changes; entry/OCR inputs untouched. AnnMhReportPage roster has no slit field � left as coil only. ManualRerollCaptureForm has no coil/slit display UI. Lint still fails on pre-existing AnnBaseCard unused clickable.
+- **Follow-ups:** Smoke process/MH/live/rewinding cards for joined identity + no `A A`; confirm Ann report if slit ever lands on roster DTO.
+
+### 2026-08-11 � MotherCoil+Slit primacy, PKL chart edit, HRS slit HOLD
+
+- **Goal:** Non-HRS UIs lead with MotherCoil+Slit; PKL live chart Edit; HRS per-slit HOLD checkbox (rail stays whole-order).
+- **Touched:** `HrsSlitBuilder.tsx`, `PklChartGrid.tsx`, `SixHiService.ts` (order-assignment board), `OrderAssignmentPanel.tsx`, `LiveService.ts`, `live.ts`, `MachineDetailModal.tsx`, `SixHiHub.tsx`, `ManualRerollHub.tsx`, `SixHiCapturePage.tsx`
+- **Decisions / skipped:** Rail Hold Order unchanged; no chart delete/time remap; audit log still batch-only; HRS titles stay mother-coil.
+- **Follow-ups:** Smoke HRS HOLD checkbox + advance skip; PKL Edit on live reading; assignment list mother+slit; live machine modal queue/next.
+
+### 2026-08-11 � Manual re-roll improvement spec
+
+- **Goal:** Implement ZEDRAL_MANUAL_REROLL_IMPROVEMENT_SPEC (4HI/6HI only, console parity, thickness lineage, combined weight, overlay) with isolation from crm writes / SixHiService.
+- **Touched:** manualRerollRules.ts, 1975000000000_manual_reroll_improvement.js, ManualRerollService.ts, manualRerollRoutes.ts, db-types.ts, ManualRerollCaptureForm.tsx, ManualRerollWorkspaceModal.tsx, ManualRerollHub.tsx, manualRerollService.ts (client), TwoHiRewindingHub.tsx, useTenantFlag.ts, SixHiHub.tsx, SixHiQueueRow.tsx, SixHiBatchDetailPanel.tsx, tests
+- **Decisions / skipped:** Auto-cancel open 2HI sessions in migration; allocateCombinedWeight compute-on-read (no allocation columns); exports out of scope; SixHiService untouched.
+- **Follow-ups:** Run migration 1975; smoke 6HI/4HI re-roll capture + overlay badge on rolling queue.
+
+### 2026-08-12 � Journey hand-off fix (HRS?PKL strand)
+
+- **Goal:** Stop HRS/PKL completing without non-draft capture; re-emit production.captured on end; reconcile stranded journeys; close cheap secondary gaps.
+- **Touched:** `packages/server/src/services/journeyHandoff.ts`, `HrsOrderService.ts`, `PklOrderService.ts`, `ProductionService.ts`, `productionRoutes.ts`, `JourneyHandoffScheduler.ts`, `index.ts`, `SixHiService.ts`, `ProcessRouteService.ts`, `ProcessStationService.ts`, `tests/journeyHandoff.unit.test.ts`
+- **Decisions / skipped:** Fix 5 durable outbox deferred. `advanceJourneyByCoil` warns on null `queue_batch_id` (no invent-batch). Removed dead `/production/skp` emit path; skin-pass stays SixHi.
+- **Follow-ups:** Smoke draft+end (must fail), final save+end ? PKL queue; enable sweep (`JOURNEY_HANDOFF_SWEEP_ENABLED` default on); Fix 5 outbox when needed.
+
+### 2026-08-12 � Fix measurePingMs base + duplicate order-line keys
+
+- **Goal:** Clear console `ReferenceError: base is not defined` and React duplicate-key warning on ProcessHub detail panel.
+- **Touched:** `packages/client/src/operator/native/deviceStatus.ts`, `packages/client/src/components/process/ProcessQueueDetailPanel.tsx`
+- **Decisions / skipped:** Restored deleted `base` resolution (host / same-origin); kept HTTPS-only ping. Order-line list keys use index (batch+width collide).
+- **Follow-ups:** Reload ProcessHub; confirm no `base is not defined` and no duplicate-key warning.
+
+### 2026-08-12 � Fix HRS Save freeze (offlineReadyPromise hang)
+
+- **Goal:** Unstick web HRS Save (and sibling captures) hung forever on Saving�
+- **Touched:** `packages/client/src/lib/sync/submitOrQueue.ts`
+- **Decisions / skipped:** Await `offlineReadyPromise` only when `Capacitor.isNativePlatform()`; web IndexedDB needs no SQLCipher gate. No HRS form changes.
+- **Follow-ups:** Manual smoke HRS Save on localhost; APK path still awaits initNative.
+
+
+### 2026-08-12 — Dropdown dark-green fix (light-only)
+
+- **Goal:** Stop Android WebView algorithmic darkening from making native `<select>` popups dark green / unreadable.
+- **Touched:** `packages/client/android/.../styles.xml`, `colors.xml`, `MainActivity.java`, `app/build.gradle`, `packages/client/src/index.css`, `operator.html`
+- **Decisions / skipped:** Light-only at theme + night mode + WebView API + global CSS; added missing `androidx.webkit` dep; deleted unused dark theme blocks. Physical tablet QA matrix left to QA.
+- **Follow-ups:** Install QA APK 1.2.13-vc16; verify selects with device dark mode ON/OFF.
+
+### 2026-08-12 — ANN stoppage gate + batching details + operator rail
+
+- **Goal:** Block ANN stage advance/skip while stoppage open; order-detail info on batching cards; operator rail Batching / Orders / Stoppage.
+- **Touched:** `ProcessStationService.ts`, `AnnChargePage.tsx`, `AnnMhChargeDetailPage.tsx`, `AnnBatchingWorkspace.tsx`, `AnnQueueOrderDetailDrawer.tsx`, `AnnMhBatchingPage.tsx`, `AnnOperatorBatchingPage.tsx`, `AnnOperatorOrdersPage.tsx`, `AnnOperatorStoppagePage.tsx`, `OperatorNavRail.tsx`, `App.tsx`
+- **Decisions / skipped:** Shared workspace for MH+operator batching; stoppage hub ends open rows and links to charge for start; no stoppage duration accounting change.
+- **Follow-ups:** Smoke advance-with-open-stoppage (must fail); operator Batch / Orders / Stop rail; MH batching info drawer.
+
+### 2026-08-12 — ANN batching order detail drawer (full plan/recipe)
+
+- **Goal:** Info drawer shows full ANN plan + recipe (cycle, temps, soak times, etc.) not just queue card fields.
+- **Touched:** `annQueueOrderDetail.ts`, `ProcessStationService.ts` (`getAnnQueueOrderDetail`), `processStationRoutes.ts`, `AnnQueueOrderDetailDrawer.tsx`
+- **Decisions / skipped:** `GET /stations/ann/queue/:coilNo/detail` loads ppc_batch.raw_row_json + journey/prior RWD/active charge sections.
+- **Follow-ups:** Smoke batching info on coil with full ANN plan import.
+
+### 2026-08-12 � Journey hand-off master plan (M0�M2 slice)
+
+- **Goal:** INV-1/INV-2 enforcement + observability across all lines per `JOURNEY_HANDOFF_MASTER_PLAN.md`.
+- **Touched:** `handoffMetrics.ts`, `journeyHandoff.ts` (INV-1 query/backfill), `ProcessRouteService.ts` (self-heal enqueue), `JourneyAdvanceConsumer.ts` (CRS enqueue + mother journey terminalize), `SixHiService.ts` (always advance), `PklOrderService.ts` (tolerant queue + metrics), `ProcessStationService.ts`, `app.ts` (`/health/handoff`), `JourneyHandoffScheduler.ts`, `tests/journeyHandoff.unit.test.ts`
+- **Decisions / skipped:** Phase 4 durable outbox deferred. Phase 8 full per-line integration matrix deferred; unit tests + health gauge shipped. Backfill via `JOURNEY_HANDOFF_BACKFILL=1` on scheduler start.
+- **Follow-ups:** Run INV-1 SQL on staging; smoke HRS slit?PKL child queue; enable `/health/handoff` on plant dashboard; Phase 4 outbox when needed.
+
+### 2026-08-12 — Fix PPC/HRS queue continuity + INV-3 blanks
+
+- **Goal:** Implement codebase audit fixes: server build unblock, INV-3 recover-or-blank numerics, late PPC safe-reconcile for advanced/auto orders, synthetic→real batch swap, mother journey finalize after HRS slitting, and restore lint cleanliness.
+- **Touched:** `packages/server/src/services/ProcessRouteService.ts`, `packages/server/src/services/PPCImportService.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/services/PklOrderService.ts`, `packages/server/src/modules/m1-collection/consumers/JourneyAdvanceConsumer.ts`, `packages/client/src/store/processStore.ts`, `packages/client/src/components/process/ProcessQueueRow.tsx`, `packages/client/src/components/process/bodies/AnnBaseCard.tsx`, `packages/server/tests/importFailsafeDedup.test.ts`, `packages/server/tests/motherFinalizeJourney.m3.test.ts`
+- **Decisions / skipped:** H2 reconcile implemented via safe `ALLOCATION_SAFE_FIELDS` update on the already-linked journey-step batch (avoids production actual/queue/shift mutation); synthetic→real swap implemented by detecting synthetic `batch_number` pattern in `linkBatchToJourney`; H2 classify behavior left unchanged and covered by unit tests.
+- **Follow-ups:** If desired, run integration re-import smoke for late PPC + child-duplicate path beyond the unit harness; validate UI em-dash rendering on all queue variants (ANN/RWD/HRS/PKL/CRS).
+
+### 2026-08-12 — Whole-codebase audit: CI + AWS QA + logic risks
+
+- **Goal:** Audit repo for functionality/logic errors and verify CI + AWS QA coverage; identify high-severity issues and gating gaps.
+- **Touched:** _none_
+- **Decisions / skipped:** Could not run lint/tests locally because `npm ci` hit Windows `EPERM` (native binding unlink) and `node_modules/.bin` is missing; audit relied on CI workflow + code inspection (with current file evidence for key frontend bugs).
+- **Follow-ups:** Add client `tsc --noEmit` gate in CI; fix frontend permission + SWR refreshInterval bugs; rerun CI on a clean environment to produce runtime evidence.
+
+### 2026-08-12 — Debug-mode follow-up: local install blocked
+
+- **Goal:** Inform user about failed local runtime evidence and choose follow-up steps.
+- **Touched:** _none_
+- **Decisions / skipped:** Did not change code; local `npm ci` failed with Windows `EPERM` unlink on native binding; lint tooling missing due to incomplete `node_modules`.
+- **Follow-ups:** Run client typecheck on a clean install environment (or CI); consider pausing AV/closing editors holding native `.node` files before re-running `npm ci`.
+
+### 2026-08-12 — Repo scan: critical frontend polling/permissions
+
+- **Goal:** Identify functionality/flow errors and CI regressions across the monorepo.
+- **Touched:** `.github/workflows/ci.yml`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/lib/authStore.ts`, `packages/client/src/lib/networkAwareInterval.ts`, `packages/client/src/hooks/useSixHiHubQueue.ts`, `packages/client/src/hooks/useProcessHubQueue.ts`, `packages/client/src/pages/sixHi/SixHiCapturePage.tsx`
+- **Decisions / skipped:** No code changes; compiled evidence from current source + repo audit docs to prioritize runtime debugging.
+- **Follow-ups:** Fix `useAuthStore` role selector for SixHi transfer UI; make `networkAwareRefreshInterval` return sync `number` (SWR contract) and restore correct typing/offline pause/resume behavior; add client `tsc --noEmit` gate to CI.
+
+### 2026-08-12 — Debug logging unblock on Android cleartext
+
+- **Goal:** Restore runtime evidence by allowing debug ingest POSTs to `http://127.0.0.1` from Android build.
+- **Touched:** `packages/client/android/app/src/main/res/xml/network_security_config.xml`, `packages/client/src/main.tsx`
+- **Decisions / skipped:** Kept instrumentation in SWR/polling + SixHi transfer paths until runtime logs confirm behavior.
+- **Follow-ups:** Re-run reproduction with full app restart/rebuild; confirm `debug-8b2b05.log` has in-app entries; then fix issues with log proof.
+
+### 2026-08-12 — Fix SixHi transfer gating + sync SWR refreshInterval
+
+- **Goal:** Restore Bulk Transfer UI access and make SWR polling interval compatible with SWR’s sync contract.
+- **Touched:** `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/lib/networkAwareInterval.ts`
+- **Decisions / skipped:** Kept existing debug instrumentation (do not remove until post-fix verification).
+- **Follow-ups:** Re-run reproduction with full app restart; verify Bulk Transfer button visibility for ADMIN/MACHINE_HEAD and confirm polling does not halt after typing.
+
+### 2026-08-12 — Debug evidence path correction
+
+- **Goal:** Recover runtime evidence collection for session `8b2b05`.
+- **Touched:** `doc/AGENT_CONTEXT_LOG.md`
+- **Decisions / skipped:** `.cursor/debug-8b2b05.log` not generated in app run; endpoint probe previously worked from terminal only, indicating app runtime could not reach host-local ingest path.
+- **Follow-ups:** Reproduce in same-machine web runtime (or host-reachable ingest URL) to capture NDJSON evidence, then perform post-fix verification and instrumentation cleanup.
+
+### 2026-08-12 — Post-verification cleanup
+
+- **Goal:** Remove temporary debug instrumentation after user-confirmed runtime success.
+- **Touched:** `packages/client/src/main.tsx`, `packages/client/src/pages/sixHi/SixHiHub.tsx`, `packages/client/src/lib/networkAwareInterval.ts`, `packages/client/src/hooks/useSixHiHubQueue.ts`, `packages/client/src/hooks/useProcessHubQueue.ts`, `packages/client/android/app/src/main/res/xml/network_security_config.xml`
+- **Decisions / skipped:** Kept proven functional fixes (role-based transfer gating + sync/non-zero SWR interval behavior) and removed only debug-only probes/network exceptions.
+- **Follow-ups:** None required unless user reports residual polling edge cases on specific devices/networks.
+
+### 2026-08-12 — Restore missing Tailwind package (Vite CSS 500)
+
+- **Goal:** Fix `GET /src/index.css` 500 from Vite (`@tailwindcss/vite:generate:serve`).
+- **Touched:** `node_modules/tailwindcss`, `node_modules/@tailwindcss/vite`, `node_modules/@tailwindcss/node`, `node_modules/@tailwindcss/oxide` (reinstalled; no app source change)
+- **Decisions / skipped:** Root cause was ENOENT on `node_modules/tailwindcss/index.css` (package missing from install). Restored lockfile versions 4.3.3. Did not change `packages/client/src/index.css`.
+- **Follow-ups:** Restart Vite client so it reloads the restored Tailwind files; confirm `/src/index.css` returns 200.
+
+### 2026-08-12 — Restart API after 502 /auth proxy
+
+- **Goal:** Restore login: Vite `/auth/*` 502 was `ECONNREFUSED 127.0.0.1:3005` because the server crashed (`Cannot find module 'kafkajs'`) during the Tailwind reinstall churn.
+- **Touched:** none (runtime: `npm run dev -w @m1/server`)
+- **Decisions / skipped:** Confirmed `kafkajs` is back on disk; API health is `{"status":"ok","database":"ok"}` on `:3005`. Redis is down (memory fallback) — not blocking auth.
+- **Follow-ups:** Retry badge-pin login in the browser.
+
+### 2026-08-12 — Duplicate-click / parked-outbox fix
+
+- **Goal:** Collapse identical taps to one outbox row and one server execution via UUID-v5 idempotency keys, enqueue dedup, reserve-before-process, tap-lock, and PIN-free parked-duplicate clear.
+- **Touched:** `packages/client/src/lib/idempotencyKey.ts`, `packages/client/src/lib/sync/outboxRepo.ts`, `packages/client/src/lib/sync/submitOrQueue.ts`, `packages/client/src/lib/sync/engine.ts`, `packages/client/src/lib/sync/outboxPolicy.ts`, `packages/client/src/lib/sync/syncStatusStore.ts`, `packages/client/src/lib/sync/SyncStatusBadge.tsx`, `packages/client/src/lib/sync/sixHiWrites.ts`, `packages/client/src/hooks/useAggregateBusy.ts`, `packages/client/src/operator/db/sqlite.ts`, `packages/client/src/lib/apiClient.ts`, `packages/server/src/middleware/idempotencyMiddleware.ts`, `packages/server/migrations/1976000000000_idempotency_key_status.js`, `packages/server/src/db-types.ts`, `packages/server/src/routes/syncBatchRoutes.ts`, `packages/server/src/jobs/JourneyHandoffScheduler.ts`
+- **Decisions / skipped:** Server `txn.idempotency_key.key` stays uuid — send UUID v5, not a raw string key. `VITE_OUTBOX_DEDUP=false` rolls back enqueue dedup. Did not rewrite every mill form; dispatch-layer lock + 6HI immediate-write headers cover callers. Per-row discard still requires supervisor PIN.
+- **Follow-ups:** Run migration `1976000000000_idempotency_key_status` on deployed DBs.
+
+### 2026-08-12 — Machine Head profile revamp (isolated)
+
+- **Goal:** Line-specific MH Live / review / export / import / specs without changing operator consoles, CRM mill SHIFT_SUMMARY workbooks, or SixHi delete/reinstate.
+- **Touched:** `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/RwdMhLiveDashboard.tsx`, `packages/client/src/pages/live/MachineHeadDashboard.tsx`, `packages/client/src/lib/mhLineCapabilities.ts`, `packages/client/src/pages/machinehead/LineMhImportPage.tsx`, `packages/client/src/pages/admin/MachineSpecAdmin.tsx`, `packages/client/src/pages/admin/PklSpecAdmin.tsx`, `packages/client/src/components/process/HrsShiftReviewPanel.tsx`, `packages/client/src/components/layout/machinehead/MachineHeadShell.tsx`, `packages/client/src/components/process/AnnBatchingWorkspace.tsx`, `packages/server/src/services/HrsOrderService.ts`, `packages/server/src/services/PklOrderService.ts`, `packages/server/src/services/journeyHandoff.ts`, `packages/server/src/export/definitions/ShiftSummaryReport.ts`, `packages/server/src/services/SixHiService.ts`
+- **Decisions / skipped:** HRS/PKL completed delete/reinstate guarded by next-line idle rewind. SHIFT_SUMMARY mill 4HI/6HI/2HI path unchanged. Rewinding allocation stays on RWD modal, also surfaced on 2HI CRM Live. Assignment board filtered to ROLLING/SKIN_PASS. Machine Specs moved to CRS/CTL nav. Operator capture/handover routes untouched.
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS Live CRM restyle
+
+- **Goal:** Restyle HRS MH Live to CRM chrome (six tabs, running-order skeleton, side panel) and HRS Shift Review date-list + details popup, without LiveService or PKL live changes.
+- **Touched:** `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`, `packages/client/src/lib/hrsMhLiveSlice.ts`, `packages/client/src/pages/machinehead/ann/MhLiveEntry.tsx`, `packages/client/src/App.tsx`, `packages/client/src/pages/plant/PlantShiftReviewPage.tsx`, `packages/client/tests/hrsMhLiveSlice.test.ts`
+- **Decisions / skipped:** Split HRS off shared `ProcessLineLiveDashboard`. No coolant/scrap on HRS review. Operator name from `/machine-crew?machineCode=HRS` (shows — if empty). Did not extend stoppage API with coil_no.
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS Live drop KPI strip
+
+- **Goal:** Remove Running / Idle / Stoppages / Active Orders metric cards from HRS Live.
+- **Touched:** `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`
+- **Decisions / skipped:** Left `hrsLiveKpis` helper + tests; CRM MH Live still has its KPI strip.
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS Live orders / hold-to-pending / history date / status card
+
+- **Goal:** Orders tab Pending+Preparing only; Hold can move to Pending on MH and HRS operator; History date filter; full-width dark-green IDLE header.
+- **Touched:** `packages/client/src/lib/hrsMhLiveSlice.ts`, `packages/client/tests/hrsMhLiveSlice.test.ts`, `packages/server/src/services/HrsOrderService.ts`, `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/hrs/HrsMhCoilDetailPage.tsx`, `packages/client/src/components/process/ProcessQueueDetailPanel.tsx`, `packages/client/src/components/process/ProcessHub.tsx`, `packages/client/src/pages/process/ProcessOperatorHistoryPage.tsx`
+- **Decisions / skipped:** Kept Move to Preparing. Operator date filter is HRS-only. No shift A/B/C pill — merge all logs for the day. PKL live / CRM mill / SixHi untouched.
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS order detail drawer (MH Live)
+
+- **Goal:** View Full Details and Info open read-only drawers instead of full-page coil route; complete dump uses existing order + entry APIs.
+- **Touched:** `packages/client/src/components/machinehead/hrs/HrsSidePanel.tsx`, `packages/client/src/components/machinehead/hrs/HrsOrderDetailDrawer.tsx`, `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`
+- **Decisions / skipped:** Kept `/machine-head/hrs/coil/:coilNo` route for deep links; Live no longer navigates there. Two drawer modes: hrs-filled vs complete (Info).
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS Live inline order details + Info drawer
+
+- **Goal:** Side panel shows PPC/capture/lines inline; Info opens full detail drawer; no navigate on View Full Details.
+- **Touched:** `packages/client/src/lib/hrsOrderDetailSections.ts`, `packages/client/tests/hrsOrderDetailSections.test.ts`, `packages/client/src/components/machinehead/hrs/HrsOrderDetailDrawer.tsx`, `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`
+- **Decisions / skipped:** Reused existing `/hrs-order/orders` + `/stations/hrs/entry` APIs. Overview Open coil detail unchanged. `HrsMhCoilDetailPage` route kept for deep links.
+- **Follow-ups:** None.
+
+### 2026-08-12 — PKL Live Dashboard redesign
+
+- **Goal:** PKL-only MH live dashboard with six inline tabs, running-order card, tank pills + date-filtered graph/table, shift review, specs table CRUD on Overview; split from shared HRS/PKL component.
+- **Touched:** `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`, `packages/client/src/lib/pklMhLiveSlice.ts`, `packages/client/src/pages/machinehead/pkl/PklMhLiveCharts.tsx`, `packages/client/src/components/process/PklSpecTablePanel.tsx`, `packages/client/src/lib/pklSpecLabels.ts`, `packages/client/src/pages/admin/PklSpecAdmin.tsx`, `packages/client/src/pages/machinehead/ann/MhLiveEntry.tsx`, `packages/client/src/store/processStore.ts`, `packages/client/tests/pklMhLive.test.ts`, `packages/client/tests/pklRevamp.test.ts`
+- **Decisions / skipped:** PKL design from operator `ProcessLiveStatusPage` patterns, not CRM MH panels. HRS live unchanged. Spec soft-delete only on `/machine-head/pkl/specs`. No new APIs.
+- **Follow-ups:** Full monorepo `npm run build` blocked locally by missing `lightningcss` native binary (env); client `tsc` + targeted vitest pass.
+
+### 2026-08-12 — PKL Live CRM MH restyle
+
+- **Goal:** Restyle PKL MH Live to CRM chrome (STATUS_HEADER running card, z-card tabs, Panel/StatCell, table + side panel) while keeping PKL APIs and tank/specs/shift-review logic.
+- **Touched:** `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/pkl/PklMhSidePanel.tsx`, `packages/client/src/components/process/PklShiftReviewPanel.tsx`, `packages/client/src/components/process/PklSpecTablePanel.tsx`, `packages/client/src/lib/pklMhLiveSlice.ts` (`PKL_ORDER_TABS`)
+- **Decisions / skipped:** No HRS drawer/detail complexity — side panel opens coil detail page. Shift review uses nested Panel stack (no double wrap on Overview). HRS live untouched.
+- **Follow-ups:** None.
+
+### 2026-08-12 — PKL side panel import fix
+
+- **Goal:** Fix Vite import resolution for `PklMhSidePanel` (paths copied from HRS assumed `components/` depth).
+- **Touched:** `packages/client/src/components/machinehead/pkl/PklMhSidePanel.tsx` (moved from `pages/machinehead/pkl/`), `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`
+- **Decisions / skipped:** Moved panel to `components/machinehead/pkl/` to mirror `HrsSidePanel` layout instead of patching relative paths in `pages/`.
+- **Follow-ups:** None.
+
+### 2026-08-12 — PKL shift review page HRS-style layout
+
+- **Goal:** Match HRS Shift Review UX on `/machine-head/shift-review` for PKL desk (date-grouped cards, filters, modal detail).
+- **Touched:** `packages/client/src/pages/plant/PlantShiftReviewPage.tsx`
+- **Decisions / skipped:** Removed PKL dropdown-only early return; PKL uses same list + filter bar as HRS; row click opens modal with `PklShiftReviewPanel variant="full"`. Machine filter locked to PKL.
+- **Follow-ups:** None.
+
+
+- **Goal:** HRS-style shift review on PKL MH overview; surface all operator-captured chart/line/process data via shared APIs with charts + tables.
+- **Touched:** `packages/client/src/lib/pklMhLiveSlice.ts`, `packages/client/src/pages/machinehead/pkl/PklMhProcessReadingsSection.tsx` (new), `packages/client/src/pages/machinehead/pkl/PklMhLiveCharts.tsx`, `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`, `packages/client/src/components/process/PklShiftReviewPanel.tsx`, `packages/server/src/services/ProcessStationService.ts` (PKL history `end_filling`), `packages/client/tests/pklMhLive.test.ts`
+- **Decisions / skipped:** Reused `/stations/pkl/shift-review`, `/stations/pkl/chart/:shiftLogId`, `/stations/pkl/history`; no new routes. Chart/table share `pklMhLiveSlice` helpers from same `chartRows`. Full shift review stays on `/machine-head/shift-review`; overview uses `variant="compact"`.
+- **Follow-ups:** None.
+
+
+- **Goal:** Fix dev 504 `Outdated Optimize Dep` crashing PKL live overview when loading tank charts.
+- **Touched:** `packages/client/vite.config.ts` (`optimizeDeps.include` + `entries` for PKL dashboard), `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx` (static import, removed nested lazy), `packages/client/src/pages/machinehead/pkl/PklMhLiveCharts.tsx`
+- **Decisions / skipped:** Root cause was nested dynamic import (dashboard lazy → charts lazy → recharts) racing Vite dep re-optimize. Route-level lazy load in App/MhLiveEntry already isolates recharts; inner lazy removed. Restart dev server after pull.
+- **Follow-ups:** None.
+
+### 2026-08-12 — PKL order detail drawer + overview trim
+
+- **Goal:** Replace full-page coil navigation with read-only ZDrawer (pkl/complete modes); trim Overview to running order + tank readings only.
+- **Touched:** `packages/client/src/components/machinehead/pkl/PklOrderDetailDrawer.tsx` (new), `packages/client/src/components/machinehead/pkl/PklMhSidePanel.tsx`, `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`
+- **Decisions / skipped:** Mirror HRS drawer pattern; reuse `GET /pkl-order/orders/:coilNo` + `GET /stations/pkl/entry/:coilNo`. Info icon → complete mode; Eye → pkl mode. `PklMhCoilDetailPage` kept for deep links. Removed shift review + spec panels from Overview only.
+- **Follow-ups:** None.
+
+### 2026-08-12 — MH order panel: remove pending + soft confirm
+
+- **Goal:** Remove "Move to pending" from HRS MH side panel; add in-app soft warnings for reinstate-preparing and delete on HRS + PKL MH panels.
+- **Touched:** `packages/client/src/components/machinehead/MhOrderActionConfirmModal.tsx` (new), `packages/client/src/components/machinehead/hrs/HrsSidePanel.tsx`, `packages/client/src/components/machinehead/pkl/PklMhSidePanel.tsx`, `packages/client/src/pages/machinehead/hrs/HrsMhLiveDashboard.tsx`, `packages/client/src/pages/machinehead/pkl/PklMhLiveDashboard.tsx`
+- **Decisions / skipped:** Confirm UX lives in side panels (LogoutConfirmModal-style); dashboards no longer use `window.confirm`. Coil detail pages unchanged.
+- **Follow-ups:** None.
+
+### 2026-08-12 — HRS operator connectivity debug instrumentation
+
+- **Goal:** Diagnose operator "pending" / server not responding on HRS line.
+- **Touched:** `packages/client/src/lib/agentDebugLog.ts` (new), `packages/client/src/lib/apiClient.ts`, `packages/client/src/lib/sync/submitOrQueue.ts`, `packages/client/src/lib/sync/engine.ts`, `packages/client/src/store/processStore.ts`
+- **Decisions / skipped:** Health checks OK (localhost:3005 + qa.zedral.com/api). Server logs show Redis ECONNREFUSED (memory fallback). Instrumentation targets HRS paths only; no fix until log evidence.
+- **Follow-ups:** User repro on web dev (same machine) so debug ingest reaches `debug-beb2a9.log`; analyze hypotheses A–E.
+
+### 2026-08-12 — HRS operator Pending tab empty (log fix)
+
+- **Goal:** Fix operator "nothing on line" when server returns PREPARING orders only.
+- **Touched:** `packages/client/src/components/process/ProcessHub.tsx`, `packages/client/src/lib/sync/engine.ts`
+- **Decisions / skipped:** Logs proved all HRS APIs 200; queue 13 items with 0 PENDING / 11 PREPARING. Auto-switch to Preparing tab when Pending empty. Instrumentation kept for verify run.
+- **Follow-ups:** Post-fix repro; remove debug logs after user confirms.
+
+### 2026-08-12 — HRS outbox sync stuck (batch → sequential fallback)
+
+- **Goal:** Fix sync badge stuck at 3 pending for `capture:1100038457` / POST `/production/hrs`.
+- **Touched:** `packages/client/src/lib/sync/engine.ts`, `packages/server/src/routes/syncBatchRoutes.ts`
+- **Decisions / skipped:** Logs showed batch sync never replayed production writes; pending stayed 3 through backoff. Fallback to sequential `/api` replay when batch fails/transient; forward tenant/correlation headers on loopback dispatch.
+- **Follow-ups:** Restart server + client; verify pending drains to synced in post-fix logs.
+
+### 2026-08-12 — idempotency_key.status migration (500 on production save)
+
+- **Goal:** Fix POST `/production/hrs/draft` 500 blocking outbox sync.
+- **Touched:** (DB only) applied migration `1976000000000_idempotency_key_status`
+- **Decisions / skipped:** Log proof: `column "status" of relation "idempotency_key" does not exist`. Ran `npm run migrate` with local DATABASE_URL; added `status` column. No code change — schema drift on dev DB.
+- **Follow-ups:** User refresh + save draft; confirm 201 and sync badge clears.
+
+### 2026-08-12 — HRS complete sync shift_log_id mismatch
+
+- **Goal:** Fix parked POST `/production/hrs` with "Save production data before ending order" after draft saves succeed.
+- **Touched:** `packages/server/src/services/journeyHandoff.ts`, `packages/server/src/modules/m1-collection/routes/productionRoutes.ts`
+- **Decisions / skipped:** Logs showed draft 201 then complete 400 in same batch. Root cause: `assertCompletedHrsPklProd` filtered by order `shift_log_id` while capture saved under active shift. Fallback to latest COMPLETED prod for coil when shift-scoped lookup misses.
+- **Follow-ups:** Restart server; retry parked outbox item; verify post-fix logs show `usedShiftFallback:true` and complete 201.
+
+
+### 2026-08-13 — CI/QA green: journey handoff + idempotency migrate fix
+
+- **Goal:** Make all CI quality gates + AWS QA smoke pass; commit and push to main.
+- **Touched:** packages/client/**, packages/server/**, packages/shared-validation/**, packages/server/migrations/1976000000000_idempotency_key_status.js, packages/server/migrations/modules/m1/1909000000001_idempotency_key_status.js, packages/client/src/lib/hrsOrderDetailSections.ts, packages/client/src/lib/networkAwareInterval.ts, packages/client/src/lib/pklMhLiveSlice.ts, packages/server/src/services/HrsOrderService.ts, packages/server/src/services/PklOrderService.ts
+- **Decisions / skipped:** Local scripts/run-ci-quality-local.sh PASSED (lint/build/client/unit/integration/arch/docker/QA curl). Moved idempotency status alter into m1 module (after table create); main 1976 is shim. Excluded root audit plans, screen.png, .github/an from commit.
+- **Follow-ups:** Watch GitHub Actions CI + Deploy AWS QA Playwright after push (gh not authenticated locally).
+

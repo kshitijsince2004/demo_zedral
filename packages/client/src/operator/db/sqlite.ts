@@ -19,9 +19,14 @@ CREATE TABLE IF NOT EXISTS outbox (
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   created_at INTEGER NOT NULL,
-  synced_at INTEGER
+  synced_at INTEGER,
+  idempotency_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_agg ON outbox (aggregate_key, seq);
+CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox (status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_active
+  ON outbox(idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND status IN ('pending','parked');
 CREATE TABLE IF NOT EXISTS master_cache (
   table_name TEXT NOT NULL,
   row_id TEXT NOT NULL,
@@ -100,6 +105,16 @@ export async function initDb(): Promise<void> {
 
     await db.open();
     await db.execute(SCHEMA);
+    try {
+      await db.execute('ALTER TABLE outbox ADD COLUMN idempotency_key TEXT');
+    } catch {
+      // Column already exists on upgraded devices.
+    }
+    await db.execute(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_active
+        ON outbox(idempotency_key)
+        WHERE idempotency_key IS NOT NULL AND status IN ('pending','parked')
+    `);
   } catch (err) {
     db = null;
     throw err;

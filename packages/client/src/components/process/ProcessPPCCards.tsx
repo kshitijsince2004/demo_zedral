@@ -1,4 +1,5 @@
 import { Package } from 'lucide-react';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 export type ProcessPpcFields = {
   motherCoilNo?: string;
@@ -62,7 +63,13 @@ export function ProcessPPCCards({
   groupWeightMt?: number;
   hideRoute?: boolean;
 }) {
-  const id = data.motherCoilNo || data.coilNo || '—';
+  const id = displayMotherCoilId({
+    motherCoilNo: data.motherCoilNo,
+    displayCoilNo: data.coilNo,
+    coilNo: data.coilNo,
+    batchNumber: data.batch,
+    slitId: data.slitId,
+  });
   const w = data.widthMm != null && data.widthMm !== '' ? `${data.widthMm}` : '—';
   const t = data.thicknessMm != null && data.thicknessMm !== '' ? `${data.thicknessMm}` : '—';
   const wt = groupWeightMt ?? data.weightMt;
@@ -92,7 +99,7 @@ export function ProcessPPCCards({
       <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? 'gap-1.5' : 'gap-3'}`}>
         {cell('Customer', data.customer || '—', false, compact)}
         {cell('Grade', data.grade || '—', true, compact)}
-        {cell('Slit ID', data.slitId || '—', true, compact)}
+        {cell('Coil', id, true, compact)}
         {cell('Width / Thickness', `${w} mm / ${t} mm`, true, compact)}
         {cell(groupCount && groupCount > 1 ? 'Group Σ Wt' : 'Target Wt', wt != null && wt !== '' ? `${wt} MT` : '—', true, compact)}
         {cell('Batch', data.batch || '—', true, compact)}
@@ -101,7 +108,6 @@ export function ProcessPPCCards({
         {!showSurface && !hideRoute && data.route ? cell('Route', data.route, false, compact) : null}
         {showPlanRow ? (
           <>
-            {cell('Coil No', data.coilNo || id, true, compact)}
             {cell('Plan Width', disp(planW), true, compact)}
             {cell('Plan Thick', disp(planT), true, compact)}
           </>

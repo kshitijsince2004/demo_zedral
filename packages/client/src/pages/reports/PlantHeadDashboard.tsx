@@ -11,6 +11,7 @@ import { mergePlantHeadWithLive } from '../../lib/plantHeadLiveMerge';
 import { subscribeProductionChanged } from '../../lib/productionSync';
 import { machineHandoverService, type HandoverOverviewRow } from '../../services/machineHandoverService';
 import { ExportProgressModal } from '../../components/export/ExportProgressModal';
+import { overlayClass } from '../../lib/nativeOverlay';
 import { ZButton } from '../../components/primitives/ZButton';
 import { Download } from 'lucide-react';
 import { currentPlantDate, formatPlantDateTime } from '../../lib/dateFormat';
@@ -278,7 +279,7 @@ export function PlantHeadDashboard() {
       <div className="flex flex-col gap-4 min-h-0">
 
         {/* KPI Strip — sticky above charts */}
-        <section aria-label="Key performance indicators" className="sticky top-14 z-10 bg-background/95 backdrop-blur-sm pb-1">
+        <section aria-label="Key performance indicators" className={overlayClass('sticky top-14 z-10 bg-background/95 pb-1', 'backdrop-blur-sm')}>
           <PlantKpiStrip
             data={displayData}
             liveKpis={liveKpis}

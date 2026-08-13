@@ -4,6 +4,7 @@ import { ZInput } from '../primitives/ZInput';
 import { FieldWrapper } from '../forms/FieldWrapper';
 import { AlertTriangle, X } from 'lucide-react';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
+import { overlayClass } from '../../lib/nativeOverlay';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
 import { DefectTagSelector } from './DefectTagSelector';
 
@@ -94,7 +95,7 @@ export function OrderRejectionModal({ open, batchNumber, orderLabel, orderSubtit
 
   return (
     <>
-      <button type="button" aria-label="Close" className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]" onClick={onClose} />
+      <button type="button" aria-label="Close" className={overlayClass('fixed inset-0 z-[110] bg-primary/60', 'backdrop-blur-[2px]')} onClick={onClose} />
       <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] w-full max-w-xl mx-auto border-2 border-destructive bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
 
         <div className="shrink-0 flex items-center gap-3 px-5 py-4 bg-destructive/10 border-b border-destructive/20 text-destructive rounded-t-[14px]">

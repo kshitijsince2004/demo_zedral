@@ -5,7 +5,6 @@ import { SixHiBacklogBadge } from './SixHiBacklogBadge';
 import {
   displayMotherCoilId,
   finishOf,
-  selectIdOf,
 } from '../../lib/sixHiOrderIdentity';
 
 export interface SixHiQueueRowProps {
@@ -18,6 +17,9 @@ export interface SixHiQueueRowProps {
   combinedSelectionCount: number;
   isEnding?: boolean;
   pending?: boolean;
+  /** Display-only manual re-roll overlay (does not mutate CRM card). */
+  wasRerolled?: boolean;
+  lastRerolledThicknessMm?: number | null;
   onSelect: (card: SixHiQueueCard) => void;
   onTransferToggle: (batchNumber: string) => void;
   onCombineToggle: (batchNumber: string, event: MouseEvent) => void;
@@ -33,11 +35,16 @@ export const SixHiQueueRow = memo(function SixHiQueueRow({
   combinedSelectionCount,
   isEnding,
   pending,
+  wasRerolled,
+  lastRerolledThicknessMm,
   onSelect,
   onTransferToggle,
   onCombineToggle,
 }: SixHiQueueRowProps) {
   const routeCode = card.subProcess === 'ROLLING' ? '4' : 'X';
+  const displayTarget = wasRerolled && lastRerolledThicknessMm != null
+    ? lastRerolledThicknessMm
+    : card.targetThkMm;
 
   return (
     <button
@@ -66,6 +73,11 @@ export const SixHiQueueRow = memo(function SixHiQueueRow({
         />
         <div className="flex items-center gap-2">
           {card.isBacklog && <SixHiBacklogBadge planDate={card.planDate} />}
+          {wasRerolled && (
+            <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+              Re-rolled
+            </span>
+          )}
           {isInCombinedSelection && combinedSelectionCount > 1 && (
             <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-success/15 text-success">
               Combined
@@ -88,7 +100,7 @@ export const SixHiQueueRow = memo(function SixHiQueueRow({
         <span className="truncate">{card.customer}</span>
         <span className="font-mono truncate">Finish {finishOf(card)}</span>
         <span className="font-mono">
-          {card.inputThkMm}→{card.targetThkMm} mm
+          {card.inputThkMm}→{displayTarget} mm
           {card.finishThkMm != null && card.finishThkMm !== card.targetThkMm ? ` (fin ${card.finishThkMm})` : ''}
           {card.rollingPassNo && card.rollingPassNo > 1 ? ` · P${card.rollingPassNo}` : ''}
         </span>
@@ -125,7 +137,7 @@ function RowTitle({
       <div className="min-w-0">
         <span className="font-mono text-lg font-bold text-foreground block truncate">{displayMotherCoilId(card)}</span>
         <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Slit ID {selectIdOf(card)} · Batch {card.batchNumber}
+          Batch {card.batchNumber}
         </span>
       </div>
     </div>

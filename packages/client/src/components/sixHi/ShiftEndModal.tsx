@@ -4,6 +4,7 @@ import { ZButton } from '../primitives/ZButton';
 import { formatShiftWindowTime } from '../../lib/dateFormat';
 import type { ShiftEndStatus } from '../../hooks/useShiftEndWatcher';
 import { ShiftReadingsFields } from './shiftReadingsForm';
+import { overlayClass } from '../../lib/nativeOverlay';
 import {
   emptyShiftReadings,
   parseOptionalNumber,
@@ -103,7 +104,7 @@ export function ShiftEndModal({
   return (
     <>
       <div
-        className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]"
+        className={overlayClass('fixed inset-0 z-[110] bg-primary/60', 'backdrop-blur-[2px]')}
         aria-hidden
         onClick={() => void saveReadingsThen(onRemindLater)}
       />

@@ -4,6 +4,7 @@ import { formatActiveProcessType } from '../../lib/orderLabels';
 import type { MachineStatusCard, MachineLiveStatus } from '@m1/shared-validation';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { AlertTriangle, Clock, Cpu, ShieldAlert, Wrench } from 'lucide-react';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 function formatUpdatedAt(iso?: string): string {
   return formatPlantClock(iso);
@@ -86,7 +87,7 @@ function RunningStateInfo({ m }: { m: MachineStatusCard }) {
           <ul className="space-y-1 mt-1">
             {m.activeOrders.map((o) => (
               <li key={o.batchNumber} className="font-mono text-xs font-bold text-foreground truncate">
-                {o.coilNo ? `${o.coilNo}` : o.batchNumber}
+                {displayMotherCoilId(o)}
               </li>
             ))}
           </ul>

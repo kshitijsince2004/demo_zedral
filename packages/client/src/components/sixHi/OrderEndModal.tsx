@@ -4,6 +4,7 @@ import { CheckSquare, X, AlertTriangle } from 'lucide-react';
 import { getEndProductionMissingFields, type SixHiOrderDetail } from '@m1/shared-validation';
 import { DefectTagSelector } from './DefectTagSelector';
 import { DEFECT_OTHER_CODE } from '../../lib/defectCodes';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 interface OrderEndModalProps {
   open: boolean;
@@ -21,6 +22,7 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [otherRemarks, setOtherRemarks] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
@@ -38,11 +40,14 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
 
   const handleSubmit = async () => {
     setBusy(true);
+    setError(null);
     try {
       await onConfirm(defectCodesForSubmit());
       onClose();
       setSelectedTags([]);
       setOtherRemarks('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'End production failed');
     } finally {
       setBusy(false);
     }
@@ -59,7 +64,7 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
 
   return (
     <>
-      <button type="button" aria-label="Close" className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]" onClick={onClose} />
+      <button type="button" aria-label="Close" className={overlayClass('fixed inset-0 z-[110] bg-primary/60', 'backdrop-blur-[2px]')} onClick={onClose} />
       <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] w-full max-w-xl mx-auto border border-border bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         
         <div className="shrink-0 flex items-center gap-3 px-5 py-4 bg-primary text-white rounded-t-[14px]">
@@ -75,6 +80,11 @@ export function OrderEndModal({ open, batchNumber, orderLabel, orderSubtitle, or
         </div>
 
         <div className="flex-1 overflow-auto p-5 space-y-6">
+          {error && (
+            <div role="alert" className="bg-destructive/10 text-destructive text-sm p-3 rounded-xl border border-destructive/30">
+              {error}
+            </div>
+          )}
           <div className="bg-secondary text-foreground text-sm p-4 rounded-xl font-medium border border-border">
             Are you sure you want to end the active production run? The machine will return to IDLE state.
           </div>

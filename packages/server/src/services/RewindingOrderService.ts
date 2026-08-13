@@ -16,6 +16,7 @@ import {
   assertRejectPayload,
   healOrphanStoppageStatus,
   netProdDurationMin,
+  statusAfterUngroupCombine,
 } from '../utils/orderLifecycleHelpers';
 import {
   assertRewindingMachine,
@@ -877,6 +878,75 @@ export class RewindingOrderService {
     });
 
     return Promise.all(unique.map((bn) => this.getOrder(bn, userId)));
+  }
+
+  /** Dissolve PREPARING combined groups; no-op when batches have no group. */
+  static async cancelCombinedProduction(
+    batchNumbers: string[],
+    userId: number,
+  ): Promise<RwdOrderDetail[]> {
+    const unique = Array.from(new Set(batchNumbers.map((b) => b.trim()).filter(Boolean)));
+    if (unique.length === 0) throw new Error('At least one order is required');
+
+    const seedRows = await db
+      .selectFrom('txn.rwd_order')
+      .select(['batch_number', 'combined_group_id', 'status', 'prod_start_at'])
+      .where('batch_number', 'in', unique)
+      .execute();
+
+    const groupIds = Array.from(
+      new Set(
+        seedRows
+          .map((r) => (r.combined_group_id ? String(r.combined_group_id) : null))
+          .filter((id): id is string => !!id),
+      ),
+    );
+
+    if (groupIds.length === 0) {
+      return Promise.all(unique.map((bn) => this.getOrder(bn, userId)));
+    }
+
+    const members = await db
+      .selectFrom('txn.rwd_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'o.order_id',
+        'o.batch_number',
+        'o.status',
+        'o.prod_start_at',
+        'o.combined_group_id',
+        'pb.machine_allocated',
+      ])
+      .where('o.combined_group_id', 'in', groupIds)
+      .execute();
+
+    for (const row of members) {
+      if (row.status !== 'PENDING' && row.status !== 'PREPARING') {
+        throw new Error('Cannot cancel combined order after production has started — use Hold or End');
+      }
+      if (row.prod_start_at) {
+        throw new Error('Cannot cancel combined order after production has started — use Hold or End');
+      }
+    }
+
+    const stamp = new Date();
+    await db.transaction().execute(async (trx) => {
+      for (const row of members) {
+        const nextStatus = statusAfterUngroupCombine(!!row.machine_allocated);
+        await trx
+          .updateTable('txn.rwd_order')
+          .set({
+            combined_group_id: null,
+            status: nextStatus,
+            updated_at: stamp,
+          })
+          .where('order_id', '=', row.order_id as any)
+          .execute();
+      }
+    });
+
+    const affected = Array.from(new Set([...unique, ...members.map((m) => m.batch_number)]));
+    return Promise.all(affected.map((bn) => this.getOrder(bn, userId)));
   }
 
   static async endProduction(batchNumber: string, userId: number): Promise<RwdOrderDetail> {

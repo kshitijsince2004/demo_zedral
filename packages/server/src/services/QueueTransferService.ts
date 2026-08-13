@@ -6,7 +6,7 @@ import type { SixHiSubProcess } from '@m1/shared-validation';
 
 type DbConn = Kysely<Database>;
 
-interface BatchRow {
+export interface BatchRow {
   batch_id: number | string;
   batch_number: string;
   coil_no: string;
@@ -45,50 +45,34 @@ interface CompletionPayload {
 }
 
 export class QueueTransferService {
-  /** Create next queue entry for SixHi steps; returns batch_id or null for non-queue steps. */
-  static async enqueueNextStep(
+  /** Resolve a step's queue target; null means the step gets no queue (no machine / packaging). */
+  private static resolveQueueTarget(
+    step: JourneyStepRow,
+  ): { targetMachine: string; queueSubProcess: string } | null {
+    const genericCrm = step.route_code === '4' || step.route_code === 'X';
+    // Neither machine code nor generic CRM specified, and not packaging → no queue.
+    if (!step.machine_code && !genericCrm && step.route_code !== 'PKG') return null;
+    // Packaging doesn't have a queue yet.
+    if (step.route_code === 'PKG') return null;
+
+    const queueSubProcess = (step.sub_process
+      ?? (step.route_code === '4' ? 'ROLLING' : step.route_code === 'X' ? 'SKIN_PASS' : step.process_code)) as string;
+    const targetMachine = step.machine_code
+      ?? (genericCrm ? defaultSuggestedMachine(queueSubProcess as SixHiSubProcess) : (step.process_code ?? ''));
+    return { targetMachine, queueSubProcess };
+  }
+
+  /** Insert a ppc_batch queue row for `step` from `sourceBatch`, and update the coil. Returns batch_id. */
+  private static async insertQueueBatch(
     journeyId: number,
-    sourceStepId: number,
-    nextStep: JourneyStepRow,
+    step: JourneyStepRow,
     sourceBatch: BatchRow,
     payload: CompletionPayload,
+    targetMachine: string,
+    queueSubProcess: string,
     conn: DbConn = db,
-  ): Promise<number | null> {
-    const genericCrm = nextStep.route_code === '4' || nextStep.route_code === 'X';
-    
-    if (!nextStep.machine_code && !genericCrm && nextStep.route_code !== 'PKG') {
-      // For some reason, neither machine code nor generic CRM is specified, and it's not packaging
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null, conn);
-      return null;
-    }
-
-    if (nextStep.route_code === 'PKG') {
-      // Packaging doesn't have a queue yet
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null, conn);
-      return null;
-    }
-
-    const queueSubProcess = (nextStep.sub_process
-      ?? (nextStep.route_code === '4' ? 'ROLLING' : nextStep.route_code === 'X' ? 'SKIN_PASS' : nextStep.process_code)) as string;
-
-    const targetMachine = nextStep.machine_code
-      ?? (genericCrm ? defaultSuggestedMachine(queueSubProcess as SixHiSubProcess) : (nextStep.process_code ?? ''));
-
-    if (nextStep.queue_batch_id) {
-      const existingBatchId = Number(nextStep.queue_batch_id);
-      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, existingBatchId, conn);
-      return existingBatchId;
-    }
-
-    const existing = await conn.selectFrom('planning.queue_handoff')
-      .select('target_batch_id')
-      .where('journey_id', '=', String(journeyId))
-      .where('source_step_id', '=', String(sourceStepId))
-      .where('target_step_no', '=', nextStep.step_no)
-      .executeTakeFirst();
-    if (existing?.target_batch_id) return Number(existing.target_batch_id);
-
-    const batchNumber = `${sourceBatch.coil_no}-${nextStep.route_code}-${Date.now().toString(36).toUpperCase()}`;
+  ): Promise<number> {
+    const batchNumber = `${sourceBatch.coil_no}-${step.route_code}-${Date.now().toString(36).toUpperCase()}`;
     const inputThk = payload.outputThkMm ?? Number(sourceBatch.ppc_thk_mm);
     const weightMt = payload.actualWeightMt ?? Number(sourceBatch.ppc_weight_mt);
     const planDate = new Date();
@@ -111,7 +95,7 @@ export class QueueTransferService {
         shift_code: shiftCode,
         machine_code: targetMachine,
         sub_process: queueSubProcess,
-        machine_allocated: !!nextStep.machine_code,
+        machine_allocated: !!step.machine_code,
         coil_no: sourceBatch.coil_no,
         slit_id: sourceBatch.slit_id,
         customer_name: payload.customerName ?? sourceBatch.customer_name,
@@ -136,12 +120,84 @@ export class QueueTransferService {
         status: 'PLANNED',
         coil_thk_mm: inputThk,
         weight_mt: weightMt,
-        next_dest: nextStep.process_code,
+        next_dest: step.process_code,
       })
       .where('coil_no', '=', sourceBatch.coil_no)
       .execute();
 
+    return batchId;
+  }
+
+  /** Create next queue entry for SixHi steps; returns batch_id or null for non-queue steps. */
+  static async enqueueNextStep(
+    journeyId: number,
+    sourceStepId: number,
+    nextStep: JourneyStepRow,
+    sourceBatch: BatchRow,
+    payload: CompletionPayload,
+    conn: DbConn = db,
+  ): Promise<number | null> {
+    const target = this.resolveQueueTarget(nextStep);
+    if (!target) {
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, null, conn);
+      return null;
+    }
+
+    if (nextStep.queue_batch_id) {
+      const existingBatchId = Number(nextStep.queue_batch_id);
+      await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, existingBatchId, conn);
+      return existingBatchId;
+    }
+
+    const existing = await conn.selectFrom('planning.queue_handoff')
+      .select('target_batch_id')
+      .where('journey_id', '=', String(journeyId))
+      .where('source_step_id', '=', String(sourceStepId))
+      .where('target_step_no', '=', nextStep.step_no)
+      .executeTakeFirst();
+    if (existing?.target_batch_id) return Number(existing.target_batch_id);
+
+    const batchId = await this.insertQueueBatch(
+      journeyId, nextStep, sourceBatch, payload, target.targetMachine, target.queueSubProcess, conn,
+    );
+
     await this.recordHandoff(journeyId, sourceStepId, nextStep.step_no, batchId, conn);
+    return batchId;
+  }
+
+  /**
+   * Fan-out variant: enqueue the ACTIVE step of a freshly-created child journey (e.g. an HRS
+   * slit child whose first step is PKL). Without this the child journey has queue_batch_id = null
+   * and never materialises in the PKL/HRS order queue (getQueue → ensureOrder throws "No PKL batch").
+   * Idempotent: no-op (returns existing) if the active step already has a queue batch.
+   */
+  static async enqueueActiveStep(
+    journeyId: number,
+    sourceBatch: BatchRow,
+    payload: CompletionPayload = {},
+    conn: DbConn = db,
+  ): Promise<number | null> {
+    const step = await conn.selectFrom('planning.order_journey_step')
+      .select(['step_id', 'step_no', 'route_code', 'display_label', 'process_code', 'machine_code', 'sub_process', 'queue_batch_id'])
+      .where('journey_id', '=', String(journeyId))
+      .where('status', '=', 'ACTIVE')
+      .orderBy('step_no', 'asc')
+      .executeTakeFirst();
+    if (!step) return null;
+    if (step.queue_batch_id) return Number(step.queue_batch_id);
+
+    const target = this.resolveQueueTarget(step as JourneyStepRow);
+    if (!target) return null;
+
+    const batchId = await this.insertQueueBatch(
+      journeyId, step as JourneyStepRow, sourceBatch, payload, target.targetMachine, target.queueSubProcess, conn,
+    );
+
+    await conn.updateTable('planning.order_journey_step')
+      .set({ queue_batch_id: batchId })
+      .where('step_id', '=', step.step_id)
+      .execute();
+
     return batchId;
   }
 

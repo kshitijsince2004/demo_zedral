@@ -12,7 +12,8 @@ export function isBenignSyncClientError(status: number, body: string): boolean {
     /Forbidden:\s*No write access to line/i.test(text) ||
     /Invalid production payload/i.test(text) ||
     /Only active \(DRAFT or REOPENED\) shifts can be marked completed/i.test(text) ||
-    /already (completed|submitted|closed)/i.test(text)
+    /already (completed|submitted|closed)/i.test(text) ||
+    /IDEMPOTENCY_IN_FLIGHT/i.test(text)
   );
 }
 

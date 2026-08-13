@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import { calculateScrapPct, formatPlantTime } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
@@ -132,6 +132,22 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // ponytail: cells buffer their own drafts and lift on blur; this tracks any
+  // not-yet-blurred edits so submit can force-flush them (Android Save may not blur first).
+  // Keys: `width:{i}`, `taper:{i}`, `thk:{passIndex}:{slot}`.
+  const pendingRef = useRef<Map<string, string>>(new Map());
+
+  const commitWidthReading = useCallback((i: number, widthMm: string) => {
+    setWidthReadings((prev) => prev.map((r, idx) => (idx === i ? { ...r, widthMm } : r)));
+  }, []);
+  const commitTaperReading = useCallback((i: number, taper: string) => {
+    setTaperReadings((prev) => prev.map((r, idx) => (idx === i ? { ...r, taper } : r)));
+  }, []);
+  const commitThkCell = useCallback((passIndex: number, slot: string, value: string) => {
+    setThkPasses((prev) => prev.map((p, idx) => (
+      idx === passIndex ? { ...p, bySlot: { ...p.bySlot, [slot]: value } } : p
+    )));
+  }, []);
 
   useEffect(() => {
     if (!coilNo) return;
@@ -172,7 +188,9 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
           finishThicknessMm: ol.finishThicknessMm ?? saved?.finishThicknessMm,
           routeRaw: ol.routeRaw ?? saved?.routeRaw ?? '',
           downstreamCrsCombination: saved?.downstreamCrsCombination ?? '',
-          ...flags,
+          // Prefer saved capture flags so operator HOLD override survives reload
+          holdFlag: saved != null ? !!saved.holdFlag : flags.holdFlag,
+          forCtlFlag: saved != null ? !!saved.forCtlFlag : flags.forCtlFlag,
         };
       }));
       return;
@@ -243,8 +261,8 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
   const cleanTaper = cleanTaperReadings(taperReadings);
   const latestTaper = latestByTime(cleanTaper)?.taper;
 
-  function buildSlitSlot(l: HrsLine) {
-    const thicknessReadings = thkPassesToSlotReadings(thkPasses, l.slot);
+  function buildSlitSlot(l: HrsLine, thkPassesNow: ThkPass[], cleanTaperNow: TaperReading[]) {
+    const thicknessReadings = thkPassesToSlotReadings(thkPassesNow, l.slot);
     return {
       slot: l.slot,
       widthMm: positiveOrUndef(l.targetWidthMm),
@@ -252,9 +270,9 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       plannedThkMm: positiveOrUndef(l.plannedThkMm),
       plannedWeightMt: positiveOrUndef(l.plannedWeightMt),
       thicknessReadings: thicknessReadings.length ? thicknessReadings : undefined,
-      taperReadings: cleanTaper.length ? cleanTaper : undefined,
+      taperReadings: cleanTaperNow.length ? cleanTaperNow : undefined,
       thkLatestMm: latestByTime(thicknessReadings)?.thkMm,
-      taperLatest: latestByTime(cleanTaper)?.taper,
+      taperLatest: latestByTime(cleanTaperNow)?.taper,
       childCoilNo: l.childCoilNo,
       customer: l.customer || undefined,
       sapBatchNumber: l.sapBatchNumber || undefined,
@@ -267,8 +285,38 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
     };
   }
 
+  // MANDATORY: force-flush any unblurred cell drafts before reading state
+  // (Android Save may not blur the focused input first).
+  function flushDrafts() {
+    if (pendingRef.current.size === 0) return { widthReadings, taperReadings, thkPasses };
+    let nextWidth = widthReadings;
+    let nextTaper = taperReadings;
+    let nextThk = thkPasses;
+    for (const [key, val] of pendingRef.current) {
+      const [kind, a, b] = key.split(':');
+      if (kind === 'width') {
+        const i = Number(a);
+        nextWidth = nextWidth.map((r, idx) => (idx === i ? { ...r, widthMm: val } : r));
+      } else if (kind === 'taper') {
+        const i = Number(a);
+        nextTaper = nextTaper.map((r, idx) => (idx === i ? { ...r, taper: val } : r));
+      } else if (kind === 'thk') {
+        const passIdx = Number(a);
+        nextThk = nextThk.map((p, idx) => (
+          idx === passIdx ? { ...p, bySlot: { ...p.bySlot, [b]: val } } : p
+        ));
+      }
+    }
+    pendingRef.current.clear();
+    setWidthReadings(nextWidth);
+    setTaperReadings(nextTaper);
+    setThkPasses(nextThk);
+    return { widthReadings: nextWidth, taperReadings: nextTaper, thkPasses: nextThk };
+  }
+
   async function persist(complete: boolean) {
     if (isCompleted) return;
+    const flushed = flushDrafts();
     setError(null);
     setMsg(null);
     if (lines.length === 0) {
@@ -281,11 +329,12 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
       return;
     }
 
-    const cleanWidthReadings = widthReadings
+    const cleanWidthReadings = flushed.widthReadings
       .map((r) => ({ time: r.time.trim(), widthMm: parseDecimalInput(r.widthMm) }))
       .filter((r): r is { time: string; widthMm: number } => !!r.time && r.widthMm != null);
     const submitMotherWidth = latestByTime(cleanWidthReadings)?.widthMm;
-    const slitSlots = lines.map(buildSlitSlot);
+    const cleanTaperNow = cleanTaperReadings(flushed.taperReadings);
+    const slitSlots = lines.map((l) => buildSlitSlot(l, flushed.thkPasses, cleanTaperNow));
 
     setSubmitting(true);
     try {
@@ -316,7 +365,10 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
     } catch (err) {
       const msg = err instanceof Error ? err.message : complete ? 'Submit failed' : 'Save failed';
       setError(msg);
-      if (complete) useProcessStore.setState({ captureError: msg });
+      if (complete) {
+        useProcessStore.setState({ captureError: msg });
+        useProcessStore.getState().settleEndCaptureError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -345,13 +397,12 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
           {widthReadings.map((r, i) => (
             <ReadingChip
               key={`${r.time}-${i}`}
+              pendingKey={`width:${i}`}
+              pendingRef={pendingRef}
+              index={i}
               value={r.widthMm}
               time={r.time}
-              onChange={(raw) => {
-                const next = [...widthReadings];
-                next[i] = { ...r, widthMm: sanitizeDecimalInput(raw) };
-                setWidthReadings(next);
-              }}
+              onCommit={commitWidthReading}
               onRemove={i === widthReadings.length - 1 && widthReadings.length > 1
                 ? () => setWidthReadings(widthReadings.slice(0, -1))
                 : undefined}
@@ -378,21 +429,18 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
           <div className="overflow-x-auto">
             <div className="flex gap-3 min-w-min">
               {lines.map((line) => (
-                <div key={line.slot} className="min-w-[17rem] flex-1 border border-border rounded-lg px-3 py-2.5 bg-secondary/30">
-                  <div className="flex items-baseline justify-between gap-2 mb-2">
-                    <p className="font-mono font-bold text-lg leading-none">{line.slot}</p>
-                    <p className="text-xs font-mono text-muted-foreground truncate">{line.childCoilNo}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                    <SlotCell label="Width mm" value={line.targetWidthMm ?? '—'} />
-                    <SlotCell label="Wt MT" value={line.plannedWeightMt ?? '—'} />
-                    <SlotCell label="Plan Thk" value={line.plannedThkMm ?? '—'} />
-                    <SlotCell label="Finish Thk" value={line.finishThicknessMm ?? '—'} />
-                    <SlotCell label="Customer" value={line.customer || '—'} wide />
-                    <SlotCell label="Batch" value={line.sapBatchNumber || '—'} wide />
-                    {line.surfaceFinish ? <SlotCell label="Surface" value={line.surfaceFinish} wide /> : null}
-                  </div>
-                </div>
+                <SlotSummaryCard
+                  key={line.slot}
+                  line={line}
+                  disabled={isCompleted}
+                  onHoldChange={(hold) => {
+                    setLines((prev) => prev.map((l) => (
+                      l.slot === line.slot
+                        ? { ...l, holdFlag: hold, forCtlFlag: hold ? false : l.forCtlFlag }
+                        : l
+                    )));
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -408,16 +456,14 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
                     <th className="text-left text-[10px] uppercase tracking-wide text-muted-foreground font-medium w-20 pb-1"> </th>
                     {lines.map((line) => {
                       const latest = latestByTime(thkPassesToSlotReadings(thkPasses, line.slot))?.thkMm;
-                      const cue = deltaBand(latest, line.plannedThkMm, thkTol);
                       return (
-                        <th key={line.slot} className="text-center font-mono text-sm font-bold pb-1 px-1">
-                          {line.slot}
-                          {cue.label !== '—' && (
-                            <span className={`block text-[9px] font-mono font-semibold ${
-                              cue.band === 'ok' ? 'text-success' : cue.band === 'warn' ? 'text-warning' : 'text-muted-foreground'
-                            }`}>Δ {cue.label}</span>
-                          )}
-                        </th>
+                        <SlotThkHeader
+                          key={line.slot}
+                          slot={line.slot}
+                          latestThkMm={latest}
+                          plannedThkMm={line.plannedThkMm}
+                          thkTol={thkTol}
+                        />
                       );
                     })}
                   </tr>
@@ -438,20 +484,12 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
                       </td>
                       {lines.map((line) => (
                         <td key={line.slot} className="px-1 py-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            aria-label={`Thickness ${i + 1} slot ${line.slot}`}
-                            className="h-9 w-full min-w-[3.5rem] rounded-sm border border-input bg-background px-2 text-sm font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+                          <ThkCell
+                            passIndex={i}
+                            slot={line.slot}
                             value={pass.bySlot[line.slot] ?? ''}
-                            onChange={(e) => {
-                              const next = [...thkPasses];
-                              next[i] = {
-                                ...pass,
-                                bySlot: { ...pass.bySlot, [line.slot]: sanitizeDecimalInput(e.target.value) },
-                              };
-                              setThkPasses(next);
-                            }}
+                            pendingRef={pendingRef}
+                            onCommit={commitThkCell}
                           />
                         </td>
                       ))}
@@ -475,14 +513,13 @@ export function HrsSlitBuilder({ coilNo, prefill, shiftLogId, machineCode, onSub
           {taperReadings.map((r, i) => (
             <ReadingChip
               key={`${r.time}-${i}`}
+              pendingKey={`taper:${i}`}
+              pendingRef={pendingRef}
+              index={i}
               value={r.taper}
               time={r.time}
               numeric={false}
-              onChange={(raw) => {
-                const next = [...taperReadings];
-                next[i] = { ...r, taper: raw };
-                setTaperReadings(next);
-              }}
+              onCommit={commitTaperReading}
               onRemove={i === taperReadings.length - 1 && taperReadings.length > 1
                 ? () => setTaperReadings(taperReadings.slice(0, -1))
                 : undefined}
@@ -554,19 +591,34 @@ function ChipSection({
   );
 }
 
-function ReadingChip({
+/**
+ * A single width/taper reading chip. Owns its own draft while typing so
+ * keystrokes never touch parent state; lifts to the parent via `onCommit` on
+ * blur. `pendingRef` lets the top-level submit force-flush this draft even if
+ * blur never fires (Android Save).
+ */
+const ReadingChip = memo(function ReadingChip({
+  pendingKey,
+  pendingRef,
+  index,
   value,
   time,
-  onChange,
+  onCommit,
   onRemove,
   numeric = true,
 }: {
-  value: string | number;
+  pendingKey: string;
+  pendingRef: React.MutableRefObject<Map<string, string>>;
+  index: number;
+  value: string;
   time: string;
-  onChange: (raw: string) => void;
+  onCommit: (index: number, raw: string) => void;
   onRemove?: () => void;
   numeric?: boolean;
 }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+
   return (
     <div className="flex items-start gap-1">
       <div className="w-[14rem]">
@@ -574,15 +626,23 @@ function ReadingChip({
           type="text"
           inputMode={numeric ? 'decimal' : 'text'}
           className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={draft}
+          onChange={(e) => {
+            const raw = numeric ? sanitizeDecimalInput(e.target.value) : e.target.value;
+            setDraft(raw);
+            pendingRef.current.set(pendingKey, raw);
+          }}
+          onBlur={() => {
+            pendingRef.current.delete(pendingKey);
+            if (draft !== value) onCommit(index, draft);
+          }}
         />
         <p className="text-[11px] text-muted-foreground text-center leading-tight mt-1 tabular-nums">{time}</p>
       </div>
       {onRemove ? <DeleteLastButton label="Remove last reading" onClick={onRemove} /> : null}
     </div>
   );
-}
+});
 
 function DeleteLastButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -600,3 +660,113 @@ function SlotCell({ label, value, wide }: { label: string; value: string | numbe
     </div>
   );
 }
+
+/** Slot summary + HOLD toggle. Memoized so width/taper/thickness edits elsewhere skip re-render. */
+const SlotSummaryCard = memo(function SlotSummaryCard({
+  line,
+  disabled,
+  onHoldChange,
+}: {
+  line: HrsLine;
+  disabled?: boolean;
+  onHoldChange: (hold: boolean) => void;
+}) {
+  return (
+    <div className="min-w-[17rem] flex-1 border border-border rounded-lg px-3 py-2.5 bg-secondary/30">
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="font-mono font-bold text-lg leading-none">{line.slot}</p>
+          {line.holdFlag ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-destructive shrink-0">HOLD</span>
+          ) : null}
+        </div>
+        <p className="text-xs font-mono text-muted-foreground truncate">{line.childCoilNo}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        <SlotCell label="Width mm" value={line.targetWidthMm ?? '—'} />
+        <SlotCell label="Wt MT" value={line.plannedWeightMt ?? '—'} />
+        <SlotCell label="Plan Thk" value={line.plannedThkMm ?? '—'} />
+        <SlotCell label="Finish Thk" value={line.finishThicknessMm ?? '—'} />
+        <SlotCell label="Customer" value={line.customer || '—'} wide />
+        <SlotCell label="Batch" value={line.sapBatchNumber || '—'} wide />
+        {line.surfaceFinish ? <SlotCell label="Surface" value={line.surfaceFinish} wide /> : null}
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={line.holdFlag}
+          disabled={disabled}
+          onChange={(e) => onHoldChange(e.target.checked)}
+        />
+        HOLD (no advance)
+      </label>
+    </div>
+  );
+});
+
+/** Thickness matrix column header + Δ cue. Memoized on primitive props so unrelated slot edits skip it. */
+const SlotThkHeader = memo(function SlotThkHeader({
+  slot,
+  latestThkMm,
+  plannedThkMm,
+  thkTol,
+}: {
+  slot: string;
+  latestThkMm: number | undefined;
+  plannedThkMm: number | undefined;
+  thkTol: number;
+}) {
+  const cue = deltaBand(latestThkMm, plannedThkMm, thkTol);
+  return (
+    <th className="text-center font-mono text-sm font-bold pb-1 px-1">
+      {slot}
+      {cue.label !== '—' && (
+        <span className={`block text-[9px] font-mono font-semibold ${
+          cue.band === 'ok' ? 'text-success' : cue.band === 'warn' ? 'text-warning' : 'text-muted-foreground'
+        }`}>Δ {cue.label}</span>
+      )}
+    </th>
+  );
+});
+
+/**
+ * One thickness matrix cell. Owns its own draft while typing (no parent
+ * setState per keystroke), lifts to `onCommit` on blur. `pendingRef` lets
+ * submit force-flush this draft if blur never fires.
+ */
+const ThkCell = memo(function ThkCell({
+  passIndex,
+  slot,
+  value,
+  pendingRef,
+  onCommit,
+}: {
+  passIndex: number;
+  slot: string;
+  value: string;
+  pendingRef: React.MutableRefObject<Map<string, string>>;
+  onCommit: (passIndex: number, slot: string, value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const pendingKey = `thk:${passIndex}:${slot}`;
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={`Thickness ${passIndex + 1} slot ${slot}`}
+      className="h-9 w-full min-w-[3.5rem] rounded-sm border border-input bg-background px-2 text-sm font-mono tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+      value={draft}
+      onChange={(e) => {
+        const raw = sanitizeDecimalInput(e.target.value);
+        setDraft(raw);
+        pendingRef.current.set(pendingKey, raw);
+      }}
+      onBlur={() => {
+        pendingRef.current.delete(pendingKey);
+        if (draft !== value) onCommit(passIndex, slot, draft);
+      }}
+    />
+  );
+});

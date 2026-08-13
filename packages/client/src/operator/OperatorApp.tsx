@@ -1,13 +1,18 @@
-import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useSessionContext } from 'supertokens-auth-react/recipe/session';
 import { useAuthStore } from '../lib/authStore';
 import { pickPrimaryRole, UserRole } from '@m1/shared-validation';
 import { Login } from '../pages/Login';
 import { RoleHomeRedirect } from '../components/RoleHomeRedirect';
 import { ProtectedRoute } from '../components/ProtectedRoute';
-import { UserScopeShell } from '../components/UserScopeShell';
+import { UserScopeShell, UserScopeCatchAll } from '../components/UserScopeShell';
 import { RouteSpinner } from '../components/RouteSpinner';
+import { SplashScreen } from '@capacitor/splash-screen';
+import { isNative, isOfflineReady, offlineReadyPromise } from './native/init';
+
+/** Capacitor WebView treats dotted path segments as files — HashRouter keeps SPA routes in the hash. */
+const OperatorRouter = isNative() ? HashRouter : BrowserRouter;
 
 const MachineComingSoon = lazy(() =>
   import('../pages/MachineComingSoon').then((m) => ({ default: m.MachineComingSoon })),
@@ -42,9 +47,35 @@ const ScopeHandoverRoute = lazy(() =>
 const PklChartPage = lazy(() =>
   import('../pages/process/PklChartPage').then((m) => ({ default: m.PklChartPage })),
 );
+const AnnChargePage = lazy(() =>
+  import('../pages/process/AnnChargePage').then((m) => ({ default: m.AnnChargePage })),
+);
 
 function OperatorRouteFallback() {
   return <RouteSpinner />;
+}
+
+/** Brief non-blocking banner while SQLCipher/outbox init runs in the background after first paint. */
+function OfflinePreparingBanner() {
+  const [ready, setReady] = useState(isOfflineReady());
+
+  useEffect(() => {
+    if (ready) return;
+    void offlineReadyPromise.then(() => setReady(true));
+  }, [ready]);
+
+  // Hide the native splash once offline storage is ready (falls back to launchShowDuration otherwise).
+  useEffect(() => {
+    if (ready && isNative()) void SplashScreen.hide();
+  }, [ready]);
+
+  if (ready || !isNative()) return null;
+
+  return (
+    <div className="bg-warning/15 text-warning text-xs font-semibold text-center py-1 shrink-0">
+      Preparing offline storage…
+    </div>
+  );
 }
 
 function SuperTokensSync() {
@@ -62,7 +93,8 @@ function SuperTokensSync() {
       if (role !== UserRole.OPERATOR) {
         void (async () => {
           await logout();
-          window.location.replace('/login?role=denied');
+          // HashRouter on APK: full reload must target /#/login, not /login.
+          window.location.replace(isNative() ? '/#/login?role=denied' : '/login?role=denied');
         })();
         return;
       }
@@ -96,8 +128,9 @@ function SuperTokensSync() {
 
 function OperatorApp() {
   return (
-    <BrowserRouter>
+    <OperatorRouter>
       <SuperTokensSync />
+      <OfflinePreparingBanner />
       <Suspense fallback={<OperatorRouteFallback />}>
         <Routes>
           <Route path="/login" element={<Login operatorOnly />} />
@@ -112,6 +145,7 @@ function OperatorApp() {
             <Route path="capture" element={<ScopeCaptureRoute />} />
             <Route path="capture/:coilNo" element={<ProcessCapturePage />} />
             <Route path="chart" element={<PklChartPage />} />
+            <Route path="charge/:chargeNo" element={<AnnChargePage />} />
             <Route path="history" element={<ProcessOperatorHistoryPage />} />
             <Route path="handover" element={<ScopeHandoverRoute />} />
             <Route path="shift-summary" element={<Navigate to="../handover" replace />} />
@@ -120,12 +154,13 @@ function OperatorApp() {
             <Route path="rolling/order/:batchNo" element={<SixHiOrderPage />} />
             <Route path="skinpass/order/:batchNo" element={<SixHiOrderPage />} />
             <Route path="rewinding/:coilNo" element={<TwoHiRewindingCapturePage />} />
+            <Route path="*" element={<UserScopeCatchAll />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/station" replace />} />
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </OperatorRouter>
   );
 }
 

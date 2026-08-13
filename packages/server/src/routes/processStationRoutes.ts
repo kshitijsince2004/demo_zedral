@@ -332,6 +332,16 @@ router.post('/pkl/chart-config', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/ann/queue/:coilNo/detail', requireAuth, async (req, res) => {
+  try {
+    assertLineOperation(req.user!, 'ANN', 'READ');
+    const coilNo = decodeURIComponent(req.params.coilNo);
+    res.json(await ProcessStationService.getAnnQueueOrderDetail(coilNo));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Order detail failed' });
+  }
+});
+
 router.get('/ann/charges', requireAuth, async (req, res) => {
   try {
     assertLineOperation(req.user!, 'ANN', 'READ');

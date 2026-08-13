@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Network } from '@capacitor/network';
+import { debugLog } from '../../lib/debugLog';
 
 export interface DeviceStatusSnapshot {
   batteryLevel: number;
@@ -30,13 +31,16 @@ export const EMPTY_DEVICE_STATUS: DeviceStatusSnapshot = {
 
 let lastGoodPing: number | null = null;
 let lastPingAt = 0;
-const PING_CACHE_MS = 10_000;
+let isMeasuring = false;
+const PING_CACHE_MS = 30_000; // Increased to 30s to reduce bridge/network overhead
 
 export async function measurePingMs(timeoutMs = 6000): Promise<number | null> {
   const now = Date.now();
   if (lastGoodPing !== null && now - lastPingAt < PING_CACHE_MS) {
     return lastGoodPing;
   }
+
+  if (isMeasuring) return lastGoodPing;
 
   const host = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
   // APK: VITE_API_URL. Web/dev: same-origin so empty env still probes.
@@ -49,51 +53,42 @@ export async function measurePingMs(timeoutMs = 6000): Promise<number | null> {
       : '';
   if (!base) return null;
 
-  // Prefer HTTPS; HTTP fallback only for broken device clocks / misconfigured TLS.
-  const urls = [
-    `${base}/health`,
-    base.startsWith('https://') ? `http://${base.slice('https://'.length)}/health` : null,
-  ].filter(Boolean) as string[];
+  // HTTPS only — HTTP fallback caused Mixed Content under androidScheme https.
+  const healthUrl = `${base}/health`;
 
-  const globalStart = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  for (const healthUrl of urls) {
-    if (performance.now() - globalStart > timeoutMs) break;
-
-    const controller = new AbortController();
-    const attemptTimeout = Math.min(4000, timeoutMs - (performance.now() - globalStart));
-    if (attemptTimeout < 500) break;
-    const timer = setTimeout(() => controller.abort(), attemptTimeout);
-
-    try {
-      const started = performance.now();
-      // cors (not no-cors): opaque responses hid failures and ST used to intercept /health.
-      const res = await fetch(healthUrl, {
-        method: 'GET',
-        mode: 'cors',
-        credentials: 'omit',
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new Error(`health ${res.status}`);
-      }
-      const duration = Math.max(1, Math.round(performance.now() - started));
-      lastGoodPing = duration;
-      lastPingAt = Date.now();
-      console.info(`[measurePingMs] Ping to ${healthUrl} success: ${duration}ms`);
-      return duration;
-    } catch (err) {
-      console.debug(`[measurePingMs] Ping to ${healthUrl} failed`, err);
-    } finally {
-      clearTimeout(timer);
+  try {
+    isMeasuring = true;
+    const started = performance.now();
+    // cors (not no-cors): opaque responses hid failures and ST used to intercept /health.
+    const res = await fetch(healthUrl, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`health ${res.status}`);
     }
+    const duration = Math.max(1, Math.round(performance.now() - started));
+    lastGoodPing = duration;
+    lastPingAt = Date.now();
+    debugLog(`[measurePingMs] Ping to ${healthUrl} success: ${duration}ms`);
+    return duration;
+  } catch (err) {
+    debugLog(`[measurePingMs] Ping to ${healthUrl} failed`, err);
+  } finally {
+    isMeasuring = false;
+    clearTimeout(timer);
   }
 
   // If all attempts failed but we have a very recent good ping (e.g. from 30s ago),
   // use it as a fallback to avoid flickering the UI to "bad" on a single dropped packet.
   if (lastGoodPing !== null && Date.now() - lastPingAt < 30_000) {
-    console.info(`[measurePingMs] All attempts failed, using recent good ping: ${lastGoodPing}ms`);
+    debugLog(`[measurePingMs] All attempts failed, using recent good ping: ${lastGoodPing}ms`);
     return lastGoodPing;
   }
   console.warn(`[measurePingMs] All attempts failed. No recent fallback available.`);

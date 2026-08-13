@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { SixHiDestinationSchema } from './sixHiRules';
 
-export const ManualRerollMachineSchema = z.enum(['6HI', '4HI', '2HI']);
+export const ManualRerollMachineSchema = z.enum(['6HI', '4HI']);
 
 export const ManualRerollStartSchema = z.object({
   machine: ManualRerollMachineSchema,
@@ -54,6 +55,12 @@ export const ManualRerollCaptureSchema = z.object({
   actualWeightPhotoHash: z.string().trim().max(128).optional().nullable(),
   ocrConfidence: z.number().min(0).max(100).optional().nullable(),
   ocrRawText: z.string().trim().max(4000).optional().nullable(),
+  destination: SixHiDestinationSchema.optional().nullable(),
+  destinationOverride: z.boolean().optional().nullable(),
+  etr: z.number().nonnegative().optional().nullable(),
+  dtr: z.number().nonnegative().optional().nullable(),
+  inputThkMm: z.number().nonnegative().optional().nullable(),
+  targetThkMm: z.number().nonnegative().optional().nullable(),
   passes: z.array(z.object({
     passNo: z.number().int().positive(),
     thicknessMm: z.number().nonnegative(),

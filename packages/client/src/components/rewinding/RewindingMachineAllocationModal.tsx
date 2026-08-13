@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
 import { millsForSubProcessFromRegistry } from '../../lib/machineRegistry';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 /** Rewinding-scoped machine pick — pool RWD | 2HI. */
 export function RewindingMachineAllocationModal({
@@ -38,7 +39,7 @@ export function RewindingMachineAllocationModal({
 
   return (
     <>
-      <button type="button" className="fixed inset-0 z-[100] bg-primary/50 backdrop-blur-[2px]" onClick={onClose} aria-label="Close" />
+      <button type="button" className={overlayClass('fixed inset-0 z-[100] bg-primary/50', 'backdrop-blur-[2px]')} onClick={onClose} aria-label="Close" />
       <div
         className="fixed left-1/2 top-1/2 z-[105] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-2xl"
         role="dialog"

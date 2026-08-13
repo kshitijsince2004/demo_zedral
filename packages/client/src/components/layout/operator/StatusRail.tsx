@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { isCrmMillPath } from '../../../lib/millConfig';
 import { isProcessStationCode } from '../../../lib/processConfig';
@@ -11,8 +11,9 @@ import { ZBadge } from '../../primitives/ZBadge';
 import { SyncStatusBadge } from '../../../lib/sync/SyncStatusBadge';
 import { DeviceStatusIndicators } from './DeviceStatusIndicators';
 import { formatPlantClock } from '../../../lib/dateFormat';
+import { subscribeTimerTick } from '../../../hooks/useTimerTick';
 
-function RailClock() {
+const RailClock = memo(function RailClock() {
   const [clock, setClock] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
 
@@ -38,8 +39,7 @@ function RailClock() {
       );
     };
     tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    return subscribeTimerTick(tick);
   }, []);
 
   return (
@@ -47,7 +47,7 @@ function RailClock() {
       {currentDateStr} {clock}
     </span>
   );
-}
+});
 
 interface StatusRailProps {
   processCode?: string;

@@ -4,6 +4,7 @@ import type { SixHiQueueCard } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { millsForSubProcessFromRegistry } from '../../lib/machineRegistry';
 import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 export type CrmMillCode = string;
 
@@ -13,6 +14,8 @@ interface MachineAllocationModalProps {
   open: boolean;
   mode?: MachineAllocationMode;
   batches: SixHiQueueCard[];
+  /** Hub mill — preferred default in production mode so Assign opens this desk's workspace. */
+  preferredMachine?: string;
   onClose: () => void;
   onConfirm: (machineCode: string) => Promise<void>;
 }
@@ -21,12 +24,20 @@ export function MachineAllocationModal({
   open,
   mode = 'transfer',
   batches,
+  preferredMachine,
   onClose,
   onConfirm,
 }: MachineAllocationModalProps) {
   const firstBatch = batches[0];
   const [options, setOptions] = useState<string[]>([]);
-  const defaultMachine = (firstBatch?.suggestedMachineCode ?? firstBatch?.machineCode ?? options[0] ?? '') as string;
+  const isProduction = mode === 'production';
+  const defaultMachine = (
+    (isProduction ? preferredMachine : undefined)
+    ?? firstBatch?.suggestedMachineCode
+    ?? firstBatch?.machineCode
+    ?? options[0]
+    ?? ''
+  ) as string;
   const [selected, setSelected] = useState<string>(defaultMachine);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,18 +49,21 @@ export function MachineAllocationModal({
 
   useEffect(() => {
     if (open && batches.length > 0) {
-      const preferred = firstBatch?.suggestedMachineCode ?? firstBatch?.machineCode ?? options[0] ?? '';
+      const preferred = (isProduction ? preferredMachine : undefined)
+        ?? firstBatch?.suggestedMachineCode
+        ?? firstBatch?.machineCode
+        ?? options[0]
+        ?? '';
       setSelected(preferred && options.includes(preferred) ? preferred : (options[0] || ''));
       setError(null);
     }
-  }, [open, batches, firstBatch, options]);
+  }, [open, batches, firstBatch, options, isProduction, preferredMachine]);
 
   if (!open || batches.length === 0 || !firstBatch) return null;
 
   const routeCode = firstBatch.subProcess === 'ROLLING' ? '4' : 'X';
   const processLabel = firstBatch.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass';
   const isMulti = batches.length > 1;
-  const isProduction = mode === 'production';
 
   const handleConfirm = async () => {
     if (!selected) return;
@@ -66,7 +80,7 @@ export function MachineAllocationModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] bg-primary/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <div className={overlayClass('fixed inset-0 z-[100] bg-primary/50', 'backdrop-blur-[2px]')} onClick={onClose} aria-hidden />
       <div
         className="fixed left-1/2 top-1/2 z-[105] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-white p-6 shadow-2xl"
         role="dialog"

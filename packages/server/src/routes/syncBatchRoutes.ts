@@ -11,6 +11,7 @@ export type SyncBatchItem = {
   url: string;
   payload?: unknown;
   aggregateKey?: string;
+  idempotencyKey?: string;
 };
 
 export type SyncBatchResult = {
@@ -77,13 +78,17 @@ export async function dispatchSyncItem(
 
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'x-idempotency-key': item.id,
+    'x-idempotency-key': item.idempotencyKey ?? item.id,
     'st-auth-mode': 'header',
   };
   const authorization = pickHeader(parentReq, 'authorization');
   const cookie = pickHeader(parentReq, 'cookie');
+  const tenantId = pickHeader(parentReq, 'x-tenant-id');
+  const correlationId = pickHeader(parentReq, 'x-correlation-id');
   if (authorization) headers.authorization = authorization;
   if (cookie) headers.cookie = cookie;
+  if (tenantId) headers['x-tenant-id'] = tenantId;
+  if (correlationId) headers['x-correlation-id'] = correlationId;
 
   const body =
     method === 'DELETE' ? undefined : JSON.stringify(parseBody(item.payload) ?? {});
@@ -151,6 +156,7 @@ export function createSyncBatchRouter(app: Application): Router {
         url,
         payload: row.payload,
         aggregateKey: typeof row.aggregateKey === 'string' ? row.aggregateKey : id,
+        idempotencyKey: typeof row.idempotencyKey === 'string' ? row.idempotencyKey : undefined,
       });
     }
 

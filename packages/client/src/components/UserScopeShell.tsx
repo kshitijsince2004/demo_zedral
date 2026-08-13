@@ -1,16 +1,19 @@
-import { useEffect } from 'react';
-import { Navigate, Outlet, useParams } from 'react-router-dom';
+import { Suspense, useEffect } from 'react';
+import { Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import { useAuthStore } from '../lib/authStore';
 import { getEffectiveMachineAccess, preferPrimaryMachine } from '../lib/machineRouting';
 import { isCrmMillCode } from '../lib/millConfig';
 import { isProcessStationCode } from '../lib/processConfig';
 import { getRoleHomePath } from '../lib/roleHome';
+import { normalizeDoubledUserScopePath } from '../lib/scopeNavPath';
 import { isUserScopePath, matchesUserScope } from '../lib/userScope';
 import { useTenantStationFlag } from '../hooks/useTenantStationFlag';
 import { MillAccessGate } from './MillAccessGate';
-import { SixHiLayout } from './sixHi/SixHiLayout';
+import { lazyNamed, RouteSpinner } from './RouteSpinner';
 import { StationAccessGate } from './process/StationAccessGate';
-import { ProcessLayout } from './process/ProcessLayout';
+
+const SixHiLayout = lazyNamed(() => import('./sixHi/SixHiLayout'), 'SixHiLayout');
+const ProcessLayout = lazyNamed(() => import('./process/ProcessLayout'), 'ProcessLayout');
 
 /**
  * Guards /:userScope routes (e.g. /operator.operator).
@@ -18,6 +21,7 @@ import { ProcessLayout } from './process/ProcessLayout';
  */
 export function UserScopeShell() {
   const { userScope } = useParams<{ userScope: string }>();
+  const location = useLocation();
   const username = useAuthStore((s) => s.username);
   const role = useAuthStore((s) => s.role);
   const lineAccess = useAuthStore((s) => s.lineAccess);
@@ -41,6 +45,11 @@ export function UserScopeShell() {
     }
   }, [machine, activeMachine, setActiveMachine]);
 
+  const repaired = normalizeDoubledUserScopePath(location.pathname);
+  if (repaired && repaired !== location.pathname) {
+    return <Navigate to={`${repaired}${location.search}`} replace />;
+  }
+
   if (!userScope || !isUserScopePath(`/${userScope}`) || !matchesUserScope(userScope, username, role)) {
     return (
       <Navigate
@@ -53,7 +62,9 @@ export function UserScopeShell() {
   if (machine && isCrmMillCode(machine)) {
     return (
       <MillAccessGate machine={machine}>
-        <SixHiLayout />
+        <Suspense fallback={<RouteSpinner />}>
+          <SixHiLayout />
+        </Suspense>
       </MillAccessGate>
     );
   }
@@ -73,10 +84,18 @@ export function UserScopeShell() {
 
     return (
       <StationAccessGate machine={machine}>
-        <ProcessLayout stationCode={machine} />
+        <Suspense fallback={<RouteSpinner />}>
+          <ProcessLayout stationCode={machine} />
+        </Suspense>
       </StationAccessGate>
     );
   }
 
   return <Outlet />;
+}
+
+/** Unmatched child under /:userScope → Orders index (avoid app-level * → /station bounce). */
+export function UserScopeCatchAll() {
+  const { userScope } = useParams<{ userScope: string }>();
+  return <Navigate to={userScope ? `/${userScope}` : '/station'} replace />;
 }

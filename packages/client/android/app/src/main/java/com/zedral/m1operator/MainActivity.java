@@ -6,10 +6,14 @@ import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
+import android.webkit.WebView;
+import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -21,12 +25,15 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(KioskPlugin.class);
     registerPlugin(DeviceStatusPlugin.class);
 
+    // Light-only: never follow device night mode (stops WebView algorithmic darkening).
+    AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
+
     super.onCreate(savedInstanceState);
 
-    getWindow().setFlags(
-      WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-      WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-    );
+    WebView wv = getBridge().getWebView();
+    if (wv != null && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+      WebSettingsCompat.setAlgorithmicDarkeningAllowed(wv.getSettings(), false);
+    }
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
       getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED

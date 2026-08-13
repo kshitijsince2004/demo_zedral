@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { allocateCombinedWeight } from '@m1/shared-validation';
 import { X } from 'lucide-react';
-import type { SixHiOrderStatus } from '@m1/shared-validation';
 import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
+import { manualRerollStatusToPill } from '../../../lib/manualRerollUi';
+import { overlayClass } from '../../../lib/nativeOverlay';
 import { SixHiStatusPill } from '../SixHiStatusPill';
 import { PPCInfoCards } from '../PPCInfoCards';
 import type { ManualRerollSession } from '../../../services/manualRerollService';
@@ -21,16 +23,6 @@ interface ManualRerollWorkspaceModalProps {
   onSaved?: (session: ManualRerollSession) => void;
 }
 
-function toPill(status: string): { status: SixHiOrderStatus; preparing: boolean } {
-  const s = status.toUpperCase();
-  if (s === 'PREPARING') return { status: 'PENDING', preparing: true };
-  if (s === 'IN_PROGRESS') return { status: 'IN_PROGRESS', preparing: false };
-  if (s === 'STOPPAGE') return { status: 'STOPPAGE', preparing: false };
-  if (s === 'ON_HOLD') return { status: 'REJECTED', preparing: false };
-  if (s === 'COMPLETED') return { status: 'COMPLETED', preparing: false };
-  return { status: 'PENDING', preparing: false };
-}
-
 /** Map re-roll order → PPCInfoCards (SKIN_PASS so Pre-stage / Target matches rolling glance). */
 function toPpcSource(order: ManualRerollOrderSummary, context?: ManualRerollConsoleContext | null) {
   return {
@@ -41,7 +33,7 @@ function toPpcSource(order: ManualRerollOrderSummary, context?: ManualRerollCons
     customer: order.customer ?? '—',
     grade: order.grade ?? '—',
     widthMm: order.widthMm ?? 0,
-    inputThkMm: context?.inputThkMm ?? order.thkMm ?? undefined,
+    inputThkMm: context?.inputThkMm ?? undefined,
     targetThkMm: context?.thkMm ?? order.thkMm ?? undefined,
     ppcWeightMt: order.weightMt ?? 0,
     subProcess: 'SKIN_PASS' as const,
@@ -93,7 +85,14 @@ function CombinedOrdersStrip({
 }) {
   const totalTargetMt = orders.reduce((sum, o) => sum + (o.weightMt ?? 0), 0);
   const balanceMt = producedMt != null ? Math.max(0, totalTargetMt - producedMt) : null;
-  const pill = toPill(sessionStatus);
+  const pill = manualRerollStatusToPill(sessionStatus);
+  const allocation = useMemo(() => {
+    if (producedMt == null || !Number.isFinite(producedMt)) return null;
+    return allocateCombinedWeight(
+      orders.map((o) => ({ batchNumber: o.batchNumber, targetMt: o.weightMt ?? 0 })),
+      producedMt,
+    );
+  }, [orders, producedMt]);
 
   return (
     <div className="shrink-0 space-y-2 px-3 pt-2">
@@ -128,6 +127,7 @@ function CombinedOrdersStrip({
         {orders.map((order) => {
           const isSelected = selectedBatch === order.batchNumber;
           const targetMt = order.weightMt ?? 0;
+          const allocated = allocation?.get(order.batchNumber);
           return (
             <button
               key={order.batchNumber}
@@ -151,7 +151,9 @@ function CombinedOrdersStrip({
                 <SixHiStatusPill status={pill.status} preparing={pill.preparing} />
               </div>
               <p className="text-xs mt-2">
-                <span className="font-semibold text-foreground">—</span>
+                <span className="font-semibold text-foreground">
+                  {allocated != null ? allocated.toFixed(3) : '—'}
+                </span>
                 <span className="text-muted-foreground"> / {targetMt} MT</span>
               </p>
               {isSelected && (
@@ -211,16 +213,20 @@ export function ManualRerollWorkspaceModal({
 
   const title = isCombined
     ? `Combined run · ${orders.length} orders`
-    : (context?.coilNo || session.batchNumber || 'Re-roll');
+    : displayMotherCoilId({
+      coilNo: context?.coilNo,
+      batchNumber: session.batchNumber,
+      slitId: context?.slitId ?? undefined,
+    });
   const subtitle = isCombined
-    ? orders.map((o) => o.batchNumber).join(', ')
+    ? orders.map((o) => displayMotherCoilId(o)).join(', ')
     : [session.batchNumber, context?.customer, context?.grade].filter(Boolean).join(' · ');
-  const pill = toPill(session.status);
+  const pill = manualRerollStatusToPill(session.status);
   const primaryOrder = orders[0];
 
   return (
     <>
-      <div className="fixed inset-0 z-[90] bg-primary/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <div className={overlayClass('fixed inset-0 z-[90] bg-primary/40', 'backdrop-blur-[2px]')} onClick={onClose} aria-hidden />
       <div
         className="fixed inset-y-0 left-16 right-0 z-[95] flex overflow-hidden shadow-2xl"
         role="dialog"

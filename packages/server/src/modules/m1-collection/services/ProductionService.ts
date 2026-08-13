@@ -1,4 +1,3 @@
-import { buildEventEnvelope, getEventBus } from '@zedral/platform';
 import type {
   M1ANNForm,
   M1CRSForm,
@@ -11,9 +10,9 @@ import type {
 import { currentPlantDate, plantClockDate } from '@m1/shared-validation';
 import type { Kysely } from 'kysely';
 import { db, type Database } from '../../../db';
-import { getTenantId } from '../../../context';
 import { derivedChildCoilNo } from '../../../utils/childCoil';
 import { mapPlanSurfaceToCode } from '../../../utils/rwdFieldMappers';
+import { emitProductionCaptured } from '../../../services/journeyHandoff';
 
 function emptyToNull(value: string | undefined): string | null {
   return value?.trim() ? value.trim() : null;
@@ -65,10 +64,6 @@ async function ensureSlitChildCoils(
   return out;
 }
 
-function tenantIdOrDefault(): string {
-  return getTenantId() ?? '00000000-0000-0000-0000-000000000001';
-}
-
 /** Resolve reading clock: HH:mm → plant timestamptz, else Date parse. */
 function readingInstant(time: string): Date {
   const t = time.trim();
@@ -82,24 +77,6 @@ function latestByTime<T extends { time: string }>(readings: T[] | undefined): T 
   return [...readings].sort(
     (a, b) => readingInstant(a.time).getTime() - readingInstant(b.time).getTime(),
   ).at(-1);
-}
-
-async function emitCaptured(processCode: string, shiftLogId: string, entryId: string, coilNo: string) {
-  const tenantId = tenantIdOrDefault();
-  await getEventBus().publish(
-    buildEventEnvelope({
-      type: 'production.captured',
-      tenantId,
-      key: `${tenantId}:production.captured:${processCode}:${entryId}`,
-      lineageRef: `${processCode.toLowerCase()}:${entryId}`,
-      payload: {
-        processCode,
-        shiftLogId,
-        entryId,
-        coilNo,
-      },
-    }),
-  );
 }
 
 export class ProductionService {
@@ -258,7 +235,7 @@ export class ProductionService {
 
     const id = String(row);
     if (!draft) {
-      await emitCaptured('HRS', entry.shiftLogId, id, entry.coilNo);
+      await emitProductionCaptured('HRS', entry.shiftLogId, id, entry.coilNo);
     }
     return id;
   }
@@ -358,7 +335,7 @@ export class ProductionService {
 
     // Draft saves must not emit production.captured (completion side-effects).
     if (!draft) {
-      await emitCaptured('PKL', entry.shiftLogId, row, entry.coilNo);
+      await emitProductionCaptured('PKL', entry.shiftLogId, row, entry.coilNo);
     }
     return row;
   }
@@ -398,7 +375,7 @@ export class ProductionService {
         .execute();
     });
 
-    await emitCaptured('ANN', entry.shiftLogId, entry.chargeNo, entry.coilNo);
+    await emitProductionCaptured('ANN', entry.shiftLogId, entry.chargeNo, entry.coilNo);
     return entry.chargeNo;
   }
 
@@ -462,7 +439,7 @@ export class ProductionService {
     });
 
     const id = String(orderId);
-    await emitCaptured('SKP', entry.shiftLogId, id, entry.coilNo);
+    // ponytail: SKP not in ADVANCE_PROCESSES; skin-pass advances via SixHi inline path
     return id;
   }
 
@@ -491,7 +468,7 @@ export class ProductionService {
       .executeTakeFirstOrThrow();
 
     const id = String(row.entry_id);
-    await emitCaptured('RWD', entry.shiftLogId, id, entry.coilNo);
+    await emitProductionCaptured('RWD', entry.shiftLogId, id, entry.coilNo);
     return id;
   }
 
@@ -579,7 +556,7 @@ export class ProductionService {
     });
 
     const id = String(row.entry_id);
-    await emitCaptured('CRS', entry.shiftLogId, id, entry.coilNo);
+    await emitProductionCaptured('CRS', entry.shiftLogId, id, entry.coilNo);
     return id;
   }
 
@@ -615,7 +592,7 @@ export class ProductionService {
       .executeTakeFirstOrThrow();
 
     const id = String(row.entry_id);
-    await emitCaptured('CTL', entry.shiftLogId, id, entry.coilNo);
+    await emitProductionCaptured('CTL', entry.shiftLogId, id, entry.coilNo);
     return id;
   }
 }

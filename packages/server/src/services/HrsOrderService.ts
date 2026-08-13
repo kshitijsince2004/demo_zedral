@@ -11,6 +11,11 @@ import { ShiftDetectionService } from './ShiftDetectionService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
 import { netProdDurationMin } from '../utils/orderLifecycleHelpers';
+import {
+  assertCompletedHrsPklProd,
+  emitProductionCaptured,
+  rewindCompletedLineIfNextIdle,
+} from './journeyHandoff';
 
 export type HrsOrderStatus =
   | 'PENDING'
@@ -432,7 +437,7 @@ export class HrsOrderService {
     const extraOrders = await db
       .selectFrom('txn.hrs_order')
       .selectAll()
-      .where('status', 'in', ['IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
+      .where('status', 'in', ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'REJECTED'])
       .execute();
     for (const order of extraOrders) {
       await pushOrder(order);
@@ -569,6 +574,9 @@ export class HrsOrderService {
 
     await this.assertNoOpenStoppage(order.order_id);
 
+    // G2 parity: End without final Save strands journey (draft = IN_PROGRESS, no emit).
+    const prod = await assertCompletedHrsPklProd('HRS', coilNo, order.shift_log_id);
+
     const endAt = new Date();
     const stopMin = await this.totalStoppageMinutes(order.order_id, endAt);
     const duration = order.prod_start_at
@@ -595,6 +603,9 @@ export class HrsOrderService {
       .set({ status: 'DONE' })
       .where('coil_no', '=', order.coil_no)
       .execute();
+
+    // Idempotent safety-net: re-drive advance if production.captured was lost.
+    await emitProductionCaptured('HRS', prod.shiftLogId, prod.entryId, coilNo);
 
     MachineStateEventService.recordEvent('HRS', 'RUNNING_ENDED', {
       orderId: order.order_id,
@@ -800,24 +811,76 @@ export class HrsOrderService {
       .select(['status'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
-    if (order.status !== 'REJECTED') {
-      throw new Error('Only held orders can be reinstated');
+    if (order.status !== 'REJECTED' && order.status !== 'COMPLETED') {
+      throw new Error('Only held or completed orders can be reinstated');
     }
+    if (order.status === 'COMPLETED') {
+      await rewindCompletedLineIfNextIdle(coilNo, 'HRS');
+    }
+
+    const patch: {
+      status: 'PREPARING' | 'PENDING';
+      hold_reason: null;
+      hold_remarks: null;
+      held_at: null;
+      held_by: null;
+      prod_end_at: null;
+      prod_start_at?: null;
+      updated_at: Date;
+    } = {
+      status: target,
+      hold_reason: null,
+      hold_remarks: null,
+      held_at: null,
+      held_by: null,
+      prod_end_at: null,
+      updated_at: new Date(),
+    };
+    if (order.status === 'COMPLETED') patch.prod_start_at = null;
 
     await db
       .updateTable('txn.hrs_order')
-      .set({
-        status: target,
-        hold_reason: null,
-        hold_remarks: null,
-        held_at: null,
-        held_by: null,
-        updated_at: new Date(),
-      })
+      .set(patch)
       .where('order_id', '=', orderId as any)
       .execute();
 
     return this.getOrder(coilNo, userId);
+  }
+
+  static async deleteOrder(coilNo: string, _userId: number): Promise<{ coilNo: string }> {
+    const order = await db
+      .selectFrom('txn.hrs_order')
+      .select(['order_id', 'status', 'coil_no'])
+      .where('coil_no', '=', coilNo)
+      .executeTakeFirst();
+    if (!order) throw new Error('Order not found');
+    const deletable = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED', 'REJECTED'];
+    if (!deletable.includes(order.status)) {
+      throw new Error(`Orders with status ${order.status} cannot be deleted`);
+    }
+    if (order.status === 'COMPLETED') {
+      await rewindCompletedLineIfNextIdle(coilNo, 'HRS');
+    }
+
+    const now = new Date();
+    await db
+      .updateTable('txn.stoppage')
+      .set({ end_at: now, duration_min: 0 })
+      .where('hrs_order_id', '=', order.order_id as any)
+      .where('end_at', 'is', null)
+      .execute();
+
+    if (order.status === 'IN_PROGRESS' || order.status === 'STOPPAGE') {
+      MachineStateEventService.recordEvent('HRS', 'RUNNING_ENDED', {
+        orderId: order.order_id,
+        meta: { coilNo },
+      }).catch(() => undefined);
+      MachineStateEventService.recordEvent('HRS', 'IDLE_STARTED').catch(() => undefined);
+    }
+
+    await db.deleteFrom('txn.hrs_order').where('order_id', '=', order.order_id as any).execute();
+    await db.updateTable('coil.coil').set({ status: 'PLANNED' }).where('coil_no', '=', coilNo).execute();
+    return { coilNo };
   }
 
   /** Idle-machine manual stoppage for HRS when no order is running. */

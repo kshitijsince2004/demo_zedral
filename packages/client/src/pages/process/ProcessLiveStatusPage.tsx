@@ -15,6 +15,7 @@ import { formatPlantClock } from '../../lib/dateFormat';
 import { useLiveTimer } from '../../hooks/useLiveTimer';
 import { useProcessNetTimer } from '../../hooks/useProcessNetTimer';
 import type { Tone } from '../../lib/tones';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 interface ProcessLiveStatusPageProps {
   processCode: string;
@@ -36,17 +37,13 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
   const { basePath } = useProcessWorkspaceBase();
   const config = getProcessConfig(processCode);
   const { producedMt, targetMt, shiftLogId } = useShiftStore();
-  const {
-    queue,
-    loadQueueFor,
-    activeCoilNo,
-    captureStatus,
-    runStartedAt,
-    stoppageStartedAt,
-    runStoppages,
-    activeStoppageId,
-    hydrateProcessRun,
-  } = useProcessStore();
+  const queue = useProcessStore((s) => s.queue);
+  const activeCoilNo = useProcessStore((s) => s.activeCoilNo);
+  const captureStatus = useProcessStore((s) => s.captureStatus);
+  const runStartedAt = useProcessStore((s) => s.runStartedAt);
+  const stoppageStartedAt = useProcessStore((s) => s.stoppageStartedAt);
+  const runStoppages = useProcessStore((s) => s.runStoppages);
+  const activeStoppageId = useProcessStore((s) => s.activeStoppageId);
   const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
   const [pklMetrics, setPklMetrics] = useState<{
     totalProdMt: number; coilsDone: number; avgLineSpeed: number; repeats: number;
@@ -60,8 +57,8 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
 
   useEffect(() => {
     if (!isProcessStationCode(processCode)) return;
-    void loadQueueFor(processCode);
-  }, [loadQueueFor, processCode]);
+    void useProcessStore.getState().loadQueueFor(processCode);
+  }, [processCode]);
 
   useEffect(() => {
     if (!shiftLogId) {
@@ -201,7 +198,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
         };
         if (cancelled) return;
         const open = order.stoppages?.find((s) => !s.endAt);
-        hydrateProcessRun({
+        useProcessStore.getState().hydrateProcessRun({
           coilNo: order.coilNo || running.coilNo,
           batchNumber: running.batchNumber,
           status: order.status,
@@ -215,7 +212,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
         const { fetchHrsPklOrder, orderToHydrateInput } = await import('../../lib/hrsPklWrites');
         const order = await fetchHrsPklOrder(processCode, running.coilNo);
         if (cancelled) return;
-        hydrateProcessRun(orderToHydrateInput(order));
+        useProcessStore.getState().hydrateProcessRun(orderToHydrateInput(order));
       }
     };
 
@@ -229,7 +226,6 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
     captureStatus,
     runStartedAt,
     stoppageStartedAt,
-    hydrateProcessRun,
   ]);
 
   const upcoming = useMemo(
@@ -317,12 +313,10 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
               <div className="p-5 space-y-4">
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   {[
-                    ['Coil', running.displayCoilNo ?? running.coilNo],
+                    ['Coil', displayMotherCoilId(running)],
                     ['Customer', running.customerName || '—'],
                     ['Grade', running.gradeCode || '—'],
                     ['Process', config.label],
-                    ...(running.motherCoilNo ? [['Mother Coil', running.motherCoilNo] as const] : []),
-                    ...(running.slitId ? [['Slit ID', running.slitId] as const] : []),
                     ['Width', `${running.widthMm} mm`],
                     ['Thickness', `${running.thicknessMm} mm`],
                     ['Weight', `${running.weightMt} MT`],
@@ -369,7 +363,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
               <div className="p-5 space-y-4">
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   {[
-                    ['Coil', nextOrder.displayCoilNo ?? nextOrder.coilNo],
+                    ['Coil', displayMotherCoilId(nextOrder)],
                     ['Customer', nextOrder.customerName || '—'],
                     ['Grade', nextOrder.gradeCode || '—'],
                     ['Process', config.label],
@@ -389,7 +383,7 @@ export function ProcessLiveStatusPage({ processCode }: ProcessLiveStatusPageProp
                   <ul className="space-y-1 max-h-32 overflow-auto text-xs border-t border-border pt-3">
                     {upcoming.slice(1, 9).map((q) => (
                       <li key={q.coilNo} className="flex justify-between gap-2 text-muted-foreground">
-                        <span className="font-mono truncate">{q.displayCoilNo ?? q.coilNo}</span>
+                        <span className="font-mono truncate">{displayMotherCoilId(q)}</span>
                         <span className="font-mono tabular-nums">{q.weightMt} MT</span>
                       </li>
                     ))}

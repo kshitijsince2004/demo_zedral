@@ -6,11 +6,18 @@ import { formatPlantDate, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-v
 import { sql } from 'kysely';
 import { db } from '../db';
 import { getTenantId } from '../context';
+import { logger } from '../utils/logger';
 import { ShiftDetectionService } from './ShiftDetectionService';
 import { MachineStateEventService } from './MachineStateEventService';
 import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
 import { netProdDurationMin } from '../utils/orderLifecycleHelpers';
 import { parseCoilIdentity } from '../utils/rwdFieldMappers';
+import {
+  assertCompletedHrsPklProd,
+  emitProductionCaptured,
+  rewindCompletedLineIfNextIdle,
+} from './journeyHandoff';
+import { recordQueueRenderSkip } from './handoffMetrics';
 
 export type PklOrderStatus =
   | 'PENDING'
@@ -25,9 +32,9 @@ export type PklQueueCard = {
   displayCoilNo?: string;
   gradeCode: string;
   customerName: string;
-  widthMm: number;
-  thicknessMm: number;
-  weightMt: number;
+  widthMm?: number;
+  thicknessMm?: number;
+  weightMt?: number;
   status: PklOrderStatus;
   machineCode: 'PKL';
   motherCoilNo?: string;
@@ -35,6 +42,7 @@ export type PklQueueCard = {
   journeyId?: string;
   stepNo?: number;
   routeRaw?: string;
+  batchNumber?: string;
 };
 
 export type PklOrderDetail = {
@@ -42,9 +50,9 @@ export type PklOrderDetail = {
   coilNo: string;
   customerName: string;
   gradeCode: string;
-  widthMm: number;
-  thicknessMm: number;
-  weightMt: number;
+  widthMm?: number;
+  thicknessMm?: number;
+  weightMt?: number;
   machineCode: 'PKL';
   status: PklOrderStatus;
   prodStartAt?: string;
@@ -201,6 +209,62 @@ export class PklOrderService {
     return String(order.order_id);
   }
 
+  /** Tolerant ensure: synthesize pkl_order from coil+journey when no ppc_batch exists (INV-2). */
+  static async ensureOrderFromCoil(coilNo: string, userId: number): Promise<string> {
+    try {
+      return await this.ensureOrder(coilNo, userId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('No PKL batch')) throw err;
+    }
+
+    const existing = await db
+      .selectFrom('txn.pkl_order')
+      .select('order_id')
+      .where('coil_no', '=', coilNo)
+      .orderBy('order_id', 'desc')
+      .executeTakeFirst();
+    if (existing) return String(existing.order_id);
+
+    const coil = await db
+      .selectFrom('coil.coil')
+      .selectAll()
+      .where('coil_no', '=', coilNo)
+      .executeTakeFirst();
+    if (!coil) throw new Error(`Coil not found: ${coilNo}`);
+
+    const detected = await ShiftDetectionService.getCurrentShift({ userId, machineCode: 'PKL' });
+    const prodDate = postgresDateOnly(detected.prodDate);
+    const shiftLogId = await this.ensureActiveShiftLog(userId, prodDate, detected.shiftCode.toUpperCase());
+    const identity = parseCoilIdentity(coilNo);
+
+    const order = await db
+      .insertInto('txn.pkl_order')
+      .values({
+        batch_id: null,
+        batch_number: null,
+        coil_no: coilNo,
+        mother_coil_no: identity.coilNo !== coilNo ? identity.coilNo : coil.parent_coil_no ?? null,
+        slit_id: identity.slitId ?? null,
+        customer_name: '',
+        grade_code: coil.grade_code ?? '',
+        nominal_width_mm: coil.coil_width_mm ?? coil.nominal_width_mm ?? null,
+        nominal_thk_mm: coil.coil_thk_mm ?? null,
+        mother_coil_weight_mt: coil.weight_mt ?? null,
+        machine_code: 'PKL',
+        status: 'PENDING',
+        logged_in_user_id: userId,
+        production_day: prodDate,
+        shift_log_id: shiftLogId,
+        shift_code: detected.shiftCode.toUpperCase(),
+        prod_date: prodDate,
+      } as any)
+      .returning('order_id')
+      .executeTakeFirstOrThrow();
+
+    return String(order.order_id);
+  }
+
   /** Legacy ensure for coil routes; picks/creates one best-fit batch order. */
   static async ensureOrder(coilNo: string, userId: number): Promise<string> {
     const identity = parseCoilIdentity(coilNo);
@@ -334,9 +398,9 @@ export class PklOrderService {
       coilNo: order.coil_no,
       customerName: order.customer_name,
       gradeCode: order.grade_code,
-      widthMm: Number(order.nominal_width_mm),
-      thicknessMm: Number(order.nominal_thk_mm),
-      weightMt: Number(order.mother_coil_weight_mt),
+      widthMm: order.nominal_width_mm != null ? Number(order.nominal_width_mm) : undefined,
+      thicknessMm: order.nominal_thk_mm != null ? Number(order.nominal_thk_mm) : undefined,
+      weightMt: order.mother_coil_weight_mt != null ? Number(order.mother_coil_weight_mt) : undefined,
       machineCode: 'PKL',
       status,
       prodStartAt: order.prod_start_at ? new Date(order.prod_start_at).toISOString() : undefined,
@@ -407,6 +471,7 @@ export class PklOrderService {
         status: string;
         mother_coil_no?: string | null;
         slit_id?: string | null;
+        batch_number?: string | null;
       },
       extra?: { journeyId?: string; stepNo?: number },
     ) => {
@@ -417,9 +482,9 @@ export class PklOrderService {
         coilNo: order.coil_no,
         gradeCode: order.grade_code ?? '',
         customerName: order.customer_name ?? '',
-        widthMm: Number(order.nominal_width_mm),
-        thicknessMm: Number(order.nominal_thk_mm),
-        weightMt: Number(order.mother_coil_weight_mt),
+        widthMm: order.nominal_width_mm != null ? Number(order.nominal_width_mm) : undefined,
+        thicknessMm: order.nominal_thk_mm != null ? Number(order.nominal_thk_mm) : undefined,
+        weightMt: order.mother_coil_weight_mt != null ? Number(order.mother_coil_weight_mt) : undefined,
         status: order.status as PklOrderStatus,
         machineCode: 'PKL',
         motherCoilNo: order.mother_coil_no ?? undefined,
@@ -427,6 +492,7 @@ export class PklOrderService {
         journeyId: extra?.journeyId,
         stepNo: extra?.stepNo,
         routeRaw: await resolveRoute(order.coil_no),
+        batchNumber: order.batch_number ? String(order.batch_number) : undefined,
       });
     };
 
@@ -440,7 +506,7 @@ export class PklOrderService {
             .executeTakeFirst();
           const orderId = matched?.batch_number
             ? await this.ensureOrderForBatch(String(matched.batch_number), userId, row.coil_no)
-            : await this.ensureOrder(row.coil_no, userId);
+            : await this.ensureOrderFromCoil(row.coil_no, userId);
           const order = await db
             .selectFrom('txn.pkl_order')
             .selectAll()
@@ -448,7 +514,7 @@ export class PklOrderService {
             .executeTakeFirstOrThrow();
           await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
         } else {
-          await this.ensureOrder(row.coil_no, userId);
+          await this.ensureOrderFromCoil(row.coil_no, userId);
           const order = await db
             .selectFrom('txn.pkl_order')
             .selectAll()
@@ -458,7 +524,9 @@ export class PklOrderService {
           await pushOrder(order, { journeyId: String(row.journey_id), stepNo: row.step_no });
         }
       } catch (err) {
-        console.warn(`[pkl.queue] skip ${row.coil_no}:`, err instanceof Error ? err.message : err);
+        const reason = err instanceof Error ? err.message : String(err);
+        recordQueueRenderSkip('PKL', reason.slice(0, 80));
+        logger.warn(JSON.stringify({ msg: 'pkl_queue_render_skip', coilNo: row.coil_no, reason }));
       }
     }
 
@@ -603,6 +671,9 @@ export class PklOrderService {
 
     await this.assertNoOpenStoppage(order.order_id);
 
+    // G2 parity: End without final Save strands journey (draft = IN_PROGRESS, no emit).
+    const prod = await assertCompletedHrsPklProd('PKL', coilNo, order.shift_log_id);
+
     const endAt = new Date();
     const stopMin = await this.totalStoppageMinutes(order.order_id, endAt);
     const duration = order.prod_start_at
@@ -629,6 +700,9 @@ export class PklOrderService {
       .set({ status: 'DONE' })
       .where('coil_no', '=', order.coil_no)
       .execute();
+
+    // Idempotent safety-net: re-drive advance if production.captured was lost.
+    await emitProductionCaptured('PKL', prod.shiftLogId, prod.entryId, coilNo);
 
     MachineStateEventService.recordEvent('PKL', 'RUNNING_ENDED', {
       orderId: order.order_id,
@@ -836,24 +910,76 @@ export class PklOrderService {
       .select(['status'])
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
-    if (order.status !== 'REJECTED') {
-      throw new Error('Only held orders can be reinstated');
+    if (order.status !== 'REJECTED' && order.status !== 'COMPLETED') {
+      throw new Error('Only held or completed orders can be reinstated');
     }
+    if (order.status === 'COMPLETED') {
+      await rewindCompletedLineIfNextIdle(coilNo, 'PKL');
+    }
+
+    const patch: {
+      status: 'PREPARING' | 'PENDING';
+      hold_reason: null;
+      hold_remarks: null;
+      held_at: null;
+      held_by: null;
+      prod_end_at: null;
+      prod_start_at?: null;
+      updated_at: Date;
+    } = {
+      status: target,
+      hold_reason: null,
+      hold_remarks: null,
+      held_at: null,
+      held_by: null,
+      prod_end_at: null,
+      updated_at: new Date(),
+    };
+    if (order.status === 'COMPLETED') patch.prod_start_at = null;
 
     await db
       .updateTable('txn.pkl_order')
-      .set({
-        status: target,
-        hold_reason: null,
-        hold_remarks: null,
-        held_at: null,
-        held_by: null,
-        updated_at: new Date(),
-      })
+      .set(patch)
       .where('order_id', '=', orderId as any)
       .execute();
 
     return this.getOrder(coilNo, userId);
+  }
+
+  static async deleteOrder(coilNo: string, _userId: number): Promise<{ coilNo: string }> {
+    const order = await db
+      .selectFrom('txn.pkl_order')
+      .select(['order_id', 'status', 'coil_no'])
+      .where('coil_no', '=', coilNo)
+      .executeTakeFirst();
+    if (!order) throw new Error('Order not found');
+    const deletable = ['PENDING', 'PREPARING', 'IN_PROGRESS', 'STOPPAGE', 'COMPLETED', 'REJECTED'];
+    if (!deletable.includes(order.status)) {
+      throw new Error(`Orders with status ${order.status} cannot be deleted`);
+    }
+    if (order.status === 'COMPLETED') {
+      await rewindCompletedLineIfNextIdle(coilNo, 'PKL');
+    }
+
+    const now = new Date();
+    await db
+      .updateTable('txn.stoppage')
+      .set({ end_at: now, duration_min: 0 })
+      .where('pkl_order_id', '=', order.order_id as any)
+      .where('end_at', 'is', null)
+      .execute();
+
+    if (order.status === 'IN_PROGRESS' || order.status === 'STOPPAGE') {
+      MachineStateEventService.recordEvent('PKL', 'RUNNING_ENDED', {
+        orderId: order.order_id,
+        meta: { coilNo },
+      }).catch(() => undefined);
+      MachineStateEventService.recordEvent('PKL', 'IDLE_STARTED').catch(() => undefined);
+    }
+
+    await db.deleteFrom('txn.pkl_order').where('order_id', '=', order.order_id as any).execute();
+    await db.updateTable('coil.coil').set({ status: 'PLANNED' }).where('coil_no', '=', coilNo).execute();
+    return { coilNo };
   }
 
   private static parseMachineEventMeta(meta: unknown): Record<string, unknown> {

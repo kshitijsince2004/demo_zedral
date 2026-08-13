@@ -6,7 +6,7 @@ import { isPreparing } from '../../store/sixHiStore';
 import type { CombinedProductionRun } from '../../store/sixHiStore';
 import { ProductionRuntimeFooterText, StoppageTimerText } from './ProductionTimerDisplay';
 import { canRecordStoppage } from '../../lib/sixHiRuntime';
-import { displayMotherCoilId, selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { HOLD_ACTION_LABEL } from '../../lib/orderLabels';
 import { combinedTargetMt } from '../../lib/combinedWeightAllocation';
 
@@ -119,7 +119,7 @@ export function SixHiProductionActionRail({
               {preparing ? `${pickedSize} of ${matchingSize}` : `${pickedSize} orders`}
             </p>
             <p className="text-[8px] text-muted-foreground leading-tight">
-              {combinedRun!.orders.map((o) => selectIdOf(o)).join(' · ')}
+              {combinedRun!.orders.map((o) => displayMotherCoilId(o)).join(' · ')}
             </p>
             {combinedTarget != null && (
               <p className="text-[8px] font-mono text-muted-foreground">{combinedTarget} MT</p>

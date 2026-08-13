@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SixHiOrderDetail } from '@m1/shared-validation';
+import type { SixHiOrderDetail, SixHiOrderStatus } from '@m1/shared-validation';
 import { apiClient } from '../../lib/apiClient';
 import {
   allocateCombinedWeight,
@@ -11,6 +11,20 @@ import { useSixHiStore, type CombinedProductionRun } from '../../store/sixHiStor
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { ThicknessSpecs } from './ThicknessSpecs';
 
+/** Minimal order shape for CRM + RWD combined strip. */
+export type CombinedPanelOrder = {
+  batchNumber: string;
+  motherCoil?: string;
+  coilNo?: string;
+  slitId?: string;
+  status?: string;
+  ppcWeightMt?: number;
+  weightMt?: number;
+  rolling?: { actualWeightMt?: number | null };
+  skinPass?: { actualWeightMt?: number | null };
+  finishWeightMt?: number | null;
+};
+
 interface CombinedProductionOrdersPanelProps {
   combinedRun: CombinedProductionRun;
   refreshToken?: number;
@@ -19,6 +33,15 @@ interface CombinedProductionOrdersPanelProps {
   onSelectBatch?: (batchNumber: string) => void;
   /** When true, show pick-checkboxes (pre-start only). */
   selectable?: boolean;
+  /** Override store picks (RWD capture). */
+  selectedBatches?: string[];
+  onToggleSelected?: (batchNumber: string) => void;
+  /** Override /6hi fetch (RWD uses /rewinding/orders). */
+  loadOrders?: (batchNumbers: string[]) => Promise<CombinedPanelOrder[]>;
+}
+
+function isSixHiDetail(order: CombinedPanelOrder): order is SixHiOrderDetail {
+  return 'subProcess' in order;
 }
 
 export function CombinedProductionOrdersPanel({
@@ -28,28 +51,36 @@ export function CombinedProductionOrdersPanel({
   selectedBatch,
   onSelectBatch,
   selectable = false,
+  selectedBatches: selectedBatchesProp,
+  onToggleSelected,
+  loadOrders,
 }: CombinedProductionOrdersPanelProps) {
-  const combinedSelectedBatches = useSixHiStore((s) => s.combinedSelectedBatches);
+  const storeSelected = useSixHiStore((s) => s.combinedSelectedBatches);
   const combinedActualMtIntent = useSixHiStore((s) => s.combinedActualMtIntent);
   const toggleCombinedSelected = useSixHiStore((s) => s.toggleCombinedSelected);
-  const [orders, setOrders] = useState<SixHiOrderDetail[]>([]);
+  const combinedSelectedBatches = selectedBatchesProp ?? storeSelected;
+  const toggleSelected = onToggleSelected ?? toggleCombinedSelected;
+
+  const [orders, setOrders] = useState<CombinedPanelOrder[]>([]);
   const batchNumbersKey = combinedRun.batchNumbers.join(',');
 
   useEffect(() => {
     const batchNumbers = batchNumbersKey ? batchNumbersKey.split(',') : [];
     let cancelled = false;
     void (async () => {
-      const loaded = await Promise.all(
-        batchNumbers.map((batchNumber) =>
-          apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
-        ),
-      );
+      const loaded = loadOrders
+        ? await loadOrders(batchNumbers)
+        : await Promise.all(
+            batchNumbers.map((batchNumber) =>
+              apiClient.get<SixHiOrderDetail>(`/6hi/orders/${encodeURIComponent(batchNumber)}`),
+            ),
+          );
       if (!cancelled) setOrders(loaded);
     })();
     return () => {
       cancelled = true;
     };
-  }, [batchNumbersKey, refreshToken]);
+  }, [batchNumbersKey, refreshToken, loadOrders]);
 
   const targets = combinedRun.orders.map((o) => ({
     batchNumber: o.batchNumber,
@@ -58,7 +89,7 @@ export function CombinedProductionOrdersPanel({
   const totalTargetMt = combinedTargetMt(targets.map((t) => ({ targetMt: t.targetMt })));
   const savedCombinedActualMt = useMemo(
     () => resolveCombinedActualMt(
-      orders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt),
+      orders.map((o) => o.rolling?.actualWeightMt ?? o.skinPass?.actualWeightMt ?? o.finishWeightMt),
     ),
     [orders],
   );
@@ -113,12 +144,14 @@ export function CombinedProductionOrdersPanel({
           {(cards ?? combinedRun.orders).map((order) => {
             const batchNumber = order.batchNumber;
             const detail = cards?.find((o) => o.batchNumber === batchNumber);
-            const savedMt = detail?.rolling?.actualWeightMt ?? detail?.skinPass?.actualWeightMt;
+            const savedMt = detail?.rolling?.actualWeightMt
+              ?? detail?.skinPass?.actualWeightMt
+              ?? detail?.finishWeightMt;
             const plannedMt = plannedAllocation?.get(batchNumber);
             const showPlanned = plannedMt != null && savedMt == null;
             const produced = savedMt ?? (showPlanned ? plannedMt : null);
             const targetMt = detail?.ppcWeightMt ?? ('weightMt' in order ? order.weightMt : 0);
-            const status = detail?.status;
+            const status = detail?.status as SixHiOrderStatus | undefined;
             const isSelected = selectedBatch === batchNumber;
             const isPicked = combinedSelectedBatches.includes(batchNumber);
 
@@ -140,7 +173,7 @@ export function CombinedProductionOrdersPanel({
                         className="mt-1 h-4 w-4 shrink-0 accent-primary"
                         checked={isPicked}
                         aria-label={`Include ${batchNumber} in combined start`}
-                        onChange={() => toggleCombinedSelected(batchNumber)}
+                        onChange={() => toggleSelected(batchNumber)}
                         onClick={(e) => e.stopPropagation()}
                       />
                     )}
@@ -165,7 +198,7 @@ export function CombinedProductionOrdersPanel({
                       <span className="block text-[10px] text-amber-700/90 mt-0.5">Planned — save to persist</span>
                     )}
                   </p>
-                  {isSelected && detail && (
+                  {isSelected && detail && isSixHiDetail(detail) && (
                     <div className="mt-3 pt-3 border-t border-border/50">
                       <ThicknessSpecs order={detail} compact />
                     </div>

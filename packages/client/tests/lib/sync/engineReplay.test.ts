@@ -5,6 +5,7 @@ vi.mock('../../../src/lib/apiClient', () => ({
 }));
 
 vi.mock('../../../src/lib/sync/outboxRepo', () => ({
+  OUTBOX_BATCH_LIMIT: 200,
   nextBatch: vi.fn(),
   markSynced: vi.fn(),
   markParked: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('../../../src/lib/sync/outboxRepo', () => ({
   reconcileBenignParked: vi.fn(async () => 0),
   discardInaccessibleMachineActions: vi.fn(async () => 0),
   counts: vi.fn(async () => ({ pending: 0, parked: 0 })),
+  pendingByAggregate: vi.fn(async () => ({})),
 }));
 
 vi.mock('../../../src/lib/authStore', () => ({
@@ -76,6 +78,37 @@ describe('sync engine replay', () => {
     );
     expect(outbox.markSynced).toHaveBeenCalledWith('1');
     expect(notifyProductionChanged).toHaveBeenCalled();
+  });
+
+  it('sends action.idempotencyKey as X-Idempotency-Key when present', async () => {
+    vi.mocked(outbox.nextBatch).mockResolvedValueOnce([
+      [
+        {
+          id: 'row-1',
+          aggregateKey: '6hi-order:B1',
+          seq: 1,
+          url: '/6hi/orders/B1/start',
+          method: 'POST',
+          payload: '{}',
+          status: 'pending',
+          attempts: 0,
+          createdAt: Date.now(),
+          idempotencyKey: 'aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa',
+        },
+      ],
+    ]);
+    vi.mocked(apiFetch).mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+    await syncNow('test');
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/6hi/orders/B1/start',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-Idempotency-Key': 'aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa',
+        }),
+      }),
+    );
   });
 
   it('omits body for DELETE replay', async () => {
@@ -197,5 +230,32 @@ describe('sync engine replay', () => {
 
     expect(outbox.bumpAttempt).toHaveBeenCalledWith('5', expect.stringContaining('Unauthorized'));
     expect(outbox.markParked).not.toHaveBeenCalled();
+  });
+
+  it('drains multiple full outbox pages in one syncNow', async () => {
+    const mk = (id: string) => ({
+      id,
+      aggregateKey: `agg:${id}`,
+      seq: 1,
+      url: `/x/${id}`,
+      method: 'POST' as const,
+      payload: '{}',
+      status: 'pending' as const,
+      attempts: 0,
+      createdAt: Date.now(),
+    });
+    // Full page (200) then a short page — should call nextBatch twice after first drain.
+    const fullPage = Array.from({ length: 200 }, (_, i) => [mk(`f${i}`)]);
+    const shortPage = [[mk('tail')]];
+    vi.mocked(outbox.nextBatch)
+      .mockResolvedValueOnce(fullPage)
+      .mockResolvedValueOnce(shortPage)
+      .mockResolvedValueOnce([]);
+    vi.mocked(apiFetch).mockResolvedValue({ ok: true, status: 200 } as Response);
+
+    await syncNow('test');
+
+    expect(outbox.nextBatch).toHaveBeenCalledTimes(2);
+    expect(outbox.markSynced).toHaveBeenCalledWith('tail');
   });
 });

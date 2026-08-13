@@ -10,7 +10,10 @@ import { useProcessStore, type ProcessQueueCard, type QueueStatusFilter } from '
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useProcessHubQueue } from '../../hooks/useProcessHubQueue';
 import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from '../../lib/processConfig';
+import { scopeNavPath } from '../../lib/scopeNavPath';
+import { agentDebugLog } from '../../lib/agentDebugLog';
 import { useShiftStore } from '../../store/shiftStore';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { AnnBatchesPanel } from './bodies/AnnBatchesPanel';
 import { findPklSiblingCoils, pklGroupWeightMt } from '../../lib/siblingSelect';
 import {
@@ -22,15 +25,19 @@ import {
 } from '../../lib/siblingSelect';
 import { ProcessQueueRow } from './ProcessQueueRow';
 import { ProcessQueueDetailPanel } from './ProcessQueueDetailPanel';
+import { VirtualizedList } from '../VirtualizedList';
 import { RewindingManualOrderModal } from '../rewinding/RewindingManualOrderModal';
 import { RewindingMachineAllocationModal } from '../rewinding/RewindingMachineAllocationModal';
 import { rewindingCardToPrefill } from '../../lib/rewindingQueue';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateRwdMachine,
+  cancelCombinedRwdOrders,
   prepareCombinedRwdOrders,
   reinstateRwdOrder,
 } from '../../lib/rewindingWrites';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
+import { reinstateHrsPklOrder } from '../../lib/hrsPklWrites';
 
 const STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
   { id: 'ALL', label: 'All' },
@@ -50,17 +57,25 @@ const RWD_STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
   { id: 'HOLD', label: 'Order Hold' },
 ];
 
-function matchesFilter(card: ProcessQueueCard, filter: QueueStatusFilter, isRwd: boolean): boolean {
+/** HRS — Preparing is its own queue; Pending is the default landing filter. */
+const HRS_STATUS_FILTERS: { id: QueueStatusFilter; label: string }[] = [
+  { id: 'ALL', label: 'All' },
+  { id: 'PENDING', label: 'Pending' },
+  { id: 'PREPARING', label: 'Preparing' },
+  { id: 'IN_PROGRESS', label: 'In Progress' },
+  { id: 'HOLD', label: 'Order Hold' },
+  { id: 'COMPLETED', label: 'Completed' },
+];
+
+/** `separatePreparing` splits PREPARING into its own queue (RWD/HRS); PKL folds it under Pending. */
+function matchesFilter(card: ProcessQueueCard, filter: QueueStatusFilter, separatePreparing: boolean): boolean {
   if (filter === 'ALL') return card.status !== 'COMPLETED';
-  if (isRwd) {
-    if (filter === 'PENDING') return card.status === 'PENDING';
-    if (filter === 'PREPARING') return card.status === 'PREPARING';
-    if (filter === 'IN_PROGRESS') return card.status === 'IN_PROGRESS' || card.status === 'STOPPAGE';
-    if (filter === 'HOLD') return card.status === 'HOLD' || card.status === 'REJECTED';
-    return card.status === filter;
+  if (filter === 'PENDING') {
+    return separatePreparing
+      ? card.status === 'PENDING'
+      : card.status === 'PENDING' || card.status === 'PREPARING';
   }
-  // HRS/PKL: PREPARING under Pending, STOPPAGE under In Progress, REJECTED under Hold.
-  if (filter === 'PENDING') return card.status === 'PENDING' || card.status === 'PREPARING';
+  if (filter === 'PREPARING') return card.status === 'PREPARING';
   if (filter === 'IN_PROGRESS') return card.status === 'IN_PROGRESS' || card.status === 'STOPPAGE';
   if (filter === 'HOLD') return card.status === 'HOLD' || card.status === 'REJECTED';
   return card.status === filter;
@@ -82,25 +97,15 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   const config = getProcessConfig(processCode);
   const stationCode: ProcessStationCode = isProcessStationCode(processCode) ? processCode : 'HRS';
   const { shiftLogId, producedMt, targetMt } = useShiftStore();
-  const {
-    queue,
-    statusFilter,
-    queueRefreshToken,
-    hubTab,
-    captureError,
-    clearCaptureError,
-    setStatusFilter,
-    setHubTab,
-    setActiveCoil,
-    setPklGroup,
-    clearPklGroup,
-    createManualCoil,
-    busy,
-    manualModalToken,
-    consumeManualCoilRequest,
-    pklGroupCoilNos,
-    pklGroupWeightMt: groupWt,
-  } = useProcessStore();
+  const queue = useProcessStore((s) => s.queue);
+  const statusFilter = useProcessStore((s) => s.statusFilter);
+  const queueRefreshToken = useProcessStore((s) => s.queueRefreshToken);
+  const hubTab = useProcessStore((s) => s.hubTab);
+  const captureError = useProcessStore((s) => s.captureError);
+  const busy = useProcessStore((s) => s.busy);
+  const manualModalToken = useProcessStore((s) => s.manualModalToken);
+  const pklGroupCoilNos = useProcessStore((s) => s.pklGroupCoilNos);
+  const groupWt = useProcessStore((s) => s.pklGroupWeightMt);
 
   const {
     error: swrError,
@@ -110,6 +115,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   } = useProcessHubQueue(stationCode, queueRefreshToken);
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
   /** Empty = show all plan dates (imported rows often differ from today). */
   const [viewDate, setViewDate] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -122,6 +128,8 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
   const isPkl = processCode === 'PKL';
   const isHrs = processCode === 'HRS';
   const isRwd = processCode === 'RWD';
+  /** RWD + HRS surface a dedicated Preparing queue; others fold PREPARING under Pending. */
+  const separatePreparing = isRwd || isHrs;
   /** URL status + side-nav Manual — HRS/PKL/RWD (hub Manual Add hidden). */
   const urlStatusTruth = isPkl || isHrs;
   const sideNavManualOnly = isPkl || isHrs || isRwd;
@@ -144,29 +152,70 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     await mutateQueue();
   }, [mutateQueue]);
 
+  const handleHrsMoveToPending = useCallback(async (card: ProcessQueueCard) => {
+    if (!window.confirm(`Move ${card.coilNo} to Pending?`)) return;
+    setActionError(null);
+    try {
+      await reinstateHrsPklOrder('HRS', card.coilNo, 'PENDING');
+      await mutateQueue();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to move to pending');
+    }
+  }, [mutateQueue]);
+
   useEffect(() => {
-    setHubTab(tab === 'chart' ? 'chart' : tab === 'charges' ? 'charges' : 'coils');
-  }, [tab, setHubTab]);
+    useProcessStore.getState().setHubTab(tab === 'chart' ? 'chart' : tab === 'charges' ? 'charges' : 'coils');
+  }, [tab]);
 
   // Land on Completed (etc.) after End — All hides COMPLETED by design (6HI-style).
-  // HRS/PKL: URL is source of truth (default ALL when query absent).
+  // HRS/PKL: URL is source of truth (HRS defaults Pending; PKL defaults All).
   useEffect(() => {
     const raw = (searchParams.get('status') ?? '').toUpperCase();
-    const allowed: QueueStatusFilter[] = isRwd
+    const allowed: QueueStatusFilter[] = (isRwd || isHrs)
       ? ['ALL', 'PENDING', 'PREPARING', 'IN_PROGRESS', 'HOLD', 'COMPLETED']
       : ['ALL', 'PENDING', 'IN_PROGRESS', 'HOLD', 'COMPLETED'];
     if (urlStatusTruth) {
+      // HRS lands on Pending by default; PKL keeps All.
+      const fallback: QueueStatusFilter = isHrs ? 'PENDING' : 'ALL';
       const next = (raw && allowed.includes(raw as QueueStatusFilter)
         ? raw
-        : 'ALL') as QueueStatusFilter;
-      if (statusFilter !== next) setStatusFilter(next);
+        : fallback) as QueueStatusFilter;
+      if (statusFilter !== next) useProcessStore.getState().setStatusFilter(next);
+      // Persist HRS Pending in the URL so Preparing stays an explicit alternate pill.
+      if (isHrs && !raw && next === 'PENDING') {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('status', 'PENDING');
+        setSearchParams(nextParams, { replace: true });
+      }
       return;
     }
     if (!raw) return;
     if (allowed.includes(raw as QueueStatusFilter) && statusFilter !== raw) {
-      setStatusFilter(raw as QueueStatusFilter);
+      useProcessStore.getState().setStatusFilter(raw as QueueStatusFilter);
     }
-  }, [searchParams, setStatusFilter, statusFilter, isRwd, urlStatusTruth]);
+  }, [searchParams, statusFilter, isRwd, isHrs, urlStatusTruth, setSearchParams]);
+
+  /** HRS: default Pending tab is empty when all orders are PREPARING — auto-open Preparing (log-driven). */
+  const hrsTabAutoAdjusted = useRef(false);
+  useEffect(() => {
+    if (!isHrs || !urlStatusTruth || queue.length === 0) return;
+    const pendingCount = queue.filter((c) => c.status === 'PENDING').length;
+    const preparingCount = queue.filter((c) => c.status === 'PREPARING').length;
+    if (statusFilter !== 'PENDING' || pendingCount > 0 || preparingCount === 0) return;
+    const raw = (searchParams.get('status') ?? '').toUpperCase();
+    if (raw && raw !== 'PENDING') return;
+    if (hrsTabAutoAdjusted.current) return;
+    hrsTabAutoAdjusted.current = true;
+    useProcessStore.getState().setStatusFilter('PREPARING');
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('status', 'PREPARING');
+    setSearchParams(nextParams, { replace: true });
+    agentDebugLog('ProcessHub.tsx', 'HRS auto-switched to Preparing tab', {
+      pendingCount,
+      preparingCount,
+      queueSize: queue.length,
+    }, 'F');
+  }, [isHrs, urlStatusTruth, queue, statusFilter, searchParams, setSearchParams]);
 
   // ANN operators land on the base board first.
   useEffect(() => {
@@ -186,14 +235,14 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
 
   function closeManualModal() {
     setManualOpen(false);
-    consumeManualCoilRequest();
+    useProcessStore.getState().consumeManualCoilRequest();
   }
 
   const [rwdAllocOpen, setRwdAllocOpen] = useState(false);
   const [rwdAllocCard, setRwdAllocCard] = useState<ProcessQueueCard | null>(null);
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return queue.filter((c) => matchesFilter(c, statusFilter, isRwd)).filter((c) => {
+    const q = debouncedSearch.trim().toLowerCase();
+    return queue.filter((c) => matchesFilter(c, statusFilter, separatePreparing)).filter((c) => {
       if (isRwd && viewDate && c.planDate && c.planDate !== viewDate) return false;
       if (!q) return true;
       const hay = [
@@ -208,18 +257,18 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [queue, statusFilter, search, isRwd, viewDate]);
+  }, [queue, statusFilter, debouncedSearch, isRwd, separatePreparing, viewDate]);
 
-  const statusFilters = isRwd ? RWD_STATUS_FILTERS : STATUS_FILTERS;
+  const statusFilters = isRwd ? RWD_STATUS_FILTERS : isHrs ? HRS_STATUS_FILTERS : STATUS_FILTERS;
   const filterOptions = useMemo(() => {
     const count = (id: QueueStatusFilter) =>
       queue.filter((c) => {
-        if (!matchesFilter(c, id, isRwd)) return false;
+        if (!matchesFilter(c, id, separatePreparing)) return false;
         if (isRwd && viewDate && c.planDate && c.planDate !== viewDate) return false;
         return true;
       }).length;
     return statusFilters.map((f) => ({ ...f, count: count(f.id) }));
-  }, [queue, statusFilters, isRwd, viewDate]);
+  }, [queue, statusFilters, isRwd, separatePreparing, viewDate]);
 
   const selectedCard = useMemo(
     () => filtered.find((c) => queueCardKey(c) === selectedKey)
@@ -256,6 +305,12 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     applyRwdCombinedSelection(card);
   }, [applyRwdCombinedSelection, rwdAnchorBatch]);
 
+  /** Stable row onSelect — RWD combines, others just pick the key (perf: memo()-friendly). */
+  const selectQueueCard = useCallback((card: ProcessQueueCard) => {
+    if (isRwd) selectRwdOrder(card);
+    else setSelectedKey(queueCardKey(card));
+  }, [isRwd, selectRwdOrder]);
+
   useEffect(() => {
     if (!isQueueDesk) return;
     if (selectedKey && filtered.some((c) => queueCardKey(c) === selectedKey)) return;
@@ -275,7 +330,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     applyRwdCombinedSelection(anchor, { keepPicks: rwdSelectionManual.current });
   }, [isRwd, queue, rwdAnchorBatch, applyRwdCombinedSelection]);
 
-  const toggleRwdCombinedBatch = (batchNumber: string, event: MouseEvent) => {
+  const toggleRwdCombinedBatch = useCallback((batchNumber: string, event: MouseEvent) => {
     event.stopPropagation();
     if (!rwdCompatiblePool.has(batchNumber) || rwdCompatiblePool.size < 2) return;
     rwdSelectionManual.current = true;
@@ -285,77 +340,43 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
       else next.add(batchNumber);
       return next;
     });
-  };
-
-  /** Collapse picks to the anchor only — pool + checkboxes stay (6HI Cancel Combined). */
-  const cancelRwdCombinedSelection = () => {
-    if (!rwdAnchorBatch) return;
-    rwdSelectionManual.current = true;
-    setRwdSelectedBatches(new Set([rwdAnchorBatch]));
-  };
+  }, [rwdCompatiblePool]);
 
   const rwdProductionOrders = useMemo(
     () => (isRwd ? queue.filter((c) => c.batchNumber && rwdSelectedBatches.has(c.batchNumber)) : []),
     [isRwd, queue, rwdSelectedBatches],
   );
 
-  async function openCapture(card: ProcessQueueCard) {
-    if (processCode === 'RWD') {
-      const anchorGroup = rwdCombineStatusGroup(card.status);
-      const picked = rwdProductionOrders.length > 1
-        && rwdProductionOrders.every((c) => rwdCombineStatusGroup(c.status) === anchorGroup)
-        ? rwdProductionOrders
-        : [card];
-      const primary = picked.find((c) => c.batchNumber === rwdAnchorBatch) ?? picked[0] ?? card;
-      if (!primary.batchNumber) return;
-      // Already allocated → go straight; else open machine picker (RWD | 2HI).
-      if (primary.machineAllocated && (primary.machineCode === 'RWD' || primary.machineCode === '2HI')) {
-        await commitRwdCapture(picked, primary, primary.machineCode as 'RWD' | '2HI');
-        return;
-      }
-      setRwdAllocCard(primary);
-      setRwdAllocOpen(true);
+  /** Collapse picks to the anchor only — ungroup PREPARING server groups when present. */
+  const cancelRwdCombinedSelection = () => {
+    if (!rwdAnchorBatch) return;
+    const preparing = rwdProductionOrders
+      .filter((c) => c.status === 'PREPARING' && c.batchNumber)
+      .map((c) => c.batchNumber!);
+    const finishLocal = () => {
+      rwdSelectionManual.current = true;
+      setRwdSelectedBatches(new Set([rwdAnchorBatch]));
+    };
+    if (preparing.length === 0) {
+      finishLocal();
       return;
     }
-    if (processCode === 'PKL') {
-      const siblings = findPklSiblingCoils(card, queue);
-      const nos = siblings.map((s) => s.coilNo);
-      setPklGroup(nos, pklGroupWeightMt(siblings));
-      setActiveCoil(card.coilNo, {
-        ...(card.prefill ?? {}),
-        orderLines: card.orderLines,
-        widthMm: card.widthMm,
-        thicknessMm: card.thicknessMm,
-        weightMt: card.weightMt,
-        gradeCode: card.gradeCode,
-        motherCoilNo: card.motherCoilNo,
-        slitId: card.slitId,
-        routeRaw: card.routeRaw,
+    void cancelCombinedRwdOrders(preparing)
+      .then(async () => {
+        notifyProductionChanged();
+        await mutateQueue();
+        finishLocal();
+      })
+      .catch((e) => {
+        setActionError(e instanceof Error ? e.message : 'Failed to cancel combined order');
       });
-      navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
-      return;
-    }
-    clearPklGroup();
-    setActiveCoil(card.coilNo, {
-      ...(card.prefill ?? {}),
-      orderLines: card.orderLines,
-      widthMm: card.widthMm,
-      thicknessMm: card.thicknessMm,
-      weightMt: card.weightMt,
-      gradeCode: card.gradeCode,
-      motherCoilNo: card.motherCoilNo,
-      slitId: card.slitId,
-      combination: card.combination,
-      ...(card.routeRaw ? { routeRaw: card.routeRaw } : {}),
-    });
-    navigate(`${basePath}/capture/${encodeURIComponent(card.coilNo)}`);
-  }
+  };
 
-  async function commitRwdCapture(
+  const commitRwdCapture = useCallback(async (
     picked: ProcessQueueCard[],
     primary: ProcessQueueCard,
     machine: 'RWD' | '2HI',
-  ) {
+  ) => {
     const batchNumber = primary.batchNumber;
     if (!batchNumber) return;
     try {
@@ -380,7 +401,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
         setRwdSelectedBatches(new Set());
       }
 
-      navigate(`${basePath}/rewinding/${encodeURIComponent(primary.coilNo)}`, {
+      navigate(scopeNavPath(basePath, 'rewinding', encodeURIComponent(primary.coilNo)), {
         state: {
           batchNumber,
           orderStatus: startable && picked.length > 1
@@ -413,10 +434,105 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to move to production');
     }
-  }
+  }, [navigate, basePath]);
+
+  const openCapture = useCallback(async (card: ProcessQueueCard) => {
+    if (!basePath || basePath === '/') {
+      setActionError('Workspace path missing — re-login or reopen the station before Move to Production.');
+      return;
+    }
+    if (processCode === 'RWD') {
+      const anchorGroup = rwdCombineStatusGroup(card.status);
+      const picked = rwdProductionOrders.length > 1
+        && rwdProductionOrders.every((c) => rwdCombineStatusGroup(c.status) === anchorGroup)
+        ? rwdProductionOrders
+        : [card];
+      const primary = picked.find((c) => c.batchNumber === rwdAnchorBatch) ?? picked[0] ?? card;
+      if (!primary.batchNumber) return;
+      // Already allocated → go straight; else open machine picker (RWD | 2HI).
+      if (primary.machineAllocated && (primary.machineCode === 'RWD' || primary.machineCode === '2HI')) {
+        await commitRwdCapture(picked, primary, primary.machineCode as 'RWD' | '2HI');
+        return;
+      }
+      setRwdAllocCard(primary);
+      setRwdAllocOpen(true);
+      return;
+    }
+    if (processCode === 'PKL') {
+      const siblings = findPklSiblingCoils(card, queue);
+      const nos = siblings.map((s) => s.coilNo);
+      const store = useProcessStore.getState();
+      store.setPklGroup(nos, pklGroupWeightMt(siblings));
+      store.setActiveCoil(card.coilNo, {
+        ...(card.prefill ?? {}),
+        orderLines: card.orderLines,
+        widthMm: card.widthMm,
+        thicknessMm: card.thicknessMm,
+        weightMt: card.weightMt,
+        gradeCode: card.gradeCode,
+        motherCoilNo: card.motherCoilNo,
+        slitId: card.slitId,
+        routeRaw: card.routeRaw,
+      });
+      navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(card.coilNo)));
+      return;
+    }
+    useProcessStore.getState().clearPklGroup();
+    useProcessStore.getState().setActiveCoil(card.coilNo, {
+      ...(card.prefill ?? {}),
+      orderLines: card.orderLines,
+      widthMm: card.widthMm,
+      thicknessMm: card.thicknessMm,
+      weightMt: card.weightMt,
+      gradeCode: card.gradeCode,
+      motherCoilNo: card.motherCoilNo,
+      slitId: card.slitId,
+      combination: card.combination,
+      ...(card.routeRaw ? { routeRaw: card.routeRaw } : {}),
+    });
+    navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(card.coilNo)));
+  }, [processCode, rwdProductionOrders, rwdAnchorBatch, commitRwdCapture, queue, navigate, basePath]);
+
+  const handleOpenCard = useCallback((card: ProcessQueueCard) => {
+    void openCapture(card);
+  }, [openCapture]);
+
+  /** Stable renderer for the queue-desk list — shared by the plain map and VirtualizedList. */
+  const renderProcessRow = useCallback((card: ProcessQueueCard) => (
+    <ProcessQueueRow
+      key={queueCardKey(card)}
+      card={card}
+      selected={queueCardKey(card) === selectedKey}
+      processLabel={config.label}
+      onSelect={selectQueueCard}
+      onOpen={handleOpenCard}
+      showCombineCheckbox={
+        isRwd
+        && !!card.batchNumber
+        && rwdCompatiblePool.size > 1
+        && rwdCompatiblePool.has(card.batchNumber)
+      }
+      isInCombinedSelection={
+        isRwd && !!card.batchNumber && rwdSelectedBatches.has(card.batchNumber)
+      }
+      combinedSelectionCount={rwdProductionOrders.length}
+      onCombineToggle={isRwd ? toggleRwdCombinedBatch : undefined}
+    />
+  ), [
+    selectedKey,
+    config.label,
+    selectQueueCard,
+    handleOpenCard,
+    isRwd,
+    rwdCompatiblePool,
+    rwdSelectedBatches,
+    rwdProductionOrders.length,
+    toggleRwdCombinedBatch,
+  ]);
 
   async function submitManual() {
-    if (isPkl) {
+    const { createManualCoil, consumeManualCoilRequest } = useProcessStore.getState();
+    if (isPkl || isHrs) {
       if (!manualCoil.coilNo.trim() || !manualCoil.weightMt || !manualCoil.widthMm || !manualCoil.routeRaw.trim()) {
         return;
       }
@@ -487,7 +603,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
             type="button"
             className="text-xs font-bold uppercase shrink-0"
             onClick={() => {
-              clearCaptureError();
+              useProcessStore.getState().clearCaptureError();
               setActionError(null);
             }}
           >
@@ -507,7 +623,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground',
               ].join(' ')}
               onClick={() => {
-                if (t.id === 'chart') navigate(`${basePath}/chart`);
+                if (t.id === 'chart') navigate(scopeNavPath(basePath, 'chart'));
                 else setSearchParams({ tab: t.id });
               }}
             >
@@ -561,9 +677,11 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 activeId={statusFilter}
                 onChange={(id) => {
                   const next = id as QueueStatusFilter;
-                  setStatusFilter(next);
+                  useProcessStore.getState().setStatusFilter(next);
                   const nextParams = new URLSearchParams(searchParams);
-                  if (next === 'ALL') nextParams.delete('status');
+                  // Always reflect selection in the URL — HRS defaults to Pending when absent,
+                  // so ALL must be explicit to stay reachable.
+                  if (next === 'ALL' && !isHrs) nextParams.delete('status');
                   else nextParams.set('status', next);
                   setSearchParams(nextParams, { replace: true });
                 }}
@@ -607,33 +725,22 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                     {queueTitle} · {filtered.length} orders
                   </h2>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto space-y-2 p-3" data-process-queue>
-                  {filtered.map((card) => (
-                    <ProcessQueueRow
-                      key={queueCardKey(card)}
-                      card={card}
-                      selected={queueCardKey(card) === selectedKey}
-                      processLabel={config.label}
-                      onSelect={() => {
-                        if (isRwd) selectRwdOrder(card);
-                        else setSelectedKey(queueCardKey(card));
-                      }}
-                      onOpen={() => void openCapture(card)}
-                      showCombineCheckbox={
-                        isRwd
-                        && !!card.batchNumber
-                        && rwdCompatiblePool.size > 1
-                        && rwdCompatiblePool.has(card.batchNumber)
-                      }
-                      isInCombinedSelection={
-                        isRwd && !!card.batchNumber && rwdSelectedBatches.has(card.batchNumber)
-                      }
-                      combinedSelectionCount={rwdProductionOrders.length}
-                      onCombineToggle={isRwd ? toggleRwdCombinedBatch : undefined}
+                <div className="flex-1 min-h-0 flex flex-col" data-process-queue>
+                  {filtered.length > 12 ? (
+                    <VirtualizedList
+                      items={filtered}
+                      estimateSize={104}
+                      className="flex-1 min-h-0 p-3"
+                      getKey={(card) => queueCardKey(card)}
+                      renderItem={(card) => <div className="pb-2">{renderProcessRow(card)}</div>}
                     />
-                  ))}
-                  {!loading && filtered.length === 0 && (
-                    <p className="text-muted-foreground text-center py-12">No coils in queue</p>
+                  ) : (
+                    <div className="flex-1 min-h-0 overflow-y-auto space-y-2 p-3">
+                      {filtered.map((card) => renderProcessRow(card))}
+                      {!loading && filtered.length === 0 && (
+                        <p className="text-muted-foreground text-center py-12">No coils in queue</p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -645,6 +752,11 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                   moveLabel={isRwd ? rwdCombinedActionLabel(rwdProductionOrders.length > 0 ? rwdProductionOrders : (selectedCard ? [selectedCard] : [])) : undefined}
                   combinedCount={isRwd ? rwdProductionOrders.length : 0}
                   combinedWeightMt={isRwd ? rwdGroupWeightMt(rwdProductionOrders) : undefined}
+                  onMoveToPending={
+                    isHrs && selectedCard && (selectedCard.status === 'HOLD' || selectedCard.status === 'REJECTED')
+                      ? () => void handleHrsMoveToPending(selectedCard)
+                      : undefined
+                  }
                   onMoveToProduction={() => {
                     if (selectedCard) void openCapture(selectedCard);
                   }}
@@ -666,7 +778,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                   ].join(' ')}
                 >
                   <div className="flex justify-between items-start gap-2">
-                    <span className="font-bold text-lg">{card.displayCoilNo ?? card.coilNo}</span>
+                    <span className="font-bold text-lg">{displayMotherCoilId(card)}</span>
                     <span className="text-[10px] uppercase px-2 py-0.5 rounded-full bg-secondary">{card.status}</span>
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">{card.customerName}</p>
@@ -675,9 +787,9 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                     {card.lineCount != null && card.lineCount > 1 ? ` · ${card.lineCount} lines` : ''}
                     {card.combination ? ` · ${card.combination}` : ''}
                   </p>
-                  {processCode === 'PKL' && (card.motherCoilNo || card.slitId) && (
+                  {processCode === 'PKL' && card.batchNumber && (
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Mother {card.motherCoilNo ?? '—'} · Slit {card.slitId ?? '—'}
+                      Batch {card.batchNumber}
                     </p>
                   )}
                 </button>
@@ -702,7 +814,7 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
           <RewindingMachineAllocationModal
             open={rwdAllocOpen && !!rwdAllocCard}
             batchNumber={rwdAllocCard?.batchNumber ?? ''}
-            coilLabel={rwdAllocCard?.displayCoilNo ?? rwdAllocCard?.coilNo ?? ''}
+            coilLabel={rwdAllocCard ? displayMotherCoilId(rwdAllocCard) : ''}
             suggested="RWD"
             onClose={() => { setRwdAllocOpen(false); setRwdAllocCard(null); }}
             onConfirm={async (code) => {
@@ -713,37 +825,52 @@ export function ProcessHub({ processCode }: ProcessHubProps) {
                 && rwdProductionOrders.every((c) => rwdCombineStatusGroup(c.status) === anchorGroup)
                 ? rwdProductionOrders
                 : [primary];
+              await commitRwdCapture(picked, primary, code === '2HI' ? '2HI' : 'RWD');
               setRwdAllocOpen(false);
               setRwdAllocCard(null);
-              await commitRwdCapture(picked, primary, code === '2HI' ? '2HI' : 'RWD');
             }}
           />
         </>
       ) : manualOpen ? (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-background rounded-xl p-6 w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-bold">{isPkl ? 'Manual PKL Coil' : 'Manual Coil'}</h3>
-            {isPkl ? (
+            <h3 className="font-bold">{isPkl ? 'Manual PKL Coil' : isHrs ? 'Manual HRS Coil' : 'Manual Coil'}</h3>
+            {isPkl || isHrs ? (
               <>
-                <ZInput label="Batch Number *" value={manualCoil.coilNo} onChange={(e) => setManualCoil({ ...manualCoil, coilNo: e.target.value })} />
+                <ZInput
+                  label={isHrs ? 'Coil No *' : 'Batch Number *'}
+                  value={manualCoil.coilNo}
+                  onChange={(e) => setManualCoil({ ...manualCoil, coilNo: e.target.value })}
+                />
                 <div className="grid grid-cols-2 gap-2">
                   <ZInput label="Mother Coil" value={manualCoil.motherCoilNo} onChange={(e) => setManualCoil({ ...manualCoil, motherCoilNo: e.target.value })} />
                   <ZInput label="Slit ID" value={manualCoil.slitId} onChange={(e) => setManualCoil({ ...manualCoil, slitId: e.target.value })} />
                   <ZInput label="Customer" value={manualCoil.customerName} onChange={(e) => setManualCoil({ ...manualCoil, customerName: e.target.value })} />
                   <ZInput label="Grade" value={manualCoil.gradeCode} onChange={(e) => setManualCoil({ ...manualCoil, gradeCode: e.target.value })} />
-                  <ZInput label="Surface" value={manualCoil.surface} onChange={(e) => setManualCoil({ ...manualCoil, surface: e.target.value })} />
+                  <ZInput label={isHrs ? 'Surface / Finish' : 'Surface'} value={manualCoil.surface} onChange={(e) => setManualCoil({ ...manualCoil, surface: e.target.value })} />
                   <ZInput label="Width mm *" type="number" value={manualCoil.widthMm || ''} onChange={(e) => setManualCoil({ ...manualCoil, widthMm: Number(e.target.value) })} />
                   <ZInput label="Pre-Stage Thickness mm" type="number" value={manualCoil.thicknessMm || ''} onChange={(e) => setManualCoil({ ...manualCoil, thicknessMm: Number(e.target.value) })} />
                   <ZInput label="Coil Weight MT *" type="number" value={manualCoil.weightMt || ''} onChange={(e) => setManualCoil({ ...manualCoil, weightMt: Number(e.target.value) })} />
                 </div>
-                <ZInput label="Process Route *" value={manualCoil.routeRaw} onChange={(e) => setManualCoil({ ...manualCoil, routeRaw: e.target.value })} placeholder="P-4-R-F-C-LE-PKG" />
+                <ZInput
+                  label="Process Route *"
+                  value={manualCoil.routeRaw}
+                  onChange={(e) => setManualCoil({ ...manualCoil, routeRaw: e.target.value })}
+                  placeholder={isHrs ? 'S-P-4-R-F-C-LE-PKG' : 'P-4-R-F-C-LE-PKG'}
+                />
                 <div className="grid grid-cols-2 gap-2">
-                  <ZInput label="Heat No" value={manualCoil.heatNo} onChange={(e) => setManualCoil({ ...manualCoil, heatNo: e.target.value })} />
-                  <ZInput label="Source" value={manualCoil.source} onChange={(e) => setManualCoil({ ...manualCoil, source: e.target.value })} />
+                  {!isHrs && (
+                    <>
+                      <ZInput label="Heat No" value={manualCoil.heatNo} onChange={(e) => setManualCoil({ ...manualCoil, heatNo: e.target.value })} />
+                      <ZInput label="Source" value={manualCoil.source} onChange={(e) => setManualCoil({ ...manualCoil, source: e.target.value })} />
+                    </>
+                  )}
                   <ZInput label="Plan Date" type="date" value={manualCoil.planDate} onChange={(e) => setManualCoil({ ...manualCoil, planDate: e.target.value })} />
                   <ZInput label="Shift" value={manualCoil.shiftCode} onChange={(e) => setManualCoil({ ...manualCoil, shiftCode: e.target.value })} />
                 </div>
-                <p className="text-[10px] text-muted-foreground">* Batch, Width, Weight, Route required</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {isHrs ? '* Coil, Width, Weight, Route required' : '* Batch, Width, Weight, Route required'}
+                </p>
               </>
             ) : (
               <>

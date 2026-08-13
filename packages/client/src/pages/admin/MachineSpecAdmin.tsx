@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AdminShell } from '../../components/layout/admin/AdminShell';
+import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { apiClient } from '../../lib/apiClient';
+import { useAuthStore } from '../../lib/authStore';
+import { useOperationalMachineAccess } from '../../lib/useOperationalMachineAccess';
 
 type Spec = {
   specId: string;
@@ -34,10 +37,17 @@ const EMPTY = {
   notes: '',
 };
 
-/** Machine-head CRS envelope editor (DRAFT → ACTIVE). */
+/** Machine-head CRS/CTL envelope editor (DRAFT → ACTIVE). */
 export function MachineSpecAdmin() {
+  const role = useAuthStore((s) => s.role);
+  const machines = useOperationalMachineAccess();
+  const useMhShell = role === 'MACHINE_HEAD' || role === 'SUPERVISOR';
+  const defaultMachine = machines.some((m) => m.toUpperCase().startsWith('CTL'))
+    && !machines.some((m) => m.toUpperCase().startsWith('CRS'))
+    ? 'CTL'
+    : 'CRS1';
   const [specs, setSpecs] = useState<Spec[]>([]);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState({ ...EMPTY, machineCode: defaultMachine });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -84,8 +94,8 @@ export function MachineSpecAdmin() {
     }
   }
 
-  return (
-    <AdminShell title="CRS Machine Specs" subtitle="Versioned envelope — mandrel ID hard-gates; width/thk/wt soft-warn">
+  const body = (
+    <>
       {error && <p className="text-destructive text-sm mb-3">{error}</p>}
       <div className="grid md:grid-cols-2 gap-6">
         <div className="space-y-3 border rounded-xl p-4">
@@ -120,6 +130,20 @@ export function MachineSpecAdmin() {
           ))}
         </div>
       </div>
+    </>
+  );
+
+  if (useMhShell) {
+    return (
+      <MachineHeadShell title="Machine Specs" subtitle="CRS / CTL envelope — mandrel ID hard-gates; width/thk/wt soft-warn">
+        {body}
+      </MachineHeadShell>
+    );
+  }
+
+  return (
+    <AdminShell title="Machine Specs" subtitle="CRS / CTL envelope — mandrel ID hard-gates; width/thk/wt soft-warn">
+      {body}
     </AdminShell>
   );
 }

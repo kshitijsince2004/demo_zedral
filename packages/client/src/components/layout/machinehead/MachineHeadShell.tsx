@@ -45,9 +45,9 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
         : null;
 
   return (
-    <div className="theme-operator min-h-screen bg-background text-foreground">
+    <div className={`theme-operator ${fillViewport ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-background text-foreground`}>
       <MachineHeadNav />
-      <div className={`flex flex-col min-w-0 min-h-screen ${deskNavOffsetClass()}`}>
+      <div className={`flex flex-col min-w-0 ${fillViewport ? 'h-screen overflow-hidden' : 'min-h-screen'} ${deskNavOffsetClass()}`}>
         <OfflineBanner />
         <main className={`flex-1 flex flex-col min-h-0 bg-secondary ${fillViewport ? 'overflow-hidden' : ''}`}>
           <div
@@ -56,7 +56,7 @@ export function MachineHeadShell({ title, subtitle, onRefresh, headerActions, fi
               fillViewport ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-auto',
             ].join(' ')}
           >
-            <div className="z-card px-4 py-3.5 md:px-5">
+            <div className="z-card px-4 py-3.5 md:px-5 shrink-0">
               <ZPageHeader
                 title={title}
                 subtitle={subtitle}

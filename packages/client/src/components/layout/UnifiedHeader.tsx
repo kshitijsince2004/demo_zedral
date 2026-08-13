@@ -1,5 +1,6 @@
 import { Breadcrumbs } from './Breadcrumbs';
 import { SyncStatusBadge } from '../../lib/sync/SyncStatusBadge';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 interface UnifiedHeaderProps {
   title: string;
@@ -8,7 +9,7 @@ interface UnifiedHeaderProps {
 
 export function UnifiedHeader({ title, subtitle }: UnifiedHeaderProps) {
   return (
-    <header className="z-tint sticky top-0 z-20 shrink-0 border-b border-border px-4 py-4 md:px-5 backdrop-blur-sm">
+    <header className={overlayClass('z-tint sticky top-0 z-20 shrink-0 border-b border-border px-4 py-4 md:px-5', 'backdrop-blur-sm')}>
       <div className="flex flex-col gap-2">
         <Breadcrumbs />
         <div className="flex items-stretch gap-3">

@@ -1,4 +1,5 @@
 import { Network } from '@capacitor/network';
+import { agentDebugLog, isHrsDebugPath } from '../agentDebugLog';
 import { apiFetch } from '../apiClient';
 import { useAuthStore } from '../authStore';
 import { getWriteMachineAccess } from '../machineRouting';
@@ -86,6 +87,22 @@ async function applyActionResult(
       return 'auth';
     }
     await outbox.markParked(action.id, bodyText);
+    console.info('[outbox] parked', {
+      url: action.url,
+      method: action.method,
+      status,
+      aggregateKey: action.aggregateKey,
+      id: action.id,
+    });
+    if (isHrsDebugPath(action.url)) {
+      agentDebugLog('engine.ts:applyActionResult', 'HRS outbox parked', {
+        url: action.url,
+        method: action.method,
+        status,
+        aggregateKey: action.aggregateKey,
+        bodyPreview: bodyText.slice(0, 200),
+      }, 'C');
+    }
     return 'park';
   }
   await outbox.bumpAttempt(action.id, bodyText || `HTTP ${status}`);
@@ -100,13 +117,21 @@ async function pushOutboxSequential(groups: outbox.OutboxAction[][]): Promise<'o
       try {
         const res = await apiFetch(action.url, {
           method: action.method,
-          headers: { 'X-Idempotency-Key': action.id },
+          headers: { 'X-Idempotency-Key': action.idempotencyKey ?? action.id },
           skipAuthLogout: true,
           ...(action.method === 'DELETE' ? {} : { body: action.payload }),
         });
 
         const body = res.ok || res.status === 409 ? '' : await res.text();
         const outcome = await applyActionResult(action, res.status, body);
+        if (isHrsDebugPath(action.url)) {
+          agentDebugLog('engine.ts:pushOutboxSequential', 'HRS outbox replay', {
+            url: action.url,
+            method: action.method,
+            status: res.status,
+            outcome,
+          }, outcome === 'auth' ? 'B' : 'C');
+        }
         if (outcome === 'ok') continue;
         if (outcome === 'transient' || outcome === 'auth') {
           hadTransient = true;
@@ -140,6 +165,7 @@ async function pushOutboxBatch(groups: outbox.OutboxAction[][]): Promise<'ok' | 
           method: a.method,
           url: a.url,
           aggregateKey: a.aggregateKey,
+          idempotencyKey: a.idempotencyKey ?? a.id,
           payload: a.method === 'DELETE' ? undefined : (() => {
             try {
               return JSON.parse(a.payload);
@@ -187,6 +213,16 @@ async function pushOutboxBatch(groups: outbox.OutboxAction[][]): Promise<'ok' | 
             : JSON.stringify(result.body);
 
       const outcome = await applyActionResult(action, result.status, bodyText);
+      if (isHrsDebugPath(action.url)) {
+        agentDebugLog('engine.ts:pushOutboxBatch', 'HRS batch item result', {
+          url: action.url,
+          method: action.method,
+          status: result.status,
+          skipped: result.skipped ?? false,
+          outcome,
+          bodyPreview: bodyText.slice(0, 200),
+        }, outcome === 'auth' ? 'B' : 'C');
+      }
       if (outcome === 'transient' || outcome === 'auth') hadTransient = true;
     }
 
@@ -194,6 +230,16 @@ async function pushOutboxBatch(groups: outbox.OutboxAction[][]): Promise<'ok' | 
   } catch {
     return 'fallback';
   }
+}
+
+async function pushOutboxPage(groups: outbox.OutboxAction[][]): Promise<'ok' | 'transient'> {
+  if (syncBatchEnabled()) {
+    const batchResult = await pushOutboxBatch(groups);
+    if (batchResult === 'ok') return 'ok';
+    // Batch loopback can fail (503) while sequential /api replay still works via dev proxy.
+    return pushOutboxSequential(groups);
+  }
+  return pushOutboxSequential(groups);
 }
 
 async function pushOutbox(): Promise<'ok' | 'transient'> {
@@ -205,15 +251,22 @@ async function pushOutbox(): Promise<'ok' | 'transient'> {
   await outbox.discardInaccessibleMachineActions(getWriteMachineAccess(role, machineAccess));
   await outbox.reconcileBenignParked(isBenignSyncClientError);
 
-  const groups = await outbox.nextBatch();
-  if (groups.length === 0) return 'ok';
+  // Drain full native pages (LIMIT 200) in one syncNow so long offline shifts catch up.
+  let prevHead: string | null = null;
+  for (;;) {
+    const groups = await outbox.nextBatch();
+    const flat = groups.flat();
+    if (flat.length === 0) return 'ok';
 
-  if (syncBatchEnabled()) {
-    const batchResult = await pushOutboxBatch(groups);
-    if (batchResult !== 'fallback') return batchResult;
+    const head = flat[0]!.id;
+    // Same head as last round → no progress (e.g. parked stuck); stop.
+    if (head === prevHead) return 'ok';
+    prevHead = head;
+
+    const result = await pushOutboxPage(groups);
+    if (result === 'transient') return 'transient';
+    if (flat.length < outbox.OUTBOX_BATCH_LIMIT) return 'ok';
   }
-
-  return pushOutboxSequential(groups);
 }
 
 let engineOptions: SyncEngineOptions = {};
@@ -257,6 +310,15 @@ export async function syncNow(reason: string): Promise<void> {
     }
   } finally {
     const queueCounts = await outbox.counts();
-    status.set({ isSyncing: false, ...queueCounts });
+    const pendingByAggregate = await outbox.pendingByAggregate();
+    status.set({ isSyncing: false, ...queueCounts, pendingByAggregate });
+    if (queueCounts.pending > 0 || queueCounts.parked > 0) {
+      agentDebugLog('engine.ts:syncNow', 'outbox counts after sync', {
+        reason,
+        pending: queueCounts.pending,
+        parked: queueCounts.parked,
+        aggregates: Object.keys(pendingByAggregate).filter((k) => k.includes('capture') || k.toLowerCase().includes('hrs')),
+      }, 'C');
+    }
   }
 }

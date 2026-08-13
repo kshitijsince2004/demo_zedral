@@ -32,6 +32,11 @@ export async function prepareCombinedRwdOrders(batchNumbers: string[]) {
   return apiClient.post('/rewinding/orders/start-combined', { batchNumbers, mode: 'prepare' });
 }
 
+/** Dissolve PREPARING combined_group_id (hub Cancel Combined after prepare). */
+export async function cancelCombinedRwdOrders(batchNumbers: string[]) {
+  return apiClient.post('/rewinding/orders/cancel-combined', { batchNumbers });
+}
+
 export async function addRwdStoppage(
   batchNumber: string,
   body: { categoryCode: string; breakdownCode?: string; remarks?: string },

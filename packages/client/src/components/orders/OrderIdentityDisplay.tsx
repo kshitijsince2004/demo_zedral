@@ -2,6 +2,8 @@ import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 type OrderIdentitySource = {
   motherCoil?: string;
+  motherCoilNo?: string;
+  displayCoilNo?: string;
   coilNo?: string;
   batchNumber: string;
   slitId?: string;

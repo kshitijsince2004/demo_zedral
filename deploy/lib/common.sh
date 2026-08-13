@@ -474,6 +474,8 @@ pull_image_ref_with_retry() {
   local max_attempts="${PULL_MAX_ATTEMPTS:-5}"
   local attempt=1
   local delay start end
+  # Long GHCR transfers stall under the default ~60s client timeout.
+  export COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-300}"
 
   while [ "${attempt}" -le "${max_attempts}" ]; do
     start="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"

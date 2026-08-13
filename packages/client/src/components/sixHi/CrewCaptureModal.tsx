@@ -3,6 +3,7 @@ import { Users } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
 import { machineCrewService, type MachineCrewMember } from '../../lib/machineCrewService';
 import { apiClient } from '../../lib/apiClient';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 const SNOOZE_MS = 5 * 60 * 1000;
 
@@ -80,7 +81,7 @@ export function CrewCaptureModal({
   return (
     <>
       <div
-        className="fixed inset-0 z-[110] bg-primary/40 backdrop-blur-[1px]"
+        className={overlayClass('fixed inset-0 z-[110] bg-primary/40', 'backdrop-blur-[1px]')}
         aria-hidden
         onClick={onSnooze}
       />

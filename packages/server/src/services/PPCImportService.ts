@@ -364,6 +364,14 @@ const ALLOCATION_SAFE_FIELDS = [
   'raw_row_json',
 ] as const;
 
+export function pickAllocationSafeFields(values: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const k of ALLOCATION_SAFE_FIELDS) {
+    if (k in values) picked[k] = values[k];
+  }
+  return picked;
+}
+
 export class PPCImportService {
   /** Auto-provision PPC grades (e.g. D, EDD, C-62) that are not yet in master.grade. */
   private static async ensureCoil(
@@ -752,21 +760,59 @@ export class PPCImportService {
     return { batchNumber: data.batch_number };
   }
 
+  private static async reconcileAllocationSafeFieldsForJourneyStep(
+    trx: DbConn,
+    coilNo: string,
+    processCode: string,
+    incomingBatchValues: Record<string, unknown>,
+  ): Promise<{ ok: true; batchId: number } | { ok: false; reason: string }> {
+    const journey = await trx.selectFrom('planning.order_journey')
+      .select(['journey_id'])
+      .where('coil_no', '=', coilNo)
+      .where('status', '=', 'ACTIVE')
+      .executeTakeFirst();
+
+    if (!journey) {
+      return { ok: false, reason: `No ACTIVE journey for ${coilNo}` };
+    }
+
+    const targetStep = await trx.selectFrom('planning.order_journey_step')
+      .select(['queue_batch_id', 'step_no', 'status'])
+      .where('journey_id', '=', String(journey.journey_id))
+      .where('process_code', '=', processCode)
+      .orderBy('step_no', 'asc')
+      .executeTakeFirst();
+
+    if (!targetStep?.queue_batch_id) {
+      return { ok: false, reason: `No linked queue_batch_id for ${coilNo} on ${processCode}` };
+    }
+
+    const batchId = Number(targetStep.queue_batch_id);
+    if (!Number.isFinite(batchId)) {
+      return { ok: false, reason: `Invalid linked queue_batch_id for ${coilNo} on ${processCode}` };
+    }
+
+    const safeFields = pickAllocationSafeFields(incomingBatchValues);
+    await trx.updateTable('planning.ppc_batch')
+      // Safe fields only: no machine allocation, queue position, plan date, shift, or process-machine routing.
+      .set(safeFields as any)
+      .where('batch_id', '=', String(batchId))
+      .execute();
+
+    return { ok: true, batchId };
+  }
+
   private static async upsertPpcRow(
     trx: DbConn,
     row: PpcRow,
     importBatchId: number,
   ): Promise<{ action: 'inserted' | 'updated' | 'skipped'; batchNumber: string; reason?: string }> {
     const processCode = processCodeFromBatchMachine(row.machine_code, row.sub_process);
+    let journeyClass: JourneyImportClass | null = null;
+    let coilSafety: { isDangerous: boolean; skipReason: string | null; orderStatus: string | null } | null = null;
     if (processCode) {
-      const journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode, row.batch_number);
-      if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
-        throw new ProductionSafetyError(journeyClass.reason);
-      }
-      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coil_no, processCode, row.batch_number);
-      if (coilSafety.isDangerous) {
-        throw new ProductionSafetyError(coilSafety.skipReason!);
-      }
+      journeyClass = await classifyJourneyForLine(trx, row.coil_no, processCode, row.batch_number);
+      coilSafety = await this.checkCoilSafetyForLine(trx, row.coil_no, processCode, row.batch_number);
     }
 
     let existing = await trx.selectFrom('planning.ppc_batch')
@@ -813,6 +859,21 @@ export class PPCImportService {
       raw_row_json: JSON.stringify(row),
       machine_allocated: false,
     };
+
+    if (processCode && journeyClass && (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line')) {
+      if (coilSafety?.isDangerous) {
+        throw new ProductionSafetyError(coilSafety.skipReason!);
+      }
+      const reconciled = await this.reconcileAllocationSafeFieldsForJourneyStep(trx, row.coil_no, processCode, batchValues);
+      if (!reconciled.ok) {
+        throw new ProductionSafetyError(reconciled.reason);
+      }
+      return { action: 'updated', batchNumber: row.batch_number, reason: 'safe-reconcile-allocation-fields' };
+    }
+
+    if (processCode && coilSafety?.isDangerous) {
+      throw new ProductionSafetyError(coilSafety.skipReason!);
+    }
 
     let batchId: number;
     let storedBatchNumber = row.batch_number;
@@ -1517,15 +1578,11 @@ export class PPCImportService {
     importBatchId: number,
   ): Promise<{ action: 'inserted' | 'updated'; batchId: number }> {
     const processCode = processCodeFromBatchMachine(row.machineCode, row.subProcess ?? '');
+    let journeyClass: JourneyImportClass | null = null;
+    let coilSafety: { isDangerous: boolean; skipReason: string | null; orderStatus: string | null } | null = null;
     if (processCode) {
-      const journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode, row.batchNumber);
-      if (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line') {
-        throw new ProductionSafetyError(journeyClass.reason);
-      }
-      const coilSafety = await this.checkCoilSafetyForLine(trx, row.coilNo, processCode, row.batchNumber);
-      if (coilSafety.isDangerous) {
-        throw new ProductionSafetyError(coilSafety.skipReason!);
-      }
+      journeyClass = await classifyJourneyForLine(trx, row.coilNo, processCode, row.batchNumber);
+      coilSafety = await this.checkCoilSafetyForLine(trx, row.coilNo, processCode, row.batchNumber);
     }
 
     const targetThk = row.passTargetThkMm ?? row.finishThkMm;
@@ -1580,6 +1637,21 @@ export class PPCImportService {
       raw_row_json: JSON.stringify(row),
       machine_allocated: false,
     };
+
+    if (processCode && journeyClass && (journeyClass.kind === 'already-advanced' || journeyClass.kind === 'already-in-line')) {
+      if (coilSafety?.isDangerous) {
+        throw new ProductionSafetyError(coilSafety.skipReason!);
+      }
+      const reconciled = await this.reconcileAllocationSafeFieldsForJourneyStep(trx, row.coilNo, processCode, batchValues);
+      if (!reconciled.ok) {
+        throw new ProductionSafetyError(reconciled.reason);
+      }
+      return { action: 'updated', batchId: reconciled.batchId };
+    }
+
+    if (processCode && coilSafety?.isDangerous) {
+      throw new ProductionSafetyError(coilSafety.skipReason!);
+    }
 
     let batchId: number;
     if (existing) {

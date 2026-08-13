@@ -3,6 +3,7 @@ import { LogOut } from 'lucide-react';
 import { PpcRollingImportPanel } from '../../components/admin/PpcRollingImportPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { useAuthStore } from '../../lib/authStore';
+import { overlayClass } from '../../lib/nativeOverlay';
 import ZedralLogo from '../../assets/white logo.png';
 import type { PpcXlsxSheetType } from '../../services/adminService';
 
@@ -78,7 +79,7 @@ export function PlanningImportHub() {
       </header>
 
       {/* Line tabs */}
-      <div className="shrink-0 border-b border-border bg-background/90 backdrop-blur-sm">
+      <div className={overlayClass('shrink-0 border-b border-border bg-background/90', 'backdrop-blur-sm')}>
         <div
           className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pt-3 sm:px-6"
           role="tablist"

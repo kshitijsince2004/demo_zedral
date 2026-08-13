@@ -1,12 +1,25 @@
+import type { SixHiOrderStatus } from '@m1/shared-validation';
 import { combinedRunKey } from './sixHiOrderIdentity';
 
 export const MANUAL_REROLL_TAB = { id: 'reroll', label: 'Manual Re-Roll' } as const;
 
-export type ManualRerollStatusFilter = 'ALL' | 'PENDING' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED';
+/** Map Manual Re-Roll session status → SixHiStatusPill props. */
+export function manualRerollStatusToPill(status: string): { status: SixHiOrderStatus; preparing: boolean } {
+  const s = status.toUpperCase();
+  if (s === 'PREPARING') return { status: 'PENDING', preparing: true };
+  if (s === 'IN_PROGRESS') return { status: 'IN_PROGRESS', preparing: false };
+  if (s === 'STOPPAGE') return { status: 'STOPPAGE', preparing: false };
+  if (s === 'ON_HOLD') return { status: 'REJECTED', preparing: false };
+  if (s === 'COMPLETED') return { status: 'COMPLETED', preparing: false };
+  return { status: 'PENDING', preparing: false };
+}
+
+export type ManualRerollStatusFilter = 'ALL' | 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED';
 
 export const MANUAL_REROLL_STATUS_FILTERS: { id: ManualRerollStatusFilter; label: string }[] = [
   { id: 'ALL', label: 'All' },
   { id: 'PENDING', label: 'Pending' },
+  { id: 'PREPARING', label: 'Preparing' },
   { id: 'IN_PROGRESS', label: 'In Progress' },
   { id: 'ON_HOLD', label: 'Hold' },
   { id: 'COMPLETED', label: 'Completed' },
@@ -79,17 +92,15 @@ export function formatManualRerollConflict(body: unknown, fallback: string): str
   return batch ? `${error} (${batch})` : error;
 }
 
-/** STOPPAGE + session PREPARING under In Progress. CRM PENDING/PREPARING stay under Pending. */
+/** Session PREPARING → Preparing; IN_PROGRESS+STOPPAGE → In Progress; CRM PENDING/PREPARING → Pending. */
 export function matchesRerollStatusFilter(
   status: string,
   filter: ManualRerollStatusFilter,
   kind: 'pending' | 'session' = 'pending',
 ): boolean {
   if (filter === 'ALL') return status !== 'CANCELLED';
-  if (filter === 'IN_PROGRESS') {
-    if (status === 'IN_PROGRESS' || status === 'STOPPAGE') return true;
-    return kind === 'session' && status === 'PREPARING';
-  }
+  if (filter === 'PREPARING') return kind === 'session' && status === 'PREPARING';
+  if (filter === 'IN_PROGRESS') return status === 'IN_PROGRESS' || status === 'STOPPAGE';
   if (filter === 'PENDING') {
     if (kind === 'session') return false;
     return isRerollPendingStatus(status);
@@ -105,6 +116,7 @@ export function countRerollFilters(
   const counts: Record<ManualRerollStatusFilter, number> = {
     ALL: 0,
     PENDING: 0,
+    PREPARING: 0,
     IN_PROGRESS: 0,
     ON_HOLD: 0,
     COMPLETED: 0,
@@ -114,13 +126,9 @@ export function countRerollFilters(
     counts.ALL += 1;
     const kind = item.kind ?? 'pending';
     if (kind === 'pending' && isRerollPendingStatus(item.status)) counts.PENDING += 1;
-    else if (
-      item.status === 'IN_PROGRESS'
-      || item.status === 'STOPPAGE'
-      || (kind === 'session' && item.status === 'PREPARING')
-    ) {
-      counts.IN_PROGRESS += 1;
-    } else if (item.status === 'ON_HOLD') counts.ON_HOLD += 1;
+    else if (kind === 'session' && item.status === 'PREPARING') counts.PREPARING += 1;
+    else if (item.status === 'IN_PROGRESS' || item.status === 'STOPPAGE') counts.IN_PROGRESS += 1;
+    else if (item.status === 'ON_HOLD') counts.ON_HOLD += 1;
     else if (item.status === 'COMPLETED') counts.COMPLETED += 1;
   }
   return counts;

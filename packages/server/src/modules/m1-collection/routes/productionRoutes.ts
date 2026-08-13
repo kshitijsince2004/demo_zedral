@@ -6,7 +6,6 @@ import {
   hrsSchema,
   pklSchema,
   rwdSchema,
-  skpSchema,
 } from '@m1/shared-validation';
 import { requireAuth } from '../../../middleware/authMiddleware';
 import { assertLineOperation } from '../../../auth/lineAccessPolicy';
@@ -105,6 +104,26 @@ function postProduction<T>(
 
       const id = await save(parsed.data);
       if (coilNo && (processCode === 'HRS' || processCode === 'PKL')) {
+        // #region agent log
+        fetch('http://127.0.0.1:7577/ingest/58d95c05-b61c-4a37-a3ee-d40d653006c8', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'beb2a9' },
+          body: JSON.stringify({
+            sessionId: 'beb2a9',
+            location: 'productionRoutes.ts:postProduction',
+            message: 'HRS/PKL save done, ending order',
+            data: {
+              processCode,
+              coilNo,
+              entryId: id,
+              payloadShiftLogId: (parsed.data as { shiftLogId?: string }).shiftLogId ?? null,
+            },
+            timestamp: Date.now(),
+            runId: 'post-fix',
+            hypothesisId: 'D',
+          }),
+        }).catch(() => undefined);
+        // #endregion
         try {
           await completeHrsPklOrder(processCode, coilNo, req.user.id);
         } catch (endErr) {
@@ -162,7 +181,6 @@ router.post('/pkl/draft', async (req, res) => {
   }
 });
 router.post('/ann', postProduction('ANN', annSchema, ProductionService.saveAnn));
-router.post('/skp', postProduction('SKP', skpSchema, ProductionService.saveSkp));
 router.post('/rwd', postProduction('RWD', rwdSchema, ProductionService.saveRwd));
 router.post('/crs', postProduction('CRS', crsSchema, ProductionService.saveCrs));
 router.post('/ctl', postProduction('CTL', ctlSchema, ProductionService.saveCtl));

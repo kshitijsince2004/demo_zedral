@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { X, Plus, Trash2 } from 'lucide-react';
+import { overlayClass } from '../../lib/nativeOverlay';
 import { matchesMachineClassification } from '@m1/shared-validation';
 import { ZButton } from '../primitives/ZButton';
 import { ZInput } from '../primitives/ZInput';
@@ -93,7 +94,7 @@ export function OrderRemarkModal({ open, batchNumber, orderLabel, orderSubtitle,
 
   return (
     <>
-      <button type="button" aria-label="Close" className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]" onClick={onClose} />
+      <button type="button" aria-label="Close" className={overlayClass('fixed inset-0 z-[110] bg-primary/60', 'backdrop-blur-[2px]')} onClick={onClose} />
       <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] w-full max-w-2xl mx-auto border border-border bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border">
           <div>

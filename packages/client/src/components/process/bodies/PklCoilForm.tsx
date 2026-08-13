@@ -146,6 +146,7 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
     const invalid = validateFields();
     if (invalid) {
       setError(invalid);
+      useProcessStore.getState().settleEndCaptureError(invalid);
       return;
     }
     setSubmitting(true);
@@ -153,7 +154,9 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
       await submitProcessCapture('/production/pkl', buildPayload(), coilNo);
       onSubmitted?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submit failed');
+      const msg = err instanceof Error ? err.message : 'Submit failed';
+      setError(msg);
+      useProcessStore.getState().settleEndCaptureError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -234,7 +237,7 @@ export function PklCoilForm({ coilNo, prefill, shiftLogId, machineCode, onSubmit
         <p className="text-xs text-muted-foreground">Completed — saved input details (read only).</p>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
-          <ZButton type="button" disabled={submitting} onClick={() => void handleSaveOnly()}>
+          <ZButton type="button" variant="primary" disabled={submitting} onClick={() => void handleSaveOnly()}>
             {submitting ? 'Saving…' : 'Save Production'}
           </ZButton>
           <p className="text-xs text-muted-foreground">

@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import { db } from '../db';
 import type { Database } from '../db';
 import { getTenantId } from '../context';
+import { logger } from '../utils/logger';
 import { parseRouteForJourney } from '../utils/PpcRouteTranslator';
 
 type DbConn = Kysely<Database>;
@@ -256,6 +257,33 @@ export class ProcessRouteService {
         .set({ queue_batch_id: batchId })
         .where('step_id', '=', step.step_id)
         .execute();
+      return;
+    }
+
+    // Synthetic → real swap:
+    // Fan-out creates placeholder batches; late PPC imports may provide the authoritative batch.
+    // If the currently linked batch looks synthetic for this coil+route code, replace it with the incoming batch.
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const syntheticPrefix = `^${escapeRegExp(coilNo)}-${code}-[A-Z0-9]+$`;
+    const syntheticRe = new RegExp(syntheticPrefix);
+
+    const existingBatchId = String(step.queue_batch_id);
+    const batches = await conn.selectFrom('planning.ppc_batch')
+      .select(['batch_id', 'batch_number'])
+      .where('batch_id', 'in', [existingBatchId, String(batchId)])
+      .execute();
+
+    const existingBatchNumber = batches.find((b) => String(b.batch_id) === existingBatchId)?.batch_number;
+    const incomingBatchNumber = batches.find((b) => Number(b.batch_id) === batchId)?.batch_number;
+
+    if (existingBatchNumber && incomingBatchNumber
+      && syntheticRe.test(existingBatchNumber)
+      && !syntheticRe.test(incomingBatchNumber)
+      && existingBatchId !== String(batchId)) {
+      await conn.updateTable('planning.order_journey_step')
+        .set({ queue_batch_id: batchId })
+        .where('step_id', '=', step.step_id)
+        .execute();
     }
   }
 
@@ -366,13 +394,41 @@ export class ProcessRouteService {
       .executeTakeFirst();
     if (!journey) return null;
 
-    const currentStep = await db.selectFrom('planning.order_journey_step')
-      .select('queue_batch_id')
+    let currentStep = await db.selectFrom('planning.order_journey_step')
+      .select(['queue_batch_id', 'process_code'])
       .where('journey_id', '=', String(journey.journey_id))
       .where('step_no', '=', journey.current_step_no)
       .executeTakeFirst();
 
-    if (!currentStep?.queue_batch_id) return null;
+    if (!currentStep?.queue_batch_id) {
+      const processCode = currentStep?.process_code ?? 'UNKNOWN';
+      const { recordAdvanceNoopNullBatch, recordHandoffSelfHeal } = await import('./handoffMetrics');
+      recordAdvanceNoopNullBatch(String(processCode));
+      logger.warn(
+        JSON.stringify({
+          msg: 'advance_journey_by_coil_no_queue_batch',
+          coilNo,
+          journeyId: String(journey.journey_id),
+          currentStepNo: journey.current_step_no,
+          processCode,
+        }),
+      );
+      const { buildSourceBatchForCoil } = await import('./journeyHandoff');
+      const { QueueTransferService } = await import('./QueueTransferService');
+      const source = await buildSourceBatchForCoil(coilNo);
+      if (source) {
+        const batchId = await QueueTransferService.enqueueActiveStep(
+          Number(journey.journey_id),
+          source,
+          payload,
+        );
+        if (batchId) {
+          recordHandoffSelfHeal('advance_by_coil_enqueue');
+          currentStep = { queue_batch_id: String(batchId), process_code: processCode };
+        }
+      }
+      if (!currentStep?.queue_batch_id) return null;
+    }
 
     const batch = await db.selectFrom('planning.ppc_batch')
       .select('batch_number')

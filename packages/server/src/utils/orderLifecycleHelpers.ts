@@ -55,6 +55,24 @@ export function combineRunKey(coilNo: string, slitId?: string | null, rollFinish
   return [coilNo, slitId?.trim() || '', finishGroup(rollFinish)].join('|');
 }
 
+/** After dissolving a PREPARING combined group: allocated stays PREPARING, else PENDING. */
+export function statusAfterUngroupCombine(machineAllocated: boolean): 'PENDING' | 'PREPARING' {
+  return machineAllocated ? 'PREPARING' : 'PENDING';
+}
+
+const ACTIVE_ORDER_CONFLICT_PREFIX = 'ACTIVE_ORDER_CONFLICT:';
+
+/** Build / parse ACTIVE_ORDER_CONFLICT:<batch> (slice — batch numbers may contain colons). */
+export function activeOrderConflictMessage(batchNumber: string): string {
+  return `${ACTIVE_ORDER_CONFLICT_PREFIX}${batchNumber.trim()}`;
+}
+
+export function parseActiveOrderConflictBatch(message: string): string | undefined {
+  if (!message.startsWith(ACTIVE_ORDER_CONFLICT_PREFIX)) return undefined;
+  const batch = message.slice(ACTIVE_ORDER_CONFLICT_PREFIX.length).trim();
+  return batch || undefined;
+}
+
 /** Net production minutes = elapsed − stoppage minutes (floor at 0). */
 export function netProdDurationMin(
   startAt: Date,

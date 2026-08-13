@@ -1,4 +1,5 @@
-import { Eye, Play } from 'lucide-react';
+import { Eye, Play, RotateCcw } from 'lucide-react';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { processQueueStatusLabel, type ProcessQueueCard } from '../../store/processStore';
 import { ZButton } from '../primitives/ZButton';
 
@@ -7,6 +8,8 @@ interface ProcessQueueDetailPanelProps {
   processLabel: string;
   stationCode: string;
   onMoveToProduction: () => void;
+  /** HRS hold — optional reinstate to PENDING. */
+  onMoveToPending?: () => void;
   /** RWD combined start — overrides default CTA label. */
   moveLabel?: string;
   combinedCount?: number;
@@ -18,6 +21,7 @@ export function ProcessQueueDetailPanel({
   card,
   stationCode,
   onMoveToProduction,
+  onMoveToPending,
   moveLabel,
   combinedCount = 0,
   combinedWeightMt,
@@ -30,7 +34,7 @@ export function ProcessQueueDetailPanel({
     );
   }
 
-  const title = card.displayCoilNo ?? card.coilNo;
+  const title = displayMotherCoilId(card);
   const lines = card.orderLines ?? [];
   const fields: [string, string, boolean?][] = [
     ['Process Route', card.routeRaw?.trim() || '—', true],
@@ -38,8 +42,6 @@ export function ProcessQueueDetailPanel({
     ['Customer', card.customerName || '—'],
     ['Grade', card.gradeCode || '—', true],
     ['Coil', title, true],
-    ...(card.motherCoilNo ? [['Mother Coil', card.motherCoilNo, true] as [string, string, boolean?]] : []),
-    ...(card.slitId ? [['Slit ID', card.slitId, true] as [string, string, boolean?]] : []),
     ...(card.batchNumber ? [['Batch Number', card.batchNumber, true] as [string, string, boolean?]] : []),
     ['Width', `${card.widthMm} mm`, true],
     ['Thickness', `${card.thicknessMm} mm`, true],
@@ -57,13 +59,11 @@ export function ProcessQueueDetailPanel({
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border/60">
         <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Details</p>
         <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">{title}</h2>
-        {(card.batchNumber || card.slitId) && (
+        {card.batchNumber ? (
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-1">
-            {card.slitId ? `Slit ${card.slitId}` : null}
-            {card.slitId && card.batchNumber ? ' · ' : null}
-            {card.batchNumber ? `Batch ${card.batchNumber}` : null}
+            Batch {card.batchNumber}
           </p>
-        )}
+        ) : null}
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 flex-1 min-h-0 overflow-y-auto content-start">
@@ -78,7 +78,8 @@ export function ProcessQueueDetailPanel({
             <p className="text-muted-foreground text-[11px] uppercase tracking-wide font-semibold mb-2">Order lines</p>
             <ul className="space-y-1.5">
               {lines.map((line, i) => (
-                <li key={`${line.batchNumber ?? i}-${line.widthMm ?? i}`} className="text-xs border border-border/60 rounded-lg px-3 py-2 font-mono">
+                // ponytail: index key — batch+width collide on multi-line same mother coil
+                <li key={i} className="text-xs border border-border/60 rounded-lg px-3 py-2 font-mono">
                   {[
                     line.batchNumber,
                     line.widthMm != null ? `${line.widthMm} mm` : null,
@@ -104,6 +105,12 @@ export function ProcessQueueDetailPanel({
           <p className="text-sm font-medium tabular-nums text-center">
             Combined {combinedCount} · Σ {(combinedWeightMt ?? 0).toFixed(2)} MT
           </p>
+        )}
+        {onMoveToPending && (
+          <ZButton type="button" variant="secondary" className="w-full min-h-11" onClick={onMoveToPending}>
+            <RotateCcw className="h-4 w-4 mr-2" aria-hidden />
+            Move to pending
+          </ZButton>
         )}
         <ZButton type="button" className="w-full min-h-12" onClick={onMoveToProduction}>
           {isCompleted ? (

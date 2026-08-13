@@ -1,7 +1,9 @@
-import type { SixHiRollingPass } from '@m1/shared-validation';
+import type { SixHiDestination, SixHiRollingPass } from '@m1/shared-validation';
 import { AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 import { ZButton } from '../../primitives/ZButton';
+import { ZInput } from '../../primitives/ZInput';
+import { FieldWrapper } from '../../forms/FieldWrapper';
 import { ActualWeightCaptureField } from '../ActualWeightCaptureField';
 import { PassTracker } from '../PassTracker';
 import { ThicknessSpecs } from '../ThicknessSpecs';
@@ -43,6 +45,8 @@ type OcrFields = {
   ocrRawText?: string | null;
 };
 
+type DecimalField = 'etr' | 'dtr';
+
 function toDraft(value?: number | null): string {
   return value == null ? '' : String(value);
 }
@@ -74,7 +78,7 @@ interface ManualRerollCaptureFormProps {
   onSaved?: (session: ManualRerollSession) => void;
 }
 
-/** Weight + passes capture — rolling compact layout without destination/tension. */
+/** Weight + destination/ETR/DTR + passes — rolling compact layout, session-persisted. */
 export function ManualRerollCaptureForm({
   session,
   machine,
@@ -83,11 +87,20 @@ export function ManualRerollCaptureForm({
   onSaved,
 }: ManualRerollCaptureFormProps) {
   const isCombined = !!context?.combinedCount && context.combinedCount > 1;
-  const targetThk = context?.thkMm ?? null;
-  const inputThk = context?.inputThkMm ?? context?.thkMm ?? null;
+  const targetThk = session.targetThkMm ?? context?.thkMm ?? null;
+  const inputThk = session.inputThkMm ?? context?.inputThkMm ?? null;
+  const ppcDest = (session.destination as SixHiDestination | null) ?? 'ANNEALING';
 
   const [weightDraft, setWeightDraft] = useState(() => toDraft(session.actualWeightMt));
   const [passes, setPasses] = useState<ManualRerollPass[]>(() => seedPasses(session, targetThk));
+  const [destination, setDestination] = useState<SixHiDestination>(ppcDest);
+  const [overrideDest, setOverrideDest] = useState(session.destinationOverride === true);
+  const [drafts, setDrafts] = useState({
+    etr: toDraft(session.etr),
+    dtr: toDraft(session.dtr),
+  });
+  const [etr, setEtr] = useState<number | undefined>(session.etr ?? undefined);
+  const [dtr, setDtr] = useState<number | undefined>(session.dtr ?? undefined);
   const [ocr, setOcr] = useState<OcrFields>({
     actualWeightSource: session.actualWeightSource,
     actualWeightPhotoHash: session.actualWeightPhotoHash,
@@ -101,6 +114,8 @@ export function ManualRerollCaptureForm({
   const readOnly = locked
     || session.status === 'COMPLETED'
     || session.status === 'CANCELLED';
+
+  const effectiveDest = overrideDest ? destination : ppcDest;
 
   const weightLabel = isCombined
     ? 'Combined Actual Weight (Metric Tons)'
@@ -125,6 +140,18 @@ export function ManualRerollCaptureForm({
     setWeightDraft(toDraft(parsed));
   };
 
+  const updateDecimalDraft = (field: DecimalField, raw: string) => {
+    if (!isDecimalDraft(raw)) return;
+    setDrafts((prev) => ({ ...prev, [field]: raw }));
+  };
+
+  const commitDecimalDraft = (field: DecimalField) => {
+    const parsed = parseDecimalDraft(drafts[field]);
+    setDrafts((prev) => ({ ...prev, [field]: toDraft(parsed) }));
+    if (field === 'etr') setEtr(parsed);
+    else setDtr(parsed);
+  };
+
   const save = async () => {
     setBusy(true);
     setError(null);
@@ -137,6 +164,12 @@ export function ManualRerollCaptureForm({
         actualWeightPhotoHash: ocr.actualWeightPhotoHash ?? null,
         ocrConfidence: ocr.ocrConfidence ?? null,
         ocrRawText: ocr.ocrRawText ?? null,
+        destination: effectiveDest,
+        destinationOverride: overrideDest,
+        etr: etr ?? null,
+        dtr: dtr ?? null,
+        inputThkMm: inputThk,
+        targetThkMm: targetThk,
         passes,
       });
       setSaved(true);
@@ -189,6 +222,67 @@ export function ManualRerollCaptureForm({
             hint={weightHint}
             className="!mb-0"
           />
+
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-sm font-medium text-muted-foreground">
+              Destination: {effectiveDest === 'REWINDING' ? 'Rewinding' : 'Annealing'}
+            </span>
+            {!overrideDest ? (
+              <button
+                type="button"
+                className="text-sm font-bold text-foreground underline"
+                onClick={() => setOverrideDest(true)}
+                disabled={readOnly}
+              >
+                Override
+              </button>
+            ) : (
+              <div className="flex gap-1">
+                {(['ANNEALING', 'REWINDING'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDestination(d)}
+                    disabled={readOnly}
+                    className={[
+                      'min-h-11 px-3 rounded-lg border text-sm font-bold',
+                      destination === d ? 'bg-primary text-white' : 'border-border',
+                    ].join(' ')}
+                  >
+                    {d === 'ANNEALING' ? 'Annealing' : 'Rewinding'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {effectiveDest === 'ANNEALING' && (
+            <div className="grid grid-cols-2 gap-1.5">
+              <FieldWrapper label="Entry Tension">
+                <ZInput
+                  type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
+                  value={drafts.etr}
+                  onChange={(e) => updateDecimalDraft('etr', e.target.value)}
+                  onBlur={() => commitDecimalDraft('etr')}
+                  className="min-h-11 text-base"
+                  disabled={readOnly}
+                />
+              </FieldWrapper>
+              <FieldWrapper label="Delivery Tension">
+                <ZInput
+                  type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
+                  value={drafts.dtr}
+                  onChange={(e) => updateDecimalDraft('dtr', e.target.value)}
+                  onBlur={() => commitDecimalDraft('dtr')}
+                  className="min-h-11 text-base"
+                  disabled={readOnly}
+                />
+              </FieldWrapper>
+            </div>
+          )}
         </div>
 
         <div className="bg-white border border-border rounded-xl p-3">

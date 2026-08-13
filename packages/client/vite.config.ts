@@ -157,6 +157,14 @@ export default defineConfig(({ mode }) => {
         '@m1/shared-validation': path.resolve(__dirname, '../shared-validation/src/index.ts'),
       },
     },
+    optimizeDeps: {
+      // Pre-bundle recharts at server start — avoids 504 Outdated Optimize Dep when PKL live loads charts.
+      include: ['recharts'],
+      entries: [
+        path.resolve(__dirname, 'index.html'),
+        path.resolve(__dirname, 'src/pages/machinehead/pkl/PklMhLiveDashboard.tsx'),
+      ],
+    },
     plugins: [
       tailwindcss(),
       react(),

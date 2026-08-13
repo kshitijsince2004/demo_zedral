@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { RwdTensionForm } from '../../components/process/bodies/RwdTensionForm';
@@ -7,6 +7,10 @@ import { ProductionActionRail } from '../../components/process/ProductionActionR
 import { OrderStoppageModal } from '../../components/sixHi/OrderStoppageModal';
 import { OrderEndModal } from '../../components/sixHi/OrderEndModal';
 import { OrderRejectionModal } from '../../components/sixHi/OrderRejectionModal';
+import {
+  CombinedProductionOrdersPanel,
+  type CombinedPanelOrder,
+} from '../../components/sixHi/CombinedProductionOrdersPanel';
 import { ZButton } from '../../components/primitives/ZButton';
 import { ZBadge } from '../../components/primitives/ZBadge';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
@@ -14,6 +18,7 @@ import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { useShiftStore } from '../../store/shiftStore';
 import { useAuthStore } from '../../lib/authStore';
 import { apiClient } from '../../lib/apiClient';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import {
@@ -27,7 +32,7 @@ import {
   updateRwdStoppage,
 } from '../../lib/rewindingWrites';
 import { useProcessStore } from '../../store/processStore';
-
+import type { CombinedProductionRun } from '../../store/sixHiStore';
 type PrefillFieldLike<T> = { value: T; source?: string };
 
 function pv<T>(f: unknown): T | undefined {
@@ -71,12 +76,17 @@ export function TwoHiRewindingCapturePage() {
   const [combinedBatchNumbers, setCombinedBatchNumbers] = useState(
     () => seeded?.combinedBatchNumbers?.filter(Boolean) ?? [],
   );
+  const [combinedPicked, setCombinedPicked] = useState<string[]>(
+    () => seeded?.combinedBatchNumbers?.filter(Boolean) ?? [],
+  );
   const isCombinedRun = combinedBatchNumbers.length > 1;
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededStatus = (seeded?.orderStatus ?? '').toUpperCase();
   const [orderStatus, setOrderStatus] = useState<string>(
     seededStatus || 'PENDING',
   );
+  const canSelectCombined = isCombinedRun
+    && (orderStatus === 'PENDING' || orderStatus === 'PREPARING' || orderStatus === 'HOLD' || orderStatus === 'REJECTED');
   const [prodStartAt, setProdStartAt] = useState<string | undefined>();
   const [stoppageStartedAt, setStoppageStartedAt] = useState<string | undefined>();
   const [activeStoppageId, setActiveStoppageId] = useState<string | undefined>();
@@ -94,6 +104,12 @@ export function TwoHiRewindingCapturePage() {
         prodStartAt?: string;
         activeStoppageId?: string;
         combinedGroupId?: string;
+        finishWeightMt?: number;
+        rwTension1Kg?: number;
+        rwTension2Kg?: number;
+        rwTension3Kg?: number;
+        outputThkMm?: number;
+        surfaceFinish?: 'M' | 'B';
         stoppages?: Array<{ stoppageId: string; startAt: string; endAt?: string }>;
       };
       setOrderStatus(order.status);
@@ -101,6 +117,16 @@ export function TwoHiRewindingCapturePage() {
       setActiveStoppageId(order.activeStoppageId);
       const open = order.stoppages?.find((s) => !s.endAt);
       setStoppageStartedAt(open?.startAt);
+      // Merge saved capture onto prefill so RwdTensionForm always shows last save.
+      setPrefill((prev) => ({
+        ...prev,
+        finishWeightMt: order.finishWeightMt,
+        rwTension1Kg: order.rwTension1Kg,
+        rwTension2Kg: order.rwTension2Kg,
+        rwTension3Kg: order.rwTension3Kg,
+        outputThkMm: order.outputThkMm,
+        ...(order.surfaceFinish ? { surfaceFinish: order.surfaceFinish } : {}),
+      }));
       // Restore combined siblings after refresh when navigation state was lost.
       if (order.combinedGroupId && combinedBatchNumbers.length <= 1) {
         try {
@@ -111,7 +137,13 @@ export function TwoHiRewindingCapturePage() {
           const siblings = (res.queue ?? [])
             .filter((c) => c.combinedGroupId === order.combinedGroupId)
             .map((c) => c.batchNumber);
-          if (siblings.length > 1) setCombinedBatchNumbers(siblings);
+          if (siblings.length > 1) {
+            setCombinedBatchNumbers(siblings);
+            setCombinedPicked((prev) => {
+              const kept = prev.filter((b) => siblings.includes(b));
+              return kept.length > 0 ? kept : siblings;
+            });
+          }
         } catch { /* keep seeded */ }
       }
       useProcessStore.getState().hydrateRwdRun({
@@ -227,6 +259,59 @@ export function TwoHiRewindingCapturePage() {
   const railStatus = toRailStatus(orderStatus);
   const backPath = machineCode === '2HI' ? `${basePath}?tab=rewinding` : basePath;
 
+  const combinedRun = useMemo((): CombinedProductionRun | null => {
+    if (combinedBatchNumbers.length < 2) return null;
+    const primary = combinedPicked.includes(batchNumber)
+      ? batchNumber
+      : (combinedPicked[0] ?? combinedBatchNumbers[0]);
+    return {
+      primaryBatchNumber: primary || combinedBatchNumbers[0],
+      batchNumbers: combinedBatchNumbers,
+      orders: combinedBatchNumbers.map((bn) => ({
+        batchNumber: bn,
+        motherCoil: coilNo,
+        customer: String(pv<string>(prefill.customerName) ?? '—'),
+        weightMt: Number(pv<number>(prefill.weightMt) ?? 0),
+        slitId: pv<string>(prefill.slitId),
+      })),
+    };
+  }, [combinedBatchNumbers, combinedPicked, batchNumber, coilNo, prefill]);
+
+  const loadCombinedOrders = useCallback(async (batchNumbers: string[]): Promise<CombinedPanelOrder[]> => {
+    const loaded = await Promise.all(
+      batchNumbers.map(async (bn) => {
+        try {
+          const order = await fetchRwdOrder(bn) as CombinedPanelOrder & {
+            displayCoilNo?: string;
+            customerName?: string;
+            ppcWeightMt?: number;
+            finishWeightMt?: number | null;
+          };
+          return {
+            batchNumber: bn,
+            coilNo: order.coilNo ?? order.displayCoilNo,
+            slitId: order.slitId,
+            status: order.status,
+            ppcWeightMt: order.ppcWeightMt,
+            weightMt: order.ppcWeightMt,
+            finishWeightMt: order.finishWeightMt,
+          };
+        } catch {
+          return { batchNumber: bn, coilNo, weightMt: 0 };
+        }
+      }),
+    );
+    return loaded;
+  }, [coilNo]);
+
+  const toggleCombinedPick = useCallback((bn: string) => {
+    setCombinedPicked((prev) => {
+      if (prev.includes(bn)) return prev.filter((b) => b !== bn);
+      if (!combinedBatchNumbers.includes(bn)) return prev;
+      return [...prev, bn];
+    });
+  }, [combinedBatchNumbers]);
+
   if (!coilNo) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -252,7 +337,12 @@ export function TwoHiRewindingCapturePage() {
             Rewinding · {machineCode}
           </p>
           <p className="font-mono text-lg font-bold truncate">
-            {String(prefill.displayCoilNo ?? coilNo)}
+            {displayMotherCoilId({
+              displayCoilNo: prefill.displayCoilNo != null ? String(prefill.displayCoilNo) : undefined,
+              coilNo,
+              batchNumber: batchNumber || coilNo,
+              slitId: pv<string>(prefill.slitId),
+            })}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -299,6 +389,22 @@ export function TwoHiRewindingCapturePage() {
 
           <ProcessPPCCards compact data={ppc} />
 
+          {combinedRun && (
+            <CombinedProductionOrdersPanel
+              combinedRun={combinedRun}
+              variant="capture"
+              selectedBatch={batchNumber}
+              onSelectBatch={(bn) => {
+                setBatchNumber(bn);
+                void refreshOrder(bn);
+              }}
+              selectable={canSelectCombined}
+              selectedBatches={combinedPicked}
+              onToggleSelected={toggleCombinedPick}
+              loadOrders={loadCombinedOrders}
+            />
+          )}
+
           <div className="bg-card border border-border rounded-xl shadow w-full">
             {isCombinedRun && (
               <p className="px-3 pt-3 text-xs text-muted-foreground">
@@ -342,16 +448,30 @@ export function TwoHiRewindingCapturePage() {
         status={railStatus}
         stoppageStartedAt={stoppageStartedAt}
         runStartedAt={prodStartAt}
-        busy={busy || !batchNumber || isCompleted}
+        busy={busy || !batchNumber || isCompleted || (canSelectCombined && combinedPicked.length === 0)}
         onStart={() =>
           void withBusy(async () => {
             if (isCompleted) return;
-            if (isCombinedRun && (orderStatus === 'PENDING' || orderStatus === 'PREPARING' || orderStatus === 'STOPPAGE')) {
-              await startCombinedRwdOrders(combinedBatchNumbers);
-            } else {
+            const picks = combinedPicked.filter((b) => combinedBatchNumbers.includes(b));
+            const startable = orderStatus === 'PENDING' || orderStatus === 'PREPARING' || orderStatus === 'STOPPAGE';
+            if (!startable) return;
+            if (picks.length >= 2) {
+              await startCombinedRwdOrders(picks);
+              setCombinedBatchNumbers(picks);
+              setCombinedPicked(picks);
+              const primary = picks.includes(batchNumber) ? batchNumber : picks[0];
+              if (primary && primary !== batchNumber) setBatchNumber(primary);
+              await refreshOrder(primary || batchNumber);
+            } else if (picks.length === 1) {
+              await startRwdOrder(picks[0]);
+              setCombinedBatchNumbers(picks);
+              setCombinedPicked(picks);
+              setBatchNumber(picks[0]);
+              await refreshOrder(picks[0]);
+            } else if (batchNumber) {
               await startRwdOrder(batchNumber);
+              await refreshOrder(batchNumber);
             }
-            await refreshOrder(batchNumber);
           })
         }
         onEnd={() => {

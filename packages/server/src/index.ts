@@ -3,6 +3,7 @@ import { initEventBus, shutdownEventBus } from '@zedral/platform';
 import { ExportWorker } from './export/jobs/ExportWorker';
 import { ExportScheduler } from './export/jobs/ExportScheduler';
 import { ShiftBoundaryScheduler } from './jobs/ShiftBoundaryScheduler';
+import { JourneyHandoffScheduler } from './jobs/JourneyHandoffScheduler';
 import { checkElasticHealth } from './elastic/elasticClient';
 import { ensureIndex } from './elastic/traceabilityIndex';
 import { initAppCache } from './cache';
@@ -47,6 +48,7 @@ async function startServer(): Promise<void> {
     ExportWorker.start();
     ExportScheduler.start();
     ShiftBoundaryScheduler.start();
+    JourneyHandoffScheduler.start();
 
     void initAppCache().catch((err) => {
       console.error('[cache] Failed to initialize cache layer:', err);
@@ -93,6 +95,7 @@ function shutdown(signal: string) {
   ExportWorker.stop();
   ExportScheduler.stop();
   ShiftBoundaryScheduler.stop();
+  JourneyHandoffScheduler.stop();
   void moduleRuntime?.stop().catch((err) => {
     console.error('[shutdown] module runtime stop failed', err);
   });

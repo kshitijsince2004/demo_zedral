@@ -6,6 +6,7 @@ import { MachineDetailModal } from '../../components/live/MachineDetailModal';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { MachineHeadOrderSidePanel } from '../../components/machinehead/MachineHeadOrderSidePanel';
 import { MachineHeadOrderDetailModal } from '../../components/machinehead/MachineHeadOrderDetailModal';
+import { RewindingMachineAllocationModal } from '../../components/rewinding/RewindingMachineAllocationModal';
 import { ZPillTabs } from '../../components/ui/operator/ZPillTabs';
 import { useLiveSnapshot, LIVE_POLL_MS } from '../../hooks/useLiveSnapshot';
 import { liveService } from '../../lib/liveService';
@@ -17,11 +18,13 @@ import { ExportProgressModal } from '../../components/export/ExportProgressModal
 import { currentPlantDate } from '../../lib/dateFormat';
 import { apiClient } from '../../lib/apiClient';
 import { deleteOrder } from '../../lib/sync/sixHiWrites';
-import { postQueued } from '../../lib/sync/queuedApi';
 import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { jsonFingerprint } from '../../lib/silentRefresh';
 import { formatProcessFilterLabel } from '../../lib/orderLabels';
 import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
+import { isCrmMillCode, millProcessTabs, type MillCode } from '../../lib/millConfig';
+import type { RewindingQueueCard } from '../../lib/rewindingQueue';
+import { allocateRwdMachine } from '../../lib/rewindingWrites';
 import {
   type ManualRerollSession,
   listManualRerollSessions,
@@ -63,6 +66,9 @@ export function MachineHeadDashboard() {
   const [completedLoading, setCompletedLoading] = useState(false);
   const [historyProcessFilter, setHistoryProcessFilter] = useState<HistoryProcessFilter>('ALL');
   const [processFilter, setProcessFilter] = useState<ProcessFilter>('ALL');
+  const [rwdCards, setRwdCards] = useState<RewindingQueueCard[]>([]);
+  const [allocCard, setAllocCard] = useState<RewindingQueueCard | null>(null);
+  const [allocateBusy, setAllocateBusy] = useState(false);
   const [machineFilter, setMachineFilter] = useState<string>('ALL');
   const [shiftFilter, setShiftFilter] = useState<string>('ALL');
   const [stoppageReason, setStoppageReason] = useState<string>('ALL');
@@ -119,7 +125,7 @@ export function MachineHeadDashboard() {
     machine: machineFilter !== 'ALL' ? machineFilter : undefined,
     shift: shiftFilter !== 'ALL' ? shiftFilter : undefined,
     search: debouncedSearch || undefined,
-    subProcess: processFilter !== 'ALL' ? processFilter : undefined,
+    subProcess: processFilter === 'ROLLING' || processFilter === 'SKIN_PASS' ? processFilter : undefined,
   }), [machineFilter, shiftFilter, debouncedSearch, processFilter]);
 
   useEffect(() => {
@@ -287,10 +293,34 @@ export function MachineHeadDashboard() {
   }, [snapshot?.machines, assignedMachines, role]);
 
   const visibleMachineAccess = assignedMachines;
+  const rwdRows = useMemo((): LiveOrderRow[] => rwdCards
+    .filter((c) => !c.machineAllocated || (c.machineCode ?? '').toUpperCase() === '2HI')
+    .map((c) => ({
+      batchNumber: c.batchNumber,
+      customer: c.customerName,
+      grade: c.gradeCode,
+      machineCode: c.machineAllocated ? (c.machineCode ?? '2HI') : '—',
+      machineName: c.machineAllocated ? (c.machineCode ?? '2HI') : 'Unassigned',
+      currentProcess: 'Rewinding',
+      status: (c.status ?? 'PENDING') as LiveOrderRow['status'],
+      weightMt: Number(c.weightMt ?? 0),
+      coilNo: c.coilNo,
+      motherCoil: c.coilNo,
+      slitId: c.slitId,
+      shiftCode: c.shiftCode,
+    })), [rwdCards]);
+  const selectedRwdCard = useMemo(
+    () => rwdCards.find((c) => c.batchNumber === selectedOrder?.batchNumber) ?? null,
+    [rwdCards, selectedOrder?.batchNumber],
+  );
+  const isRewindingView = processFilter === 'REWINDING';
   // Server already applies machine/search/subProcess — lists are API results.
   const filteredQueue = useMemo(() => {
+    if (isRewindingView) {
+      return rwdRows.filter((o) => ACTIVE_ORDER_STATUSES.has(o.status) || o.status === 'PENDING');
+    }
     return (dashboard?.orderQueue ?? []).filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
-  }, [dashboard?.orderQueue]);
+  }, [dashboard?.orderQueue, isRewindingView, rwdRows]);
   const filteredProduction = dashboard?.productionHistory ?? [];
   const stoppageCategories = useMemo(
     () => [...new Set((dashboard?.stoppages ?? []).map((s) => s.category).filter(Boolean))].sort(),
@@ -321,13 +351,42 @@ export function MachineHeadDashboard() {
     });
   }, [dashboard?.handoverOverview]);
 
-  const processFilterTabs = useMemo(() => (
-    ['ALL', 'ROLLING', 'SKIN_PASS'] as ProcessFilter[]
-  ).map((id) => ({ id, label: formatProcessFilterLabel(id) })), []);
+  const processFilterTabs = useMemo(() => {
+    const mill = machineFilter !== 'ALL' && isCrmMillCode(machineFilter)
+      ? machineFilter as MillCode
+      : null;
+    const tabIds = new Set(
+      (mill ? millProcessTabs(mill) : assignedMachines.filter(isCrmMillCode).flatMap((m) => millProcessTabs(m as MillCode))),
+    );
+    const filters: ProcessFilter[] = ['ALL'];
+    if (tabIds.has('rolling')) filters.push('ROLLING');
+    if (tabIds.has('skinpass')) filters.push('SKIN_PASS');
+    if (tabIds.has('rewinding')) filters.push('REWINDING');
+    return filters.map((id) => ({ id, label: formatProcessFilterLabel(id) }));
+  }, [machineFilter, assignedMachines]);
 
-  const historyProcessFilterTabs = useMemo(() => (
-    ['ALL', 'ROLLING', 'SKIN_PASS', 'MANUAL_REROLL'] as HistoryProcessFilter[]
-  ).map((id) => ({ id, label: formatProcessFilterLabel(id) })), []);
+  useEffect(() => {
+    const allowed = new Set(processFilterTabs.map((t) => t.id));
+    if (!allowed.has(processFilter)) setProcessFilter('ALL');
+  }, [processFilterTabs, processFilter]);
+
+  useEffect(() => {
+    if (processFilter !== 'REWINDING') {
+      setRwdCards([]);
+      return;
+    }
+    void apiClient.get<{ queue: RewindingQueueCard[] }>('/rewinding/queue?machine=2HI')
+      .then((res) => setRwdCards(res.queue ?? []))
+      .catch(() => setRwdCards([]));
+  }, [processFilter, machineFilter]);
+
+  const historyProcessFilterTabs = useMemo(() => {
+    const mill = machineFilter !== 'ALL' && isCrmMillCode(machineFilter) ? machineFilter : null;
+    const ids: HistoryProcessFilter[] = mill === '2HI'
+      ? ['ALL', 'SKIN_PASS']
+      : ['ALL', 'ROLLING', 'SKIN_PASS', 'MANUAL_REROLL'];
+    return ids.map((id) => ({ id, label: formatProcessFilterLabel(id) }));
+  }, [machineFilter]);
 
   const openMachineDetail = useCallback((machineCode: string) => {
     const card = machines.find((m) => m.machineCode === machineCode);
@@ -376,10 +435,9 @@ export function MachineHeadDashboard() {
     try {
       const machine = selectedOrder.machineCode?.toUpperCase();
       const qs = machine ? `?machine=${encodeURIComponent(machine)}` : '';
-      await postQueued(
+      await apiClient.post(
         `/6hi/orders/${encodeURIComponent(selectedOrder.batchNumber)}/reinstate${qs}`,
         {},
-        `6hi-order:${selectedOrder.batchNumber}`,
       );
       setSelectedOrder(null);
       setDetailOpen(false);
@@ -394,6 +452,15 @@ export function MachineHeadDashboard() {
 
   const selectedBatch = selectedOrder?.batchNumber ?? null;
   const showOrderPanel = ORDER_TABS.includes(activeTab);
+  const rwdSidePanel = {
+    hideCrmActions: isRewindingView,
+    onAllocate: isRewindingView && selectedRwdCard && !selectedRwdCard.machineAllocated
+      ? () => setAllocCard(selectedRwdCard)
+      : undefined,
+    allocateBusy,
+    onDelete: isRewindingView ? undefined : () => void handleDelete(),
+    onReinstate: isRewindingView ? undefined : () => void handleReinstate(),
+  };
 
   if (loading && !snapshot) {
     return (
@@ -579,10 +646,13 @@ export function MachineHeadDashboard() {
               <MachineHeadOrderSidePanel
                 order={selectedOrder}
                 onViewDetails={() => setDetailOpen(true)}
-                onDelete={() => void handleDelete()}
+                onDelete={rwdSidePanel.onDelete}
                 deleteBusy={deleteBusy}
-                onReinstate={() => void handleReinstate()}
+                onReinstate={rwdSidePanel.onReinstate}
                 reinstateBusy={reinstateBusy}
+                hideCrmActions={rwdSidePanel.hideCrmActions}
+                onAllocate={rwdSidePanel.onAllocate}
+                allocateBusy={rwdSidePanel.allocateBusy}
               />
             </aside>
           )}
@@ -593,10 +663,13 @@ export function MachineHeadDashboard() {
             <MachineHeadOrderSidePanel
               order={selectedOrder}
               onViewDetails={() => setDetailOpen(true)}
-              onDelete={() => void handleDelete()}
+              onDelete={rwdSidePanel.onDelete}
               deleteBusy={deleteBusy}
-              onReinstate={() => void handleReinstate()}
+              onReinstate={rwdSidePanel.onReinstate}
               reinstateBusy={reinstateBusy}
+              hideCrmActions={rwdSidePanel.hideCrmActions}
+              onAllocate={rwdSidePanel.onAllocate}
+              allocateBusy={rwdSidePanel.allocateBusy}
             />
           </div>
         )}
@@ -607,16 +680,37 @@ export function MachineHeadDashboard() {
       )}
 
       <MachineHeadOrderDetailModal
-        batchNumber={selectedOrder?.batchNumber ?? null}
-        open={detailOpen}
+        batchNumber={isRewindingView ? null : (selectedOrder?.batchNumber ?? null)}
+        open={detailOpen && !isRewindingView}
         onClose={() => setDetailOpen(false)}
+      />
+
+      <RewindingMachineAllocationModal
+        open={!!allocCard}
+        batchNumber={allocCard?.batchNumber ?? ''}
+        coilLabel={allocCard ? displayMotherCoilId(allocCard) : ''}
+        suggested="2HI"
+        onClose={() => setAllocCard(null)}
+        onConfirm={async (machineCode) => {
+          if (!allocCard) return;
+          setAllocateBusy(true);
+          try {
+            await allocateRwdMachine(allocCard.batchNumber, machineCode);
+            setAllocCard(null);
+            setSelectedOrder(null);
+            const res = await apiClient.get<{ queue: RewindingQueueCard[] }>('/rewinding/queue?machine=2HI');
+            setRwdCards(res.queue ?? []);
+          } finally {
+            setAllocateBusy(false);
+          }
+        }}
       />
 
       <MachineDetailModal
         open={machineModalCode != null}
         machineCode={machineModalCode}
         machineData={machineModalData}
-        processFilter={processFilter}
+        processFilter={processFilter === 'REWINDING' ? 'ALL' : processFilter}
         onClose={() => {
           setMachineModalCode(null);
           setMachineModalData(undefined);

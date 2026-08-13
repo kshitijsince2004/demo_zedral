@@ -11,6 +11,7 @@
  * - Surfaces a typed ApiError so callers can branch on status / offline.
  */
 
+import { agentDebugLog, isHrsDebugPath } from './agentDebugLog';
 import { useAuthStore } from './authStore';
 import { getActiveCrmMill } from './crmMillContext';
 import { getNetworkQuality, startNetworkQualityProbe } from './networkQuality';
@@ -105,6 +106,7 @@ interface RequestOptions {
   /** Skip throwing on non-2xx; return the parsed body instead. */
   raw?: boolean;
   timeoutMs?: number;
+  headers?: Record<string, string>;
 }
 
 interface ApiEnvelope<T> {
@@ -256,6 +258,14 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
         if (isAbort) msg = 'Request timed out';
         else if (networkErr.message) msg = `Network error: ${networkErr.message}`;
       }
+      if (isHrsDebugPath(finalPath)) {
+        agentDebugLog('apiClient.ts:doFetch', 'HRS network error', {
+          path: finalPath,
+          apiBase: API_BASE,
+          isAbort,
+          msg,
+        }, 'A');
+      }
       throw new ApiError(msg, 0, networkErr, true, true);
     } finally {
       cancel();
@@ -299,16 +309,27 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
     }
   }
 
+  if (isHrsDebugPath(finalPath)) {
+    agentDebugLog('apiClient.ts:apiFetch', 'HRS response', {
+      path: finalPath,
+      method: fetchOpts.method ?? 'GET',
+      status: res.status,
+      ok: res.ok,
+      apiBase: API_BASE,
+    }, res.status === 401 ? 'B' : 'A');
+  }
+
   return res;
 }
 
 async function requestOnce<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, raw = false, timeoutMs } = options;
+  const { method = 'GET', body, raw = false, timeoutMs, headers } = options;
 
   const res = await apiFetch(path, {
     method,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     timeoutMs,
+    headers,
   });
 
   let parsed: unknown = null;
@@ -355,9 +376,13 @@ async function request<T = unknown>(path: string, options: RequestOptions = {}):
 
 export const apiClient = {
   get: <T = unknown>(path: string) => request<T>(path, { method: 'GET' }),
-  post: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
-  put: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
-  patch: <T = unknown>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
-  delete: <T = unknown>(path: string) => request<T>(path, { method: 'DELETE' }),
+  post: <T = unknown>(path: string, body?: unknown, opts?: { headers?: Record<string, string> }) =>
+    request<T>(path, { method: 'POST', body, headers: opts?.headers }),
+  put: <T = unknown>(path: string, body?: unknown, opts?: { headers?: Record<string, string> }) =>
+    request<T>(path, { method: 'PUT', body, headers: opts?.headers }),
+  patch: <T = unknown>(path: string, body?: unknown, opts?: { headers?: Record<string, string> }) =>
+    request<T>(path, { method: 'PATCH', body, headers: opts?.headers }),
+  delete: <T = unknown>(path: string, opts?: { headers?: Record<string, string> }) =>
+    request<T>(path, { method: 'DELETE', headers: opts?.headers }),
   request,
 };

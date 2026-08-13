@@ -5,6 +5,8 @@ import { MachineHeadShell } from '../../../components/layout/machinehead/Machine
 import { ZButton } from '../../../components/primitives/ZButton';
 import { apiClient } from '../../../lib/apiClient';
 import { formatPlantDateTime } from '../../../lib/dateFormat';
+import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
+import { deleteHrsPklOrder, reinstateHrsPklOrder } from '../../../lib/hrsPklWrites';
 
 type HrsDetail = {
   coilNo?: string;
@@ -35,6 +37,7 @@ export function HrsMhCoilDetailPage() {
   const [order, setOrder] = useState<HrsDetail | null>(null);
   const [entry, setEntry] = useState<Prefill | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!coilNo) return;
@@ -49,19 +52,64 @@ export function HrsMhCoilDetailPage() {
   }, [coilNo]);
 
   const p = entry?.prefill ?? {};
+  const coilIdentity = displayMotherCoilId({
+    motherCoilNo: String(order?.motherCoilNo ?? entry?.motherCoilNo ?? p.motherCoilNo ?? '') || undefined,
+    coilNo: order?.coilNo ?? entry?.coilNo ?? coilNo,
+    batchNumber: coilNo,
+    slitId: String(order?.slitId ?? entry?.slitId ?? p.slitId ?? '') || undefined,
+  });
   const rows: Array<[string, string]> = [
-    ['Coil', order?.coilNo ?? entry?.coilNo ?? coilNo],
+    ['Coil', coilIdentity],
     ['Status', order?.status ?? '—'],
     ['Grade', String(order?.gradeCode ?? entry?.gradeCode ?? p.gradeCode ?? '—')],
     ['Weight (MT)', order?.weightMt != null ? Number(order.weightMt).toFixed(2)
       : entry?.weightMt != null ? Number(entry.weightMt).toFixed(2) : String(p.weightMt ?? '—')],
-    ['Mother', String(order?.motherCoilNo ?? entry?.motherCoilNo ?? p.motherCoilNo ?? '—')],
-    ['Slit', String(order?.slitId ?? entry?.slitId ?? p.slitId ?? '—')],
     ['Prod start', order?.prodStartAt ? formatPlantDateTime(order.prodStartAt) : '—'],
     ['Prod end', order?.prodEndAt ? formatPlantDateTime(order.prodEndAt) : '—'],
     ['Slit lines', order?.orderLines?.length != null ? String(order.orderLines.length) : '—'],
     ['Operator', String(p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
   ];
+
+  const st = (order?.status ?? '').toUpperCase();
+  const canReinstate = st === 'REJECTED' || st === 'HOLD' || st === 'COMPLETED';
+  const canDelete = st === 'COMPLETED';
+
+  async function reload() {
+    const [o, e] = await Promise.all([
+      apiClient.get<HrsDetail>(`/hrs-order/orders/${encodeURIComponent(coilNo)}`).catch(() => null),
+      apiClient.get<Prefill>(`/stations/hrs/entry/${encodeURIComponent(coilNo)}`).catch(() => null),
+    ]);
+    setOrder(o);
+    setEntry(e);
+  }
+
+  async function onReinstate(target: 'PREPARING' | 'PENDING') {
+    const label = target === 'PENDING' ? 'Pending' : 'Preparing';
+    if (!window.confirm(`Move ${coilNo} to ${label}?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await reinstateHrsPklOrder('HRS', coilNo, target);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reinstate failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!window.confirm(`Delete order ${coilNo}?\n\nPPC plan stays. This cannot be undone.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteHrsPklOrder('HRS', coilNo);
+      navigate('/live');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+      setBusy(false);
+    }
+  }
 
   return (
     <MachineHeadShell
@@ -84,6 +132,25 @@ export function HrsMhCoilDetailPage() {
               <p className="mt-0.5 text-sm font-semibold font-mono tabular-nums">{value}</p>
             </div>
           ))}
+          {(canReinstate || canDelete) && (
+            <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2">
+              {canReinstate && (
+                <>
+                  <ZButton type="button" variant="secondary" disabled={busy} onClick={() => void onReinstate('PENDING')}>
+                    Move to pending
+                  </ZButton>
+                  <ZButton type="button" variant="secondary" disabled={busy} onClick={() => void onReinstate('PREPARING')}>
+                    Move to preparation
+                  </ZButton>
+                </>
+              )}
+              {canDelete && (
+                <ZButton type="button" variant="secondary" disabled={busy} onClick={() => void onDelete()}>
+                  Delete order
+                </ZButton>
+              )}
+            </div>
+          )}
         </div>
       )}
     </MachineHeadShell>

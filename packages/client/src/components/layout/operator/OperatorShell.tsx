@@ -37,7 +37,7 @@ export function OperatorShell({
   const isProcessHint = isProcessStationCode(processCode);
   const workspaceOpen = useSixHiStore((s) => s.workspaceOpen);
 
-  const navOffset = isCrmMill && !isProcessHint ? 'ml-16' : 'ml-14';
+  const navOffset = 'ml-16';
   const showStatusRail = !bare && !(isCrmMill && !isProcessHint && workspaceOpen);
 
   React.useEffect(() => {

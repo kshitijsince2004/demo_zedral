@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { useWorkspaceBase } from '../../../hooks/useWorkspaceBase';
+import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import { useManualRerollEntry } from '../../../hooks/useTenantFlag';
 import { hubTabsForMill } from '../../../lib/millConfig';
 import {
@@ -10,6 +11,7 @@ import {
   formatManualRerollConflict,
   formatRerollNetRuntime,
   formatRerollSummaryCard,
+  manualRerollStatusToPill,
   matchesRerollStatusFilter,
   rerollCombineKey,
   rerollNetRuntimeMs,
@@ -17,11 +19,14 @@ import {
   type ManualRerollStatusFilter,
 } from '../../../lib/manualRerollUi';
 import { ApiError, getServerTime } from '../../../lib/apiClient';
+import { subscribeTimerTick } from '../../../hooks/useTimerTick';
 import { notifyProductionChanged } from '../../../lib/productionSync';
 import { SixHiPillTabs } from '../SixHiPillTabs';
+import { SixHiStatusPill } from '../SixHiStatusPill';
 import { ZPageHeader } from '../../ui/operator/ZPageHeader';
 import { ZInput } from '../../primitives/ZInput';
 import { ZButton } from '../../primitives/ZButton';
+import { ZBadge } from '../../primitives/ZBadge';
 import { ZFilterPills } from '../../ui/operator/ZFilterPills';
 import { OrderStoppageModal } from '../OrderStoppageModal';
 import { ManualRerollActionRail } from './ManualRerollActionRail';
@@ -43,9 +48,12 @@ import {
   type ManualRerollOrderHit,
   type ManualRerollSession,
   type ManualRerollSessionCard,
+  type ManualRerollStoppage,
 } from '../../../services/manualRerollService';
 import { formatOrderStatusLabel } from '../../../lib/orderLabels';
+import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
 import { useSixHiStore } from '../../../store/sixHiStore';
+import { VirtualizedList } from '../../VirtualizedList';
 
 type QueueRow =
   | { kind: 'pending'; data: ManualRerollOrderHit }
@@ -56,6 +64,88 @@ function freeRemarks(remarks: string | null | undefined): string {
   return remarks.replace(/\[\[batches:[^\]]+\]\]\n?/g, '').trim();
 }
 
+interface ManualRerollRowProps {
+  row: QueueRow;
+  isSelected: boolean;
+  showCombineCheckbox: boolean;
+  isPicked: boolean;
+  pickedCount: number;
+  onSelectPending: (hit: ManualRerollOrderHit) => void;
+  onSelectSession: (card: ManualRerollSessionCard) => void;
+  onCombineToggle: (orderId: string, event: MouseEvent) => void;
+}
+
+/** Extracted + memoized so VirtualizedList rows don't re-render unless their own props change. */
+const ManualRerollRow = memo(function ManualRerollRow({
+  row,
+  isSelected,
+  showCombineCheckbox,
+  isPicked,
+  pickedCount,
+  onSelectPending,
+  onSelectSession,
+  onCombineToggle,
+}: ManualRerollRowProps) {
+  if (row.kind === 'pending') {
+    const hit = row.data;
+    return (
+      <button
+        type="button"
+        className={[
+          'w-full text-left px-3 py-3 border-b border-border hover:bg-secondary flex items-start gap-2',
+          isSelected ? 'bg-secondary' : '',
+        ].join(' ')}
+        onClick={() => onSelectPending(hit)}
+      >
+        {showCombineCheckbox && (
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 accent-primary"
+            checked={isPicked}
+            aria-label={`Include ${hit.batchNumber} in combined re-roll`}
+            onClick={(e) => onCombineToggle(hit.orderId, e)}
+            onChange={() => undefined}
+          />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="font-mono text-sm font-semibold flex items-center gap-2 flex-wrap">
+            {displayMotherCoilId(hit)}
+            {showCombineCheckbox && isPicked && pickedCount > 1 ? (
+              <ZBadge tone="success" label="Combined" />
+            ) : null}
+          </span>
+          <span className="text-xs text-muted-foreground block">
+            Batch {hit.batchNumber} · {hit.customer} · {hit.status || 'Pending'}
+            {hit.weightMt != null ? ` · ${hit.weightMt} MT` : ''}
+          </span>
+        </span>
+      </button>
+    );
+  }
+  const card = row.data;
+  return (
+    <button
+      type="button"
+      className={[
+        'w-full text-left px-3 py-3 border-b border-border hover:bg-secondary',
+        isSelected ? 'bg-secondary' : '',
+      ].join(' ')}
+      onClick={() => onSelectSession(card)}
+    >
+      <span className="font-mono text-sm font-semibold block">
+        {displayMotherCoilId(card)}
+      </span>
+      <span className="text-xs text-muted-foreground block">
+        Batch {(card.batchNumbers?.length ? card.batchNumbers.join(' · ') : card.batchNumber) ?? '—'}
+        {card.batchNumbers?.length > 1 ? ' · Combined' : ''}
+        {' · '}
+        {formatOrderStatusLabel(card.status)}
+        {card.weightMt != null ? ` · ${card.weightMt} MT` : ''}
+      </span>
+    </button>
+  );
+});
+
 export function ManualRerollHub() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { machineCode } = useWorkspaceBase();
@@ -64,11 +154,7 @@ export function ManualRerollHub() {
 
   const statusFilter = (searchParams.get('status')?.toUpperCase() || 'ALL') as ManualRerollStatusFilter;
   const [query, setQuery] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  useEffect(() => {
-    const id = window.setTimeout(() => setDebouncedQ(query), 250);
-    return () => window.clearTimeout(id);
-  }, [query]);
+  const debouncedQ = useDebouncedValue(query, 250);
 
   const { data: queue, mutate: mutateQueue } = useManualRerollQueue(machineCode, showEntry, debouncedQ);
   const { data: summary, mutate: mutateSummary } = useManualRerollSummary(machineCode, showEntry);
@@ -96,14 +182,7 @@ export function ManualRerollHub() {
     slitId?: string | null;
     rollFinish?: string | null;
   }>>([]);
-  const [now, setNow] = useState(() => getServerTime());
   const refreshMachineState = useSixHiStore((s) => s.refreshMachineState);
-
-  useEffect(() => {
-    if (!active || active.status === 'ON_HOLD') return;
-    const id = window.setInterval(() => setNow(getServerTime()), 1000);
-    return () => window.clearInterval(id);
-  }, [active?.sessionId, active?.status, active]);
 
   const setTab = (id: string) => {
     const next = new URLSearchParams(searchParams);
@@ -210,15 +289,15 @@ export function ManualRerollHub() {
     await Promise.all([mutateQueue(), mutateSummary()]);
   }, [mutateQueue, mutateSummary]);
 
-  const selectPending = (hit: ManualRerollOrderHit) => {
+  const selectPending = useCallback((hit: ManualRerollOrderHit) => {
     combineManualRef.current = false;
     setSelectedPending(hit);
     setSelectedSession(null);
     setRemarks('');
     applyCombineSelection(hit, false);
-  };
+  }, [applyCombineSelection]);
 
-  const selectSession = (card: ManualRerollSessionCard) => {
+  const selectSession = useCallback((card: ManualRerollSessionCard) => {
     setSelectedSession(card);
     setSelectedPending(null);
     setPickedIds(new Set());
@@ -235,9 +314,9 @@ export function ManualRerollHub() {
       slitId: card.slitId,
       rollFinish: card.rollFinish,
     })));
-  };
+  }, []);
 
-  const toggleCombined = (orderId: string, event: MouseEvent) => {
+  const toggleCombined = useCallback((orderId: string, event: MouseEvent) => {
     event.stopPropagation();
     if (!compatibleIds.has(orderId)) return;
     combineManualRef.current = true;
@@ -251,7 +330,28 @@ export function ManualRerollHub() {
       }
       return next;
     });
-  };
+  }, [compatibleIds]);
+
+  const renderQueueRow = useCallback((row: QueueRow) => {
+    const isSelected = row.kind === 'pending'
+      ? (selectedPending?.orderId === row.data.orderId || pickedIds.has(row.data.orderId))
+      : (selectedSession?.sessionId === row.data.sessionId || active?.sessionId === row.data.sessionId);
+    const isPicked = row.kind === 'pending' && pickedIds.has(row.data.orderId);
+    const showCombineCheckbox = row.kind === 'pending' && showCombine && compatibleIds.has(row.data.orderId);
+    return (
+      <ManualRerollRow
+        key={row.kind === 'pending' ? `p-${row.data.orderId}` : `s-${row.data.sessionId}`}
+        row={row}
+        isSelected={isSelected}
+        showCombineCheckbox={showCombineCheckbox}
+        isPicked={isPicked}
+        pickedCount={pickedIds.size}
+        onSelectPending={selectPending}
+        onSelectSession={selectSession}
+        onCombineToggle={toggleCombined}
+      />
+    );
+  }, [selectedPending, selectedSession, active, pickedIds, showCombine, compatibleIds, selectPending, selectSession, toggleCombined]);
 
   const cancelCombinedSelection = () => {
     if (!selectedPending) return;
@@ -340,7 +440,7 @@ export function ManualRerollHub() {
         rollFinish: primary.rollFinish,
       });
       setConsoleOpen(true);
-      setStatus('IN_PROGRESS');
+      setStatus('PREPARING');
     });
   };
 
@@ -349,29 +449,13 @@ export function ManualRerollHub() {
     void run(async () => {
       await startPreparedManualReroll(openSessionId, machineCode);
       setConsoleOpen(true);
+      setStatus('IN_PROGRESS');
     });
   };
 
   const consoleLabel = active
     ? (active.batchNumbers?.length ? active.batchNumbers.join(' · ') : active.batchNumber) ?? '—'
     : null;
-  const consoleChip = !active
-    ? null
-    : active.status === 'STOPPAGE' || active.activeStoppage
-      ? 'Stopped'
-      : active.status === 'ON_HOLD'
-        ? 'Held'
-        : active.status === 'PREPARING'
-          ? 'Preparing'
-          : 'Running';
-  const consoleTimer = active && active.status !== 'ON_HOLD' && active.status !== 'PREPARING'
-    ? formatRerollNetRuntime(rerollNetRuntimeMs(active.startTime, active.stoppages, now))
-    : active?.status === 'ON_HOLD'
-      ? 'On hold'
-      : active?.status === 'PREPARING'
-        ? 'Preparing'
-        : null;
-
   const seedThkMm = detailPending?.thkMm
     ?? selectedSession?.thkMm
     ?? null;
@@ -446,8 +530,8 @@ export function ManualRerollHub() {
     customer: consoleOrders[0]?.customer ?? detailPending?.customer ?? selectedSession?.customer,
     grade: consoleOrders[0]?.grade ?? detailPending?.grade ?? selectedSession?.grade,
     widthMm: consoleOrders[0]?.widthMm ?? detailPending?.widthMm ?? selectedSession?.widthMm,
-    thkMm: seedThkMm ?? consoleOrders[0]?.thkMm,
-    inputThkMm: seedThkMm ?? consoleOrders[0]?.thkMm,
+    thkMm: railSession?.targetThkMm ?? seedThkMm ?? consoleOrders[0]?.thkMm,
+    inputThkMm: railSession?.inputThkMm ?? null,
     weightMt: consoleOrders.length > 1
       ? consoleOrders.reduce((sum, o) => sum + (o.weightMt ?? 0), 0)
       : (consoleOrders[0]?.weightMt ?? detailPending?.weightMt ?? selectedSession?.weightMt ?? null),
@@ -463,7 +547,7 @@ export function ManualRerollHub() {
   const actionRail = (
     <ManualRerollActionRail
       session={railSession}
-      pendingLabel={selectedPending?.batchNumber}
+      pendingLabel={selectedPending ? displayMotherCoilId(selectedPending) : undefined}
       pendingCount={picked.length}
       pendingWeightMt={picked.length > 1 ? pickedWeightMt : (selectedPending?.weightMt ?? null)}
       canPrepare={canWrite && !active && !!selectedPending}
@@ -506,9 +590,13 @@ export function ManualRerollHub() {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-warning">Active re-roll</p>
                 <p className="font-mono font-semibold mt-0.5">{consoleLabel}</p>
                 <p className="text-sm text-muted-foreground">
-                  {consoleChip} · {consoleTimer}
+                  <ActiveElapsedClock status={active.status} startTime={active.startTime} stoppages={active.stoppages} />
                 </p>
               </div>
+              {(() => {
+                const pill = manualRerollStatusToPill(active.status);
+                return <SixHiStatusPill status={pill.status} preparing={pill.preparing} />;
+              })()}
             </div>
           )}
         </div>
@@ -548,91 +636,37 @@ export function ManualRerollHub() {
         />
 
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] gap-3 overflow-hidden">
-          <div className="min-h-0 rounded-xl border border-border bg-card overflow-auto">
+          <div className="min-h-0 flex flex-col rounded-xl border border-border bg-card overflow-hidden">
             {filteredRows.length === 0 && (
               <p className="px-4 py-10 text-sm text-muted-foreground text-center">No items in this filter</p>
             )}
-            <ul className="divide-y divide-border">
-              {filteredRows.map((row) => {
-                if (row.kind === 'pending') {
-                  const hit = row.data;
-                  const selected = selectedPending?.orderId === hit.orderId || pickedIds.has(hit.orderId);
-                  return (
-                    <li key={`p-${hit.orderId}`}>
-                      <button
-                        type="button"
-                        className={[
-                          'w-full text-left px-3 py-3 hover:bg-secondary flex items-start gap-2',
-                          selected ? 'bg-secondary' : '',
-                        ].join(' ')}
-                        onClick={() => selectPending(hit)}
-                      >
-                        {showCombine && compatibleIds.has(hit.orderId) && (
-                          <input
-                            type="checkbox"
-                            className="mt-1 h-4 w-4 shrink-0 accent-primary"
-                            checked={pickedIds.has(hit.orderId)}
-                            aria-label={`Include ${hit.batchNumber} in combined re-roll`}
-                            onClick={(e) => toggleCombined(hit.orderId, e)}
-                            onChange={() => undefined}
-                          />
-                        )}
-                        <span className="min-w-0 flex-1">
-                          <span className="font-mono text-sm font-semibold block">
-                            {hit.batchNumber}
-                            {showCombine && pickedIds.has(hit.orderId) && pickedIds.size > 1 ? (
-                              <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-success">Combined</span>
-                            ) : null}
-                          </span>
-                          <span className="text-xs text-muted-foreground block">
-                            {hit.coilNo} · {hit.customer} · {hit.status || 'Pending'}
-                            {hit.weightMt != null ? ` · ${hit.weightMt} MT` : ''}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                }
-                const card = row.data;
-                const selected = selectedSession?.sessionId === card.sessionId
-                  || active?.sessionId === card.sessionId;
-                return (
-                  <li key={`s-${card.sessionId}`}>
-                    <button
-                      type="button"
-                      className={[
-                        'w-full text-left px-3 py-3 hover:bg-secondary',
-                        selected ? 'bg-secondary' : '',
-                      ].join(' ')}
-                      onClick={() => selectSession(card)}
-                    >
-                      <span className="font-mono text-sm font-semibold block">
-                        {(card.batchNumbers?.length ? card.batchNumbers.join(' · ') : card.batchNumber) ?? '—'}
-                      </span>
-                      <span className="text-xs text-muted-foreground block">
-                        {card.batchNumbers?.length > 1 ? 'Combined · ' : ''}
-                        {formatOrderStatusLabel(card.status)}
-                        {card.weightMt != null ? ` · ${card.weightMt} MT` : ''}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            {filteredRows.length > 12 ? (
+              <VirtualizedList
+                items={filteredRows}
+                estimateSize={64}
+                className="flex-1 min-h-0"
+                getKey={(row) => (row.kind === 'pending' ? `p-${row.data.orderId}` : `s-${row.data.sessionId}`)}
+                renderItem={(row) => renderQueueRow(row)}
+              />
+            ) : (
+              <div className="flex-1 min-h-0 overflow-auto">
+                {filteredRows.map((row) => renderQueueRow(row))}
+              </div>
+            )}
           </div>
 
           <div className="min-h-0 rounded-xl border border-border bg-card p-4 flex flex-col gap-3 overflow-auto">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Plan / detail</p>
             {detailPending && !detailSession && (
               <>
+                <DetailLine label="Coil" value={displayMotherCoilId(detailPending)} mono />
                 <DetailLine label="Batch" value={detailPending.batchNumber} mono />
-                <DetailLine label="Coil" value={detailPending.coilNo} mono />
                 <DetailLine label="Customer" value={detailPending.customer} />
                 <DetailLine label="Grade" value={detailPending.grade ?? '—'} />
                 <DetailLine label="Weight" value={detailPending.weightMt != null ? `${detailPending.weightMt} MT` : '—'} />
                 <DetailLine label="Thk" value={detailPending.thkMm != null ? `${detailPending.thkMm} mm` : '—'} />
                 <DetailLine label="Width" value={detailPending.widthMm != null ? `${detailPending.widthMm} mm` : '—'} />
-                <DetailLine label="Slit / finish" value={`${detailPending.slitId ?? '—'} / ${detailPending.rollFinish ?? '—'}`} />
+                <DetailLine label="Finish" value={detailPending.rollFinish ?? '—'} />
                 {canWrite && !active && (
                   <>
                     <label className="text-sm block mt-2">
@@ -653,6 +687,7 @@ export function ManualRerollHub() {
             )}
             {detailSession && (
               <>
+                <DetailLine label="Coil" value={displayMotherCoilId(detailSession)} mono />
                 <DetailLine
                   label="Batch"
                   value={(detailSession.batchNumbers?.length
@@ -662,14 +697,21 @@ export function ManualRerollHub() {
                 />
                 <DetailLine label="Status" value={formatOrderStatusLabel(detailSession.status)} />
                 <DetailLine label="Weight" value={detailSession.weightMt != null ? `${detailSession.weightMt} MT` : '—'} />
-                <DetailLine label="Started" value={new Date(detailSession.startTime).toLocaleString()} />
+                {detailSession.status === 'PREPARING' ? (
+                  <DetailLine label="Prepared" value={new Date(detailSession.startTime).toLocaleString()} />
+                ) : (
+                  <DetailLine label="Started" value={new Date(detailSession.startTime).toLocaleString()} />
+                )}
                 {detailSession.durationMin != null && (
                   <DetailLine label="Net min" value={String(detailSession.durationMin)} />
                 )}
                 <DetailLine label="Remarks" value={freeRemarks(detailSession.remarks) || '—'} />
                 {canWrite && detailSession.status === 'PREPARING' && (
                   <div className="mt-auto pt-3 space-y-2">
-                    <ZButton className="w-full" disabled={busy} onClick={() => setConsoleOpen(true)}>
+                    <ZButton className="w-full" disabled={busy} onClick={onStartProduction}>
+                      Start
+                    </ZButton>
+                    <ZButton className="w-full" variant="secondary" disabled={busy} onClick={() => setConsoleOpen(true)}>
                       Open Production Console
                     </ZButton>
                     <ZButton
@@ -808,6 +850,27 @@ export function ManualRerollHub() {
     </div>
   );
 }
+
+/** 1 Hz session clock isolated to its own leaf so the hub doesn't re-render every tick. */
+const ActiveElapsedClock = memo(function ActiveElapsedClock({
+  status,
+  startTime,
+  stoppages,
+}: {
+  status: string;
+  startTime: string;
+  stoppages?: ManualRerollStoppage[];
+}) {
+  const [now, setNow] = useState(() => getServerTime());
+  useEffect(() => {
+    if (status === 'ON_HOLD' || status === 'PREPARING') return;
+    return subscribeTimerTick(() => setNow(getServerTime()));
+  }, [status]);
+
+  if (status === 'ON_HOLD') return <>On hold</>;
+  if (status === 'PREPARING') return <>Preparing</>;
+  return <>{formatRerollNetRuntime(rerollNetRuntimeMs(startTime, stoppages, now))}</>;
+});
 
 function DetailLine({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (

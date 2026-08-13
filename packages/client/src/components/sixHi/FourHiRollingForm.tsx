@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail, SixHiRollingData } from '@m1/shared-validation';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { ZButton } from '../primitives/ZButton';
@@ -62,6 +62,38 @@ function resolveCombinedActualFromOrder(order: SixHiOrderDetail): number | undef
   return order.rolling?.actualWeightMt ?? order.skinPass?.actualWeightMt;
 }
 
+/** Fingerprint saved rolling so seed→loadPanelOrder rehydrates the console. */
+function rollingHydrateKey(order: SixHiOrderDetail, combinedActualMt?: number): string {
+  const r = order.rolling;
+  if (!r) return `${order.batchNumber}|none|${combinedActualMt ?? ''}`;
+  return [
+    order.batchNumber,
+    r.actualWeightMt ?? '',
+    r.etr ?? '',
+    r.dtr ?? '',
+    r.destination ?? '',
+    r.destinationOverride ? '1' : '0',
+    (r.passes ?? []).map((p) => `${p.passNo}:${p.thicknessMm}`).join(','),
+    combinedActualMt ?? '',
+  ].join('|');
+}
+
+function draftsFromRolling(
+  order: SixHiOrderDetail,
+  rolling: SixHiRollingData,
+  isCombined: boolean,
+  combinedActualMt?: number,
+): Record<RollingDecimalField, string> {
+  const weight = isCombined
+    ? combinedActualMt ?? resolveCombinedActualFromOrder(order) ?? rolling.actualWeightMt
+    : rolling.actualWeightMt;
+  return {
+    actualWeightMt: toDraft(weight),
+    etr: toDraft(rolling.etr),
+    dtr: toDraft(rolling.dtr),
+  };
+}
+
 export function FourHiRollingForm({
   order,
   onSave,
@@ -86,8 +118,19 @@ export function FourHiRollingForm({
     dtr: toDraft(initial.dtr),
   });
   const [overrideDest, setOverrideDest] = useState(initial.destinationOverride);
+  const [hydrateKey, setHydrateKey] = useState(() => rollingHydrateKey(order, combinedActualMt));
   const locked = readOnly || order.status === 'COMPLETED';
   const effectiveDest = overrideDest ? data.destination : ppcDest;
+
+  useEffect(() => {
+    const nextKey = rollingHydrateKey(order, combinedActualMt);
+    if (nextKey === hydrateKey) return;
+    const next = buildInitialRolling(order);
+    setHydrateKey(nextKey);
+    setData(next);
+    setDrafts(draftsFromRolling(order, next, isCombined, combinedActualMt));
+    setOverrideDest(next.destinationOverride);
+  }, [order, combinedActualMt, hydrateKey, isCombined]);
 
   const finalThk = data.passes.length > 0 ? data.passes[data.passes.length - 1].thicknessMm : data.finalThkMm;
 
@@ -123,9 +166,6 @@ export function FourHiRollingForm({
     if (raw.trim() && !raw.endsWith('.')) {
       const parsed = parseDecimalDraft(raw);
       setData((prev) => ({ ...prev, [field]: parsed }));
-      if (isCombined && field === 'actualWeightMt' && parsed != null) {
-        useSixHiStore.getState().setCombinedActualMtIntent(parsed);
-      }
       return;
     }
 

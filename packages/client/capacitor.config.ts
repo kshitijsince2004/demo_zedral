@@ -6,9 +6,10 @@ const config: CapacitorConfig = {
   webDir: 'dist-operator',
   server: {
     androidScheme: 'https',
-    cleartext: true
+    // ponytail: QA/API is HTTPS; cleartext/mixed-content off unless plant LAN is HTTP-only
+    cleartext: false,
   },
-  android: { allowMixedContent: true },
+  android: { allowMixedContent: false },
   plugins: {
     SplashScreen: { launchShowDuration: 800, backgroundColor: '#163328' },
     CapacitorSQLite: { androidIsEncryption: true },

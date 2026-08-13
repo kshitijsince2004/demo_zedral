@@ -23,7 +23,7 @@ export function useProcessHubQueue(
     queueUrl,
     (url) => fetchProcessQueue(url, processCode),
     {
-      refreshInterval: networkAwareRefreshInterval(15_000),
+      refreshInterval: networkAwareRefreshInterval(15_000, { pauseWhileTyping: true }),
       revalidateOnFocus: false,
       keepPreviousData: true,
       compare: (a, b) => jsonEqual(a, b),

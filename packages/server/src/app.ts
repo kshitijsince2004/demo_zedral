@@ -207,6 +207,19 @@ export function buildApp(registry: ModuleRegistry): ComposedApp {
   // After domain routes so internal app.handle can reach them (PERF-C3).
   app.use('/sync', m1Guard, createSyncBatchRouter(app));
 
+  app.get('/health/handoff', async (_req, res) => {
+    try {
+      const { getHandoffHealthSnapshot } = await import('./services/journeyHandoff');
+      const snapshot = await getHandoffHealthSnapshot();
+      res.json({ status: 'ok', ...snapshot });
+    } catch (err) {
+      res.status(503).json({
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   app.get('/health', async (_req, res) => {
     const payload: Record<string, unknown> = {
       status: 'ok',

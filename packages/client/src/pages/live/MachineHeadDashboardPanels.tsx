@@ -8,7 +8,7 @@ import {
 } from '../../services/manualRerollService';
 
 export type DashboardTab = 'overview' | 'orders' | 'production' | 'stoppages' | 'rejected' | 'completed' | 'handover';
-export type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS';
+export type ProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'REWINDING';
 /** History tab pills — Rolling / Skin Pass / Manual Re-Rolling (+ All). */
 export type HistoryProcessFilter = 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL';
 
@@ -51,6 +51,7 @@ export const VIRTUALIZE_THRESHOLD = 20;
 
 export function matchesProcessFilter(subProcess: string | undefined, filter: ProcessFilter, allowUnknown = false): boolean {
   if (filter === 'ALL') return true;
+  if (filter === 'REWINDING') return subProcess === 'REWINDING';
   if (!subProcess) return allowUnknown;
   return subProcess === filter;
 }

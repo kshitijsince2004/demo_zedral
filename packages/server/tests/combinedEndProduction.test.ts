@@ -4,6 +4,11 @@ import {
   allocateCombinedRemainderToBlanks,
   resolveCombinedActualMt,
 } from '@m1/shared-validation';
+import {
+  statusAfterUngroupCombine,
+  parseActiveOrderConflictBatch,
+  activeOrderConflictMessage,
+} from '../src/utils/orderLifecycleHelpers';
 
 describe('SixHiEndProductionSchema', () => {
   it('accepts optional combinedActualMt for combined ends', () => {
@@ -55,6 +60,30 @@ describe('combined end weight allocation contract', () => {
     );
     expect(allocation?.get('A')).toBeUndefined();
     expect(allocation?.get('B')).toBe(4);
+  });
+});
+
+describe('cancel combined / ungroup', () => {
+  it('statusAfterUngroupCombine keeps PREPARING when allocated', () => {
+    expect(statusAfterUngroupCombine(true)).toBe('PREPARING');
+    expect(statusAfterUngroupCombine(false)).toBe('PENDING');
+  });
+
+  it('parses ACTIVE_ORDER_CONFLICT batch without splitting on colons in the id', () => {
+    expect(parseActiveOrderConflictBatch(activeOrderConflictMessage('C-PPC:1786'))).toBe('C-PPC:1786');
+    expect(parseActiveOrderConflictBatch('ACTIVE_ORDER_CONFLICT:')).toBeUndefined();
+    expect(parseActiveOrderConflictBatch('other')).toBeUndefined();
+  });
+
+  it('SixHiService.cancelCombinedProduction is exported', async () => {
+    const { SixHiService } = await import('../src/services/SixHiService');
+    expect(typeof SixHiService.cancelCombinedProduction).toBe('function');
+    expect(SixHiService.cancelCombinedProduction.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('RewindingOrderService.cancelCombinedProduction is exported', async () => {
+    const { RewindingOrderService } = await import('../src/services/RewindingOrderService');
+    expect(typeof RewindingOrderService.cancelCombinedProduction).toBe('function');
   });
 });
 

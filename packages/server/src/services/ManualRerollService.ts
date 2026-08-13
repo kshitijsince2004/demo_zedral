@@ -7,8 +7,10 @@ import type { ManualRerollMachine } from '@m1/shared-validation';
 
 export const ACTIVE_REROLL_CONFLICT = 'ACTIVE_REROLL_CONFLICT';
 
-/** Blocks new CRM / re-roll starts on the mill (includes preparing console). */
-export const BLOCKING_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
+/** Blocks CRM Start / Start Combined — mill actually running (not PREPARING). */
+export const BLOCKING_REROLL_STATUSES = ['IN_PROGRESS', 'STOPPAGE'] as const;
+/** Hub / prepare: open console session including PREPARING (one at a time). */
+export const HUB_ACTIVE_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'STOPPAGE'] as const;
 /** Includes Hold queue sessions (machine stays idle / free for other work). */
 export const OPEN_REROLL_STATUSES = ['PREPARING', 'IN_PROGRESS', 'ON_HOLD', 'STOPPAGE'] as const;
 /** Sessions that keep CRM batches out of the Manual Re-Roll pending list. */
@@ -56,9 +58,23 @@ export interface ManualRerollSessionDto {
   actualWeightPhotoHash: string | null;
   ocrConfidence: number | null;
   ocrRawText: string | null;
+  inputThkMm: number | null;
+  targetThkMm: number | null;
+  destination: string | null;
+  destinationOverride: boolean;
+  etr: number | null;
+  dtr: number | null;
   passes: ManualRerollPassDto[];
   activeStoppage?: ManualRerollStoppageDto | null;
   stoppages?: ManualRerollStoppageDto[];
+}
+
+export interface ManualRerollOverlayEntry {
+  batchNumber: string;
+  wasRerolled: boolean;
+  lastRerolledThicknessMm: number | null;
+  lastRerolledAt: string | null;
+  sessionCount: number;
 }
 
 /** Open overlay session used by LiveService machine cards. */
@@ -203,6 +219,12 @@ function mapSession(row: {
   actual_weight_photo_hash?: string | null;
   ocr_confidence?: string | number | null;
   ocr_raw_text?: string | null;
+  input_thk_mm?: string | number | null;
+  target_thk_mm?: string | number | null;
+  destination?: string | null;
+  destination_override?: boolean | null;
+  etr?: string | number | null;
+  dtr?: string | number | null;
 }, extras?: {
   activeStoppage?: ManualRerollStoppageDto | null;
   stoppages?: ManualRerollStoppageDto[];
@@ -228,6 +250,12 @@ function mapSession(row: {
     actualWeightPhotoHash: row.actual_weight_photo_hash ?? null,
     ocrConfidence: row.ocr_confidence == null ? null : Number(row.ocr_confidence),
     ocrRawText: row.ocr_raw_text ?? null,
+    inputThkMm: row.input_thk_mm == null ? null : Number(row.input_thk_mm),
+    targetThkMm: row.target_thk_mm == null ? null : Number(row.target_thk_mm),
+    destination: row.destination ?? null,
+    destinationOverride: row.destination_override === true,
+    etr: row.etr == null ? null : Number(row.etr),
+    dtr: row.dtr == null ? null : Number(row.dtr),
     passes: extras?.passes ?? [],
     activeStoppage: extras?.activeStoppage ?? null,
     stoppages: extras?.stoppages,
@@ -305,7 +333,18 @@ async function ensureManualRerollTable(): Promise<void> {
           ADD COLUMN IF NOT EXISTS actual_weight_source TEXT,
           ADD COLUMN IF NOT EXISTS actual_weight_photo_hash TEXT,
           ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC(5,2),
-          ADD COLUMN IF NOT EXISTS ocr_raw_text TEXT
+          ADD COLUMN IF NOT EXISTS ocr_raw_text TEXT,
+          ADD COLUMN IF NOT EXISTS input_thk_mm NUMERIC(8,4),
+          ADD COLUMN IF NOT EXISTS target_thk_mm NUMERIC(8,4),
+          ADD COLUMN IF NOT EXISTS destination VARCHAR(16),
+          ADD COLUMN IF NOT EXISTS destination_override BOOLEAN DEFAULT false,
+          ADD COLUMN IF NOT EXISTS etr NUMERIC,
+          ADD COLUMN IF NOT EXISTS dtr NUMERIC
+      `.execute(db);
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_manual_reroll_session_batch_completed
+          ON txn.manual_reroll_session (batch_number)
+          WHERE status = 'COMPLETED'
       `.execute(db);
       await sql`
         CREATE TABLE IF NOT EXISTS txn.manual_reroll_stoppage (
@@ -432,21 +471,102 @@ function sumStoppageMinutes(stoppages: ManualRerollStoppageDto[], until: Date): 
   return total;
 }
 
+/** Read-only thickness lineage for prepareSession (no CRM writes). */
+async function resolveSessionThicknesses(batchNumber: string): Promise<{
+  inputThkMm: number | null;
+  targetThkMm: number | null;
+  destination: string | null;
+}> {
+  try {
+    // Prefer last pass of most recent COMPLETED manual re-roll for this batch.
+    const priorPass = await sql<{ thickness_mm: string | number; end_time: Date | string | null }>`
+      SELECT p.thickness_mm, s.end_time
+      FROM txn.manual_reroll_session s
+      INNER JOIN txn.manual_reroll_pass p ON p.session_id = s.session_id
+      WHERE s.status = 'COMPLETED'
+        AND (
+          s.batch_number = ${batchNumber}
+          OR (${batchNumber} = ANY (COALESCE(s.batch_numbers, ARRAY[]::text[])))
+        )
+      ORDER BY COALESCE(s.end_time, s.start_time) DESC, p.pass_no DESC
+      LIMIT 1
+    `.execute(db);
+
+    const ppc = await db
+      .selectFrom('planning.ppc_batch')
+      .select(['input_thk_mm', 'ppc_thk_mm', 'destination'])
+      .where('batch_number', '=', batchNumber)
+      .orderBy('batch_id', 'desc')
+      .executeTakeFirst();
+
+    const targetThkMm = ppc?.ppc_thk_mm != null ? Number(ppc.ppc_thk_mm) : null;
+    const destination = ppc?.destination ?? null;
+
+    if (priorPass.rows[0]?.thickness_mm != null) {
+      return {
+        inputThkMm: Number(priorPass.rows[0].thickness_mm),
+        targetThkMm,
+        destination,
+      };
+    }
+
+    // Else last rolling final thickness for this batch (read-only).
+    const rolling = await sql<{ final_thk_mm: string | number | null }>`
+      SELECT r.final_thk_mm
+      FROM txn.crm_order o
+      INNER JOIN txn.crm_rolling r ON r.order_id = o.order_id
+      WHERE o.batch_number = ${batchNumber}
+        AND r.final_thk_mm IS NOT NULL
+      ORDER BY o.order_id DESC
+      LIMIT 1
+    `.execute(db);
+
+    if (rolling.rows[0]?.final_thk_mm != null) {
+      return {
+        inputThkMm: Number(rolling.rows[0].final_thk_mm),
+        targetThkMm,
+        destination,
+      };
+    }
+
+    const planInput = ppc?.input_thk_mm != null
+      ? Number(ppc.input_thk_mm)
+      : (ppc?.ppc_thk_mm != null ? Number(ppc.ppc_thk_mm) : null);
+
+    return {
+      inputThkMm: planInput,
+      targetThkMm,
+      destination,
+    };
+  } catch {
+    // Tests / offline DDL — prepare still works without thickness prefill.
+    return { inputThkMm: null, targetThkMm: null, destination: null };
+  }
+}
+
 export class ManualRerollService {
-  /** Session that blocks starting CRM production or another re-roll (running / stoppage). */
+  /** Hub active session (PREPARING / running / stoppage) — used for prepare conflict + queue active. */
   static async getActiveSession(machineCode: string): Promise<ManualRerollSessionDto | null> {
     await ensureManualRerollTable();
     const row = await db
       .selectFrom('txn.manual_reroll_session')
       .selectAll()
       .where('machine_code', '=', machineCode)
-      .where('status', 'in', [...BLOCKING_REROLL_STATUSES])
+      .where('status', 'in', [...HUB_ACTIVE_REROLL_STATUSES])
       .executeTakeFirst();
     if (!row) return null;
     const stoppages = await loadStoppages(String(row.session_id));
     const activeStoppage = stoppages.find((s) => !s.endTime) ?? null;
     const passes = await loadPasses(String(row.session_id));
     return mapSession(row as any, { activeStoppage, stoppages, passes });
+  }
+
+  /** Session that blocks CRM Start (IN_PROGRESS / STOPPAGE only). */
+  static async getBlockingSession(machineCode: string): Promise<ManualRerollSessionDto | null> {
+    const active = await this.getActiveSession(machineCode);
+    if (!active) return null;
+    if (!(BLOCKING_REROLL_STATUSES as readonly string[]).includes(active.status)) return null;
+    return active;
   }
 
   /** Open hold on this mill (Hold queue / StatusRail), if any. */
@@ -464,7 +584,7 @@ export class ManualRerollService {
   }
 
   static async assertNoActiveReroll(machineCode: string): Promise<void> {
-    const active = await this.getActiveSession(machineCode);
+    const active = await this.getBlockingSession(machineCode);
     if (active) throw new Error(ACTIVE_REROLL_CONFLICT);
   }
 
@@ -581,6 +701,8 @@ export class ManualRerollService {
     );
     await this.assertCompatibleBatches(input.machine, batches);
 
+    const thicknesses = await resolveSessionThicknesses(input.batchNumber);
+
     const row = await db
       .insertInto('txn.manual_reroll_session')
       .values({
@@ -595,6 +717,10 @@ export class ManualRerollService {
         status: 'PREPARING',
         remarks: input.remarks?.trim() || null,
         created_by: input.operatorId,
+        input_thk_mm: thicknesses.inputThkMm,
+        target_thk_mm: thicknesses.targetThkMm,
+        destination: thicknesses.destination,
+        destination_override: false,
       } as any)
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -650,6 +776,12 @@ export class ManualRerollService {
       actualWeightPhotoHash?: string | null;
       ocrConfidence?: number | null;
       ocrRawText?: string | null;
+      destination?: string | null;
+      destinationOverride?: boolean | null;
+      etr?: number | null;
+      dtr?: number | null;
+      inputThkMm?: number | null;
+      targetThkMm?: number | null;
       passes?: ManualRerollPassDto[];
     },
   ): Promise<ManualRerollSessionDto> {
@@ -667,6 +799,14 @@ export class ManualRerollService {
           : {}),
         ...(input.ocrConfidence !== undefined ? { ocr_confidence: input.ocrConfidence } : {}),
         ...(input.ocrRawText !== undefined ? { ocr_raw_text: input.ocrRawText } : {}),
+        ...(input.destination !== undefined ? { destination: input.destination } : {}),
+        ...(input.destinationOverride !== undefined
+          ? { destination_override: input.destinationOverride === true }
+          : {}),
+        ...(input.etr !== undefined ? { etr: input.etr } : {}),
+        ...(input.dtr !== undefined ? { dtr: input.dtr } : {}),
+        ...(input.inputThkMm !== undefined ? { input_thk_mm: input.inputThkMm } : {}),
+        ...(input.targetThkMm !== undefined ? { target_thk_mm: input.targetThkMm } : {}),
         updated_at: new Date(),
       } as any)
       .where('session_id', '=', sessionId)
@@ -1106,5 +1246,69 @@ export class ManualRerollService {
       byShift: [...byShiftMap.values()],
       byOrder: [...byOrderMap.values()],
     };
+  }
+
+  /** Read-only overlay for rolling console — COMPLETED manual sessions only. */
+  static async getOverlay(batchNumbers: string[]): Promise<ManualRerollOverlayEntry[]> {
+    await ensureManualRerollTable();
+    const unique = [...new Set(batchNumbers.map((b) => b.trim()).filter(Boolean))];
+    if (unique.length === 0) return [];
+
+    const result: ManualRerollOverlayEntry[] = [];
+    for (const batchNumber of unique) {
+      try {
+        const sessions = await sql<{
+          session_id: string | number | bigint;
+          end_time: Date | string | null;
+          start_time: Date | string;
+        }>`
+          SELECT session_id, end_time, start_time
+          FROM txn.manual_reroll_session
+          WHERE status = 'COMPLETED'
+            AND (
+              batch_number = ${batchNumber}
+              OR (${batchNumber} = ANY (COALESCE(batch_numbers, ARRAY[]::text[])))
+            )
+          ORDER BY COALESCE(end_time, start_time) DESC
+        `.execute(db);
+
+        const sessionCount = sessions.rows.length;
+        if (sessionCount === 0) {
+          result.push({
+            batchNumber,
+            wasRerolled: false,
+            lastRerolledThicknessMm: null,
+            lastRerolledAt: null,
+            sessionCount: 0,
+          });
+          continue;
+        }
+
+        const latest = sessions.rows[0]!;
+        const lastPass = await db
+          .selectFrom('txn.manual_reroll_pass')
+          .select(['thickness_mm'])
+          .where('session_id', '=', String(latest.session_id) as any)
+          .orderBy('pass_no', 'desc')
+          .executeTakeFirst();
+
+        result.push({
+          batchNumber,
+          wasRerolled: true,
+          lastRerolledThicknessMm: lastPass?.thickness_mm == null ? null : Number(lastPass.thickness_mm),
+          lastRerolledAt: toIso(latest.end_time ?? latest.start_time),
+          sessionCount,
+        });
+      } catch {
+        result.push({
+          batchNumber,
+          wasRerolled: false,
+          lastRerolledThicknessMm: null,
+          lastRerolledAt: null,
+          sessionCount: 0,
+        });
+      }
+    }
+    return result;
   }
 }

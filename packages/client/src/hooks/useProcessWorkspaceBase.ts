@@ -3,7 +3,11 @@ import { useAuthStore } from '../lib/authStore';
 import { isUserScopePath, userScopePath } from '../lib/userScope';
 import { isProcessStationCode, type ProcessStationCode } from '../lib/processConfig';
 
-/** Base path and process code for non-CRM operator workspace routes. */
+/**
+ * Base path and process code for non-CRM operator workspace routes.
+ * Always returns an absolute path (`/user.operator`) so navigate() never
+ * resolves relative to the current scope and doubles the URL (APK catch-all bounce).
+ */
 export function useProcessWorkspaceBase(): { basePath: string; processCode: ProcessStationCode } {
   const location = useLocation();
   const username = useAuthStore((s) => s.username);

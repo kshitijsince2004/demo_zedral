@@ -1182,7 +1182,8 @@ export interface TxnIdempotencyKey {
   created_at: Generated<Timestamp>;
   key: string;
   response_body: Json | null;
-  response_status: number;
+  response_status: number | null;
+  status: Generated<string>;
 }
 
 export interface TxnMachineHandover {
@@ -1585,8 +1586,13 @@ export interface TxnManualRerollSession {
   batch_numbers: string[] | null;
   created_at: Generated<Timestamp>;
   created_by: number;
+  destination: string | null;
+  destination_override: Generated<boolean | null>;
+  dtr: Numeric | null;
   duration_min: number | null;
   end_time: Timestamp | null;
+  etr: Numeric | null;
+  input_thk_mm: Numeric | null;
   machine_code: string;
   machine_type: string;
   ocr_confidence: Numeric | null;
@@ -1599,6 +1605,7 @@ export interface TxnManualRerollSession {
   shift_code: string | null;
   start_time: Generated<Timestamp>;
   status: Generated<string>;
+  target_thk_mm: Numeric | null;
   tenant_id: Generated<string>;
   updated_at: Generated<Timestamp>;
 }

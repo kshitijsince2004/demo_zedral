@@ -6,6 +6,7 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZInput } from '../../components/primitives/ZInput';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { OrderIdentityDisplay } from '../../components/orders/OrderIdentityDisplay';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { MachineHeadShell } from '../../components/layout/machinehead/MachineHeadShell';
 import { formatPlantDate } from '../../lib/dateFormat';
 
@@ -252,7 +253,14 @@ export function PlantOrderTracking({ standalone = false }: { standalone?: boolea
                       <td className="px-4 py-3">
                         <StatusBadge tone="muted" label={entry.process} />
                       </td>
-                      <td className="px-4 py-3 font-mono">{entry.coilNo}</td>
+                      <td className="px-4 py-3 font-mono">
+                        {displayMotherCoilId({
+                          coilNo: entry.coilNo,
+                          batchNumber: entry.coilNo,
+                          motherCoil: result.orderInfo?.motherCoil ?? result.orderInfo?.coilNo,
+                          slitId: result.orderInfo?.slitId ?? undefined,
+                        })}
+                      </td>
                       <td className="px-4 py-3 text-xs">
                         {details.length > 0 ? (
                           <dl className="flex flex-wrap gap-x-4 gap-y-1">

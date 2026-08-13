@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { agentDebugLog } from '../lib/agentDebugLog';
 import { apiClient } from '../lib/apiClient';
 import { jsonEqual } from '../lib/silentRefresh';
 import { notifyProductionChanged } from '../lib/productionSync';
@@ -96,9 +97,9 @@ export function mapQueue(code: ProcessStationCode, raw: unknown): ProcessQueueCa
         displayCoilNo: c.displayCoilNo != null ? String(c.displayCoilNo) : undefined,
         gradeCode: String(c.gradeCode ?? ''),
         customerName: String(c.customerName ?? ''),
-        widthMm: Number(c.widthMm) || 0,
-        thicknessMm: Number(c.thicknessMm) || 0,
-        weightMt: Number(c.weightMt) || 0,
+        widthMm: c.widthMm != null ? Number(c.widthMm) : undefined,
+        thicknessMm: c.thicknessMm != null ? Number(c.thicknessMm) : undefined,
+        weightMt: c.weightMt != null ? Number(c.weightMt) : undefined,
         status,
         journeyId: batchNumber,
         stepNo: 0,
@@ -126,9 +127,9 @@ export function mapQueue(code: ProcessStationCode, raw: unknown): ProcessQueueCa
         displayCoilNo: c.displayCoilNo != null ? String(c.displayCoilNo) : undefined,
         gradeCode: String(c.gradeCode ?? ''),
         customerName: String(c.customerName ?? ''),
-        widthMm: Number(c.widthMm) || 0,
-        thicknessMm: Number(c.thicknessMm) || 0,
-        weightMt: Number(c.weightMt) || 0,
+        widthMm: c.widthMm != null ? Number(c.widthMm) : undefined,
+        thicknessMm: c.thicknessMm != null ? Number(c.thicknessMm) : undefined,
+        weightMt: c.weightMt != null ? Number(c.weightMt) : undefined,
         status: mapHrsPklQueueStatus(c.status as string | undefined),
         journeyId: String(c.journeyId ?? coilNo),
         stepNo: Number(c.stepNo) || 0,
@@ -148,15 +149,16 @@ export function mapQueue(code: ProcessStationCode, raw: unknown): ProcessQueueCa
         displayCoilNo: c.displayCoilNo != null ? String(c.displayCoilNo) : undefined,
         gradeCode: String(c.gradeCode ?? ''),
         customerName: String(c.customerName ?? ''),
-        widthMm: Number(c.widthMm) || 0,
-        thicknessMm: Number(c.thicknessMm) || 0,
-        weightMt: Number(c.weightMt) || 0,
+        widthMm: c.widthMm != null ? Number(c.widthMm) : undefined,
+        thicknessMm: c.thicknessMm != null ? Number(c.thicknessMm) : undefined,
+        weightMt: c.weightMt != null ? Number(c.weightMt) : undefined,
         status: mapHrsPklQueueStatus(c.status as string | undefined),
         journeyId: String(c.journeyId ?? coilNo),
         stepNo: Number(c.stepNo) || 0,
         motherCoilNo: c.motherCoilNo != null ? String(c.motherCoilNo) : undefined,
         slitId: c.slitId != null ? String(c.slitId) : undefined,
         routeRaw: c.routeRaw != null ? String(c.routeRaw) : undefined,
+        batchNumber: c.batchNumber != null ? String(c.batchNumber) : undefined,
       };
     });
   }
@@ -175,14 +177,27 @@ const IDLE_RUN = {
   captureError: null as string | null,
 };
 
+type EndCaptureWaiter = {
+  resolve: () => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+let endCaptureWaiter: EndCaptureWaiter | null = null;
+
+function clearEndCaptureWaiter() {
+  if (!endCaptureWaiter) return;
+  clearTimeout(endCaptureWaiter.timer);
+  endCaptureWaiter = null;
+}
+
 export interface ProcessQueueCard {
   coilNo: string;
   displayCoilNo?: string;
   gradeCode: string;
   customerName: string;
-  widthMm: number;
-  thicknessMm: number;
-  weightMt: number;
+  widthMm?: number;
+  thicknessMm?: number;
+  weightMt?: number;
   status: ProcessQueueStatus;
   journeyId: string;
   stepNo: number;
@@ -191,6 +206,8 @@ export interface ProcessQueueCard {
   motherCoilNo?: string;
   /** PKL sibling key — slit id. */
   slitId?: string;
+  /** ANN plan Annealing Batch (from ppc raw_row_json). */
+  annealingBatch?: string;
   /** Process route string from PPC (PKL hub detail / capture). */
   routeRaw?: string;
   /** RWD combine key — plan surface (M/B). */
@@ -253,6 +270,13 @@ interface ProcessStore {
   endCaptureToken: number;
   /** Body Save → open OrderEndModal (same path as rail End). */
   endConfirmToken: number;
+
+  /** Rail End modal: bump token and wait until capture form settles (or times out). */
+  requestEndCaptureAndWait: () => Promise<void>;
+  /** Capture form finished End successfully. */
+  settleEndCaptureOk: () => void;
+  /** Capture form missing / validation failed. */
+  settleEndCaptureError: (message: string) => void;
 
   setProcessCode: (code: ProcessStationCode) => void;
   /** Clear run-scoped + line-scoped UI when switching HRS/PKL/… */
@@ -365,7 +389,8 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
     remarkPanelOpen: false,
     stoppageCode: '12',
     stoppageRemarks: '',
-    statusFilter: 'ALL',
+    // HRS default queue is Pending (Preparing is its own pill).
+    statusFilter: code === 'HRS' ? 'PENDING' : 'ALL',
   }),
   clearCaptureError: () => set({ captureError: null }),
   setStatusFilter: (filter) => set({ statusFilter: filter }),
@@ -432,6 +457,27 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
   requestManageStoppage: () => set((s) => ({ stoppageManageToken: s.stoppageManageToken + 1 })),
   requestEndConfirm: () => set((s) => ({ endConfirmToken: s.endConfirmToken + 1 })),
   requestEndCapture: () => set((s) => ({ endCaptureToken: s.endCaptureToken + 1 })),
+  requestEndCaptureAndWait: () => {
+    clearEndCaptureWaiter();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        endCaptureWaiter = null;
+        reject(new Error('End timed out — fix capture form errors and try again.'));
+      }, 60_000);
+      endCaptureWaiter = { resolve, reject, timer };
+      set((s) => ({ endCaptureToken: s.endCaptureToken + 1 }));
+    });
+  },
+  settleEndCaptureOk: () => {
+    const w = endCaptureWaiter;
+    clearEndCaptureWaiter();
+    w?.resolve();
+  },
+  settleEndCaptureError: (message) => {
+    const w = endCaptureWaiter;
+    clearEndCaptureWaiter();
+    w?.reject(new Error(message));
+  },
   finishCapture: () => set({ ...IDLE_RUN }),
   startCapture: (coilNo) => {
     // Flip UI to running immediately (6HI Start→End); station start + stoppage close in background.
@@ -518,6 +564,12 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
         const { fetchHrsPklOrder, orderToHydrateInput } = await import('../lib/hrsPklWrites');
         const order = await fetchHrsPklOrder(processCode, coilNo);
         get().hydrateProcessRun(orderToHydrateInput(order));
+        if (processCode === 'HRS') {
+          agentDebugLog('processStore.ts:resumeCapture', 'HRS start succeeded', {
+            coilNo,
+            orderStatus: order.status,
+          }, 'D');
+        }
       } else if (started && typeof started === 'object' && 'prodStartAt' in started && started.prodStartAt) {
         get().hydrateProcessRun({
           coilNo,
@@ -526,6 +578,13 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
         });
       }
     } catch (err) {
+      if (processCode === 'HRS') {
+        agentDebugLog('processStore.ts:resumeCapture', 'HRS start failed', {
+          coilNo,
+          error: err instanceof Error ? err.message : String(err),
+          prevCardStatus,
+        }, 'D');
+      }
       set((s) => ({
         captureStatus: prevCaptureStatus === 'stoppage' ? 'stoppage' : 'idle',
         runStartedAt: prevCaptureStatus === 'stoppage' ? prevRunStartedAt : null,
@@ -636,10 +695,21 @@ export const useProcessStore = create<ProcessStore>((set, get) => ({
     try {
       const data = await apiClient.get(processQueueUrl(code));
       const queue = mapQueue(code, data);
+      if (code === 'HRS') {
+        agentDebugLog('processStore.ts:loadQueueFor', 'HRS queue loaded', {
+          count: queue.length,
+          statuses: queue.map((c) => c.status),
+        }, 'E');
+      }
       // Always pin processCode — jsonEqual short-circuit must not leave a stale line.
       set((s) => (jsonEqual(s.queue, queue) ? { processCode: code } : { queue, processCode: code }));
       return queue;
-    } catch {
+    } catch (err) {
+      if (code === 'HRS') {
+        agentDebugLog('processStore.ts:loadQueueFor', 'HRS queue load failed', {
+          error: err instanceof Error ? err.message : String(err),
+        }, 'E');
+      }
       return get().queue;
     }
   },

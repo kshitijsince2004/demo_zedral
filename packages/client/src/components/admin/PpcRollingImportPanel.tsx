@@ -68,13 +68,17 @@ const SHEET_LOCK_LABEL: Record<PpcXlsxSheetType, string> = {
 export function PpcRollingImportPanel({
   lockedSheetType,
   line,
+  allowedSheetTypes,
 }: {
   lockedSheetType?: PpcXlsxSheetType;
   /** MH / Planning line-scoped fail-safe import (HRS|PKL|RWD|ANN|CTL). */
   line?: 'HRS' | 'PKL' | 'RWD' | 'ANN' | 'CTL';
+  allowedSheetTypes?: PpcXlsxSheetType[];
 } = {}) {
   const [file, setFile] = useState<File | null>(null);
-  const [sheetType, setSheetType] = useState<PpcXlsxSheetType>(lockedSheetType ?? 'ROLLING');
+  const [sheetType, setSheetType] = useState<PpcXlsxSheetType>(
+    lockedSheetType ?? allowedSheetTypes?.[0] ?? 'ROLLING',
+  );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [parsedSheetName, setParsedSheetName] = useState('');
   const [rows, setRows] = useState<PpcRollingPreviewRow[]>([]);
@@ -233,7 +237,7 @@ export function PpcRollingImportPanel({
               onChange={(e) => setSheetType(e.target.value as PpcXlsxSheetType)}
               className={OP_SELECT}
             >
-              {SHEET_TYPE_OPTIONS.map((opt) => (
+              {SHEET_TYPE_OPTIONS.filter((opt) => !allowedSheetTypes || allowedSheetTypes.includes(opt.value)).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

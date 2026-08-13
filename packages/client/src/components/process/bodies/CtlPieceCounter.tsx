@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { kgToMt } from '@m1/shared-validation';
 import { ZButton } from '../../primitives/ZButton';
 import { ZInput } from '../../primitives/ZInput';
-import { submitProcessCapture } from '../../../store/processStore';
+import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
+import { submitProcessCapture, useProcessStore } from '../../../store/processStore';
 import type { BodyProps } from '../../../lib/processConfig';
 
 const BUNDLE_SLOTS = 4;
@@ -36,7 +37,13 @@ function distributeBundleWeightsKg(acceptedWeightKg: number, pieceCounts: number
 }
 
 export function CtlPieceCounter({ coilNo, prefill, shiftLogId, machineCode, onSubmitted }: BodyProps) {
-  const displayCoilNo = String(prefill.displayCoilNo ?? coilNo);
+  const displayCoilNo = displayMotherCoilId({
+    displayCoilNo: prefill.displayCoilNo != null ? String(prefill.displayCoilNo) : undefined,
+    coilNo,
+    batchNumber: prefill.batchNumber != null ? String(prefill.batchNumber) : coilNo,
+    slitId: prefill.slitId != null ? String(prefill.slitId) : undefined,
+    motherCoilNo: prefill.motherCoilNo != null ? String(prefill.motherCoilNo) : undefined,
+  });
   const planWidth = Number(pv<number>(prefill.widthMm) ?? 0);
   const planThk = Number(pv<number>(prefill.thicknessMm) ?? 0);
   const planNominalLength = Number(pv<number>(prefill.nominalLengthMm) ?? 0);
@@ -156,7 +163,9 @@ export function CtlPieceCounter({ coilNo, prefill, shiftLogId, machineCode, onSu
       }, coilNo);
       onSubmitted?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submit failed');
+      const msg = err instanceof Error ? err.message : 'Submit failed';
+      setError(msg);
+      useProcessStore.getState().settleEndCaptureError(msg);
     } finally {
       setSubmitting(false);
     }

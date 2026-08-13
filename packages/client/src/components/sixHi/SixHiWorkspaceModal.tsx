@@ -8,6 +8,7 @@ import { SixHiOrderWorkspace } from './SixHiOrderWorkspace';
 import { SixHiStatusPill } from './SixHiStatusPill';
 import { CombinedProductionOrdersPanel } from './CombinedProductionOrdersPanel';
 import { CombinedProductionHistory } from './CombinedProductionHistory';
+import { overlayClass } from '../../lib/nativeOverlay';
 import { OrderDetailSlidePanel } from './OrderDetailSlidePanel';
 import { orderIdentitySubtitle, displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import {
@@ -21,17 +22,13 @@ interface SixHiWorkspaceModalProps {
 }
 
 export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
-  const {
-    workspaceOpen,
-    workspaceBatch,
-    panelOrder,
-    combinedRun,
-    combinedSelectedBatches,
-    busy,
-    closeWorkspace,
-    loadPanelOrder,
-    runOrderAction,
-  } = useSixHiStore();
+  const workspaceOpen = useSixHiStore((s) => s.workspaceOpen);
+  const workspaceBatch = useSixHiStore((s) => s.workspaceBatch);
+  const panelOrder = useSixHiStore((s) => s.panelOrder);
+  const combinedRun = useSixHiStore((s) => s.combinedRun);
+  const combinedSelectedBatches = useSixHiStore((s) => s.combinedSelectedBatches);
+  const busy = useSixHiStore((s) => s.busy);
+  const closeWorkspace = useSixHiStore((s) => s.closeWorkspace);
 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -54,8 +51,8 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
   useEffect(() => {
     if (!workspaceOpen || !formBatchNumber) return;
     if (panelOrder?.batchNumber === formBatchNumber) return;
-    void loadPanelOrder(formBatchNumber);
-  }, [workspaceOpen, formBatchNumber, panelOrder?.batchNumber, loadPanelOrder]);
+    void useSixHiStore.getState().loadPanelOrder(formBatchNumber);
+  }, [workspaceOpen, formBatchNumber, panelOrder?.batchNumber]);
 
   const combinedBatchNumbersKey = combinedRun?.batchNumbers.join(',') ?? '';
 
@@ -177,7 +174,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('rolling', data), { refreshMode: 'save' });
+      await useSixHiStore.getState().runOrderAction(workspaceBatch, async () => patchCombinedProduction('rolling', data), { refreshMode: 'save' });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);
@@ -191,7 +188,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      await runOrderAction(workspaceBatch, async () => patchCombinedProduction('skinpass', data), { refreshMode: 'save' });
+      await useSixHiStore.getState().runOrderAction(workspaceBatch, async () => patchCombinedProduction('skinpass', data), { refreshMode: 'save' });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       if (combinedRun) setCombinedRefreshToken((t) => t + 1);
@@ -203,7 +200,7 @@ export function SixHiWorkspaceModal({ actionRail }: SixHiWorkspaceModalProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-[90] bg-primary/40 backdrop-blur-[2px]" onClick={closeWorkspace} aria-hidden />
+      <div className={overlayClass('fixed inset-0 z-[90] bg-primary/40', 'backdrop-blur-[2px]')} onClick={closeWorkspace} aria-hidden />
       <div
         className="fixed inset-y-0 left-16 right-0 z-[95] flex overflow-hidden shadow-2xl"
         role="dialog"

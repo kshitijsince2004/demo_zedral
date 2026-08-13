@@ -73,6 +73,9 @@ export interface MachineCommandCenterData {
   shiftCode?: string;
   currentOrder?: {
     batchNumber: string;
+    motherCoil?: string;
+    coilNo?: string;
+    slitId?: string;
     customer: string;
     grade: string;
     subProcess: string;
@@ -97,6 +100,9 @@ export interface MachineCommandCenterData {
   utilization: MachineUtilizationSummary;
   nextOrder?: {
     batchNumber: string;
+    motherCoil?: string;
+    coilNo?: string;
+    slitId?: string;
     customer: string;
     queuePosition: number;
     weightMt: number;
@@ -104,6 +110,9 @@ export interface MachineCommandCenterData {
   };
   orderQueue?: Array<{
     batchNumber: string;
+    motherCoil?: string;
+    coilNo?: string;
+    slitId?: string;
     customer: string;
     status: string;
     weightMt: number;
@@ -111,6 +120,9 @@ export interface MachineCommandCenterData {
   }>;
   completedOrders?: Array<{
     batchNumber: string;
+    motherCoil?: string;
+    coilNo?: string;
+    slitId?: string;
     customer: string;
     completedAt: string;
     weightMt: number;
@@ -121,6 +133,8 @@ export interface MachineCommandCenterData {
   activeOrders?: Array<{
     batchNumber: string;
     coilNo?: string;
+    motherCoil?: string;
+    slitId?: string;
     customer: string;
     grade: string;
     subProcess: string;

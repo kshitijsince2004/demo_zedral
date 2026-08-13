@@ -1,14 +1,17 @@
 import type { ComponentType } from 'react';
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { AlertTriangle, Ban, Clock, LayoutPanelLeft, MessageSquare, Play, Square } from 'lucide-react';
 import { getServerTime } from '../../../lib/apiClient';
+import { subscribeTimerTick } from '../../../hooks/useTimerTick';
 import { formatDuration } from '../../../hooks/useLiveTimer';
 import { HOLD_ACTION_LABEL } from '../../../lib/orderLabels';
 import {
   formatRerollNetRuntime,
+  manualRerollStatusToPill,
   rerollNetRuntimeMs,
 } from '../../../lib/manualRerollUi';
 import { StoppageTimerText } from '../ProductionTimerDisplay';
+import { SixHiStatusPill } from '../SixHiStatusPill';
 import type { ManualRerollSession, ManualRerollStoppage } from '../../../services/manualRerollService';
 
 interface ManualRerollActionRailProps {
@@ -69,7 +72,7 @@ function RailButton({
   );
 }
 
-function NetRuntimeText({
+const NetRuntimeText = memo(function NetRuntimeText({
   startTime,
   stoppages,
   active,
@@ -90,11 +93,10 @@ function NetRuntimeText({
       setLabel(formatRerollNetRuntime(rerollNetRuntimeMs(startTime, stoppages, getServerTime())));
     };
     tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
+    return subscribeTimerTick(tick);
   }, [active, startTime, stoppages]);
   return <span className={className}>{label}</span>;
-}
+});
 
 export function ManualRerollActionRail({
   session,
@@ -139,9 +141,11 @@ export function ManualRerollActionRail({
     ? (session.batchNumbers?.length ? session.batchNumbers.join(' · ') : session.batchNumber) ?? '—'
     : pendingLabel ?? '—';
 
-  const statusChip = status === 'PREPARING'
-    ? 'PREPARING'
-    : status ?? (canPrepare ? 'PENDING' : 'IDLE');
+  const pill = status
+    ? manualRerollStatusToPill(status)
+    : canPrepare
+      ? { status: 'PENDING' as const, preparing: false, prepReady: true }
+      : null;
 
   return (
     <aside
@@ -164,14 +168,22 @@ export function ManualRerollActionRail({
         ) : (
           <p className="font-mono text-sm font-bold text-foreground leading-tight break-all">{title}</p>
         )}
-        <span className="inline-block text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-          {statusChip}
-        </span>
+        {pill ? (
+          <SixHiStatusPill
+            status={pill.status}
+            preparing={pill.preparing}
+            prepReady={'prepReady' in pill ? pill.prepReady : undefined}
+          />
+        ) : (
+          <span className="inline-block text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+            IDLE
+          </span>
+        )}
       </div>
 
       <div className="flex-1 flex flex-col justify-center gap-2 px-2 py-3 min-h-0 overflow-y-auto">
         {canWrite && canPrepare && !open && (
-          <RailButton label="Preparing" icon={Play} onClick={onPrepare} disabled={busy} variant="start" />
+          <RailButton label="Move to Preparing" icon={Play} onClick={onPrepare} disabled={busy} variant="start" />
         )}
         {canWrite && canStart && (
           <RailButton label="Start" icon={Play} onClick={onStart} disabled={busy} variant="start" />

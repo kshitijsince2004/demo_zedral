@@ -1,6 +1,10 @@
 import type { AuthUser } from '../../services/authService';
 import { ReportingService } from '../../services/ReportingService';
 import { SixHiService } from '../../services/SixHiService';
+import { ProcessStationService } from '../../services/ProcessStationService';
+import { ShiftDetectionService } from '../../services/ShiftDetectionService';
+import { CrewService } from '../../services/ancillaryServices';
+import { db } from '../../db';
 import type { ExportFormat, ReportExecutionResult } from '../types';
 import type { ReportDefinition } from './ReportDefinition';
 import { currentPlantDate, postgresDateOnly } from '../../utils/dateOnly';
@@ -64,19 +68,143 @@ function resolveSingleMachineCode(user: AuthUser, machineCodes?: string[]): stri
   const scoped = applyMachineScope(user, machineCodes);
   if (scoped && scoped.length === 1) return scoped[0];
   if (scoped && scoped.length > 1) {
-    throw new Error('Select exactly one machine (4HI, 6HI, or 2HI) for shift summary export');
+    throw new Error('Select exactly one machine for shift summary export');
   }
   if (scoped && scoped.length === 0) {
     throw new Error('No machine access for shift summary export');
   }
   if (!machineCodes?.length) {
-    throw new Error('machineCodes is required — specify one mill (e.g. 4HI, 6HI, 2HI)');
+    throw new Error('machineCodes is required — specify one mill or line');
   }
   const normalized = machineCodes.map((m) => m.trim().toUpperCase()).filter(Boolean);
   if (normalized.length !== 1) {
-    throw new Error('Select exactly one machine (4HI, 6HI, or 2HI) for shift summary export');
+    throw new Error('Select exactly one machine for shift summary export');
   }
   return normalized[0];
+}
+
+function isLineLogMachine(code: string): code is 'HRS' | 'PKL' {
+  return code === 'HRS' || code === 'PKL';
+}
+
+async function executeLineShiftSummary(
+  machineCode: 'HRS' | 'PKL',
+  dateFrom: string,
+  shiftCode: string,
+  format: ExportFormat,
+): Promise<ReportExecutionResult> {
+  const resolved = await ShiftDetectionService.resolveShift({
+    planDate: dateFrom,
+    shiftCode,
+    machineCode,
+  });
+  const shiftLogId = resolved.shiftLogId;
+  const [metrics, handover, crew, stoppages] = await Promise.all([
+    machineCode === 'HRS'
+      ? ProcessStationService.getHrsShiftMetrics(shiftLogId)
+      : ProcessStationService.getPklShiftMetrics(shiftLogId),
+    ReportingService.getMachineHandoverSummary(shiftLogId).catch(() => null),
+    CrewService.listByShiftLog(shiftLogId).catch(() => []),
+    db.selectFrom('txn.stoppage')
+      .select(['category_code', 'start_at', 'end_at', 'duration_min', 'remarks'])
+      .where('shift_log_id', '=', shiftLogId)
+      .orderBy('start_at', 'asc')
+      .execute()
+      .catch(() => []),
+  ]);
+
+  const coilRows = machineCode === 'HRS'
+    ? (await db.selectFrom('txn.prod_hrs')
+      .select(['coil_no', 'weight_mt', 'nominal_width_mm', 'nominal_thk_mm', 'time_from', 'time_to', 'scrap_mt'])
+      .where('shift_log_id', '=', shiftLogId)
+      .orderBy('entry_id', 'asc')
+      .execute()).map((r, i) => ({
+        'Sl No': i + 1,
+        'Coil No': r.coil_no,
+        'Weight (MT)': r.weight_mt ?? '',
+        'Width (mm)': r.nominal_width_mm ?? '',
+        'Thk (mm)': r.nominal_thk_mm ?? '',
+        'Time From': r.time_from ?? '',
+        'Time To': r.time_to ?? '',
+        'Scrap (MT)': r.scrap_mt ?? '',
+      }))
+    : (await db.selectFrom('txn.prod_pkl')
+      .select(['coil_no', 'weight_mt', 'width_mm', 'thk_mm', 'line_speed_mpm', 'time_from', 'time_to'])
+      .where('shift_log_id', '=', shiftLogId)
+      .orderBy('entry_id', 'asc')
+      .execute()).map((r, i) => ({
+        'Sl No': i + 1,
+        'Coil No': r.coil_no,
+        'Weight (MT)': r.weight_mt ?? '',
+        'Width (mm)': r.width_mm ?? '',
+        'Thk (mm)': r.thk_mm ?? '',
+        'Speed (mpm)': r.line_speed_mpm ?? '',
+        'Time From': r.time_from ?? '',
+        'Time To': r.time_to ?? '',
+      }));
+
+  const hrs = machineCode === 'HRS' ? metrics as Awaited<ReturnType<typeof ProcessStationService.getHrsShiftMetrics>> : null;
+  const pkl = machineCode === 'PKL' ? metrics as Awaited<ReturnType<typeof ProcessStationService.getPklShiftMetrics>> : null;
+
+  const summaryMetrics: Array<{ Metric: string; Value: string | number }> = [
+    { Metric: 'Production Date', Value: dateFrom },
+    { Metric: 'Shift', Value: shiftCode },
+    { Metric: 'Machine', Value: machineCode },
+    ...(hrs
+      ? [
+        { Metric: 'Target MT', Value: hrs.targetMt },
+        { Metric: 'Production MT', Value: hrs.totalProdMt },
+        { Metric: 'Scrap MT', Value: hrs.scrapMt },
+        { Metric: 'Scrap %', Value: hrs.scrapPct },
+        { Metric: 'Coils', Value: hrs.coilsDone },
+        { Metric: 'Settings', Value: hrs.settingCount },
+      ]
+      : [
+        { Metric: 'Pickled MT', Value: pkl!.totalProdMt },
+        { Metric: 'Coils', Value: pkl!.coilsDone },
+        { Metric: 'Avg speed', Value: pkl!.avgLineSpeed },
+        { Metric: 'W / P', Value: `${pkl!.wpW} / ${pkl!.wpP}` },
+        { Metric: 'Repeats', Value: pkl!.repeats },
+        { Metric: 'End fill', Value: pkl!.endFillYes },
+        { Metric: 'Chart logged', Value: pkl!.chartReadings },
+        { Metric: 'Chart due', Value: pkl!.chartDue },
+      ]),
+    { Metric: 'Handover Notes', Value: handover?.notes ?? '—' },
+  ];
+
+  const stoppageFlat = stoppages.map((s, i) => ({
+    'S.No.': i + 1,
+    Code: s.category_code ?? '',
+    From: s.start_at ? String(s.start_at) : '',
+    To: s.end_at ? String(s.end_at) : '',
+    Min: s.duration_min ?? '',
+    Remarks: s.remarks ?? '',
+  }));
+  const crewFlat = crew.map((c) => ({
+    Operator: c.operatorName ?? '',
+    Role: c.roleCode ?? '',
+  }));
+
+  const today = currentPlantDate();
+  const ext = format === 'XLSX' ? 'xlsx' : format === 'PDF' ? 'pdf' : 'csv';
+  return {
+    rows: summaryMetrics,
+    filename: `shift_summary_${dateFrom}_shift-${shiftCode}_${machineCode}_${today}.${ext}`,
+    dataVersion: `SHIFT:${shiftLogId}:${machineCode}:${coilRows.length}`,
+    rowCount: summaryMetrics.length + coilRows.length,
+    deterministic: true,
+    sheets: [
+      { name: 'Summary', rows: summaryMetrics },
+      { name: 'Production', rows: coilRows },
+      { name: 'Stoppages', rows: stoppageFlat },
+      { name: 'Crew', rows: crewFlat },
+    ],
+    html: buildHtml(
+      `Shift Summary ${dateFrom} · Shift ${shiftCode} · ${machineCode}`,
+      summaryMetrics,
+      coilRows,
+    ),
+  };
 }
 
 function blank(v: unknown): string | number {
@@ -162,6 +290,21 @@ export const ShiftSummaryReport: ReportDefinition = {
     const parsed = parseScope(scope);
     if (!parsed.dateFrom || !parsed.shiftCode) return 0;
     const machineCode = resolveSingleMachineCode(user, parsed.machineCodes);
+    if (isLineLogMachine(machineCode)) {
+      try {
+        const resolved = await ShiftDetectionService.resolveShift({
+          planDate: parsed.dateFrom,
+          shiftCode: parsed.shiftCode,
+          machineCode,
+        });
+        const metrics = machineCode === 'HRS'
+          ? await ProcessStationService.getHrsShiftMetrics(resolved.shiftLogId)
+          : await ProcessStationService.getPklShiftMetrics(resolved.shiftLogId);
+        return metrics.coilsDone + 5;
+      } catch {
+        return 0;
+      }
+    }
     const shiftLogId = await SixHiService.resolveShiftLogIdForPlan(parsed.dateFrom, parsed.shiftCode);
     if (!shiftLogId) return 0;
     const review = await ReportingService.getShiftReview(shiftLogId, machineCode);
@@ -183,6 +326,9 @@ export const ShiftSummaryReport: ReportDefinition = {
     if (!parsed.shiftCode) throw new Error('shiftCode is required');
 
     const machineCode = resolveSingleMachineCode(user, parsed.machineCodes);
+    if (isLineLogMachine(machineCode)) {
+      return executeLineShiftSummary(machineCode, parsed.dateFrom, parsed.shiftCode, format);
+    }
     const shiftLogId = await SixHiService.resolveShiftLogIdForPlan(parsed.dateFrom, parsed.shiftCode);
     if (!shiftLogId) {
       throw new Error(`No shift log found for ${parsed.dateFrom} shift ${parsed.shiftCode}`);

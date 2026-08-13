@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SixHiOrderDetail, SixHiSkinPassData } from '@m1/shared-validation';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { ZButton } from '../primitives/ZButton';
@@ -126,6 +126,42 @@ const MODE_OPTIONS: Array<{ id: 'LOAD' | 'STRETCH'; label: string }> = [
   { id: 'STRETCH', label: 'Stretch Mode' },
 ];
 
+function skinPassHydrateKey(order: SixHiOrderDetail, combinedActualMt?: number): string {
+  const s = order.skinPass;
+  if (!s) return `${order.batchNumber}|none|${combinedActualMt ?? ''}`;
+  return [
+    order.batchNumber,
+    s.outputThkMm ?? '',
+    s.actualWeightMt ?? '',
+    s.annHard ?? '',
+    s.rwTension1 ?? '',
+    s.rwTension2 ?? '',
+    s.loadMinT ?? '',
+    s.loadMaxT ?? '',
+    s.stretchPct ?? '',
+    s.operatingMode ?? '',
+    combinedActualMt ?? '',
+  ].join('|');
+}
+
+function draftsFromSkinPass(
+  order: SixHiOrderDetail,
+  skinPass: SixHiSkinPassData,
+  isCombined: boolean,
+  combinedActualMt?: number,
+): Record<SkinPassDecimalField, string> {
+  return {
+    outputThkMm: toDraft(skinPass.outputThkMm),
+    actualWeightMt: toDraft(
+      isCombined ? combinedActualMt ?? skinPass.actualWeightMt : skinPass.actualWeightMt,
+    ),
+    annHard: toDraft(skinPass.annHard),
+    loadMinT: toDraft(skinPass.loadMinT),
+    loadMaxT: toDraft(skinPass.loadMaxT),
+    stretchPct: toDraft(skinPass.stretchPct),
+  };
+}
+
 export function SharedSkinPassForm({
   order,
   onSave,
@@ -154,7 +190,19 @@ export function SharedSkinPassForm({
   const [rwTensionInput, setRwTensionInput] = useState(() =>
     formatRwTension(order.skinPass?.rwTension1, order.skinPass?.rwTension2),
   );
+  const [hydrateKey, setHydrateKey] = useState(() => skinPassHydrateKey(order, combinedActualMt));
   const locked = readOnly || order.status === 'COMPLETED';
+
+  useEffect(() => {
+    const nextKey = skinPassHydrateKey(order, combinedActualMt);
+    if (nextKey === hydrateKey) return;
+    const skinPass = order.skinPass ?? {};
+    setHydrateKey(nextKey);
+    setData(skinPass);
+    setDrafts(draftsFromSkinPass(order, skinPass, isCombined, combinedActualMt));
+    setMetric(initialMetricChoice(order.skinPass));
+    setRwTensionInput(formatRwTension(order.skinPass?.rwTension1, order.skinPass?.rwTension2));
+  }, [order, combinedActualMt, hydrateKey, isCombined]);
 
   const switchMetric = (next: SkinPassMetric) => {
     setMetric(next);
@@ -179,9 +227,6 @@ export function SharedSkinPassForm({
     if (raw.trim() && !raw.endsWith('.')) {
       const parsed = parseDecimalDraft(raw);
       setData((prev) => ({ ...prev, [field]: parsed }));
-      if (isCombined && field === 'actualWeightMt' && parsed != null) {
-        useSixHiStore.getState().setCombinedActualMtIntent(parsed);
-      }
       return;
     }
 

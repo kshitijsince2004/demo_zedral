@@ -157,7 +157,7 @@ export function ShiftCompleteForm({
           remarks: trimmed,
         });
       }
-      await putQueued(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed }, `shift-log:${shiftLogId}`);
+      await apiClient.put(`/shift-logs/${shiftLogId}/complete`, { remarks: trimmed });
       onCompleted();
     } catch (err: unknown) {
       setError((err as Error)?.message ?? 'Failed to complete shift');

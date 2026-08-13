@@ -7,7 +7,7 @@ import {
   resolveWallDurationMin,
 } from '../../lib/sixHiRuntime';
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
-import { selectIdOf } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { OrderRejectionSection } from '../orders/OrderRejectionSection';
 
 interface OrderProductionHistoryProps {
@@ -27,8 +27,8 @@ export function OrderProductionHistory({ order }: OrderProductionHistoryProps) {
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
         <div>
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Slit ID</dt>
-          <dd className="font-mono font-semibold">{selectIdOf(order)}</dd>
+          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Coil</dt>
+          <dd className="font-mono font-semibold">{displayMotherCoilId(order)}</dd>
         </div>
         <div>
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Running Duration</dt>

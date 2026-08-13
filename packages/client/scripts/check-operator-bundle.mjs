@@ -49,4 +49,25 @@ if (missing.length) {
   process.exit(1);
 }
 
-console.log('Operator bundle purity check passed.');
+// PERF 1.6: SixHi + Process mill shells must be separate lazy chunks (not one mega entry).
+const assetsDir = path.join(root, 'assets');
+const assetNames = fs.existsSync(assetsDir)
+  ? fs.readdirSync(assetsDir).filter((n) => n.endsWith('.js'))
+  : [];
+const sixHiChunk = assetNames.find((n) => /^SixHiLayout-.*\.js$/.test(n));
+const processChunk = assetNames.find((n) => /^ProcessLayout-.*\.js$/.test(n));
+if (!sixHiChunk || !processChunk) {
+  console.error(
+    'Operator bundle missing lazy mill shells (expected SixHiLayout-*.js and ProcessLayout-*.js in assets/).\n' +
+      `Found sixHi=${sixHiChunk ?? 'none'} process=${processChunk ?? 'none'}`,
+  );
+  process.exit(1);
+}
+if (sixHiChunk === processChunk) {
+  console.error('Operator mill shells incorrectly share one chunk file.');
+  process.exit(1);
+}
+
+console.log(
+  `Operator bundle purity check passed (mill chunks: ${sixHiChunk}, ${processChunk}).`,
+);

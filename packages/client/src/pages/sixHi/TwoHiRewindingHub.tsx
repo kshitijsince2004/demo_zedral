@@ -1,19 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { RefreshCw, Search, Play } from 'lucide-react';
 import { useWorkspaceBase } from '../../hooks/useWorkspaceBase';
 import { hubTabsForMill } from '../../lib/millConfig';
-import { useManualRerollEntry } from '../../hooks/useTenantFlag';
-import { showManualRerollEnterButton, withManualRerollTab } from '../../lib/manualRerollUi';
 import { apiClient } from '../../lib/apiClient';
 import { notifyProductionChanged, subscribeProductionSync } from '../../lib/productionSync';
 import { jsonEqual } from '../../lib/silentRefresh';
+import { networkAwareRefreshInterval } from '../../lib/networkAwareInterval';
 import {
   rewindingCardToPrefill,
   type RewindingQueueCard,
 } from '../../lib/rewindingQueue';
-import { allocateRwdMachine, prepareCombinedRwdOrders } from '../../lib/rewindingWrites';
+import { allocateRwdMachine, cancelCombinedRwdOrders, prepareCombinedRwdOrders } from '../../lib/rewindingWrites';
 import {
   findRwdCompatibleOrders,
   rwdCombinedActionLabel,
@@ -29,6 +28,9 @@ import { ZButton } from '../../components/primitives/ZButton';
 import { ZBadge } from '../../components/primitives/ZBadge';
 import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import { RewindingMachineAllocationModal } from '../../components/rewinding/RewindingMachineAllocationModal';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { VirtualizedList } from '../../components/VirtualizedList';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 
 type StatusFilter = 'ALL' | 'PENDING' | 'PREPARING' | 'IN_PROGRESS' | 'HOLD' | 'COMPLETED';
 
@@ -89,14 +91,91 @@ function isStartable(status?: string): boolean {
   return g === 0;
 }
 
+interface RewindingQueueRowProps {
+  card: RewindingQueueCard;
+  isSelected: boolean;
+  showCombine: boolean;
+  inCombined: boolean;
+  combinedCount: number;
+  onSelect: (card: RewindingQueueCard) => void;
+  onOpen: (card: RewindingQueueCard) => void;
+  onCombineToggle: (batchNumber: string, event: MouseEvent) => void;
+}
+
+/** Extracted + memoized so VirtualizedList rows don't re-render unless their own props change. */
+const RewindingQueueRow = memo(function RewindingQueueRow({
+  card,
+  isSelected,
+  showCombine,
+  inCombined,
+  combinedCount,
+  onSelect,
+  onOpen,
+  onCombineToggle,
+}: RewindingQueueRowProps) {
+  const status = card.status ?? 'PENDING';
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(card)}
+      onDoubleClick={() => onOpen(card)}
+      className={[
+        'w-full text-left rounded-lg border px-4 py-3 transition-colors min-h-[5.5rem]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSelected
+          ? 'border-primary bg-primary/5 ring-1 ring-primary/25'
+          : 'border-border bg-background hover:border-primary/30 hover:bg-card',
+        inCombined && combinedCount > 1 ? 'ring-1 ring-success/25' : '',
+      ].join(' ')}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex items-start gap-2">
+          {showCombine && (
+            <input
+              type="checkbox"
+              className="mt-1.5 h-4 w-4 shrink-0 accent-primary"
+              checked={inCombined}
+              aria-label={`Include ${card.batchNumber} in combined start`}
+              onClick={(e) => onCombineToggle(card.batchNumber, e)}
+              onChange={() => undefined}
+            />
+          )}
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground truncate">
+              {card.customerName || '—'}
+              <span className="mx-1.5">·</span>
+              Rewinding
+            </p>
+            <p className="font-mono text-base font-bold text-foreground mt-0.5 truncate">
+              {displayMotherCoilId(card)}
+            </p>
+            <p className="text-[11px] font-mono tabular-nums text-muted-foreground mt-0.5 truncate">
+              Batch {card.batchNumber}
+              {card.planDate ? ` · ${card.planDate}` : ''}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {inCombined && combinedCount > 1 && (
+            <ZBadge tone="success" label="Combined" />
+          )}
+          <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(status)} dot={status === 'IN_PROGRESS'} />
+        </div>
+      </div>
+      <p className="text-xs mt-2 text-foreground/90 font-mono tabular-nums">
+        {card.gradeCode || '—'} · {card.widthMm} mm · {card.thicknessMm} mm · {card.weightMt} MT
+      </p>
+    </button>
+  );
+});
+
 /** 2HI Rewinding hub — backed by txn.rwd_order via /rewinding/queue. */
 export function TwoHiRewindingHub() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { basePath, machineCode } = useWorkspaceBase();
   const setProcessTab = useSixHiStore((s) => s.setProcessTab);
-  const { showEntry: showRerollTab } = useManualRerollEntry(machineCode);
-  const tabs = withManualRerollTab(hubTabsForMill(machineCode), showRerollTab);
+  const tabs = hubTabsForMill(machineCode);
 
   const rawStatus = (searchParams.get('status') ?? 'ALL').toUpperCase();
   const statusFilter: StatusFilter = STATUS_FILTERS.some((f) => f.id === rawStatus)
@@ -104,6 +183,7 @@ export function TwoHiRewindingHub() {
     : 'ALL';
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
   /** Empty = show all plan dates (imported rows often differ from today). */
   const [viewDate, setViewDate] = useState('');
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
@@ -125,7 +205,7 @@ export function TwoHiRewindingHub() {
       return res.queue ?? [];
     },
     {
-      refreshInterval: 15_000,
+      refreshInterval: networkAwareRefreshInterval(15_000, { pauseWhileTyping: true }),
       revalidateOnFocus: false,
       keepPreviousData: true,
       compare: (a, b) => jsonEqual(a, b),
@@ -155,11 +235,11 @@ export function TwoHiRewindingHub() {
   const filtered = useMemo(
     () => queue.filter((c) => {
       if (!matchesStatus(c, statusFilter)) return false;
-      if (!matchesSearch(c, search)) return false;
+      if (!matchesSearch(c, debouncedSearch)) return false;
       if (viewDate && c.planDate && c.planDate !== viewDate) return false;
       return true;
     }),
-    [queue, search, statusFilter, viewDate],
+    [queue, debouncedSearch, statusFilter, viewDate],
   );
 
   const filterOptions = useMemo(() => {
@@ -212,7 +292,7 @@ export function TwoHiRewindingHub() {
     applyCombinedSelection(anchor, { keepPicks: selectionManual.current });
   }, [queue, anchorBatch, applyCombinedSelection]);
 
-  const toggleCombinedBatch = (batchNumber: string, event: MouseEvent) => {
+  const toggleCombinedBatch = useCallback((batchNumber: string, event: MouseEvent) => {
     event.stopPropagation();
     if (!compatiblePool.has(batchNumber) || compatiblePool.size < 2) return;
     selectionManual.current = true;
@@ -222,13 +302,7 @@ export function TwoHiRewindingHub() {
       else next.add(batchNumber);
       return next;
     });
-  };
-
-  const cancelCombinedSelection = () => {
-    if (!anchorBatch) return;
-    selectionManual.current = true;
-    setSelectedBatches(new Set([anchorBatch]));
-  };
+  }, [compatiblePool]);
 
   const selected = filtered.find((c) => c.batchNumber === selectedBatch)
     ?? queue.find((c) => c.batchNumber === selectedBatch)
@@ -239,6 +313,30 @@ export function TwoHiRewindingHub() {
     [queue, selectedBatches],
   );
 
+  const cancelCombinedSelection = () => {
+    if (!anchorBatch) return;
+    const preparing = productionOrders
+      .filter((c) => c.status === 'PREPARING')
+      .map((c) => c.batchNumber);
+    const finishLocal = () => {
+      selectionManual.current = true;
+      setSelectedBatches(new Set([anchorBatch]));
+    };
+    if (preparing.length === 0) {
+      finishLocal();
+      return;
+    }
+    void cancelCombinedRwdOrders(preparing)
+      .then(async () => {
+        notifyProductionChanged();
+        await mutate();
+        finishLocal();
+      })
+      .catch((e) => {
+        setActionError(e instanceof Error ? e.message : 'Failed to cancel combined order');
+      });
+  };
+
   const setTab = (id: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', id);
@@ -246,7 +344,7 @@ export function TwoHiRewindingHub() {
     setSearchParams(next);
   };
 
-  const openCapture = async (card: RewindingQueueCard) => {
+  const openCapture = useCallback(async (card: RewindingQueueCard) => {
     const picked = productionOrders.length > 1
       && productionOrders.every((c) => rwdCombineStatusGroup(c.status) === rwdCombineStatusGroup(card.status))
       ? productionOrders
@@ -281,7 +379,26 @@ export function TwoHiRewindingHub() {
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to prepare combined orders');
     }
-  };
+  }, [productionOrders, anchorBatch, navigate, basePath, mutate]);
+
+  const handleOpenCard = useCallback((card: RewindingQueueCard) => {
+    void openCapture(card);
+  }, [openCapture]);
+
+  /** Stable renderer shared by the plain map and VirtualizedList. */
+  const renderRewindingRow = useCallback((card: RewindingQueueCard) => (
+    <RewindingQueueRow
+      key={card.batchNumber}
+      card={card}
+      isSelected={card.batchNumber === selectedBatch}
+      showCombine={compatiblePool.size > 1 && compatiblePool.has(card.batchNumber)}
+      inCombined={selectedBatches.has(card.batchNumber)}
+      combinedCount={productionOrders.length}
+      onSelect={selectOrder}
+      onOpen={handleOpenCard}
+      onCombineToggle={toggleCombinedBatch}
+    />
+  ), [selectedBatch, compatiblePool, selectedBatches, productionOrders.length, selectOrder, handleOpenCard, toggleCombinedBatch]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-secondary p-4 md:p-5 gap-3 overflow-hidden">
@@ -331,15 +448,6 @@ export function TwoHiRewindingHub() {
               <RefreshCw className={`h-4 w-4 ${syncing || isValidating ? 'animate-spin text-primary' : ''}`} />
             </ZButton>
             <div className="hidden sm:block h-6 w-px bg-border mx-1" />
-            {showManualRerollEnterButton(showRerollTab, machineCode || '2HI', 'rewinding') && (
-              <button
-                type="button"
-                onClick={() => setTab('reroll')}
-                className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-md border border-primary bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                Manual Re-Roll
-              </button>
-            )}
             <SixHiPillTabs tabs={tabs} activeId="rewinding" onChange={setTab} />
           </div>
         }
@@ -384,7 +492,7 @@ export function TwoHiRewindingHub() {
               Rewinding Queue · {filtered.length} orders
             </h2>
           </div>
-          <div className="flex-1 overflow-auto p-3 space-y-2">
+          <div className="flex-1 min-h-0 flex flex-col">
             {isLoading && !data && (
               <p className="text-center text-muted-foreground py-12 text-base">Loading queue…</p>
             )}
@@ -395,67 +503,19 @@ export function TwoHiRewindingHub() {
                   : 'No orders match this filter'}
               </p>
             )}
-            {filtered.map((card) => {
-              const selectedRow = card.batchNumber === selectedBatch;
-              const status = card.status ?? 'PENDING';
-              const showCombine = compatiblePool.size > 1 && compatiblePool.has(card.batchNumber);
-              const inCombined = selectedBatches.has(card.batchNumber);
-              return (
-                <button
-                  key={card.batchNumber}
-                  type="button"
-                  onClick={() => selectOrder(card)}
-                  onDoubleClick={() => void openCapture(card)}
-                  className={[
-                    'w-full text-left rounded-lg border px-4 py-3 transition-colors min-h-[5.5rem]',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    selectedRow
-                      ? 'border-primary bg-primary/5 ring-1 ring-primary/25'
-                      : 'border-border bg-background hover:border-primary/30 hover:bg-card',
-                    inCombined && productionOrders.length > 1 ? 'ring-1 ring-success/25' : '',
-                  ].join(' ')}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex items-start gap-2">
-                      {showCombine && (
-                        <input
-                          type="checkbox"
-                          className="mt-1.5 h-4 w-4 shrink-0 accent-primary"
-                          checked={inCombined}
-                          aria-label={`Include ${card.batchNumber} in combined start`}
-                          onClick={(e) => toggleCombinedBatch(card.batchNumber, e)}
-                          onChange={() => undefined}
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground truncate">
-                          {card.customerName || '—'}
-                          <span className="mx-1.5">·</span>
-                          Rewinding
-                        </p>
-                        <p className="font-mono text-base font-bold text-foreground mt-0.5 truncate">
-                          {card.displayCoilNo}
-                        </p>
-                        <p className="text-[11px] font-mono tabular-nums text-muted-foreground mt-0.5 truncate">
-                          {card.slitId ? `Slit ${card.slitId} · ` : ''}
-                          Batch {card.batchNumber}
-                          {card.planDate ? ` · ${card.planDate}` : ''}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      {inCombined && productionOrders.length > 1 && (
-                        <ZBadge tone="success" label="Combined" />
-                      )}
-                      <ZBadge tone={statusTone(status)} label={formatOrderStatusLabel(status)} dot={status === 'IN_PROGRESS'} />
-                    </div>
-                  </div>
-                  <p className="text-xs mt-2 text-foreground/90 font-mono tabular-nums">
-                    {card.gradeCode || '—'} · {card.widthMm} mm · {card.thicknessMm} mm · {card.weightMt} MT
-                  </p>
-                </button>
-              );
-            })}
+            {filtered.length > 12 ? (
+              <VirtualizedList
+                items={filtered}
+                estimateSize={104}
+                className="flex-1 min-h-0 p-3"
+                getKey={(card) => card.batchNumber}
+                renderItem={(card) => <div className="pb-2">{renderRewindingRow(card)}</div>}
+              />
+            ) : (
+              <div className="flex-1 overflow-auto p-3 space-y-2">
+                {filtered.map((card) => renderRewindingRow(card))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -472,10 +532,9 @@ export function TwoHiRewindingHub() {
                   <ZBadge tone={statusTone(selected.status)} label={formatOrderStatusLabel(selected.status ?? 'PENDING')} />
                 </div>
                 <h2 className="font-mono text-2xl font-bold text-foreground mt-1 truncate">
-                  {selected.displayCoilNo}
+                  {displayMotherCoilId(selected)}
                 </h2>
                 <p className="text-xs font-mono tabular-nums text-muted-foreground mt-1">
-                  {selected.slitId ? `Slit ${selected.slitId} · ` : ''}
                   Batch {selected.batchNumber}
                 </p>
               </div>
@@ -555,35 +614,43 @@ export function TwoHiRewindingHub() {
       <RewindingMachineAllocationModal
         open={allocOpen && !!selected}
         batchNumber={selected?.batchNumber ?? ''}
-        coilLabel={selected?.displayCoilNo ?? ''}
+        coilLabel={selected ? displayMotherCoilId(selected) : ''}
         suggested={machineCode}
         onClose={() => setAllocOpen(false)}
         onConfirm={async (code) => {
           const picked = productionOrders.length > 1 ? productionOrders : (selected ? [selected] : []);
-          for (const c of picked) {
-            await allocateRwdMachine(c.batchNumber, code);
-          }
-          setAllocOpen(false);
-          await mutate();
-          const primary = picked.find((c) => c.batchNumber === anchorBatch) ?? picked[0] ?? selected;
-          if (!primary) return;
-          if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
-            await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
-            notifyProductionChanged();
-            selectionManual.current = false;
-            setSelectedBatches(new Set());
+          try {
+            for (const c of picked) {
+              await allocateRwdMachine(c.batchNumber, code);
+            }
             await mutate();
+            const primary = picked.find((c) => c.batchNumber === anchorBatch) ?? picked[0] ?? selected;
+            if (!primary) {
+              setAllocOpen(false);
+              return;
+            }
+            if (picked.length > 1 && picked.every((c) => isStartable(c.status))) {
+              await prepareCombinedRwdOrders(picked.map((c) => c.batchNumber));
+              notifyProductionChanged();
+              selectionManual.current = false;
+              setSelectedBatches(new Set());
+              await mutate();
+            }
+            setAllocOpen(false);
+            navigate(`${basePath}/rewinding/${encodeURIComponent(primary.coilNo)}`, {
+              state: {
+                prefill: rewindingCardToPrefill({ ...primary, machineAllocated: true, machineCode: code }),
+                batchNumber: primary.batchNumber,
+                orderStatus: picked.length > 1 && picked.every((c) => isStartable(c.status))
+                  ? 'PREPARING'
+                  : primary.status,
+                combinedBatchNumbers: picked.length > 1 ? picked.map((c) => c.batchNumber) : undefined,
+              },
+            });
+          } catch (e) {
+            setActionError(e instanceof Error ? e.message : 'Failed to assign machine');
+            throw e;
           }
-          navigate(`${basePath}/rewinding/${encodeURIComponent(primary.coilNo)}`, {
-            state: {
-              prefill: rewindingCardToPrefill({ ...primary, machineAllocated: true, machineCode: code }),
-              batchNumber: primary.batchNumber,
-              orderStatus: picked.length > 1 && picked.every((c) => isStartable(c.status))
-                ? 'PREPARING'
-                : primary.status,
-              combinedBatchNumbers: picked.length > 1 ? picked.map((c) => c.batchNumber) : undefined,
-            },
-          });
         }}
       />
 

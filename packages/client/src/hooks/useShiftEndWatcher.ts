@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient, getServerTime } from '../lib/apiClient';
+import { whenVisibleInterval } from '../lib/idleThrottle';
+import { isInputFocused } from '../lib/networkAwareInterval';
 import { useShiftStore } from '../store/shiftStore';
 import type { DetectedShift } from '../lib/shiftDetection';
 import { addPlantDays, formatPlantDate, IST_OFFSET } from '@m1/shared-validation';
@@ -145,6 +147,7 @@ export function useShiftEndWatcher(
     let cancelled = false;
     let lastNotified: string | null = null;
     const poll = async () => {
+      if (isInputFocused()) return;
       try {
         const shift = await apiClient.get<DetectedShift>('/shifts/current');
         if (cancelled) return;
@@ -166,10 +169,10 @@ export function useShiftEndWatcher(
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), SHIFT_POLL_MS);
+    const stopPoll = whenVisibleInterval(SHIFT_POLL_MS, () => void poll());
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPoll();
     };
   }, [enabled]);
 

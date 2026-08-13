@@ -29,6 +29,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:lockTaskMode="if_whitelisted"
+            android:windowSoftInputMode="adjustPan"
             android:exported="true">
 
             <intent-filter>

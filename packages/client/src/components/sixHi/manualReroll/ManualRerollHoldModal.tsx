@@ -3,6 +3,7 @@ import { Ban, X } from 'lucide-react';
 import { ZButton } from '../../primitives/ZButton';
 import { ZInput } from '../../primitives/ZInput';
 import { HOLD_ACTION_LABEL } from '../../../lib/orderLabels';
+import { overlayClass } from '../../../lib/nativeOverlay';
 
 interface ManualRerollHoldModalProps {
   open: boolean;
@@ -65,7 +66,7 @@ export function ManualRerollHoldModal({
       <button
         type="button"
         aria-label="Close"
-        className="fixed inset-0 z-[110] bg-primary/60 backdrop-blur-[2px]"
+        className={overlayClass('fixed inset-0 z-[110] bg-primary/60', 'backdrop-blur-[2px]')}
         onClick={locked ? undefined : onClose}
       />
       <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[115] w-full max-w-lg mx-auto border-2 border-warning bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">

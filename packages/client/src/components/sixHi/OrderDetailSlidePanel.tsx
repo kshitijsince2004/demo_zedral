@@ -4,7 +4,6 @@ import { formatOrderStatusLabel } from '../../lib/orderLabels';
 import {
   displayMotherCoilId,
   finishOf,
-  selectIdOf,
   thicknessDisplayForProcess,
 } from '../../lib/sixHiOrderIdentity';
 import { SixHiStatusPill } from './SixHiStatusPill';
@@ -55,8 +54,8 @@ export function OrderDetailSlidePanel({ order, loading, onClose }: OrderDetailSl
                 <dd className="font-mono font-semibold">{order.batchNumber}</dd>
               </div>
               <div>
-                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Slit ID</dt>
-                <dd className="font-mono font-semibold">{selectIdOf(order)}</dd>
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Coil</dt>
+                <dd className="font-mono font-semibold">{displayMotherCoilId(order)}</dd>
               </div>
               <div>
                 <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Customer</dt>

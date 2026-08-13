@@ -14,7 +14,6 @@ import {
 import { requireAuth } from '../middleware/authMiddleware';
 import { requireTenantFlag } from '../middleware/tenantFlagMiddleware';
 import { assertMachineAccess } from '../auth/machineAccessPolicy';
-import { parseCrmMillCode, type CrmMillCode } from '../utils/machineAllocation';
 import { db } from '../db';
 import { ACTIVE_REROLL_CONFLICT, ManualRerollService } from '../services/ManualRerollService';
 import { ShiftDetectionService } from '../services/ShiftDetectionService';
@@ -25,18 +24,26 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireTenantFlag('mode.manual_reroll'));
 
+type ManualRerollMill = '6HI' | '4HI';
+
+function parseManualRerollMill(raw: string): ManualRerollMill | null {
+  const m = String(raw).trim().toUpperCase();
+  if (m === '6HI' || m === '4HI') return m;
+  return null;
+}
+
 function resolveMill(
   req: import('express').Request,
   res: import('express').Response,
-): CrmMillCode | null {
+): ManualRerollMill | null {
   const raw = req.body?.machine ?? req.query?.machine;
   if (raw == null || String(raw).trim() === '') {
     res.status(400).json({ error: 'machine param required' });
     return null;
   }
-  const machine = parseCrmMillCode(String(raw).toUpperCase());
+  const machine = parseManualRerollMill(String(raw));
   if (!machine) {
-    res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI, 4HI, or 2HI)' });
+    res.status(400).json({ error: 'Invalid or missing CRM mill code (expected 6HI or 4HI)' });
     return null;
   }
   return machine;
@@ -52,7 +59,7 @@ function requireManualRerollRead(
   if (!machine) return;
   try {
     assertMachineAccess(req.user, machine, { mode: 'READ' });
-    (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
+    (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill = machine;
     next();
   } catch (e: unknown) {
     res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
@@ -73,7 +80,7 @@ function requireManualRerollWrite(
   if (!machine) return;
   try {
     assertMachineAccess(req.user, machine, { mode: 'WRITE' });
-    (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill = machine;
+    (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill = machine;
     next();
   } catch (e: unknown) {
     res.status(403).json({ error: e instanceof Error ? e.message : 'Forbidden' });
@@ -125,7 +132,7 @@ function mapPendingOrder(row: Record<string, unknown>) {
   };
 }
 
-async function lookupOrder(machine: CrmMillCode, batchNumber: string) {
+async function lookupOrder(machine: ManualRerollMill, batchNumber: string) {
   return db
     .selectFrom('txn.crm_order as o')
     .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
@@ -175,7 +182,7 @@ function sessionError(res: import('express').Response, e: unknown, fallback: str
 // ponytail: read-only search lives in the route so ManualRerollService never touches crm_order
 router.get('/orders', requireManualRerollRead, async (req, res) => {
   try {
-    const machine = (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill!;
+    const machine = (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill!;
     const q = String(req.query.q ?? '').trim();
     let query = db
       .selectFrom('txn.crm_order as o')
@@ -212,7 +219,7 @@ router.get('/orders', requireManualRerollRead, async (req, res) => {
 
 router.get('/queue', requireManualRerollRead, async (req, res) => {
   try {
-    const machine = (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill!;
+    const machine = (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill!;
     const q = String(req.query.q ?? '').trim();
     const day = String(req.query.date ?? currentPlantDate());
 
@@ -353,6 +360,12 @@ router.patch('/sessions/:id/capture', requireManualRerollWrite, async (req, res)
       actualWeightPhotoHash: parsed.data.actualWeightPhotoHash,
       ocrConfidence: parsed.data.ocrConfidence,
       ocrRawText: parsed.data.ocrRawText,
+      destination: parsed.data.destination,
+      destinationOverride: parsed.data.destinationOverride,
+      etr: parsed.data.etr,
+      dtr: parsed.data.dtr,
+      inputThkMm: parsed.data.inputThkMm,
+      targetThkMm: parsed.data.targetThkMm,
       passes: parsed.data.passes,
     });
     res.json(session);
@@ -365,7 +378,7 @@ router.get('/sessions/:id', requireManualRerollRead, async (req, res) => {
   try {
     const session = await ManualRerollService.getSessionById(req.params.id);
     if (!session) return res.status(404).json({ error: 'Session not found' });
-    if (session.machineCode !== (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill) {
+    if (session.machineCode !== (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill) {
       return res.status(404).json({ error: 'Session not found' });
     }
     res.json(session);
@@ -504,7 +517,7 @@ router.post('/sessions/:id/stoppages/:stoppageId/end', requireManualRerollWrite,
 
 router.get('/sessions', requireManualRerollRead, async (req, res) => {
   try {
-    const machine = (req as import('express').Request & { crmMill?: CrmMillCode }).crmMill!;
+    const machine = (req as import('express').Request & { crmMill?: ManualRerollMill }).crmMill!;
     const [sessions, active] = await Promise.all([
       ManualRerollService.listSessions(machine),
       ManualRerollService.getActiveSession(machine),
@@ -512,6 +525,22 @@ router.get('/sessions', requireManualRerollRead, async (req, res) => {
     res.json({ sessions, active });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to list sessions' });
+  }
+});
+
+router.get('/overlay', requireManualRerollRead, async (req, res) => {
+  try {
+    const raw = String(req.query.batchNumbers ?? '').trim();
+    const batchNumbers = raw
+      ? raw.split(',').map((b) => b.trim()).filter(Boolean)
+      : [];
+    if (batchNumbers.length === 0) {
+      return res.status(400).json({ error: 'batchNumbers query required' });
+    }
+    const overlay = await ManualRerollService.getOverlay(batchNumbers);
+    res.json({ overlay });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Overlay failed' });
   }
 });
 

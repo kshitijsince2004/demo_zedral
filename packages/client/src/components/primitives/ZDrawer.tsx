@@ -1,4 +1,5 @@
 import React, { type ReactNode, useEffect, useState, useRef, useCallback } from 'react';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 interface ZDrawerProps {
   open: boolean;
@@ -41,7 +42,8 @@ export function ZDrawer({ open, onClose, title, size = 'medium', children }: ZDr
     <>
       <div
         className={[
-          'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-200',
+          overlayClass('fixed inset-0 z-50 bg-black/40', 'backdrop-blur-sm'),
+          'transition-opacity duration-200',
           visible ? 'opacity-100' : 'opacity-0',
         ].join(' ')}
         onClick={onClose}

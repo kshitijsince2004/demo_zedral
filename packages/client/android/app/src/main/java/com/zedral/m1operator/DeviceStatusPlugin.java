@@ -6,7 +6,6 @@ import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
@@ -32,10 +31,21 @@ public class DeviceStatusPlugin extends Plugin {
 
         JSObject ret = new JSObject();
         try {
-            int batteryLevel = readBatteryLevel(ctx);
-            boolean isCharging = readIsCharging(ctx);
+            // Optimization: Single battery read from sticky broadcast
+            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+            Intent batteryStatus = ctx.registerReceiver(null, filter);
             
-            Log.d(TAG, "Battery Level: " + batteryLevel + ", Charging: " + isCharging);
+            int batteryLevel = -1;
+            boolean isCharging = false;
+            if (batteryStatus != null) {
+                int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                if (level >= 0 && scale > 0) {
+                    batteryLevel = Math.round((level * 100f) / scale);
+                }
+                int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL;
+            }
 
             ret.put("batteryLevel", batteryLevel);
             ret.put("isCharging", isCharging);
@@ -46,7 +56,6 @@ public class DeviceStatusPlugin extends Plugin {
 
             ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
-                // Method 1: Active Network (Modern API)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     Network active = cm.getActiveNetwork();
                     if (active != null) {
@@ -64,34 +73,14 @@ public class DeviceStatusPlugin extends Plugin {
                     }
                 }
                 
-                // Method 2: Comprehensive Check (Fallback for "No Internet" WiFi)
+                // Optimized fallback: Only search other networks if active is not WiFi
                 if (!wifiConnected) {
-                    // Search all networks for any WiFi that is connected
                     for (Network network : cm.getAllNetworks()) {
                         NetworkCapabilities caps = cm.getNetworkCapabilities(network);
                         if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                            // If it has WiFi transport, check if it's connected using deprecated but useful info
-                            @SuppressWarnings("deprecation")
-                            NetworkInfo info = cm.getNetworkInfo(network);
-                            if (info != null && info.isConnected()) {
-                                wifiConnected = true;
-                                connectionType = "wifi";
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                // Method 3: Legacy fallback
-                if (!wifiConnected) {
-                    @SuppressWarnings("deprecation")
-                    NetworkInfo info = cm.getActiveNetworkInfo();
-                    if (info != null && info.isConnected()) {
-                        if (info.getType() == ConnectivityManager.TYPE_WIFI) {
                             wifiConnected = true;
                             connectionType = "wifi";
-                        } else if (connectionType.equals("none")) {
-                            connectionType = info.getTypeName().toLowerCase();
+                            break;
                         }
                     }
                 }
@@ -100,14 +89,12 @@ public class DeviceStatusPlugin extends Plugin {
             if (wifiConnected) {
                 WifiManager wm = (WifiManager) ctx.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                 if (wm != null) {
+                    // Note: getConnectionInfo() can be slow; consider using NetworkCallback in a future refactor
                     WifiInfo info = wm.getConnectionInfo();
                     if (info != null) {
                         rssi = info.getRssi();
-                        Log.d(TAG, "WiFi RSSI: " + rssi);
                     }
                 }
-            } else {
-                Log.d(TAG, "WiFi NOT reported as connected by any method.");
             }
 
             ret.put("wifiConnected", wifiConnected);
@@ -120,39 +107,6 @@ public class DeviceStatusPlugin extends Plugin {
             Log.e(TAG, "Error getting device status", e);
             call.reject(e.getMessage());
         }
-    }
-
-    private static int readBatteryLevel(Context ctx) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
-            if (bm != null) {
-                int cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-                if (cap >= 0 && cap <= 100) return cap;
-            }
-        }
-        try {
-            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-            Intent batteryStatus = ctx.registerReceiver(null, filter);
-            if (batteryStatus != null) {
-                int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                if (level >= 0 && scale > 0) {
-                    return Math.round((level * 100f) / scale);
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to read battery via broadcast", e);
-        }
-        return -1;
-    }
-
-    private static boolean readIsCharging(Context ctx) {
-        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent batteryStatus = ctx.registerReceiver(null, filter);
-        if (batteryStatus == null) return false;
-        int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-        return status == BatteryManager.BATTERY_STATUS_CHARGING
-            || status == BatteryManager.BATTERY_STATUS_FULL;
     }
 
     private static int wifiBarsFromRssi(int rssi, boolean connected) {

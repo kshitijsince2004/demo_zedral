@@ -8,11 +8,13 @@ import { apiClient } from '../../../lib/apiClient';
 import { formatPlantDateTime } from '../../../lib/dateFormat';
 import { formatOrderStatusLabel } from '../../../lib/orderLabels';
 import type { Tone } from '../../../lib/tones';
+import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
 
 type RwdDetail = {
   batchNumber?: string;
   coilNo?: string;
   displayCoilNo?: string;
+  slitId?: string;
   status?: string;
   machineCode?: string;
   gradeCode?: string;
@@ -70,7 +72,12 @@ export function RwdMhCoilDetailPage() {
 
   const rows: Array<[string, string]> = data ? [
     ['Batch', data.batchNumber ?? batchNo],
-    ['Coil', data.displayCoilNo ?? data.coilNo ?? '—'],
+    ['Coil', displayMotherCoilId({
+      displayCoilNo: data.displayCoilNo,
+      coilNo: data.coilNo,
+      batchNumber: data.batchNumber ?? batchNo,
+      slitId: data.slitId,
+    })],
     ['Machine', data.machineCode ?? '—'],
     ['Grade', data.gradeCode ?? '—'],
     ['Plan WT (MT)', data.ppcWeightMt != null ? Number(data.ppcWeightMt).toFixed(2) : '—'],

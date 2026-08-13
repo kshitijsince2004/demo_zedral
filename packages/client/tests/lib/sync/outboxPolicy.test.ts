@@ -19,6 +19,8 @@ describe('outboxPolicy', () => {
       isBenignSyncClientError(400, 'Only active (DRAFT or REOPENED) shifts can be marked completed.'),
     ).toBe(true);
     expect(isBenignSyncClientError(400, 'Machine status is required')).toBe(false);
+    expect(isBenignSyncClientError(400, '{"error":"IDEMPOTENCY_IN_FLIGHT"}')).toBe(true);
+    expect(isBenignSyncClientError(409, '{"error":"IDEMPOTENCY_IN_FLIGHT"}')).toBe(true);
   });
 
   it('extracts machine code from handover URLs', () => {

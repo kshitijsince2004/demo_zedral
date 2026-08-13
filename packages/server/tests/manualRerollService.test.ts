@@ -36,6 +36,7 @@ import {
   ManualRerollService,
   stripCombinedTag,
 } from '../src/services/ManualRerollService';
+import { allocateCombinedWeight } from '@m1/shared-validation';
 
 function chain(result: unknown) {
   const c: Record<string, unknown> = {};
@@ -121,6 +122,87 @@ describe('ManualRerollService', () => {
       operatorId: 7,
     })).rejects.toThrow(ACTIVE_REROLL_CONFLICT);
     expect(db.insertInto).not.toHaveBeenCalled();
+  });
+
+  it('rejects prepare when a re-roll session is already PREPARING', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(prepared));
+    await expect(ManualRerollService.prepareSession({
+      machine: '6HI',
+      batchNumber: 'B-2',
+      rerollQuantity: 1,
+      operatorId: 7,
+    })).rejects.toThrow(ACTIVE_REROLL_CONFLICT);
+    expect(db.insertInto).not.toHaveBeenCalled();
+  });
+
+  it('hold and cancel close the whole combined session', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain({
+      ...inserted,
+      batch_numbers: ['B-1', 'B-2', 'B-3'],
+    }));
+    (db.updateTable as ReturnType<typeof vi.fn>).mockReturnValue(chain({
+      ...inserted,
+      batch_numbers: ['B-1', 'B-2', 'B-3'],
+      status: 'ON_HOLD',
+      remarks: 'wait QC',
+    }));
+    const held = await ManualRerollService.holdSession('11', 'wait QC');
+    expect(held.status).toBe('ON_HOLD');
+    expect(held.batchNumbers).toEqual(['B-1', 'B-2', 'B-3']);
+
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain({
+      ...inserted,
+      batch_numbers: ['B-1', 'B-2', 'B-3'],
+      status: 'IN_PROGRESS',
+    }));
+    (db.updateTable as ReturnType<typeof vi.fn>).mockReturnValue(chain({
+      ...inserted,
+      batch_numbers: ['B-1', 'B-2', 'B-3'],
+      status: 'CANCELLED',
+      end_time: new Date('2026-08-05T10:05:00Z'),
+      duration_min: 5,
+    }));
+    const cancelled = await ManualRerollService.cancelSession('11', 7);
+    expect(cancelled.status).toBe('CANCELLED');
+    expect(cancelled.batchNumbers).toEqual(['B-1', 'B-2', 'B-3']);
+  });
+
+  it('overlay returns one entry per requested batch (empty when no COMPLETED)', async () => {
+    const overlay = await ManualRerollService.getOverlay(['B-1', 'B-2', 'B-3']);
+    expect(overlay).toHaveLength(3);
+    expect(overlay.map((e) => e.batchNumber)).toEqual(['B-1', 'B-2', 'B-3']);
+    expect(overlay.every((e) => e.wasRerolled === false)).toBe(true);
+  });
+
+  it('allocateCombinedWeight splits actual across members and sums to total', () => {
+    const alloc = allocateCombinedWeight(
+      [
+        { batchNumber: 'A', targetMt: 1 },
+        { batchNumber: 'B', targetMt: 2 },
+        { batchNumber: 'C', targetMt: 3 },
+      ],
+      4.5,
+    );
+    const sum = [...alloc.values()].reduce((s, v) => s + v, 0);
+    expect(sum).toBeCloseTo(4.5, 3);
+    expect(alloc.get('A')).toBe(1);
+    expect(alloc.get('B')).toBe(2);
+    expect(alloc.get('C')).toBe(1.5);
+  });
+
+  it('assertNoActiveReroll allows PREPARING (CRM Start not blocked)', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(prepared));
+    await expect(ManualRerollService.assertNoActiveReroll('6HI')).resolves.toBeUndefined();
+  });
+
+  it('assertNoActiveReroll blocks IN_PROGRESS', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain(inserted));
+    await expect(ManualRerollService.assertNoActiveReroll('6HI')).rejects.toThrow(ACTIVE_REROLL_CONFLICT);
+  });
+
+  it('assertNoActiveReroll blocks STOPPAGE', async () => {
+    (db.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue(chain({ ...inserted, status: 'STOPPAGE' }));
+    await expect(ManualRerollService.assertNoActiveReroll('6HI')).rejects.toThrow(ACTIVE_REROLL_CONFLICT);
   });
 
   it('prepares a session without starting the mill timer', async () => {
@@ -310,10 +392,18 @@ describe('ManualRerollService', () => {
     expect([...claimed].sort()).toEqual(['A', 'B', 'C']);
   });
 
-  it('does not mutate CRM production tables', () => {
+  it('does not write CRM / ppc / coil tables', () => {
     const src = readFileSync(resolve(__dirname, '../src/services/ManualRerollService.ts'), 'utf8');
-    expect(src).not.toMatch(/txn\.crm_order/);
-    expect(src).not.toMatch(/txn\.prod_/);
+    // Isolation: reads of crm_/ppc_batch are allowed; writes are not.
+    expect(src).not.toMatch(/insertInto\(['"]txn\.crm_/);
+    expect(src).not.toMatch(/updateTable\(['"]txn\.crm_/);
+    expect(src).not.toMatch(/deleteFrom\(['"]txn\.crm_/);
+    expect(src).not.toMatch(/insertInto\(['"]planning\.ppc_batch/);
+    expect(src).not.toMatch(/updateTable\(['"]planning\.ppc_batch/);
+    expect(src).not.toMatch(/deleteFrom\(['"]planning\.ppc_batch/);
+    expect(src).not.toMatch(/insertInto\(['"]coil\./);
+    expect(src).not.toMatch(/updateTable\(['"]coil\./);
+    expect(src).not.toMatch(/deleteFrom\(['"]coil\./);
     expect(src).toMatch(/MachineStateEventService/);
     expect(src).toMatch(/findActiveMachineOrder/);
   });

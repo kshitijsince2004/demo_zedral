@@ -6,6 +6,7 @@ import { machineHandoverService } from '../services/machineHandoverService';
 import { useHandoverPending } from '../hooks/useHandoverState';
 import { HandoverAcceptPage } from '../pages/sixHi/HandoverAcceptPage';
 import { ZButton } from './primitives/ZButton';
+import { overlayClass } from '../lib/nativeOverlay';
 
 interface HandoverAcceptGateProps {
   machineCode: string;
@@ -59,7 +60,7 @@ export function HandoverAcceptGate({ machineCode, children, onHandoverAccepted }
       {children}
 
       {checking && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-secondary/80 backdrop-blur-sm text-muted-foreground text-sm">
+        <div className={overlayClass('fixed inset-0 z-[200] flex items-center justify-center bg-secondary/80 text-muted-foreground text-sm', 'backdrop-blur-sm')}>
           <div className="flex flex-col items-center gap-2">
             <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             Checking handover status…

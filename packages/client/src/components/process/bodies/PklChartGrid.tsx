@@ -119,6 +119,7 @@ export function PklChartGrid() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingExisting, setEditingExisting] = useState(false);
 
   // Filter: default follows current running shift; user can pick past date+shift
   const [filterDate, setFilterDate] = useState('');
@@ -242,17 +243,62 @@ export function PklChartGrid() {
 
   function num(v: string) { return v === '' ? undefined : Number(v); }
 
+  function tankFromRow(r?: ChartDbRow): TankVals {
+    if (!r) return emptyTank();
+    return {
+      level: s(r.tank_level),
+      temp: s(r.tank_temp_degc),
+      acid: s(r.acid_strength_pct),
+      iron: s(r.iron_strength_pct),
+    };
+  }
+
+  function lineFromRow(r?: ChartDbRow): LineVals {
+    if (!r) return emptyLine();
+    return {
+      steamInlet: s(r.steam_inlet_kgcm2),
+      steamOutlet: s(r.steam_outlet_kgcm2),
+      masha: s(r.burner_pressure_kgcm2),
+      hotAir: s(r.hot_air_temp_degc),
+      dosageAcid: s(r.dosage_acid),
+      dosageWater: s(r.dosage_water),
+      dosageInhib: s(r.dosage_inhibitor),
+      rinseCl: s(r.rinse_cl),
+      rinsePh: s(r.rinse_ph),
+      rinseFlow: s(r.rinse_flow),
+      rinseTemp: s(r.rinse_temp_degc),
+      lineIncharge: s(r.line_incharge),
+    };
+  }
+
   function openForm() {
     if (!isLiveView) return;
     setMsg(null);
+    setEditingExisting(false);
     setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
     setLine(emptyLine());
     setChartTime(formatPlantTime());
     setFormOpen(true);
   }
 
+  function openEdit(time: string, bucket: { tanks: Record<number, ChartDbRow>; line?: ChartDbRow }) {
+    if (!isLiveView) return;
+    setMsg(null);
+    setEditingExisting(true);
+    // Upsert key is HH:mm — trim seconds if driver returns HH:mm:ss
+    setChartTime(time.slice(0, 5));
+    setTanks({
+      1: tankFromRow(bucket.tanks[1]),
+      2: tankFromRow(bucket.tanks[2]),
+      3: tankFromRow(bucket.tanks[3]),
+    });
+    setLine(lineFromRow(bucket.line));
+    setFormOpen(true);
+  }
+
   function closeForm() {
     setFormOpen(false);
+    setEditingExisting(false);
     setMsg(null);
     setTanks({ 1: emptyTank(), 2: emptyTank(), 3: emptyTank() });
     setLine(emptyLine());
@@ -414,7 +460,9 @@ export function PklChartGrid() {
             />
             <section className="relative z-10 w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
               <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
-                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">New reading</h2>
+                <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  {editingExisting ? 'Edit reading' : 'New reading'}
+                </h2>
                 <ZButton type="button" variant="secondary" onClick={closeForm} disabled={saving}>Cancel</ZButton>
               </div>
 
@@ -531,9 +579,21 @@ export function PklChartGrid() {
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reading time</p>
                         <p className="font-mono text-lg font-bold text-foreground tabular-nums">{time}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Line incharge</p>
-                        <p className="text-sm font-semibold text-foreground">{s(L?.line_incharge) || '—'}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Line incharge</p>
+                          <p className="text-sm font-semibold text-foreground">{s(L?.line_incharge) || '—'}</p>
+                        </div>
+                        {isLiveView && (
+                          <ZButton
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => openEdit(time, bucket)}
+                          >
+                            Edit
+                          </ZButton>
+                        )}
                       </div>
                     </header>
 

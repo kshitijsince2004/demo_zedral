@@ -14,6 +14,7 @@ import {
 } from '../../../services/ProcessRouteService';
 import { derivedChildCoilNo } from '../../../utils/childCoil';
 import { resolveCrsSlitPreferredRoute } from '../../../utils/crsSlitRoute';
+import { QueueTransferService, type BatchRow } from '../../../services/QueueTransferService';
 
 type DbConn = Kysely<Database>;
 
@@ -208,7 +209,12 @@ async function setCoilHold(coilNo: string): Promise<void> {
   }
 }
 
-async function completeMotherStep(coilNo: string, processCode: string, conn: DbConn = db): Promise<void> {
+async function completeMotherStep(
+  coilNo: string,
+  processCode: string,
+  conn: DbConn = db,
+  opts?: { finalizeJourney?: boolean },
+): Promise<void> {
   const journey = await conn.selectFrom('planning.order_journey')
     .select(['journey_id', 'current_step_no'])
     .where('coil_no', '=', coilNo)
@@ -223,6 +229,15 @@ async function completeMotherStep(coilNo: string, processCode: string, conn: DbC
     .where('process_code', '=', processCode)
     .where('status', 'in', ['ACTIVE', 'PENDING'])
     .execute();
+
+  // After slit fan-out children own downstream journeys — terminalize the mother.
+  if (opts?.finalizeJourney) {
+    await conn.updateTable('planning.order_journey')
+      .set({ status: 'COMPLETED', updated_at: now })
+      .where('journey_id', '=', String(journey.journey_id))
+      .execute();
+    return;
+  }
 
   const nextStep = await conn.selectFrom('planning.order_journey_step')
     .select('step_no')
@@ -265,6 +280,31 @@ async function spawnChildCoils(
     .orderBy('journey_id', 'desc')
     .executeTakeFirst();
   const routeRaw = journey?.route_raw ?? 'S-P-4-R-F-C-LE-PKG';
+
+  // Denormalised source fields for child queue batches (shift/customer/sap/finish/destination).
+  const motherBatch = processCode === 'HRS'
+    ? await conn.selectFrom('planning.ppc_batch')
+        .selectAll()
+        .where('coil_no', '=', motherCoilNo)
+        .where((eb) => eb.or([
+          eb('machine_code', '=', 'HRS'),
+          eb('sub_process', '=', 'HRS'),
+          eb('from_work_center', 'in', ['S', 'HRS']),
+        ]))
+        .orderBy('batch_number', 'asc')
+        .executeTakeFirst()
+    : processCode === 'CRS'
+      ? await conn.selectFrom('planning.ppc_batch')
+          .selectAll()
+          .where('coil_no', '=', motherCoilNo)
+          .where((eb) => eb.or([
+            eb('machine_code', '=', 'CRS'),
+            eb('sub_process', '=', 'CRS'),
+            eb('from_work_center', 'in', ['C', 'CRS']),
+          ]))
+          .orderBy('batch_number', 'asc')
+          .executeTakeFirst()
+      : undefined;
 
   const seen = new Set<string>();
   for (const slit of slits) {
@@ -327,7 +367,31 @@ async function spawnChildCoils(
         : routeAfterStep(lineRoute, processCode);
     }
 
-    await ProcessRouteService.createJourney(coilNo, childRoute, undefined, undefined, undefined, conn);
+    const childJourneyId = await ProcessRouteService.createJourney(
+      coilNo, childRoute, undefined, undefined, undefined, conn,
+    );
+
+    if (processCode === 'HRS' || processCode === 'CRS') {
+      // createJourney leaves the child's active step with queue_batch_id = null.
+      // Enqueue it so the next line's order queue can materialise the child.
+      const childSourceBatch: BatchRow = {
+        batch_id: 0,
+        batch_number: '',
+        coil_no: coilNo,
+        plan_date: new Date(),
+        shift_code: motherBatch?.shift_code ?? '',
+        customer_name: motherBatch?.customer_name ?? '',
+        grade_code: motherBatch?.grade_code ?? mother.grade_code ?? '',
+        width_mm: slit.width_mm ?? mother.coil_width_mm ?? mother.nominal_width_mm ?? 0,
+        ppc_thk_mm: thk ?? mother.coil_thk_mm ?? 0,
+        ppc_weight_mt: wt ?? 0,
+        destination: motherBatch?.destination ?? null,
+        roll_finish: motherBatch?.roll_finish ?? null,
+        slit_id: label,
+        sap_order_no: motherBatch?.sap_order_no ?? null,
+      };
+      await QueueTransferService.enqueueActiveStep(childJourneyId, childSourceBatch, {}, conn);
+    }
   }
 }
 
@@ -348,7 +412,7 @@ async function handleSlittingAdvance(
   }
 
   await spawnChildCoils(coilNo, processCode, activeSlits, undefined, conn);
-  await completeMotherStep(coilNo, processCode, conn);
+  await completeMotherStep(coilNo, processCode, conn, { finalizeJourney: true });
 }
 
 async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> {
@@ -406,7 +470,7 @@ async function handleCrsAdvance(coilNo: string, entryId: string): Promise<void> 
 
     await db.transaction().execute(async (trx) => {
       await spawnChildCoils(coilNo, 'CRS', slits, preferredNext, trx);
-      await completeMotherStep(coilNo, 'CRS', trx);
+      await completeMotherStep(coilNo, 'CRS', trx, { finalizeJourney: true });
     });
     return;
   }

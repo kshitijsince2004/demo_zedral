@@ -296,6 +296,148 @@ describe('linkBatchToJourney backward/completed guard', () => {
     expect(updates.some((u) => u.table === 'planning.order_journey_step' && u.set.status === 'ACTIVE')).toBe(true);
     expect(updates.some((u) => u.table === 'planning.order_journey' && u.set.current_step_no === 2)).toBe(true);
   });
+
+  it('swaps synthetic queue_batch_id to incoming real batch', async () => {
+    vi.doMock('../src/db', () => ({ db: {} }));
+    const { ProcessRouteService, resolveLinkRouteCode } = await import('../src/services/ProcessRouteService');
+
+    const updatesLocal: { table: string; set: Record<string, unknown> }[] = [];
+
+    const coilNo = 'COIL-1';
+    const batchIdReal = 222;
+    const batchIdSynthetic = 111;
+    const routeRaw = 'S-P-4';
+    const machineCode = 'HRS';
+    const subProcess = '';
+    const code = resolveLinkRouteCode(machineCode, subProcess, routeRaw);
+    if (!code) throw new Error('test setup: expected resolveLinkRouteCode to return a code');
+
+    const syntheticBatchNumber = `${coilNo}-${code}-T1F2`;
+    const incomingBatchNumber = `REAL-${batchIdReal}`;
+
+    const conn = {
+      selectFrom: vi.fn((table: string) => {
+        const builder: Record<string, unknown> = {};
+        const chain = () => builder as any;
+        // For fluent builders, we ignore where/select/orderBy args and just return `builder`.
+        (builder as any).select = chain;
+        (builder as any).where = chain;
+        (builder as any).orderBy = chain;
+
+        (builder as any).executeTakeFirst = async () => {
+          if (table === 'planning.order_journey') {
+            return { journey_id: 1, current_step_no: 1 };
+          }
+          if (table === 'planning.order_journey_step') {
+            return { step_id: 10, step_no: 1, status: 'ACTIVE', queue_batch_id: batchIdSynthetic, started_at: new Date() };
+          }
+          return undefined;
+        };
+
+        (builder as any).execute = async () => {
+          if (table === 'planning.ppc_batch') {
+            return [
+              { batch_id: String(batchIdSynthetic), batch_number: syntheticBatchNumber },
+              { batch_id: String(batchIdReal), batch_number: incomingBatchNumber },
+            ];
+          }
+          return [];
+        };
+
+        return builder as any;
+      }),
+      updateTable: vi.fn((table: string) => {
+        const ub: any = {};
+        ub.set = (set: Record<string, unknown>) => {
+          updatesLocal.push({ table, set });
+          return ub;
+        };
+        ub.where = () => ub;
+        ub.execute = async () => undefined;
+        return ub;
+      }),
+    };
+
+    await ProcessRouteService.linkBatchToJourney(batchIdReal, coilNo, routeRaw, machineCode, subProcess, conn as never);
+
+    const swap = updatesLocal.find((u) => u.table === 'planning.order_journey_step' && u.set.queue_batch_id === batchIdReal);
+    expect(swap).toBeTruthy();
+  });
+});
+
+describe('reconcileAllocationSafeFieldsForJourneyStep (unit)', () => {
+  it('updates only ALLOCATION_SAFE_FIELDS on the linked batch', async () => {
+    const { PPCImportService } = await import('../src/services/PPCImportService');
+
+    const coilNo = 'COIL-1';
+    const processCode = 'PKL';
+
+    let updatedSet: Record<string, unknown> | null = null;
+
+    const trx = {
+      selectFrom: vi.fn((table: string) => {
+        const builder: Record<string, unknown> = {};
+        const chain = () => builder as any;
+        (builder as any).select = chain;
+        (builder as any).where = chain;
+        (builder as any).orderBy = chain;
+
+        (builder as any).executeTakeFirst = async () => {
+          if (table === 'planning.order_journey') {
+            return { journey_id: 1 };
+          }
+          if (table === 'planning.order_journey_step') {
+            return { queue_batch_id: 55, step_no: 2, status: 'COMPLETED' };
+          }
+          return undefined;
+        };
+
+        return builder as any;
+      }),
+      updateTable: vi.fn((table: string) => {
+        expect(table).toBe('planning.ppc_batch');
+        const ub: any = {};
+        ub.set = (set: Record<string, unknown>) => {
+          updatedSet = set;
+          return ub;
+        };
+        ub.where = () => ub;
+        ub.execute = async () => undefined;
+        return ub;
+      }),
+    };
+
+    const incomingBatchValues = {
+      customer_name: 'NEW_CUSTOMER',
+      grade_code: 'CRCA',
+      width_mm: 1234,
+      input_thk_mm: 2.1,
+      ppc_thk_mm: 2.2,
+      machine_code: 'HRS', // should be ignored
+      machine_allocated: true, // should be ignored
+      raw_row_json: '{raw}', // allowed
+    };
+
+    const result = await (PPCImportService as any).reconcileAllocationSafeFieldsForJourneyStep(
+      trx as any,
+      coilNo,
+      processCode,
+      incomingBatchValues,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updatedSet).not.toBeNull();
+    expect(updatedSet).toMatchObject({
+      customer_name: 'NEW_CUSTOMER',
+      grade_code: 'CRCA',
+      width_mm: 1234,
+      input_thk_mm: 2.1,
+      ppc_thk_mm: 2.2,
+      raw_row_json: '{raw}',
+    });
+    expect(updatedSet).not.toHaveProperty('machine_code');
+    expect(updatedSet).not.toHaveProperty('machine_allocated');
+  });
 });
 
 describe('re-import advanced coil regression (DB)', () => {

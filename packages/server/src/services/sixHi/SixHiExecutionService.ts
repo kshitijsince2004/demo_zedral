@@ -25,6 +25,12 @@ export class SixHiExecutionService {
     return SixHiService.startCombinedProduction(...args);
   }
 
+  static cancelCombinedProduction(
+    ...args: Parameters<typeof SixHiService.cancelCombinedProduction>
+  ): ReturnType<typeof SixHiService.cancelCombinedProduction> {
+    return SixHiService.cancelCombinedProduction(...args);
+  }
+
   static endProduction(
     ...args: Parameters<typeof SixHiService.endProduction>
   ): ReturnType<typeof SixHiService.endProduction> {

@@ -22,7 +22,8 @@ export type SixHiProcessTab = 'rolling' | 'skinpass' | 'rewinding';
 interface ActiveMachineOrder {
   batchNumber: string;
   status: string;
-  subProcess: SixHiSubProcess;
+  /** CRM Rolling/Skin Pass, or Manual Re-Roll overlay on the mill. */
+  subProcess: SixHiSubProcess | 'MANUAL_REROLL';
 }
 
 export type CrmMachineCode = '6HI' | '4HI' | '2HI';
@@ -165,7 +166,11 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
 
     if (queueCard && queueCard.batchNumber === batch) {
       const seeded = seedOrderDetailFromQueueCard(queueCard);
-      if (!panelOrder || panelOrder.batchNumber !== batch || !jsonEqual(panelOrder, seeded)) {
+      // Keep hydrated rolling/skinPass — queue seed has none and would blank the console.
+      const keepSaved =
+        panelOrder?.batchNumber === batch
+        && (panelOrder.rolling != null || panelOrder.skinPass != null);
+      if (!keepSaved && (!panelOrder || panelOrder.batchNumber !== batch || !jsonEqual(panelOrder, seeded))) {
         set({ panelOrder: seeded });
       }
     }
@@ -287,13 +292,19 @@ export const useSixHiStore = create<SixHiStore>((set, get) => ({
             status: string;
           } | null }>(`/manual-reroll/sessions?machine=${encodeURIComponent(mc)}`);
           const open = reroll.active;
-          if (open && (open.status === 'IN_PROGRESS' || open.status === 'STOPPAGE' || open.status === 'ON_HOLD')) {
+          if (
+            open
+            && (open.status === 'PREPARING'
+              || open.status === 'IN_PROGRESS'
+              || open.status === 'STOPPAGE'
+              || open.status === 'ON_HOLD')
+          ) {
             active = {
               batchNumber: open.batchNumbers?.length
                 ? open.batchNumbers.join(' · ')
                 : (open.batchNumber ?? 'RE-ROLL'),
               status: open.status,
-              subProcess: 'ROLLING',
+              subProcess: 'MANUAL_REROLL',
             };
           }
         } catch {

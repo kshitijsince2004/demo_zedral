@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { ZButton } from '../primitives/ZButton';
+import { overlayClass } from '../../lib/nativeOverlay';
 
 interface LogoutConfirmModalProps {
   open: boolean;
@@ -12,7 +13,7 @@ export function LogoutConfirmModal({ open, onClose, onConfirm }: LogoutConfirmMo
 
   return (
     <>
-      <div className="fixed inset-0 z-[250] bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className={overlayClass('fixed inset-0 z-[250] bg-black/40', 'backdrop-blur-sm')} onClick={onClose} aria-hidden />
       <div
         className="fixed left-1/2 top-1/2 z-[260] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background text-foreground p-6 shadow-2xl"
         role="dialog"

@@ -1,6 +1,6 @@
 import type { SixHiOrderDetail, SixHiQueueCard } from '@m1/shared-validation';
 import { Package } from 'lucide-react';
-import { displayMotherCoilId, finishOf, selectIdOf, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
+import { displayMotherCoilId, finishOf, thicknessDisplayForProcess } from '../../lib/sixHiOrderIdentity';
 
 type PPCSource = Pick<
   SixHiOrderDetail,
@@ -70,8 +70,8 @@ export function PPCInfoCards({
           <p className="text-sm font-mono font-bold text-foreground truncate">{data.grade}</p>
         </div>
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
-          {label('Slit ID')}
-          <p className="text-sm font-mono font-bold text-foreground truncate">{selectIdOf(data)}</p>
+          {label('Coil')}
+          <p className="text-sm font-mono font-bold text-foreground truncate">{displayMotherCoilId(data)}</p>
         </div>
         <div className={`bg-muted/20 rounded-lg border border-border/50 ${compact ? 'p-1.5' : 'p-2'}`}>
           {label(isSkinPass ? 'Pre-Stage / Target' : 'Width / Thickness')}

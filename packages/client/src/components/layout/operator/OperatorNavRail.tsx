@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ClipboardList, History, Layers, ListOrdered, LogOut, Plus, Table2 } from 'lucide-react';
+import { ClipboardList, History, Info, Layers, ListOrdered, LogOut, PackagePlus, PauseCircle, Plus, Table2 } from 'lucide-react';
 import { useAuthStore } from '../../../lib/authStore';
 import { getMachineNavItems } from '../../../lib/machineRouting';
 import { useSixHiStore } from '../../../store/sixHiStore';
@@ -7,6 +7,7 @@ import { useProcessStore } from '../../../store/processStore';
 import { isMillPath, millBasePath, millCodeFromPath } from '../../../lib/millPath';
 import { classifyOperatorNav } from '../../../lib/classifyOperatorNav';
 import { useProcessWorkspaceBase } from '../../../hooks/useProcessWorkspaceBase';
+import { scopeNavPath } from '../../../lib/scopeNavPath';
 import { ProcessLineSwitcher } from '../../capture/ProcessLineSwitcher';
 import ZedralLogo from '../../../assets/white logo.png';
 
@@ -44,7 +45,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
       id: 'orders',
       label: 'Orders',
       icon: ListOrdered,
-      path: scopeRoot || '/',
+      path: scopeRoot ? scopeNavPath(scopeRoot) : '/',
       match: (p: string) =>
         !p.includes('/capture') && !p.includes('/chart') && !p.includes('/handover') && !p.includes('/history'),
     },
@@ -52,7 +53,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
       id: 'capture',
       label: 'Capture',
       icon: ClipboardList,
-      path: scopeRoot ? `${scopeRoot}/capture` : '/',
+      path: scopeRoot ? scopeNavPath(scopeRoot, 'capture') : '/',
       match: (p: string) => p.includes('/capture'),
     },
   ] as const;
@@ -61,9 +62,12 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
     id: 'history',
     label: 'History',
     icon: History,
-    path: `${scopeRoot || processBase}/history`,
+    path: scopeNavPath(scopeRoot || processBase || '/', 'history'),
     match: (p: string) => p.includes('/history'),
   };
+
+  const annExtraPath = (seg: string) =>
+    location.pathname.includes(`/${seg}`) || location.pathname.endsWith(`/${seg}`);
 
   const items = isAnn
     ? [
@@ -71,18 +75,47 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
           id: 'base',
           label: 'Base',
           icon: Layers,
-          path: `${processBase || '/'}?tab=charges`,
+          path: `${scopeNavPath(processBase || '/')}?tab=charges`,
           match: () =>
             !location.pathname.includes('/history')
             && !location.pathname.includes('/charge/')
+            && !annExtraPath('batching')
+            && !annExtraPath('orders')
+            && !annExtraPath('stoppage')
             && (search.includes('tab=charges') || (!search.includes('tab=coils') && !location.pathname.includes('/history'))),
         },
         {
           id: 'batches',
           label: 'Batches',
           icon: ListOrdered,
-          path: `${processBase || '/'}?tab=coils`,
-          match: () => !location.pathname.includes('/history') && search.includes('tab=coils'),
+          path: `${scopeNavPath(processBase || '/')}?tab=coils`,
+          match: () =>
+            !location.pathname.includes('/history')
+            && !annExtraPath('batching')
+            && !annExtraPath('orders')
+            && !annExtraPath('stoppage')
+            && search.includes('tab=coils'),
+        },
+        {
+          id: 'batching',
+          label: 'Batch',
+          icon: PackagePlus,
+          path: scopeNavPath(scopeRoot || processBase || '/', 'batching'),
+          match: (p: string) => p.includes('/batching'),
+        },
+        {
+          id: 'orders',
+          label: 'Orders',
+          icon: Info,
+          path: scopeNavPath(scopeRoot || processBase || '/', 'orders'),
+          match: (p: string) => p.includes('/orders'),
+        },
+        {
+          id: 'stoppage',
+          label: 'Stop',
+          icon: PauseCircle,
+          path: scopeNavPath(scopeRoot || processBase || '/', 'stoppage'),
+          match: (p: string) => p.includes('/stoppage'),
         },
         historyItem,
       ]
@@ -93,7 +126,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
             id: 'chart',
             label: 'Process Chart',
             icon: Table2,
-            path: scopeRoot ? `${scopeRoot}/chart` : '/',
+            path: scopeRoot ? scopeNavPath(scopeRoot, 'chart') : '/',
             match: (p: string) => p.includes('/chart'),
           },
           ...(wantsHistory ? [historyItem] : []),
@@ -113,14 +146,14 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
             id: 'capture',
             label: 'Capture',
             icon: ClipboardList,
-            path: `${millBase}/capture`,
+            path: scopeNavPath(millBase, 'capture'),
             match: (p: string) => p.endsWith('/capture'),
           },
           {
             id: 'history',
             label: 'History',
             icon: History,
-            path: `${millBase}/history`,
+            path: scopeNavPath(millBase, 'history'),
             match: (p: string) => p.includes('/history'),
           },
         ];
@@ -147,7 +180,7 @@ export function OperatorNavRail({ processCode, onLogout }: OperatorNavRailProps)
         <img src={ZedralLogo} alt="Zedral" className="h-9 w-9 object-contain" />
       </div>
 
-      <div className="flex flex-col items-center gap-1 shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden">
         {items.map(({ id, label, icon: Icon, path, match }) => {
           const active = match(location.pathname);
           return (

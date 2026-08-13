@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
-/** Fixed-row-height virtual list for long queues / tables (PERF-B2 + C2 near-end). */
+/** Virtual list for long queues / tables (PERF-B2 + C2 near-end).
+ *  Measures real row height — fixed estimate alone overlaps when content wraps. */
 export function VirtualizedList<T>({
   items,
   estimateSize,
@@ -48,12 +49,13 @@ export function VirtualizedList<T>({
           return (
             <div
               key={getKey(item, row.index)}
+              data-index={row.index}
+              ref={virtualizer.measureElement}
               style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
                 width: '100%',
-                height: row.size,
                 transform: `translateY(${row.start}px)`,
               }}
             >

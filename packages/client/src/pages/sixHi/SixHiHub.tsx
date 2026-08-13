@@ -21,6 +21,7 @@ import { invalidateAfterWrite } from '../../lib/sync/invalidateAfterWrite';
 import { notifyProductionChanged } from '../../lib/productionSync';
 import {
   allocateMachine,
+  cancelCombinedOrdersImmediate,
   prepareCombinedOrdersImmediate,
   transferMachines,
 } from '../../lib/sync/sixHiWrites';
@@ -28,8 +29,10 @@ import { useAuthStore } from '../../lib/authStore';
 import { useShiftStore } from '../../store/shiftStore';
 import { useSixHiStore } from '../../store/sixHiStore';
 import { useManualRerollEntry } from '../../hooks/useTenantFlag';
-import { showManualRerollEnterButton, withManualRerollTab } from '../../lib/manualRerollUi';
+import { showManualRerollEnterButton, manualRerollStatusToPill, withManualRerollTab } from '../../lib/manualRerollUi';
+import { formatActiveProcessType } from '../../lib/orderLabels';
 import { ManualRerollHub } from '../../components/sixHi/manualReroll/ManualRerollHub';
+import { useManualRerollOverlay } from '../../services/manualRerollService';
 import { ZInput } from '../../components/primitives/ZInput';
 import { ZPageHeader } from '../../components/ui/operator/ZPageHeader';
 import { ZFilterPills } from '../../components/ui/operator/ZFilterPills';
@@ -46,6 +49,7 @@ import {
 import { ORDER_HOLD_STATUS_LABEL } from '../../lib/orderLabels';
 import { DataFreshnessBadge } from '../../components/DataFreshnessBadge';
 import { VirtualizedList } from '../../components/VirtualizedList';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 function applyOptimisticEndOverlay(
   data: {
@@ -142,6 +146,7 @@ function SixHiCrmHub() {
   const [allocMode, setAllocMode] = useState<MachineAllocationMode>('production');
   const [allocBatches, setAllocBatches] = useState<SixHiQueueCard[]>([]);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
   const [syncing, setSyncing] = useState(false);
   const previousCompletedRef = useRef<SixHiQueueCard[]>([]);
   const optimisticEndingSet = useMemo(() => new Set(optimisticEndingBatches), [optimisticEndingBatches]);
@@ -161,8 +166,8 @@ function SixHiCrmHub() {
   const shift = detectedShift?.shiftCode || (shiftLogId ? shiftCode : undefined);
   const queueMachine = pathMachine;
   const shiftReady = Boolean(shiftLogId || shift);
-  const userRoles = useAuthStore((s) => s.user?.roles || []);
-  const canTransfer = userRoles.includes('ADMIN') || userRoles.includes('MACHINE_HEAD');
+  const authRole = useAuthStore((s) => s.role);
+  const canTransfer = authRole === 'ADMIN' || authRole === 'MACHINE_HEAD';
 
   const {
     data: queueData,
@@ -266,6 +271,26 @@ function SixHiCrmHub() {
     [backlogQueue, pendingQueue, queue, completedQueue, rejectedQueue],
   );
 
+  const overlayBatchNumbers = useMemo(
+    () => allOrders.map((c) => c.batchNumber),
+    [allOrders],
+  );
+  const { data: overlayData } = useManualRerollOverlay(
+    queueMachine,
+    overlayBatchNumbers,
+    showRerollTab,
+  );
+  const rerollOverlayByBatch = useMemo(() => {
+    const map = new Map<string, { wasRerolled: boolean; lastRerolledThicknessMm: number | null }>();
+    for (const entry of overlayData?.overlay ?? []) {
+      map.set(entry.batchNumber, {
+        wasRerolled: entry.wasRerolled,
+        lastRerolledThicknessMm: entry.lastRerolledThicknessMm,
+      });
+    }
+    return map;
+  }, [overlayData]);
+
   const machineActiveCard = useMemo(
     () => (machineActive ? allOrders.find((c) => c.batchNumber === machineActive.batchNumber) : undefined),
     [allOrders, machineActive],
@@ -326,36 +351,36 @@ function SixHiCrmHub() {
   };
 
   const filteredQueue = useMemo(
-    () => allOrders.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [allOrders, statusFilter, search],
+    () => allOrders.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, debouncedSearch)),
+    [allOrders, statusFilter, debouncedSearch],
   );
 
   const filteredBacklog = useMemo(
-    () => backlogQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [backlogQueue, statusFilter, search],
+    () => backlogQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, debouncedSearch)),
+    [backlogQueue, statusFilter, debouncedSearch],
   );
 
   const filteredPending = useMemo(
-    () => pendingQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [pendingQueue, statusFilter, search],
+    () => pendingQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, debouncedSearch)),
+    [pendingQueue, statusFilter, debouncedSearch],
   );
 
   const filteredAssigned = useMemo(
-    () => queue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [queue, statusFilter, search],
+    () => queue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, debouncedSearch)),
+    [queue, statusFilter, debouncedSearch],
   );
 
   const filteredCompleted = useMemo(
-    () => completedQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, search)),
-    [completedQueue, statusFilter, search],
+    () => completedQueue.filter((c) => matchesFilter(c, statusFilter) && matchesSearch(c, debouncedSearch)),
+    [completedQueue, statusFilter, debouncedSearch],
   );
 
   // Hold cards are excluded from matchesFilter(ALL) so they don't mix into operational
   // sections — include them explicitly for All + Order Hold filters (same as Completed).
   const filteredRejected = useMemo(() => {
     if (statusFilter !== 'ALL' && statusFilter !== 'REJECTED') return [];
-    return rejectedQueue.filter((c) => matchesSearch(c, search));
-  }, [rejectedQueue, statusFilter, search]);
+    return rejectedQueue.filter((c) => matchesSearch(c, debouncedSearch));
+  }, [rejectedQueue, statusFilter, debouncedSearch]);
 
   const showOperationalSections = statusFilter !== 'COMPLETED' && statusFilter !== 'REJECTED';
   const showCompletedSection = statusFilter === 'ALL' || statusFilter === 'COMPLETED';
@@ -390,15 +415,7 @@ function SixHiCrmHub() {
     applyCombinedSelection(anchor, { keepPicks: combinedSelectionManual.current });
   }, [allOrders, anchorBatch, applyCombinedSelection]);
 
-  const cancelCombinedSelection = () => {
-    if (!anchorBatch) return;
-    combinedSelectionManual.current = true;
-    // Keep full pool so checkboxes remain; selection collapses to the anchor only.
-    setAutoCombinedBatchNumbers(new Set([anchorBatch]));
-  };
-
-  /** Toggle one compatible order in/out of the combined start set (may go to 0). */
-  const toggleCombinedBatch = (batchNumber: string, event: MouseEvent) => {
+  const toggleCombinedBatch = useCallback((batchNumber: string, event: MouseEvent) => {
     event.stopPropagation();
     if (!compatiblePool.has(batchNumber) || compatiblePool.size < 2) return;
     combinedSelectionManual.current = true;
@@ -408,7 +425,32 @@ function SixHiCrmHub() {
       else next.add(batchNumber);
       return next;
     });
-  };
+  }, [compatiblePool]);
+
+  const cancelCombinedSelection = useCallback(() => {
+    if (!anchorBatch) return;
+    const preparing = allOrders
+      .filter((c) => autoCombinedBatchNumbers.has(c.batchNumber) && c.status === 'PREPARING')
+      .map((c) => c.batchNumber);
+    const finishLocal = () => {
+      combinedSelectionManual.current = true;
+      setAutoCombinedBatchNumbers(new Set([anchorBatch]));
+    };
+    if (preparing.length === 0) {
+      finishLocal();
+      return;
+    }
+    void cancelCombinedOrdersImmediate(preparing)
+      .then(async () => {
+        notifyProductionChanged();
+        invalidateAfterWrite();
+        await mutateQueue();
+        finishLocal();
+      })
+      .catch((err) => {
+        setActionError(err instanceof Error ? err.message : 'Failed to cancel combined order');
+      });
+  }, [anchorBatch, allOrders, autoCombinedBatchNumbers, mutateQueue]);
 
   const sortQueueSection = useCallback(
     (items: SixHiQueueCard[]) => {
@@ -555,7 +597,11 @@ function SixHiCrmHub() {
   };
 
   const moveToMachine = (card: SixHiQueueCard) => {
-    if (card.status === 'COMPLETED' || card.machineAllocated === false) return;
+    if (card.status === 'COMPLETED') return;
+    if (card.machineAllocated === false) {
+      setActionError('Order is not machine-allocated yet. Use Move to Production first.');
+      return;
+    }
     setAllocMode('transfer');
     setAllocBatches([card]);
     setAllocOpen(true);
@@ -563,33 +609,45 @@ function SixHiCrmHub() {
 
   const handleAllocate = async (machineCode: CrmMillCode) => {
     if (allocBatches.length === 0) return;
+    const batches = [...allocBatches];
 
     if (allocMode === 'production') {
-      for (const batch of allocBatches) {
+      for (const batch of batches) {
         await allocateMachine(batch.batchNumber, machineCode);
       }
       invalidateMachineRegistryCache();
       invalidateAfterWrite();
-      const targetBatch = allocBatches[0]?.batchNumber;
-      setAllocOpen(false);
-      setAllocBatches([]);
       notifyProductionChanged();
       await mutateQueue();
-      if (allocBatches.length > 1 && machineCode === queueMachine) {
-        await prepareCombinedProduction(allocBatches.map((batch) => ({
-          ...batch,
-          machineCode,
-          machineAllocated: true,
-        })));
-      } else if (targetBatch && machineCode === queueMachine) {
-        openWorkspace(targetBatch);
+
+      const allocated = batches.map((batch) => ({
+        ...batch,
+        machineCode,
+        machineAllocated: true as const,
+      }));
+
+      if (machineCode !== queueMachine) {
+        setAllocOpen(false);
+        setAllocBatches([]);
+        setActionError(
+          `Assigned to ${machineCode}. Switch to that mill hub to open production.`,
+        );
+        return;
       }
+
+      if (allocated.length > 1) {
+        await prepareCombinedProduction(allocated);
+      } else {
+        openProductionForCard(allocated[0]);
+      }
+      setAllocOpen(false);
+      setAllocBatches([]);
       return;
     }
 
     await transferMachines(
       machineCode,
-      allocBatches.map((b) => b.batchNumber),
+      batches.map((b) => b.batchNumber),
     );
     invalidateMachineRegistryCache();
     invalidateAfterWrite();
@@ -610,27 +668,55 @@ function SixHiCrmHub() {
     });
   }, []);
 
-  const renderQueueRow = (card: SixHiQueueCard, opts?: { pending?: boolean }) => (
-    <SixHiQueueRow
-      key={card.batchNumber}
-      card={card}
-      pending={opts?.pending}
-      isEnding={optimisticEndingSet.has(card.batchNumber)}
-      isSelected={isTransferMode ? selectedForTransfer.has(card.batchNumber) : card.batchNumber === selectedBatch}
-      isTransferMode={isTransferMode}
-      isInCombinedSelection={autoCombinedBatchNumbers.has(card.batchNumber)}
-      showCombineCheckbox={!isTransferMode && compatiblePool.size > 1 && compatiblePool.has(card.batchNumber)}
-      isActive={machineActive?.batchNumber === card.batchNumber}
-      combinedSelectionCount={selectedProductionOrders.length}
-      onSelect={selectOrder}
-      onTransferToggle={handleTransferToggle}
-      onCombineToggle={toggleCombinedBatch}
-    />
-  );
+  const renderQueueRow = useCallback((card: SixHiQueueCard, opts?: { pending?: boolean }) => {
+    const overlay = rerollOverlayByBatch.get(card.batchNumber);
+    return (
+      <SixHiQueueRow
+        key={card.batchNumber}
+        card={card}
+        pending={opts?.pending}
+        isEnding={optimisticEndingSet.has(card.batchNumber)}
+        isSelected={isTransferMode ? selectedForTransfer.has(card.batchNumber) : card.batchNumber === selectedBatch}
+        isTransferMode={isTransferMode}
+        isInCombinedSelection={autoCombinedBatchNumbers.has(card.batchNumber)}
+        showCombineCheckbox={!isTransferMode && compatiblePool.size > 1 && compatiblePool.has(card.batchNumber)}
+        isActive={machineActive?.batchNumber === card.batchNumber}
+        combinedSelectionCount={selectedProductionOrders.length}
+        wasRerolled={overlay?.wasRerolled}
+        lastRerolledThicknessMm={overlay?.lastRerolledThicknessMm}
+        onSelect={selectOrder}
+        onTransferToggle={handleTransferToggle}
+        onCombineToggle={toggleCombinedBatch}
+      />
+    );
+  }, [
+    optimisticEndingSet,
+    isTransferMode,
+    selectedForTransfer,
+    selectedBatch,
+    autoCombinedBatchNumbers,
+    compatiblePool,
+    machineActive?.batchNumber,
+    selectedProductionOrders.length,
+    rerollOverlayByBatch,
+    selectOrder,
+    handleTransferToggle,
+    toggleCombinedBatch,
+  ]);
 
   const sortedAssigned = useMemo(
     () => sortQueueSection(filteredAssigned),
     [sortQueueSection, filteredAssigned],
+  );
+
+  const sortedBacklog = useMemo(
+    () => sortQueueSection(filteredBacklog),
+    [sortQueueSection, filteredBacklog],
+  );
+
+  const sortedPending = useMemo(
+    () => sortQueueSection(filteredPending),
+    [sortQueueSection, filteredPending],
   );
 
   return (
@@ -714,10 +800,33 @@ function SixHiCrmHub() {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-warning">Machine status</p>
             <p className="text-sm font-semibold text-foreground mt-0.5">
-              Active order <span className="font-mono text-primary">{machineActiveCard ? displayMotherCoilId(machineActiveCard) : machineActive.batchNumber}</span> · {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+              {machineActive.subProcess === 'MANUAL_REROLL' ? (
+                <>
+                  Manual Re-Roll{' '}
+                  <span className="font-mono text-primary">{machineActive.batchNumber}</span>
+                  {' · '}
+                  {formatActiveProcessType('MANUAL_REROLL') ?? 'Manual Re-Rolling'}
+                </>
+              ) : (
+                <>
+                  Active order{' '}
+                  <span className="font-mono text-primary">
+                    {machineActiveCard ? displayMotherCoilId(machineActiveCard) : machineActive.batchNumber}
+                  </span>
+                  {' · '}
+                  {machineActive.subProcess === 'ROLLING' ? 'Rolling' : 'Skin Pass'}
+                </>
+              )}
             </p>
           </div>
-          <SixHiStatusPill status={machineActive.status as SixHiOrderStatus} />
+          {machineActive.subProcess === 'MANUAL_REROLL' ? (
+            (() => {
+              const pill = manualRerollStatusToPill(machineActive.status);
+              return <SixHiStatusPill status={pill.status} preparing={pill.preparing} />;
+            })()
+          ) : (
+            <SixHiStatusPill status={machineActive.status as SixHiOrderStatus} />
+          )}
         </div>
       )}
 
@@ -755,7 +864,10 @@ function SixHiCrmHub() {
             )}
             {machineActive && (
               <span className="text-xs font-semibold text-warning">
-                Active: {machineActive.batchNumber}
+                Active:{' '}
+                {machineActiveCard
+                  ? displayMotherCoilId(machineActiveCard)
+                  : machineActive.batchNumber}
               </span>
             )}
           </div>
@@ -775,7 +887,17 @@ function SixHiCrmHub() {
                     Backlog · {filteredBacklog.length}
                   </p>
                 </div>
-                {sortQueueSection(filteredBacklog).map((card) => renderQueueRow(card))}
+                {sortedBacklog.length > 12 ? (
+                  <VirtualizedList
+                    items={sortedBacklog}
+                    estimateSize={88}
+                    className="min-h-[240px] max-h-[min(60vh,720px)]"
+                    getKey={(card) => card.batchNumber}
+                    renderItem={(card) => renderQueueRow(card)}
+                  />
+                ) : (
+                  sortedBacklog.map((card) => renderQueueRow(card))
+                )}
               </>
             )}
             {showOperationalSections && filteredPending.length > 0 && (
@@ -785,7 +907,17 @@ function SixHiCrmHub() {
                     Awaiting machine · {filteredPending.length}
                   </p>
                 </div>
-                {sortQueueSection(filteredPending).map((card) => renderQueueRow(card, { pending: true }))}
+                {sortedPending.length > 12 ? (
+                  <VirtualizedList
+                    items={sortedPending}
+                    estimateSize={88}
+                    className="min-h-[240px] max-h-[min(60vh,720px)]"
+                    getKey={(card) => card.batchNumber}
+                    renderItem={(card) => renderQueueRow(card, { pending: true })}
+                  />
+                ) : (
+                  sortedPending.map((card) => renderQueueRow(card, { pending: true }))
+                )}
               </>
             )}
             {showOperationalSections && filteredAssigned.length > 0 && (
@@ -838,6 +970,10 @@ function SixHiCrmHub() {
             machineActiveBatch={machineActive?.batchNumber ?? null}
             combinedCount={selectedProductionOrders.length}
             combinedBatchNumbers={selectedProductionOrders.map((c) => c.batchNumber)}
+            wasRerolled={selected ? rerollOverlayByBatch.get(selected.batchNumber)?.wasRerolled : undefined}
+            lastRerolledThicknessMm={selected
+              ? rerollOverlayByBatch.get(selected.batchNumber)?.lastRerolledThicknessMm
+              : undefined}
             onOpen={moveSelectedToProduction}
             onViewCompleted={moveSelectedToProduction}
             onMoveToMachine={() => selected && moveToMachine(selected)}
@@ -886,6 +1022,7 @@ function SixHiCrmHub() {
         open={allocOpen}
         mode={allocMode}
         batches={allocBatches}
+        preferredMachine={queueMachine}
         onClose={() => { setAllocOpen(false); setAllocBatches([]); }}
         onConfirm={handleAllocate}
       />

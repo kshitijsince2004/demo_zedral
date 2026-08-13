@@ -56,9 +56,23 @@ export interface ManualRerollSession {
   actualWeightPhotoHash?: string | null;
   ocrConfidence?: number | null;
   ocrRawText?: string | null;
+  inputThkMm?: number | null;
+  targetThkMm?: number | null;
+  destination?: string | null;
+  destinationOverride?: boolean;
+  etr?: number | null;
+  dtr?: number | null;
   passes?: ManualRerollPass[];
   activeStoppage?: ManualRerollStoppage | null;
   stoppages?: ManualRerollStoppage[];
+}
+
+export interface ManualRerollOverlayEntry {
+  batchNumber: string;
+  wasRerolled: boolean;
+  lastRerolledThicknessMm: number | null;
+  lastRerolledAt: string | null;
+  sessionCount: number;
 }
 
 export interface ManualRerollSessionCard {
@@ -185,12 +199,46 @@ export async function saveManualRerollCapture(
     actualWeightPhotoHash?: string | null;
     ocrConfidence?: number | null;
     ocrRawText?: string | null;
+    destination?: string | null;
+    destinationOverride?: boolean | null;
+    etr?: number | null;
+    dtr?: number | null;
+    inputThkMm?: number | null;
+    targetThkMm?: number | null;
     passes?: ManualRerollPass[];
   },
 ): Promise<ManualRerollSession> {
   return apiClient.patch(`/manual-reroll/sessions/${encodeURIComponent(sessionId)}/capture`, {
     machine,
     ...payload,
+  });
+}
+
+export async function fetchManualRerollOverlay(
+  machine: string,
+  batchNumbers: string[],
+): Promise<ManualRerollOverlayEntry[]> {
+  const unique = [...new Set(batchNumbers.map((b) => b.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const params = new URLSearchParams({
+    machine,
+    batchNumbers: unique.join(','),
+  });
+  const res = await apiClient.get<{ overlay: ManualRerollOverlayEntry[] }>(
+    `/manual-reroll/overlay?${params}`,
+  );
+  return res.overlay ?? [];
+}
+
+export function useManualRerollOverlay(machine: string | null, batchNumbers: string[], enabled: boolean) {
+  const key = machine && enabled && batchNumbers.length > 0
+    ? `/manual-reroll/overlay?machine=${encodeURIComponent(machine)}&batchNumbers=${encodeURIComponent(
+      [...new Set(batchNumbers)].sort().join(','),
+    )}`
+    : null;
+  return useSWR<{ overlay: ManualRerollOverlayEntry[] }>(key, (url: string) => apiClient.get(url), {
+    refreshInterval: 30_000,
+    revalidateOnFocus: true,
   });
 }
 

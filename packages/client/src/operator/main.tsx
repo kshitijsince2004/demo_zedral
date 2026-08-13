@@ -14,26 +14,21 @@ import { AppSWRConfig } from '../lib/swrDefaults';
 
 const root = createRoot(document.getElementById('root')!);
 
-// 2. Delay native init slightly to ensure SuperTokens event listeners are settled
-// and wrap in a function to control execution.
-async function bootstrap() {
-  try {
-    await initNative();
-  } catch (err) {
-    console.error('[Operator] Native init failed', err);
-  }
+// 2. Paint immediately — native init (SQLCipher, sync engine, KeepAwake) runs
+// in the background so login is interactive before the DB is ready. Offline
+// writes gate on `offlineReadyPromise` (see native/init.ts) instead of blocking paint.
+root.render(
+  <StrictMode>
+    <AnalyticErrorBoundary analyticName="OperatorApp">
+      <SuperTokensWrapper>
+        <AppSWRConfig>
+          <OperatorApp />
+        </AppSWRConfig>
+      </SuperTokensWrapper>
+    </AnalyticErrorBoundary>
+  </StrictMode>,
+);
 
-  root.render(
-    <StrictMode>
-      <AnalyticErrorBoundary analyticName="OperatorApp">
-        <SuperTokensWrapper>
-          <AppSWRConfig>
-            <OperatorApp />
-          </AppSWRConfig>
-        </SuperTokensWrapper>
-      </AnalyticErrorBoundary>
-    </StrictMode>,
-  );
-}
-
-bootstrap();
+void initNative().catch((err) => {
+  console.error('[Operator] Native init failed', err);
+});

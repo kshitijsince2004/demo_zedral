@@ -11,6 +11,7 @@ export interface OutboxActionInput {
   url: string;
   method: OutboxMethod;
   payload: unknown;
+  idempotencyKey?: string;
 }
 
 export interface OutboxAction {
@@ -25,9 +26,12 @@ export interface OutboxAction {
   lastError?: string | null;
   createdAt: number;
   syncedAt?: number | null;
+  idempotencyKey?: string | null;
 }
 
 const WEB_OUTBOX_KEY = 'm1:outbox';
+/** Native SQLite nextBatch page size — keep drain loop in sync with LIMIT below. */
+export const OUTBOX_BATCH_LIMIT = 200;
 
 type DbRow = {
   id: string;
@@ -41,6 +45,7 @@ type DbRow = {
   last_error?: string | null;
   created_at: number;
   synced_at?: number | null;
+  idempotency_key?: string | null;
 };
 
 function fromDbRow(row: DbRow): OutboxAction {
@@ -56,6 +61,7 @@ function fromDbRow(row: DbRow): OutboxAction {
     lastError: row.last_error,
     createdAt: Number(row.created_at),
     syncedAt: row.synced_at ?? null,
+    idempotencyKey: row.idempotency_key ?? null,
   };
 }
 
@@ -93,12 +99,39 @@ function groupReplayable(rows: OutboxAction[]): OutboxAction[][] {
     .map((group) => group.filter((row) => row.status === 'pending' || row.status === 'parked'));
 }
 
+function outboxDedupEnabled(): boolean {
+  try {
+    return import.meta.env.VITE_OUTBOX_DEDUP !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+const ACTIVE_DEDUP = new Set<OutboxStatus>(['pending', 'parked', 'inflight']);
+
+function findActiveByKey(rows: OutboxAction[], key: string | undefined): OutboxAction | undefined {
+  if (!key || !outboxDedupEnabled()) return undefined;
+  return rows.find((row) => row.idempotencyKey === key && ACTIVE_DEDUP.has(row.status));
+}
+
 export async function enqueue(action: OutboxActionInput): Promise<OutboxAction> {
   const createdAt = Date.now();
   const payload = JSON.stringify(action.payload);
 
   if (!hasNativeDb()) {
     return withWebRows((rows) => {
+      const existing = findActiveByKey(rows, action.idempotencyKey);
+      if (existing) {
+        console.info('[outbox] enqueue', {
+          aggregateKey: action.aggregateKey,
+          url: action.url,
+          method: action.method,
+          id: existing.id,
+          idempotencyKey: action.idempotencyKey,
+          deduped: true,
+        });
+        return existing;
+      }
       const seq = rows
         .filter((row) => row.aggregateKey === action.aggregateKey)
         .reduce((max, row) => Math.max(max, row.seq), 0) + 1;
@@ -110,24 +143,80 @@ export async function enqueue(action: OutboxActionInput): Promise<OutboxAction> 
         attempts: 0,
         createdAt,
         syncedAt: null,
+        idempotencyKey: action.idempotencyKey ?? null,
       };
       rows.push(row);
+      console.info('[outbox] enqueue', {
+        aggregateKey: action.aggregateKey,
+        url: action.url,
+        method: action.method,
+        id: row.id,
+        idempotencyKey: row.idempotencyKey,
+        deduped: false,
+      });
       return row;
     });
   }
 
   const db = getDb();
+  if (action.idempotencyKey && outboxDedupEnabled()) {
+    const dup = await db.query(
+      `SELECT id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key
+       FROM outbox
+       WHERE idempotency_key = ? AND status IN ('pending','parked','inflight')
+       LIMIT 1`,
+      [action.idempotencyKey],
+    );
+    const found = ((dup.values ?? []) as DbRow[])[0];
+    if (found) {
+      const existing = fromDbRow(found);
+      console.info('[outbox] enqueue', {
+        aggregateKey: action.aggregateKey,
+        url: action.url,
+        method: action.method,
+        id: existing.id,
+        idempotencyKey: action.idempotencyKey,
+        deduped: true,
+      });
+      return existing;
+    }
+  }
+
   const seqResult = await db.query(
     'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM outbox WHERE aggregate_key = ?',
     [action.aggregateKey],
   );
   const seq = Number(seqResult.values?.[0]?.next_seq ?? 1);
 
-  await db.run(
-    `INSERT INTO outbox (id, aggregate_key, seq, url, method, payload, status, attempts, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
-    [action.id, action.aggregateKey, seq, action.url, action.method, payload, createdAt],
-  );
+  try {
+    await db.run(
+      `INSERT INTO outbox (id, aggregate_key, seq, url, method, payload, status, attempts, created_at, idempotency_key)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+      [action.id, action.aggregateKey, seq, action.url, action.method, payload, createdAt, action.idempotencyKey ?? null],
+    );
+  } catch (err) {
+    if (action.idempotencyKey && outboxDedupEnabled()) {
+      const dup = await db.query(
+        `SELECT id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key
+         FROM outbox
+         WHERE idempotency_key = ? AND status IN ('pending','parked','inflight')
+         LIMIT 1`,
+        [action.idempotencyKey],
+      );
+      const found = ((dup.values ?? []) as DbRow[])[0];
+      if (found) return fromDbRow(found);
+    }
+    throw err;
+  }
+
+  console.info('[outbox] enqueue', {
+    aggregateKey: action.aggregateKey,
+    url: action.url,
+    method: action.method,
+    id: action.id,
+    idempotencyKey: action.idempotencyKey,
+    deduped: false,
+  });
 
   return {
     ...action,
@@ -137,6 +226,7 @@ export async function enqueue(action: OutboxActionInput): Promise<OutboxAction> 
     attempts: 0,
     createdAt,
     syncedAt: null,
+    idempotencyKey: action.idempotencyKey ?? null,
   };
 }
 
@@ -147,9 +237,11 @@ export async function nextBatch(): Promise<OutboxAction[][]> {
   }
 
   const result = await getDb().query(
-    `SELECT * FROM outbox
+    `SELECT id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key
+     FROM outbox
      WHERE status IN ('pending', 'parked')
-     ORDER BY aggregate_key ASC, seq ASC`,
+     ORDER BY aggregate_key ASC, seq ASC
+     LIMIT ${OUTBOX_BATCH_LIMIT}`,
   );
   return groupReplayable(((result.values ?? []) as DbRow[]).map(fromDbRow));
 }
@@ -224,13 +316,38 @@ export async function counts(): Promise<{ pending: number; parked: number }> {
   };
 }
 
+export async function pendingByAggregate(): Promise<Record<string, number>> {
+  if (!hasNativeDb()) {
+    const rows = await webRows();
+    const map: Record<string, number> = {};
+    for (const row of rows) {
+      if (row.status !== 'pending' && row.status !== 'parked' && row.status !== 'inflight') continue;
+      map[row.aggregateKey] = (map[row.aggregateKey] ?? 0) + 1;
+    }
+    return map;
+  }
+
+  const result = await getDb().query(
+    `SELECT aggregate_key, COUNT(*) AS count FROM outbox
+     WHERE status IN ('pending', 'parked', 'inflight')
+     GROUP BY aggregate_key`,
+  );
+  const rows = (result.values ?? []) as { aggregate_key: string; count: number }[];
+  const map: Record<string, number> = {};
+  for (const row of rows) {
+    map[row.aggregate_key] = Number(row.count ?? 0);
+  }
+  return map;
+}
+
 export async function parkedActions(): Promise<OutboxAction[]> {
   if (!hasNativeDb()) {
     return (await webRows()).filter((row) => row.status === 'parked');
   }
 
   const result = await getDb().query(
-    "SELECT * FROM outbox WHERE status = 'parked' ORDER BY created_at ASC",
+    `SELECT id, aggregate_key, seq, url, method, payload, status, attempts, last_error, created_at, synced_at, idempotency_key
+     FROM outbox WHERE status = 'parked' ORDER BY created_at ASC LIMIT 500`,
   );
   return ((result.values ?? []) as DbRow[]).map(fromDbRow);
 }

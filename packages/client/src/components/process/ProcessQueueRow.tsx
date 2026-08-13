@@ -1,5 +1,6 @@
-import type { MouseEvent } from 'react';
+import { memo, type MouseEvent } from 'react';
 import { ZBadge } from '../primitives/ZBadge';
+import { displayMotherCoilId } from '../../lib/sixHiOrderIdentity';
 import { processQueueStatusLabel, type ProcessQueueCard } from '../../store/processStore';
 import type { Tone } from '../../lib/tones';
 
@@ -17,8 +18,9 @@ interface ProcessQueueRowProps {
   card: ProcessQueueCard;
   selected: boolean;
   processLabel: string;
-  onSelect: () => void;
-  onOpen: () => void;
+  /** Stable (useCallback) — row calls onSelect(card) so memo() actually skips re-renders. */
+  onSelect: (card: ProcessQueueCard) => void;
+  onOpen: (card: ProcessQueueCard) => void;
   /** RWD combine — show checkbox when compatible pool has ≥2. */
   showCombineCheckbox?: boolean;
   isInCombinedSelection?: boolean;
@@ -27,7 +29,7 @@ interface ProcessQueueRowProps {
 }
 
 /** CRM-density queue row for process hubs (HRS Skin Pass–style list). */
-export function ProcessQueueRow({
+export const ProcessQueueRow = memo(function ProcessQueueRow({
   card,
   selected,
   processLabel,
@@ -38,13 +40,13 @@ export function ProcessQueueRow({
   combinedSelectionCount = 0,
   onCombineToggle,
 }: ProcessQueueRowProps) {
-  const title = card.displayCoilNo ?? card.coilNo;
+  const title = displayMotherCoilId(card);
   const batch = card.batchNumber;
   return (
     <button
       type="button"
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      onClick={() => onSelect(card)}
+      onDoubleClick={() => onOpen(card)}
       className={[
         'w-full text-left rounded-lg border px-4 py-3 transition-colors min-h-[5.5rem]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -73,15 +75,11 @@ export function ProcessQueueRow({
               {processLabel}
             </p>
             <p className="font-mono text-base font-bold text-foreground mt-0.5 truncate">{title}</p>
-            {(card.batchNumber || card.slitId || card.motherCoilNo) && (
+            {card.batchNumber ? (
               <p className="text-[11px] font-mono tabular-nums text-muted-foreground mt-0.5 truncate">
-                {card.motherCoilNo ? `Mother ${card.motherCoilNo}` : null}
-                {card.motherCoilNo && (card.slitId || card.batchNumber) ? ' · ' : null}
-                {card.slitId ? `Slit ${card.slitId}` : null}
-                {card.slitId && card.batchNumber ? ' · ' : null}
-                {card.batchNumber ? `Batch ${card.batchNumber}` : null}
+                Batch {card.batchNumber}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -100,8 +98,8 @@ export function ProcessQueueRow({
         {card.combination ? ` · ${card.combination}` : ''}
         {card.lineCount != null && card.lineCount > 1 ? ` · ${card.lineCount} lines` : ''}
         {' · '}
-        {card.widthMm} mm · {card.thicknessMm} mm · {card.weightMt} MT
+        {card.widthMm ?? '—'} mm · {card.thicknessMm ?? '—'} mm · {card.weightMt ?? '—'} MT
       </p>
     </button>
   );
-}
+});

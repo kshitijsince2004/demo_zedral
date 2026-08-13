@@ -25,11 +25,12 @@ export function formatOrderStatusLabel(status: string): string {
 }
 
 export function formatProcessFilterLabel(
-  process: 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL',
+  process: 'ALL' | 'ROLLING' | 'SKIN_PASS' | 'MANUAL_REROLL' | 'REWINDING',
 ): string {
   if (process === 'ROLLING') return 'Rolling';
   if (process === 'SKIN_PASS') return 'Skin Pass';
   if (process === 'MANUAL_REROLL') return 'Manual Re-Rolling';
+  if (process === 'REWINDING') return 'Rewinding';
   return 'All Processes';
 }
 

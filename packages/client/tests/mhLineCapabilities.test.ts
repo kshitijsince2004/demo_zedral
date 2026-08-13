@@ -6,29 +6,30 @@ import {
 } from '../src/lib/mhLineCapabilities';
 
 describe('mhLineCapabilities', () => {
-  it('CRS-only: live + crs-assignment + shared ops, no specs/order-assignment', () => {
+  it('CRS-only: live + crs-assignment + shared ops + machine-specs', () => {
     const ids = navIdsForMachines(['CRS']);
     expect(ids).toEqual([
       'live',
       'crs-assignment',
       'crew',
       'shift-review',
+      'machine-specs',
       'import',
       'dpr-export',
       'traceability',
     ]);
     expect(ids).not.toContain('order-assignment');
-    expect(ids).not.toContain('machine-specs');
     expect(ids).not.toContain('pkl-specs');
     expect(ids).not.toContain('ann-specs');
   });
 
-  it('CTL-only: shared ops only — no crs-assignment or specs', () => {
+  it('CTL-only: shared ops + machine-specs', () => {
     const ids = navIdsForMachines(['CTL']);
     expect(ids).toEqual([
       'live',
       'crew',
       'shift-review',
+      'machine-specs',
       'import',
       'dpr-export',
       'traceability',
@@ -37,24 +38,22 @@ describe('mhLineCapabilities', () => {
     expect(ids).not.toContain('order-assignment');
     expect(ids).not.toContain('pkl-specs');
     expect(ids).not.toContain('ann-specs');
-    expect(ids).not.toContain('machine-specs');
   });
 
-  it('CRM+HRS union keeps mill assignment/specs and HRS shared items', () => {
+  it('CRM+HRS union keeps mill assignment and HRS shared items, no rolling specs', () => {
     const ids = navIdsForMachines(['6HI', 'HRS']);
     expect(ids).toContain('live');
     expect(ids).toContain('order-assignment');
-    expect(ids).toContain('machine-specs');
+    expect(ids).not.toContain('machine-specs');
     expect(ids).toContain('import');
     expect(ids).not.toContain('crs-assignment');
     expect(ids).not.toContain('pkl-specs');
     expect(ids).not.toContain('ann-specs');
   });
 
-  it('HRS+ANN union merges both line capability sets without CRS leak', () => {
+  it('HRS+ANN union collapses to one Live Dashboard', () => {
     const ids = navIdsForMachines(['HRS', 'ANN']);
-    expect(ids).toContain('live');
-    expect(ids).toContain('ann-live');
+    expect(ids.filter((id) => id === 'live' || id === 'ann-live' || id === 'rwd-live')).toEqual(['live']);
     expect(ids).toContain('ann-batching');
     expect(ids).toContain('ann-report');
     expect(ids).toContain('ann-import');
@@ -63,6 +62,19 @@ describe('mhLineCapabilities', () => {
     expect(ids).not.toContain('crs-assignment');
     expect(ids).not.toContain('order-assignment');
     expect(ids).not.toContain('pkl-specs');
+  });
+
+  it('2HI-only uses CRM Live, not RWD Live', () => {
+    const ids = navIdsForMachines(['2HI']);
+    expect(ids.filter((id) => id === 'live' || id === 'ann-live' || id === 'rwd-live')).toEqual(['live']);
+    expect(ids).toContain('order-assignment');
+    expect(ids).not.toContain('machine-specs');
+  });
+
+  it('6HI+2HI union has a single Live item', () => {
+    const ids = navIdsForMachines(['6HI', '2HI']);
+    expect(ids.filter((id) => id === 'live' || id === 'ann-live' || id === 'rwd-live')).toEqual(['live']);
+    expect(ids).not.toContain('machine-specs');
   });
 
   it('resolves catalogue items in display order', () => {

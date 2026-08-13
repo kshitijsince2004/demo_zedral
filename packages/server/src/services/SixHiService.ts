@@ -35,7 +35,11 @@ import {
   validateOrderStoppageStart,
 } from '../validation/orderStoppageValidation';
 import { resolveStoppageMinutes } from '../validation/manufacturingValidation';
-import { finishGroup } from '../utils/orderLifecycleHelpers';
+import {
+  assertCombineEligible,
+  activeOrderConflictMessage,
+  statusAfterUngroupCombine,
+} from '../utils/orderLifecycleHelpers';
 import {
   actualWeightOcrDbPatch,
   assertActualWeightOcrCapture,
@@ -923,6 +927,7 @@ export class SixHiService {
       .leftJoin('txn.crm_order as o', 'o.batch_id', 'pb.batch_id')
       .selectAll('pb')
       .where('pb.machine_allocated', '=', false)
+      .where('pb.sub_process', 'in', ['ROLLING', 'SKIN_PASS'])
       .where((eb) => eb.or([
         eb('o.status', 'is', null),
         eb('o.status', 'not in', nonAssignable),
@@ -945,6 +950,8 @@ export class SixHiService {
 
       orders.push({
         batchNumber: b.batch_number,
+        motherCoil: b.coil_no,
+        slitId: b.slit_id ?? undefined,
         planDate: this.formatPlanDate(b.plan_date),
         shiftCode: b.shift_code,
         customer: b.customer_name,
@@ -1323,7 +1330,7 @@ export class SixHiService {
       .executeTakeFirst();
     if (!active) return null;
     return {
-      batchNumber: active.batch_number,
+      batchNumber: String(active.batch_number ?? '').trim(),
       status: active.status,
       subProcess: active.sub_process as SixHiSubProcess,
     };
@@ -1347,8 +1354,8 @@ export class SixHiService {
     await MachineHandoverService.assertProductionAllowed(machineCode, userId);
 
     const active = await this.findActiveMachineOrder(machineCode);
-    if (active && active.batchNumber !== batchNumber) {
-      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    if (active?.batchNumber && active.batchNumber !== batchNumber.trim()) {
+      throw new Error(activeOrderConflictMessage(active.batchNumber));
     }
     const { ManualRerollService } = await import('./ManualRerollService');
     await ManualRerollService.assertNoActiveReroll(machineCode);
@@ -1499,24 +1506,17 @@ export class SixHiService {
     }
 
     const first = batches[0];
-    const normalized = (value: string | null | undefined) => value?.trim() || '';
-    const baseKey = [first.coil_no, normalized(first.slit_id), finishGroup(first.roll_finish)].join('|');
-
-    for (const batch of batches) {
-      if (!batch.machine_allocated) {
-        throw new Error('Assign a production machine before starting');
-      }
-      if (batch.machine_code !== first.machine_code) {
-        throw new Error('Combined production orders must be assigned to the same machine');
-      }
-      if (batch.sub_process !== first.sub_process) {
-        throw new Error('Combined production orders must use the same subprocess');
-      }
-      const key = [batch.coil_no, normalized(batch.slit_id), finishGroup(batch.roll_finish)].join('|');
-      if (key !== baseKey) {
-        throw new Error('Selected orders must share Mother Coil, Slit ID, and Finish surface');
-      }
-    }
+    assertCombineEligible(
+      batches.map((batch) => ({
+        machineCode: batch.machine_code,
+        machineAllocated: !!batch.machine_allocated,
+        coilNo: batch.coil_no,
+        slitId: batch.slit_id,
+        rollFinish: batch.roll_finish,
+        subProcess: batch.sub_process,
+      })),
+      { requireSameSubProcess: true },
+    );
 
     const machineCode = first.machine_code;
     if (!machineCode) throw new Error('Order has no machine assigned');
@@ -1588,8 +1588,8 @@ export class SixHiService {
     }
 
     const active = await this.findActiveMachineOrder(machineCode);
-    if (active && !uniqueBatchNumbers.includes(active.batchNumber)) {
-      throw new Error(`ACTIVE_ORDER_CONFLICT:${active.batchNumber}`);
+    if (active?.batchNumber && !uniqueBatchNumbers.includes(active.batchNumber)) {
+      throw new Error(activeOrderConflictMessage(active.batchNumber));
     }
     const { ManualRerollService } = await import('./ManualRerollService');
     await ManualRerollService.assertNoActiveReroll(machineCode);
@@ -1692,6 +1692,84 @@ export class SixHiService {
     }).catch((err) => console.error('[MachineStateEvent] RUNNING_STARTED failed:', err));
 
     return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
+  }
+
+  /**
+   * Dissolve PREPARING combined groups referenced by batchNumbers.
+   * Clears combined_group_id; allocated → PREPARING, else PENDING.
+   * No-op when none of the batches belong to a group.
+   */
+  static async cancelCombinedProduction(
+    batchNumbers: string[],
+    userId: number,
+  ): Promise<SixHiOrderDetail[]> {
+    const uniqueBatchNumbers = Array.from(new Set(batchNumbers.map((b) => b.trim()).filter(Boolean)));
+    if (uniqueBatchNumbers.length === 0) {
+      throw new Error('At least one order is required');
+    }
+
+    const seedRows = await db
+      .selectFrom('txn.crm_order')
+      .select(['batch_number', 'combined_group_id', 'status', 'prod_start_at'])
+      .where('batch_number', 'in', uniqueBatchNumbers)
+      .execute();
+
+    const groupIds = Array.from(
+      new Set(
+        seedRows
+          .map((r) => (r.combined_group_id ? String(r.combined_group_id) : null))
+          .filter((id): id is string => !!id),
+      ),
+    );
+
+    if (groupIds.length === 0) {
+      return Promise.all(uniqueBatchNumbers.map((batchNumber) => this.getOrder(batchNumber, userId)));
+    }
+
+    const members = await db
+      .selectFrom('txn.crm_order as o')
+      .innerJoin('planning.ppc_batch as pb', 'pb.batch_id', 'o.batch_id')
+      .select([
+        'o.order_id',
+        'o.batch_number',
+        'o.status',
+        'o.prod_start_at',
+        'o.combined_group_id',
+        'pb.machine_allocated',
+      ])
+      .where('o.combined_group_id', 'in', groupIds)
+      .execute();
+
+    for (const row of members) {
+      if (row.status !== 'PENDING' && row.status !== 'PREPARING') {
+        throw new Error('Cannot cancel combined order after production has started — use Hold or End');
+      }
+      if (row.prod_start_at) {
+        throw new Error('Cannot cancel combined order after production has started — use Hold or End');
+      }
+    }
+
+    const stamp = new Date();
+    await db.transaction().execute(async (trx) => {
+      for (const row of members) {
+        const nextStatus = statusAfterUngroupCombine(!!row.machine_allocated);
+        await trx
+          .updateTable('txn.crm_order')
+          .set({
+            combined_group_id: null,
+            status: nextStatus,
+            updated_at: stamp,
+          })
+          .where('order_id', '=', row.order_id as any)
+          .execute();
+      }
+    });
+
+    const affected = Array.from(new Set([
+      ...uniqueBatchNumbers,
+      ...members.map((m) => m.batch_number),
+    ]));
+    return Promise.all(affected.map((batchNumber) => this.getOrder(batchNumber, userId)));
   }
 
   static async endProduction(
@@ -2187,9 +2265,11 @@ export class SixHiService {
       shiftCode: batch?.shift_code,
     };
 
-    if (batch?.process_route_raw) {
-      await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
-    } else {
+    let advanced = await ProcessRouteService.advanceJourneyByCoil(order.coil_no, completionPayload);
+    if (!advanced && batch?.process_route_raw) {
+      advanced = await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
+    }
+    if (!advanced) {
       const nextDest = order.sub_process === 'SKIN_PASS'
         ? 'CTL'
         : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';

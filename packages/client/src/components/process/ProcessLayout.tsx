@@ -8,6 +8,7 @@ import { HandoverAcceptGate } from '../HandoverAcceptGate';
 import { useShiftStore } from '../../store/shiftStore';
 import { useProcessStore } from '../../store/processStore';
 import { apiClient, ApiError } from '../../lib/apiClient';
+import { isInputFocused } from '../../lib/networkAwareInterval';
 import { ProductionActionRail } from './ProductionActionRail';
 import { ShiftEndModal } from '../sixHi/ShiftEndModal';
 import { OrderEndModal } from '../sixHi/OrderEndModal';
@@ -17,6 +18,7 @@ import { OrderRemarkModal } from '../sixHi/OrderRemarkModal';
 import { CrewCaptureModal, CREW_CAPTURE_SNOOZE_MS } from '../sixHi/CrewCaptureModal';
 import { useProcessWorkspaceBase } from '../../hooks/useProcessWorkspaceBase';
 import { getProcessConfig, isProcessStationCode, type ProcessStationCode } from '../../lib/processConfig';
+import { scopeNavPath } from '../../lib/scopeNavPath';
 import { useShiftEndWatcher, SHIFT_END_REMINDER_MS } from '../../hooks/useShiftEndWatcher';
 import { rejectRwdOrder } from '../../lib/rewindingWrites';
 import {
@@ -48,30 +50,22 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
   const location = useLocation();
   const { basePath } = useProcessWorkspaceBase();
   const navigate = useNavigate();
-  const {
-    activeCoilNo,
-    captureStatus,
-    stoppageStartedAt,
-    runStartedAt,
-    runStoppages,
-    activeStoppageId,
-    busy,
-    captureError,
-    clearCaptureError,
-    endConfirmToken,
-    setProcessCode,
-    startCapture,
-    stopCapture,
-    openRemarkPanel,
-    closeRemarkPanel,
-    remarkPanelOpen,
-    requestEndCapture,
-    requestManageStoppage,
-  } = useProcessStore();
+  const activeCoilNo = useProcessStore((s) => s.activeCoilNo);
+  const captureStatus = useProcessStore((s) => s.captureStatus);
+  const stoppageStartedAt = useProcessStore((s) => s.stoppageStartedAt);
+  const runStartedAt = useProcessStore((s) => s.runStartedAt);
+  const runStoppages = useProcessStore((s) => s.runStoppages);
+  const activeStoppageId = useProcessStore((s) => s.activeStoppageId);
+  const busy = useProcessStore((s) => s.busy);
+  const captureError = useProcessStore((s) => s.captureError);
+  const clearCaptureError = useProcessStore((s) => s.clearCaptureError);
+  const endConfirmToken = useProcessStore((s) => s.endConfirmToken);
+  const closeRemarkPanel = useProcessStore((s) => s.closeRemarkPanel);
+  const remarkPanelOpen = useProcessStore((s) => s.remarkPanelOpen);
 
   const onHandoverRoute = /\/handover\/?$/.test(location.pathname);
   const shiftWatcher = useShiftEndWatcher({ enabled: !onHandoverRoute });
-  const handoverPath = basePath ? `${basePath}/handover` : null;
+  const handoverPath = basePath ? scopeNavPath(basePath, 'handover') : null;
   const shiftLogId = useShiftStore((s) => s.shiftLogId);
   const [endOpen, setEndOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -104,13 +98,13 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
     if (prev !== machine) {
       useProcessStore.getState().resetForLine(machine);
     } else {
-      setProcessCode(machine);
+      useProcessStore.getState().setProcessCode(machine);
     }
     if (activeMachine !== machine) setActiveMachine(machine);
     setCrewPendingSessionId(null);
     setCrewPrompt(null);
     setCrewSnoozeUntil(0);
-  }, [machine, activeMachine, setActiveMachine, setProcessCode]);
+  }, [machine, activeMachine, setActiveMachine]);
 
   // Body Save Production Data → same OrderEndModal as rail End.
   useEffect(() => {
@@ -212,6 +206,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
     }
     let cancelled = false;
     const refresh = async () => {
+      if (isInputFocused()) return;
       try {
         const status = machine === 'PKL'
           ? await fetchPklManualStoppage()
@@ -276,10 +271,10 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
               runStoppages={runStoppages}
               activeStoppageId={activeStoppageId}
               busy={busy || isCompleted}
-              onStart={() => { if (!isCompleted) startCapture(activeCoilNo); }}
+              onStart={() => { if (!isCompleted) useProcessStore.getState().startCapture(activeCoilNo); }}
               onEnd={() => {
                 if (isCompleted) return;
-                const path = `${basePath}/capture/${encodeURIComponent(activeCoilNo)}`;
+                const path = scopeNavPath(basePath, 'capture', encodeURIComponent(activeCoilNo));
                 if (!location.pathname.includes('/capture/')) {
                   navigate(path);
                 }
@@ -292,20 +287,20 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
                     setOrderStoppageOpen(true);
                     return;
                   }
-                  stopCapture();
+                  useProcessStore.getState().stopCapture();
                 } else if (captureStatus === 'stoppage') {
-                  requestManageStoppage();
+                  useProcessStore.getState().requestManageStoppage();
                 }
                 if (!location.pathname.includes('/capture/') && activeCoilNo) {
-                  navigate(`${basePath}/capture/${encodeURIComponent(activeCoilNo)}`);
+                  navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(activeCoilNo)));
                 }
               }}
               onRemark={() => {
                 if (isCompleted || !activeCoilNo) return;
                 if (!location.pathname.includes('/capture/')) {
-                  navigate(`${basePath}/capture/${encodeURIComponent(activeCoilNo)}`);
+                  navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(activeCoilNo)));
                 }
-                openRemarkPanel();
+                useProcessStore.getState().openRemarkPanel();
               }}
               onHold={() => {
                 if (isCompleted) return;
@@ -322,7 +317,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
           appliesTo={machine}
           onClose={() => setEndOpen(false)}
           onConfirm={async () => {
-            requestEndCapture();
+            await useProcessStore.getState().requestEndCaptureAndWait();
           }}
         />
 
@@ -352,7 +347,7 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
             useProcessStore.getState().finishCapture();
             useProcessStore.getState().requestQueueRefresh();
             await useProcessStore.getState().loadQueue();
-            navigate(basePath);
+            navigate(basePath || '/');
           }}
         />
 
@@ -448,13 +443,13 @@ export function ProcessLayout({ stationCode }: ProcessLayoutProps) {
             stoppageCodesLoading={machineStoppageCodesLoading}
             onClose={() => setOrderStoppageOpen(false)}
             onStart={async (categoryCode, _breakdownCode, remarks) => {
-              stopCapture({
+              useProcessStore.getState().stopCapture({
                 categoryCode: toStoppageCategoryCode(categoryCode),
                 remarks,
               });
               setOrderStoppageOpen(false);
               if (activeCoilNo && !location.pathname.includes('/capture/')) {
-                navigate(`${basePath}/capture/${encodeURIComponent(activeCoilNo)}`);
+                navigate(scopeNavPath(basePath, 'capture', encodeURIComponent(activeCoilNo)));
               }
             }}
             onUpdate={async () => undefined}

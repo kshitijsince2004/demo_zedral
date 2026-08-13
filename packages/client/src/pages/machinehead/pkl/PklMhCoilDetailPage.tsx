@@ -5,6 +5,8 @@ import { MachineHeadShell } from '../../../components/layout/machinehead/Machine
 import { ZButton } from '../../../components/primitives/ZButton';
 import { apiClient } from '../../../lib/apiClient';
 import { formatPlantDateTime } from '../../../lib/dateFormat';
+import { displayMotherCoilId } from '../../../lib/sixHiOrderIdentity';
+import { deleteHrsPklOrder, reinstateHrsPklOrder } from '../../../lib/hrsPklWrites';
 
 type Prefill = {
   coilNo?: string;
@@ -21,23 +23,34 @@ export function PklMhCoilDetailPage() {
   const coilNo = raw ? decodeURIComponent(raw) : '';
   const navigate = useNavigate();
   const [data, setData] = useState<Prefill | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!coilNo) return;
-    void apiClient
-      .get<Prefill>(`/stations/pkl/entry/${encodeURIComponent(coilNo)}`)
-      .then(setData)
+    void Promise.all([
+      apiClient.get<Prefill>(`/stations/pkl/entry/${encodeURIComponent(coilNo)}`),
+      apiClient.get<{ status?: string }>(`/pkl-order/orders/${encodeURIComponent(coilNo)}`).catch(() => null),
+    ])
+      .then(([entry, order]) => {
+        setData(entry);
+        setStatus(order?.status ?? null);
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Load failed'));
   }, [coilNo]);
 
   const p = data?.prefill ?? {};
+  const coilIdentity = displayMotherCoilId({
+    motherCoilNo: String(data?.motherCoilNo ?? p.motherCoilNo ?? '') || undefined,
+    coilNo: data?.coilNo ?? coilNo,
+    batchNumber: coilNo,
+    slitId: String(data?.slitId ?? p.slitId ?? '') || undefined,
+  });
   const rows: Array<[string, string]> = [
-    ['Coil', data?.coilNo ?? coilNo],
+    ['Coil', coilIdentity],
     ['Grade', String(data?.gradeCode ?? p.gradeCode ?? '—')],
     ['Weight (MT)', data?.weightMt != null ? Number(data.weightMt).toFixed(2) : String(p.weightMt ?? '—')],
-    ['Mother', String(data?.motherCoilNo ?? p.motherCoilNo ?? '—')],
-    ['Slit', String(data?.slitId ?? p.slitId ?? '—')],
     ['Line speed', String(p.lineSpeedMpm ?? p.line_speed_mpm ?? '—')],
     ['Repeats', String(p.repeats ?? '—')],
     ['HT', String(p.ht ?? p.HT ?? '—')],
@@ -46,6 +59,37 @@ export function PklMhCoilDetailPage() {
     ['Captured at', p.createdAt || p.created_at ? formatPlantDateTime(String(p.createdAt ?? p.created_at)) : '—'],
     ['Operator', String(p.capturedBy ?? p.created_by ?? p.operatorName ?? '—')],
   ];
+
+  const st = (status ?? '').toUpperCase();
+  const canReinstate = st === 'REJECTED' || st === 'HOLD' || st === 'COMPLETED';
+  const canDelete = st === 'COMPLETED';
+
+  async function onReinstate() {
+    if (!window.confirm(`Move ${coilNo} back to Preparing?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const order = await reinstateHrsPklOrder('PKL', coilNo, 'PREPARING') as { status?: string };
+      setStatus(order?.status ?? 'PREPARING');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reinstate failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!window.confirm(`Delete order ${coilNo}?\n\nPPC plan stays. This cannot be undone.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteHrsPklOrder('PKL', coilNo);
+      navigate('/machine-head/pkl/live');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+      setBusy(false);
+    }
+  }
 
   return (
     <MachineHeadShell
@@ -68,6 +112,20 @@ export function PklMhCoilDetailPage() {
               <p className="mt-0.5 text-sm font-semibold font-mono tabular-nums">{value}</p>
             </div>
           ))}
+          {(canReinstate || canDelete) && (
+            <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2">
+              {canReinstate && (
+                <ZButton type="button" variant="secondary" disabled={busy} onClick={() => void onReinstate()}>
+                  Move to preparation
+                </ZButton>
+              )}
+              {canDelete && (
+                <ZButton type="button" variant="secondary" disabled={busy} onClick={() => void onDelete()}>
+                  Delete order
+                </ZButton>
+              )}
+            </div>
+          )}
         </div>
       )}
     </MachineHeadShell>
