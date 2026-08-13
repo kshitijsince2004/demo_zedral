@@ -3231,3 +3231,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Touched:** `packages/client/src/lib/sync/engine.ts`, `packages/server/src/services/ProcessRouteService.ts`, `doc/AGENT_CONTEXT_LOG.md`
 - **Decisions / skipped:** Fixed `no-useless-assignment` on parked-only replay. `advanceJourney` now skips SKIPPED steps, activates the next queued step, and aborts on `queue_batch_id` mismatch. Local `scripts/run-ci-quality-local.sh` PASSED (lint/build/client/unit/integration/arch/docker + QA `/health`). Playwright smoke skipped locally (no `SMOKE_*` secrets). Excluded root audit plans, `screen.png`, `.github/an`, and the console-to-logger codemod.
 - **Follow-ups:** Watch GitHub Actions CI + Deploy AWS QA Playwright after push (`gh` not authenticated locally).
+
+### 2026-08-14 — Restore QA env secrets; ignore puppeteer majors
+
+- **Goal:** Unblock AWS QA #203 and CI lockfile on Dependabot puppeteer #218.
+- **Touched:** deploy/docker-compose.prod.yml, .github/workflows/deploy-aws.yml, .github/workflows/deploy-production.yml, .github/dependabot.yml
+- **Decisions / skipped:** Compose Docker secrets were required but QA has no deploy/secrets/*. Restored .env injection. Kept entrypoint *_FILE loader. Dependabot ignore for puppeteer (optional, skipped in image). Did not take puppeteer 25.
+- **Follow-ups:** Close Dependabot PR #218. Re-run Deploy AWS QA after this lands on main.

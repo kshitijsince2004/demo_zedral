@@ -9,6 +9,9 @@ updates:
     ignore:
       - dependency-name: xlsx
       - dependency-name: kysely
+      # Optional PDF helper; image sets PUPPETEER_SKIP_DOWNLOAD. Majors break lockfile sync
+      # (Dependabot writes it into dependencies instead of optionalDependencies).
+      - dependency-name: puppeteer
     groups:
       all-npm:
         patterns:

@@ -166,6 +166,7 @@ jobs:
           mkdir -p "${APP_DIR}/deploy"
           rsync -az --no-o --no-g --delete \
             --exclude '.env' \
+            --exclude 'secrets/' \
             --exclude '.last-good-*' \
             --exclude '.previous-good-*' \
             ./deploy/ "${APP_DIR}/deploy/"

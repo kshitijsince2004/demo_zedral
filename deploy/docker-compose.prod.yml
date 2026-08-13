@@ -5,7 +5,7 @@
 #   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --no-build
 #
 # Postgres pgaudit image: build from deploy/postgres/ and set POSTGRES_IMAGE=
-# (default stays postgres:15-alpine until QA soak). Secrets: deploy/secrets/* (see README).
+# (default stays postgres:15-alpine until QA soak). Runtime secrets stay in deploy/.env.
 
 services:
   db:
@@ -41,8 +41,7 @@ services:
         condition: service_healthy
     environment:
       POSTGRESQL_CONNECTION_URI: "postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
-      # ST image reads env only — keep key in deploy/.env (same value as secret file for backend).
-      API_KEYS: ${SUPERTOKENS_API_KEY:?Set SUPERTOKENS_API_KEY}
+      API_KEYS: ${SUPERTOKENS_API_KEY}
       ACCESS_TOKEN_VALIDITY: 900
       REFRESH_TOKEN_VALIDITY: 10080
     restart: unless-stopped
@@ -72,20 +71,18 @@ services:
       PORT: 3005
       DB_HOST: db
       DB_PORT: 5432
-      # Runtime app role — no weak :-m1_app_password fallbacks (SAFE_CHANGE #16).
-      DB_USER: ${DB_APP_USER:?Set DB_APP_USER}
-      DB_APP_USER: ${DB_APP_USER:?Set DB_APP_USER}
-      DB_NAME: ${DB_NAME:?Set DB_NAME}
-      DB_APP_PASSWORD_FILE: /run/secrets/db_app_password
-      DB_MIGRATE_USER: ${DB_USER:?Set DB_USER}
-      DB_MIGRATE_PASSWORD_FILE: /run/secrets/db_bootstrap_password
-      JWT_SECRET_FILE: /run/secrets/jwt_secret
-      SUPERTOKENS_API_KEY_FILE: /run/secrets/supertokens_api_key
-      SERVICE_TOKEN_FILE: /run/secrets/service_token
-      # Legacy: if DATABASE_URL is set in .env it wins after secret load; else entrypoint builds it.
-      DATABASE_URL: ${DATABASE_URL:-}
-      DATABASE_SSL: ${DATABASE_SSL:-false}
-      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      # Runtime app role — subject to RLS. Secrets stay in deploy/.env (QA has no Docker secret files).
+      # ponytail: *_FILE injection stays in docker-entrypoint.sh for later; do not require compose secrets.
+      DB_USER: ${DB_APP_USER:-m1_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
+      DB_APP_USER: ${DB_APP_USER:-m1_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-m1_app_password}
+      DB_NAME: ${DB_NAME}
+      DATABASE_URL: postgres://${DB_APP_USER:-m1_app}:${DB_APP_PASSWORD:-m1_app_password}@db:5432/${DB_NAME}
+      DB_MIGRATE_USER: ${DB_USER}
+      DB_MIGRATE_PASSWORD: ${DB_PASSWORD}
+      MIGRATE_DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
       AUTH_STRICT: ${AUTH_STRICT:-true}
       VALIDATION_STRICT: ${VALIDATION_STRICT:-true}
       TENANT_ID: ${TENANT_ID}
@@ -98,15 +95,12 @@ services:
       CACHE_DRIVER: ${CACHE_DRIVER:-memory}
       REDIS_URL: ${REDIS_URL:-}
       SUPERTOKENS_CORE_URI: http://supertokens:3567
+      SUPERTOKENS_API_KEY: ${SUPERTOKENS_API_KEY}
       API_DOMAIN: ${API_DOMAIN}
       WEBSITE_DOMAIN: ${WEBSITE_DOMAIN}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
       ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-}
-    secrets:
-      - db_app_password
-      - db_bootstrap_password
-      - jwt_secret
-      - supertokens_api_key
-      - service_token
     depends_on:
       db:
         condition: service_healthy
@@ -144,15 +138,3 @@ networks:
 volumes:
   pg_data:
   redis_data:
-
-secrets:
-  db_app_password:
-    file: ${SECRETS_DIR:-./secrets}/db_app_password
-  db_bootstrap_password:
-    file: ${SECRETS_DIR:-./secrets}/db_bootstrap_password
-  jwt_secret:
-    file: ${SECRETS_DIR:-./secrets}/jwt_secret
-  supertokens_api_key:
-    file: ${SECRETS_DIR:-./secrets}/supertokens_api_key
-  service_token:
-    file: ${SECRETS_DIR:-./secrets}/service_token
