@@ -3,13 +3,12 @@ import { Navigate, useParams } from 'react-router-dom';
 import { MachineComingSoon } from '../MachineComingSoon';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { useAuthStore } from '../../lib/authStore';
+import { getRoleHomePath } from '../../lib/roleHome';
+import { isProcessHubMachine, processHubRedirect } from '../../lib/processStationEntry';
 import { bootstrapShiftContext } from '../../lib/shiftDetection';
 import { useShiftStore, type ProcessLine } from '../../store/shiftStore';
 import { formatShiftDate } from '../../lib/dateFormat';
-import {
-  CtlCaptureForm,
-  RwdCaptureForm,
-} from './ProcessForms';
+import { CtlCaptureForm } from './ProcessForms';
 
 interface ActiveShiftResponse {
   shiftLogId: string;
@@ -19,8 +18,8 @@ interface ActiveShiftResponse {
   producedMt: number;
 }
 
-/** HRS / CRS / PKL / ANN use process hub — not GenericCapture. */
-const supportedMachines = ['SKP', 'RWD', 'CTL'] as const;
+/** Legacy SKP only — process stations use /:userScope hubs. */
+const supportedMachines = ['SKP'] as const;
 type SupportedMachine = (typeof supportedMachines)[number];
 
 function isSupportedMachine(value: string): value is SupportedMachine {
@@ -28,15 +27,13 @@ function isSupportedMachine(value: string): value is SupportedMachine {
 }
 
 function formFor(machineCode: SupportedMachine, shiftLogId: string) {
-  const props = { machineCode, shiftLogId };
-  if (machineCode === 'RWD') return <RwdCaptureForm {...props} />;
-  return <CtlCaptureForm {...props} />;
+  return <CtlCaptureForm machineCode={machineCode} shiftLogId={shiftLogId} />;
 }
 
 export function GenericCapturePage() {
   const { machineCode: rawMachineCode } = useParams<{ machineCode: string }>();
   const machineCode = (rawMachineCode ?? '').toUpperCase();
-  const { role, machineAccess, activeMachine, setActiveMachine } = useAuthStore();
+  const { role, machineAccess, lineAccess, username, activeMachine, setActiveMachine } = useAuthStore();
   const shiftLogId = useShiftStore((state) => state.shiftLogId);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,9 +85,13 @@ export function GenericCapturePage() {
     return <Navigate to="/" replace />;
   }
 
-  // Plan — HRS/CRS/PKL/ANN capture lives on the process hub.
-  if (machineCode === 'CRS' || machineCode === 'HRS' || machineCode === 'PKL' || machineCode === 'ANN') {
-    return <Navigate to="/" replace />;
+  // Process hubs live under /:userScope — never bounce to `/` (RoleHomeRedirect loop).
+  if (isProcessHubMachine(machineCode)) {
+    const dest = processHubRedirect(getRoleHomePath(role, lineAccess, machineAccess, username));
+    if ('comingSoon' in dest) {
+      return <MachineComingSoon machineCode={machineCode} />;
+    }
+    return <Navigate to={dest.to} replace />;
   }
 
   if (!canLoadCapture) {
@@ -116,7 +117,7 @@ export function GenericCapturePage() {
           </div>
         )}
 
-        {!loading && !error && shiftLogId && formFor(machineCode, shiftLogId)}
+        {!loading && !error && shiftLogId && isSupportedMachine(machineCode) && formFor(machineCode, shiftLogId)}
       </div>
     </div>
   );

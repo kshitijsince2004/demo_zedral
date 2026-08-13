@@ -4,6 +4,7 @@ import { useAuthStore } from '../lib/authStore';
 import { getEffectiveMachineAccess, preferPrimaryMachine } from '../lib/machineRouting';
 import { isCrmMillCode } from '../lib/millConfig';
 import { isProcessStationCode } from '../lib/processConfig';
+import { processStationEntry } from '../lib/processStationEntry';
 import { getRoleHomePath } from '../lib/roleHome';
 import { normalizeDoubledUserScopePath } from '../lib/scopeNavPath';
 import { isUserScopePath, matchesUserScope } from '../lib/userScope';
@@ -36,7 +37,7 @@ export function UserScopeShell() {
     ? active
     : primary ?? machines[0] ?? null;
 
-  const stationCode = machine && isProcessStationCode(machine) ? machine : null;
+  const stationCode = machine === 'CRS' || machine === 'CTL' ? machine : null;
   const { enabled: stationEnabled, loading: flagsLoading } = useTenantStationFlag(stationCode);
 
   useEffect(() => {
@@ -70,16 +71,20 @@ export function UserScopeShell() {
   }
 
   if (machine && isProcessStationCode(machine)) {
-    if (flagsLoading) {
+    const entry = processStationEntry(machine, stationEnabled);
+    if (entry === 'disabled') {
+      if (flagsLoading) {
+        return (
+          <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+            Loading station feature flags…
+          </div>
+        );
+      }
       return (
-        <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-          Loading station feature flags…
+        <div className="min-h-screen flex items-center justify-center p-6 text-sm text-muted-foreground">
+          {machine} is not enabled for this plant.
         </div>
       );
-    }
-
-    if (!stationEnabled) {
-      return <Navigate to={`/capture/${encodeURIComponent(machine)}`} replace />;
     }
 
     return (

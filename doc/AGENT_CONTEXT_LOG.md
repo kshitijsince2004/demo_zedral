@@ -3154,3 +3154,17 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** `assert_docker_daemon` via `docker info` (not client `--version`). Pull retries abort when the daemon is unreachable. Did not chmod 666 the socket. Did not add a duplicate workflow preflight step.
 - **Follow-ups:** On the QA box: `sudo usermod -aG docker ubuntu` then `cd ~/actions-runner && sudo ./svc.sh stop && sudo ./svc.sh start`. Re-run Deploy AWS QA.
 
+### 2026-08-13 — ANN QA white screen (redirect loop)
+
+- **Goal:** Stop operator ANN (and other process stations) white-screening on AWS QA.
+- **Touched:** `UserScopeShell.tsx`, `GenericCapturePage.tsx`, `1980000000000_enable_live_process_station_flags.js`
+- **Decisions / skipped:** Root cause is `station.ann=false` in prod Docker (migration 1932) plus `/capture/ANN` → `/` → user-scope bounce. Did not enable CRS/CTL. `ERR_BLOCKED_BY_CLIENT` is an ad blocker, ignored.
+- **Follow-ups:** Deploy to QA (migrate 1980). Hard-refresh ANN operator. Confirm `station.ann` is true in `security.tenant_config.flags`.
+
+### 2026-08-13 — Process-station white screen (HRS + siblings)
+
+- **Goal:** Same `/capture` ↔ `/` loop as ANN, for HRS/PKL/RWD too; live hubs must open even when `station.*` is false.
+- **Touched:** `processStationEntry.ts`, `UserScopeShell.tsx`, `GenericCapturePage.tsx`, `processStationEntry.test.ts`, `1980000000000_enable_live_process_station_flags.js`
+- **Decisions / skipped:** HRS/PKL/ANN/RWD always hub (flag ignored). CRS/CTL stay static-disabled, never Navigate to `/capture`. GenericCapture SKP-only. Did not enable CRS/CTL.
+- **Follow-ups:** Deploy QA (migrate 1980) + hard refresh. HRS/PKL/ANN/RWD operators should open hubs, not white-screen.
+
