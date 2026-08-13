@@ -7,6 +7,9 @@ node_modules/
 !.env.example
 !deploy/.env.production.example
 deploy/.env
+
+# Claude Code local credentials (never commit API keys)
+.claude/settings.json
 deploy/.last-good-sha
 deploy/.previous-good-sha
 deploy/.last-good-images

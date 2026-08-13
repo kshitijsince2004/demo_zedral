@@ -1,0 +1,3 @@
+# Triaged historical findings. New secrets still fail CI (new commit = new fingerprint).
+# 9dba0d7 .claude/settings.json — OpenRouter token; file untracked + gitignored; rotate the key.
+9dba0d7e9827fc2a3e77dd92f7a37c69dba45694:.claude/settings.json:generic-api-key:4

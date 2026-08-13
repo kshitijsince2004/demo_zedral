@@ -2847,6 +2847,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** `GET /stations/ann/queue/:coilNo/detail` loads ppc_batch.raw_row_json + journey/prior RWD/active charge sections.
 - **Follow-ups:** Smoke batching info on coil with full ANN plan import.
 
+### 2026-08-13 — ANN batching queue = PPC plan ∪ journey-arrived
+
+- **Goal:** Incoming ANN batching list includes all PPC ANN plan coils and coils that flowed to ANN from the prior line (route).
+- **Touched:** `packages/server/src/services/ProcessStationService.ts` (`getQueue` ANN branch)
+- **Decisions / skipped:** Dedup by coil+slit (prefer journey card); hide open-charge + past-ANN completed plan rows; removed 500-row cap; attach `routeRaw`.
+- **Follow-ups:** Restart API; smoke MH/operator Ann Batching after PPC import + after RWD→ANN advance.
+
 ### 2026-08-12 � Journey hand-off master plan (M0�M2 slice)
 
 - **Goal:** INV-1/INV-2 enforcement + observability across all lines per `JOURNEY_HANDOFF_MASTER_PLAN.md`.
@@ -3076,4 +3083,60 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Touched:** `package-lock.json`
 - **Decisions / skipped:** Bumped workspace entry `packages/client` version 1.2.10 → 1.2.11 to match `packages/client/package.json`. No other lock changes.
 - **Follow-ups:** Re-run CI on main after push.
+
+### 2026-08-13 — Operator QA APK 1.2.13 (vc16)
+
+- **Goal:** Sync latest operator bundle and assemble QA APK.
+- **Touched:** `packages/client/.env.operator` (`VITE_APP_VERSION=1.2.13`), `dist-operator` + cap sync, `Zedral-Operator-QA-1.2.13-vc16.apk`
+- **Decisions / skipped:** Kept gradle 1.2.13 / vc16 (never previously assembled). In-tree gradle skipped; assembled from `C:\temp\zedral-apk-build3` mirror. Debug-signed (no `ZEDRAL_KEYSTORE_*`). No HeadWind upload.
+- **Follow-ups:** Sideload `Zedral-Operator-QA-1.2.13-vc16.apk`; badge/PIN smoke against `https://qa.zedral.com`.
+
+### 2026-08-13 — Operator → Machine Server sync completeness
+
+- **Goal:** Stop outbox/history data loss so operator captures show completely on the MH desk.
+- **Touched:** `packages/client/src/lib/sync/engine.ts`, `outboxRepo.ts`, `outboxPolicy.ts`, `invalidateAfterWrite.ts`, `packages/client/src/operator/sync/pull.ts`, `ProcessOperatorHistoryPage.tsx`, `AnnOperatorHistoryPage.tsx`, `HrsSlitBuilder.tsx`, MH coil detail pages, `ProcessStationService.ts`, `ProductionService.ts`, `productionRoutes.ts`, `PklOrderService.ts`, `LiveService.ts`, `SixHiService.ts`, `sixHiRoutes.ts`, `hrsOrderRoutes.ts`, `pklOrderRoutes.ts`
+- **Decisions / skipped:** Pending-first outbox drain; validation 400 parks (not synced). PKL/RWD history now returns status + REJECTED holds. Date-scan PKL/RWD like HRS. Shift-log OR plant-day completed union. No pagination/cursors, no CRS/CTL history API, no JourneyAdvanceConsumer dead-letter.
+- **Follow-ups:** Smoke HRS/PKL operator History Hold+Completed pills and MH coil detail after offline capture drain.
+
+### 2026-08-13 — CRM assign txn DDL, Manual Re-Roll queue parity, 2HI cancel-combine
+
+- **Goal:** Fix `permission denied for schema txn` on 6HI/4HI/2HI machine assign; match Manual Re-Roll queue/detail to Rolling; let 2HI rewinding cancel-combine unallocated RWD-coded plans.
+- **Touched:** `orderMachineTransferAudit.ts`, `ManualRerollService.ts`, `SixHiService.ts`, `migrations/1977000000000_grant_order_machine_transfer.js`, `rewindingMachines.ts`, `RewindingOrderService.ts`, `rewindingRoutes.ts`, `apiClient.ts`, `rewindingWrites.ts`, `TwoHiRewindingHub.tsx`, `ProcessHub.tsx`, `ManualRerollHub.tsx`, `SixHiBatchDetailPanel.tsx`, `manualRerollUi.ts`
+- **Decisions / skipped:** Removed runtime `CREATE TABLE` (app role has no schema CREATE). Unallocated rewinding writes auth against hub mill (`?machine=`). Did not GRANT CREATE on `txn`. Did not clone Rolling date picker / bulk transfer.
+- **Follow-ups:** Assign a mill on 6HI/4HI/2HI as `m1_app`; cancel combined on 2HI rewinding with unallocated RWD-coded plans; confirm Manual Re-Roll tab uses Rolling row + 400px detail card.
+
+### 2026-08-13 — HRS slit-scoped Hold Order
+
+- **Goal:** Hold Order applies to selected slit + batch only; sibling slits stay in production and show in Completed.
+- **Touched:** `hrsSlitHold.ts`, `HrsOrderService.ts`, `hrsOrderRoutes.ts`, `1978000000000_hrs_slit_hold_reason.js`, `ProductionService.ts`, `JourneyAdvanceConsumer.ts`, `ProcessStationService.ts`, `PklOrderService.ts`, `pklOrderRoutes.ts`, `journeyHandoff.ts`, `OrderRejectionModal.tsx`, `ProcessLayout.tsx`, `HrsSlitBuilder.tsx`, `processStore.ts`, `ProcessHub.tsx`, `HrsMhLiveDashboard.tsx`
+- **Decisions / skipped:** Kept one `hrs_order` mill session; mother REJECTED only when every slit is held. Did not split HRS into N order rows. Did not cascade CRM/RWD `combined_group_id`.
+- **Follow-ups:** Migrate `1978` (slit hold_reason columns). Smoke: hold slit A of A/B/C, end mother, Completed shows B/C, Order Hold shows A; PKL reject batch 1 leaves batch 2 running.
+
+### 2026-08-13 — Order-flow audit harden (scope 3)
+
+- **Goal:** Make handoff correct-by-construction (A1–A5) and prune clearly-dead HTTP routes (B2); keep `POST /shifts/override`.
+- **Touched:** `ProcessRouteService.ts`, `ProcessStationService.ts`, `JourneyAdvanceConsumer.ts`, `SixHiQueueService.ts`, `sixHiRoutes.ts`, `liveRoutes.ts`, `machineRoutes.ts`, `reportRoutes.ts`, `tenantFlagsRoutes.ts`, `processStationRoutes.ts`, `masterDataRoutes.ts`, `deviceRoutes.ts`, `api-smoke.mjs`, `crsForCtlRouting.unit.test.ts`, `annDoneFanOut.unit.test.ts`, `machineAllocation.test.ts`, `reportRoutes.test.ts`
+- **Decisions / skipped:** No outbox/MH UI for ANN; fan-out retries once then rethrows. Next step after enqueue is `ACTIVE` (not `PENDING`). Kept Inv1 scheduler as backstop. Kept `/shifts/override`.
+- **Follow-ups:** Watch `handoffMetrics` (`ann_fanout_advance_failed`, `handoff_self_heal`, `advance_noop_null_batch`) trend toward ~0 in QA.
+
+### 2026-08-13 — CRM assignment taxonomy (F1–F3)
+
+- **Goal:** Unblock 6HI/4HI/2HI start when `master.process.code` is still `6HI`/`CRM6`; stop admin from minting invalid route codes.
+- **Touched:** `rollingProcess.ts`, `SixHiService.ts`, `ShiftDetectionService.ts`, `MachineMasterService.ts`, `1979000000000_reconcile_rolling_process_and_route_codes.js`, `seed-machines.mjs`, `rollingProcess.unit.test.ts`
+- **Decisions / skipped:** Alias lookup, not `process_id=31`. No F4 mill-union (would override admin disable). No F6 `ROUTE_META` 4/X mill pin (breaks allocation). F5 skipped — `1909` is a one-shot `DO` block, not a live function; do not re-run backlog reattribution.
+- **Follow-ups:** Apply `1979` on QA. Confirm `SELECT code FROM master.process WHERE process_id=31` is `ROLLING`. Smoke allocate+start on 4HI/2HI. Do not re-run `seed-zedral-demo.mjs` (still inserts `6HI`).
+
+### 2026-08-13 — Local 429 storm + 4HI session 400
+
+- **Goal:** Stop localhost hub/capture 429 lockouts and unique-constraint 400 on `POST /machines/handover/4HI/session`.
+- **Touched:** `apiClient.ts`, `swrDefaults.tsx`, `sixHiRoutes.ts`, `CombinedProductionOrdersPanel.tsx`, `SixHiCapturePage.tsx`, `MachineHandoverService.ts`, `apiClient.test.ts`, `ensureActiveSession.stale.test.ts`
+- **Decisions / skipped:** SWR no longer retries 429; sixhi limit 600/min in non-prod (120 prod). Leftover own ACTIVE resumes instead of INSERT. Did not raise process/live limits.
+- **Follow-ups:** Restart API (or wait 60s) so the in-memory limiter resets. 4HI session 46 is held by `operator4hi` (user 8).
+
+### 2026-08-13 — Gitleaks 4-leak CI failure
+
+- **Goal:** Clear `Secrets (gitleaks)` without disabling `generic-api-key`.
+- **Touched:** `.gitleaks.toml`, `.gitleaksignore`, `.gitignore`, `.github/workflows/ci.yml`, untracked `.claude/settings.json`
+- **Decisions / skipped:** 3 hits were the documented CI JWT placeholder `ci-test-secret-at-least-16-chars-long` (allowlisted by exact value; production still rejects it). 4th was a real OpenRouter token in `.claude/settings.json` (untracked + gitignored; historical fingerprint only). Did not rewrite git history; did not disable Gitleaks rules.
+- **Follow-ups:** Rotate the leaked OpenRouter token. Commit these files when ready.
 

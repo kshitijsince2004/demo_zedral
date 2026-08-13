@@ -1,0 +1,17 @@
+# Extends the default Gitleaks ruleset. Do not disable generic-api-key.
+# These allowlist entries are the documented CI/dev JWT placeholders that
+# packages/server/src/config/envValidation.ts already rejects in production.
+
+title = "Zedral"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known-fake JWT placeholders (WEAK_JWT_SECRETS) — not production credentials"
+regexTarget = "secret"
+regexes = [
+  '''^ci-test-secret-at-least-16-chars-long$''',
+  '''^fallback-secret-for-local-dev-only$''',
+  '''^CHANGE_ME_AT_LEAST_32_CHARS_RANDOM$''',
+]
