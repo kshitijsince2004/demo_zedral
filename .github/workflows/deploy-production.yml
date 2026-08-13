@@ -63,7 +63,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve / optional promote
@@ -155,7 +155,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync deploy/ into APP_DIR (preserve .env + image checkpoints)
@@ -177,10 +177,13 @@ jobs:
           BACKEND_IMAGE: ${{ needs.resolve-images.outputs.backend_image }}
           NGINX_IMAGE: ${{ needs.resolve-images.outputs.nginx_image }}
           SKIP_MIGRATE: ${{ github.event.inputs.skip_migrate == 'true' && 'true' || 'false' }}
+          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE \
-                 APP_BASE="${APP_DIR}" RUN_BACKUP=true VERIFY_BACKUP=true
+                 APP_BASE="${APP_DIR}" RUN_BACKUP=true VERIFY_BACKUP=true \
+                 GHCR_USER GHCR_TOKEN
           bash "${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh"
 
       - name: Health check (curl /health)

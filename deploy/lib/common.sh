@@ -483,22 +483,31 @@ pull_image_ref_with_retry() {
   local label="${2:-image}"
   local max_attempts="${PULL_MAX_ATTEMPTS:-5}"
   local attempt=1
-  local delay start end
-  # Long GHCR transfers stall under the default ~60s client timeout.
+  local delay start end logf
   export COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-300}"
+  logf="$(mktemp)"
 
   while [ "${attempt}" -le "${max_attempts}" ]; do
     start="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
     log "Pull ${label} attempt ${attempt}/${max_attempts} start=${start} ref=${ref}"
-    if docker pull "${ref}"; then
+    : > "${logf}"
+    if docker pull "${ref}" 2>&1 | tee "${logf}"; then
       end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
       log "Pull ${label} OK end=${end}"
+      rm -f "${logf}"
       return 0
     fi
     end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
     log "Pull ${label} failed attempt ${attempt}/${max_attempts} end=${end}"
-    # Socket / group errors are not transient — do not backoff.
-    assert_docker_daemon
+    # Socket errors only — do not treat GHCR 401/denied as a dead daemon
+    # (that skipped retries on QA #197 after pull had already started).
+    if grep -qiE 'docker\.sock|connect to the docker API' "${logf}"; then
+      rm -f "${logf}"
+      assert_docker_daemon
+    fi
+    if grep -qiE 'manifest unknown|manifest for .* not found|unauthorized|authentication required|access denied|denied: denied' "${logf}"; then
+      die "Permanent GHCR failure pulling ${ref} (not retrying). Confirm CI pushed this SHA and the runner is logged in (packages:read)."
+    fi
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       break
     fi
@@ -511,6 +520,7 @@ pull_image_ref_with_retry() {
     sleep "${delay}"
     attempt=$((attempt + 1))
   done
+  rm -f "${logf}"
   return 1
 }
 

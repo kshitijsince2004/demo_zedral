@@ -71,6 +71,28 @@ fi
 test "$(cat "${TMP}/sock.count")" = "1"
 echo PULL_SOCK_FAILFAST_OK
 
+# GHCR 401/denied is not a socket error — fail immediately, do not backoff.
+docker() {
+  if [ "${1:-}" = "pull" ]; then
+    echo "unauthorized: authentication required" >&2
+    n="$(cat "${TMP}/unauth.count" 2>/dev/null || echo 0)"
+    echo $((n + 1)) > "${TMP}/unauth.count"
+    return 1
+  elif [ "${1:-}" = "info" ]; then
+    echo "docker info should not run on unauthorized pull" >&2
+    exit 1
+  else
+    echo "unexpected docker $*" >&2
+    exit 1
+  fi
+}
+if ( pull_image_ref_with_retry "ghcr.io/example/nginx:unauth" nginx ); then
+  echo "expected unauthorized pull to die" >&2
+  exit 1
+fi
+test "$(cat "${TMP}/unauth.count")" = "1"
+echo PULL_UNAUTH_FAILFAST_OK
+
 # --- upsert dedupe ---
 ENV_FILE="${TMP}/env"
 printf 'BACKEND_IMAGE=old-a\nBACKEND_IMAGE=old-b\nNGINX_IMAGE=old-n\nOTHER=1\n' > "${ENV_FILE}"

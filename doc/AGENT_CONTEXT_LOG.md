@@ -3168,3 +3168,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** HRS/PKL/ANN/RWD always hub (flag ignored). CRS/CTL stay static-disabled, never Navigate to `/capture`. GenericCapture SKP-only. Did not enable CRS/CTL.
 - **Follow-ups:** Deploy QA (migrate 1980) + hard refresh. HRS/PKL/ANN/RWD operators should open hubs, not white-screen.
 
+### 2026-08-13 — QA #197 nginx pull abort
+
+- **Goal:** Deploy #197 got past docker.sock then died on the first nginx GHCR pull (~1m31s, no retries).
+- **Touched:** `deploy/lib/common.sh`, `deploy-aws.yml`, `deploy-production.yml`, `deploy/scripts/test-pull-retry.sh`
+- **Decisions / skipped:** Stop calling `assert_docker_daemon` on every failed pull (that skipped backoff). Fail-fast only on socket or permanent GHCR errors. Resolve job now inspects both SHA tags. Re-login with `GHCR_USER`/`GHCR_TOKEN` before pull. Did not add ECR.
+- **Follow-ups:** Push this, wait for CI docker-build-push, then Deploy AWS QA.
+

@@ -60,12 +60,11 @@ jobs:
       packages: read
 
     steps:
-      - name: Login to GHCR (for OCI revision on non-SHA tags)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve tag from CI or dispatch
@@ -96,6 +95,15 @@ jobs:
             if [ -z "${SHA}" ]; then
               SHA="${{ github.sha }}"
             fi
+          fi
+          echo "Inspecting GHCR images for tag=${TAG}"
+          if ! docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${TAG}" >/dev/null; then
+            echo "::error::${IMAGE_PREFIX}/backend:${TAG} not in GHCR. Wait for CI job 'Docker build · Trivy · Push GHCR'."
+            exit 1
+          fi
+          if ! docker buildx imagetools inspect "${IMAGE_PREFIX}/nginx:${TAG}" >/dev/null; then
+            echo "::error::${IMAGE_PREFIX}/nginx:${TAG} not in GHCR. Wait for CI job 'Docker build · Trivy · Push GHCR'."
+            exit 1
           fi
           {
             echo "tag=${TAG}"
@@ -142,7 +150,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync deploy/ into APP_DIR (preserve remote .env + checkpoints)
@@ -170,11 +178,14 @@ jobs:
           ENSURE_SMOKE_USERS: 'true'
           SMOKE_BADGE_ID: ${{ secrets.SMOKE_BADGE_ID }}
           SMOKE_PIN: ${{ secrets.SMOKE_PIN }}
+          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           export BACKEND_IMAGE NGINX_IMAGE SKIP_MIGRATE \
                  APP_BASE="${APP_DIR}" RUN_BACKUP=false \
-                 AWS_PUBLIC_URL PUBLIC_BASE_URL ENSURE_SMOKE_USERS SMOKE_BADGE_ID SMOKE_PIN
+                 AWS_PUBLIC_URL PUBLIC_BASE_URL ENSURE_SMOKE_USERS SMOKE_BADGE_ID SMOKE_PIN \
+                 GHCR_USER GHCR_TOKEN
           bash "${APP_DIR}/deploy/scripts/remote-ghcr-deploy.sh"
 
       - name: Local health check (curl /health)
