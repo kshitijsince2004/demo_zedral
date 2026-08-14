@@ -365,6 +365,76 @@ describe('linkBatchToJourney backward/completed guard', () => {
   });
 });
 
+describe('linkBatchToJourney slit_id normalize', () => {
+  const updates: { table: string; set: Record<string, unknown> }[] = [];
+
+  beforeEach(() => {
+    updates.length = 0;
+    vi.resetModules();
+  });
+
+  function connWith(opts: { slitId?: string | null }) {
+    return {
+      selectFrom: vi.fn((table: string) => {
+        const builder: Record<string, unknown> = {};
+        const chain = () => builder;
+        builder.select = chain;
+        builder.where = chain;
+        builder.executeTakeFirst = async () => {
+          if (table === 'planning.ppc_batch') {
+            return { slit_id: opts.slitId ?? null };
+          }
+          if (table === 'planning.order_journey') {
+            return { journey_id: 1, current_step_no: 3 };
+          }
+          if (table === 'planning.order_journey_step') {
+            return { step_id: 10, step_no: 1, status: 'COMPLETED', queue_batch_id: 5, started_at: new Date() };
+          }
+          return undefined;
+        };
+        return builder;
+      }),
+      updateTable: vi.fn((table: string) => {
+        const ub: Record<string, unknown> = {};
+        ub.set = (set: Record<string, unknown>) => {
+          updates.push({ table, set });
+          return ub;
+        };
+        ub.where = () => ub;
+        ub.execute = async () => undefined;
+        return ub;
+      }),
+    };
+  }
+
+  it('normalizes a divergent child batch slit_id to the coil suffix', async () => {
+    vi.doMock('../src/db', () => ({ db: {} }));
+    const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
+    await ProcessRouteService.linkBatchToJourney(
+      1543, '110038829-C', 'S-P-4', 'HRS', '', connWith({ slitId: 'B' }) as never,
+    );
+    expect(updates).toEqual([{ table: 'planning.ppc_batch', set: { slit_id: 'C' } }]);
+  });
+
+  it('leaves a matching child batch untouched', async () => {
+    vi.doMock('../src/db', () => ({ db: {} }));
+    const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
+    await ProcessRouteService.linkBatchToJourney(
+      1543, '110038829-C', 'S-P-4', 'HRS', '', connWith({ slitId: 'C' }) as never,
+    );
+    expect(updates).toHaveLength(0);
+  });
+
+  it('leaves a mother batch (no suffix) untouched', async () => {
+    vi.doMock('../src/db', () => ({ db: {} }));
+    const { ProcessRouteService } = await import('../src/services/ProcessRouteService');
+    await ProcessRouteService.linkBatchToJourney(
+      1543, '110038829', 'S-P-4', 'HRS', '', connWith({ slitId: 'A' }) as never,
+    );
+    expect(updates).toHaveLength(0);
+  });
+});
+
 describe('reconcileAllocationSafeFieldsForJourneyStep (unit)', () => {
   it('updates only ALLOCATION_SAFE_FIELDS on the linked batch', async () => {
     const { PPCImportService } = await import('../src/services/PPCImportService');

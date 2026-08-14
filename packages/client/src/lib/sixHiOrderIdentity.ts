@@ -80,6 +80,9 @@ export function displayMotherCoilId(order: {
   );
   const slit = normalizeSlit(order.slitId ?? rec.slit_id);
   if (!slit) return coil;
+  // Slit already encoded as a dash suffix on the resolved id (canonical mother-slit child coils,
+  // e.g. "110038829-C"). Same rule as parseCoilIdentity's -([A-Za-z0-9]{1,4})$. Prevents "…-C C".
+  if (coil.toUpperCase().endsWith(`-${slit}`)) return coil;
   const tokens = coil.split(/\s+/);
   if (tokens[tokens.length - 1]?.toUpperCase() === slit) return coil;
   return `${coil} ${slit}`;

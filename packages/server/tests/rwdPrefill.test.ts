@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  coilSlitIdentity,
   formatDisplayCoilNo,
   mapPlanSurfaceToCode,
   parseCoilIdentity,
+  resolvedSlitId,
 } from '../src/utils/rwdFieldMappers';
 
 describe('rwdFieldMappers', () => {
@@ -24,6 +26,32 @@ describe('rwdFieldMappers', () => {
   it('parses coil identity slit suffix', () => {
     expect(parseCoilIdentity('1100038398-G')).toEqual({ coilNo: '1100038398', slitId: 'G' });
     expect(parseCoilIdentity('1100038398')).toEqual({ coilNo: '1100038398', slitId: null });
+  });
+
+  it('prefers coil suffix over a divergent batch slit_id', () => {
+    expect(resolvedSlitId('110038829-C', 'B')).toBe('C');
+    expect(resolvedSlitId('110038829-C', 'C')).toBe('C');
+    expect(resolvedSlitId('110038829', 'A')).toBe('A');
+    expect(resolvedSlitId('110038829', null)).toBeUndefined();
+  });
+
+  it('collapses journey vs plan ANN cards that disagree only on slit_id', () => {
+    expect(coilSlitIdentity('110038829-C', 'B')).toBe(coilSlitIdentity('110038829-C', 'C'));
+    expect(coilSlitIdentity('110038829-C', 'B')).toBe('110038829-C::C');
+    expect(coilSlitIdentity('110038829-C', 'B')).not.toBe(coilSlitIdentity('110038829-B', 'B'));
+  });
+
+  it('backfill predicate matches only child coils whose slit_id disagrees', () => {
+    const wouldUpdate = (coilNo: string, slitId: string | null) => {
+      const suffix = parseCoilIdentity(coilNo).slitId;
+      if (!suffix) return false;
+      return String(slitId ?? '').toUpperCase() !== suffix.toUpperCase();
+    };
+    expect(wouldUpdate('110038829-C', 'B')).toBe(true);
+    expect(wouldUpdate('110038829-C', 'C')).toBe(false);
+    expect(wouldUpdate('110038829-C', 'c')).toBe(false);
+    expect(wouldUpdate('110038829', 'A')).toBe(false);
+    expect(wouldUpdate('110038829-C', null)).toBe(true);
   });
 });
 

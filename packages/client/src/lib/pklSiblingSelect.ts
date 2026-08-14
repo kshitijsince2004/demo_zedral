@@ -28,9 +28,9 @@ export function pklSiblingKey(card: ProcessQueueCard): string {
     ?? parsed.motherCoilNo
   ).trim().toUpperCase();
   const slit = (
-    card.slitId
+    parsed.slitId
+    ?? card.slitId
     ?? prefVal(p.slitId)
-    ?? parsed.slitId
     ?? ''
   ).trim().toUpperCase();
   const grade = (card.gradeCode || '').trim().toUpperCase();

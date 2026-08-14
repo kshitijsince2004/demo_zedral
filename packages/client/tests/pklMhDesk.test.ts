@@ -54,6 +54,16 @@ describe('pklSiblingSelect', () => {
     expect(pklGroupWeightMt(sibs)).toBe(17);
   });
 
+  it('buckets a -C child with C siblings even when card.slitId is B', () => {
+    const divergent = card({ coilNo: '110038829-C', slitId: 'B', gradeCode: 'D' });
+    const siblingC = card({ coilNo: 'X', motherCoilNo: '110038829', slitId: 'C', gradeCode: 'D' });
+    const slotB = card({ coilNo: '110038829-B', slitId: 'B', gradeCode: 'D' });
+    expect(pklSiblingKey(divergent)).toBe(pklSiblingKey(siblingC));
+    expect(pklSiblingKey(divergent)).not.toBe(pklSiblingKey(slotB));
+    const sibs = findPklSiblingCoils(divergent, [divergent, siblingC, slotB]);
+    expect(sibs.map((s) => s.coilNo).sort()).toEqual(['110038829-C', 'X']);
+  });
+
   it('ignores HOLD/COMPLETED for grouping', () => {
     const a = card({ coilNo: 'M1-A', motherCoilNo: 'M1', slitId: 'A', status: 'PENDING' });
     const hold = card({ coilNo: 'M1-A2', motherCoilNo: 'M1', slitId: 'A', status: 'HOLD' });

@@ -14,6 +14,19 @@ export function parseCoilIdentity(coilNo: string): { coilNo: string; slitId: str
   return { coilNo: String(coilNo).trim(), slitId: null };
 }
 
+/** Child-coil suffix wins over a linked batch slit_id when they disagree. */
+export function resolvedSlitId(coilNo: string, batchSlitId?: string | null): string | undefined {
+  const parsed = parseCoilIdentity(coilNo).slitId;
+  if (parsed) return parsed;
+  const s = batchSlitId == null ? '' : String(batchSlitId).trim();
+  return s || undefined;
+}
+
+/** ANN queue dedup key: coil + resolved slit (suffix preferred). */
+export function coilSlitIdentity(coilNo: string, batchSlitId?: string | null): string {
+  return `${coilNo}::${(resolvedSlitId(coilNo, batchSlitId) ?? '').toUpperCase()}`;
+}
+
 /** coil_no + slit_id with guard against double-suffix. */
 export function formatDisplayCoilNo(coilNo: string, slitId?: string | null): string {
   const base = String(coilNo).trim();

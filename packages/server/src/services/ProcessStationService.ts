@@ -3,7 +3,7 @@ import { formatPlantTime, type JourneyStepStatus } from '@m1/shared-validation';
 import { db } from '../db';
 import { AutoSourceService } from './AutoSourceService';
 import { ProcessRouteService } from './ProcessRouteService';
-import { parseCoilIdentity } from '../utils/rwdFieldMappers';
+import { coilSlitIdentity, parseCoilIdentity, resolvedSlitId } from '../utils/rwdFieldMappers';
 import { derivedChildCoilNo } from '../utils/childCoil';
 import { ANN_BASE_REQUIRED_MSG, annCreateStatus, assertAnnBaseAssigned } from '../lib/annBaseAssignment';
 import { throwVersionConflict } from '../utils/versionConflict';
@@ -177,7 +177,7 @@ export class ProcessStationService {
       journeyId: String(row.journey_id),
       stepNo: row.step_no,
       batchNumber: row.batch_number ?? undefined,
-      slitId: row.slit_id ? String(row.slit_id) : undefined,
+      slitId: resolvedSlitId(row.coil_no, row.slit_id),
       annealingBatch: planAnnealingBatchFromRaw(row.raw_row_json),
       routeRaw: row.process_route_raw ?? undefined,
     }));
@@ -192,9 +192,7 @@ export class ProcessStationService {
         .where('ac.status', '!=', 'DONE')
         .execute();
       const charged = new Set(chargedRows.map((r) => r.coil_no));
-      // ponytail: identity = coil+slit — batch-number keys dropped same coil from one source
-      const annIdentity = (coilNo: string, slitId?: string | null) =>
-        `${coilNo}::${String(slitId ?? '').toUpperCase()}`;
+      // ponytail: identity = coil+resolved-slit — batch-number keys dropped same coil from one source
 
       const waiting = cards
         .filter((c) => !charged.has(c.coilNo))
@@ -203,7 +201,7 @@ export class ProcessStationService {
             ? { ...c, status: 'PENDING' as const }
             : c
         ));
-      const have = new Set(waiting.map((c) => annIdentity(c.coilNo, c.slitId)));
+      const have = new Set(waiting.map((c) => coilSlitIdentity(c.coilNo, c.slitId)));
 
       // Coils whose ANN step(s) are all done and current step is past ANN — drop stale PPC rows.
       const pastAnn = new Set<string>();
@@ -248,7 +246,7 @@ export class ProcessStationService {
 
       for (const row of planned) {
         if (charged.has(row.coil_no) || pastAnn.has(row.coil_no)) continue;
-        const key = annIdentity(row.coil_no, row.slit_id);
+        const key = coilSlitIdentity(row.coil_no, row.slit_id);
         if (have.has(key)) continue;
         have.add(key);
         waiting.push({
@@ -267,7 +265,7 @@ export class ProcessStationService {
           journeyId: `plan:${row.batch_id}`,
           stepNo: 0,
           batchNumber: row.batch_number ?? undefined,
-          slitId: row.slit_id ? String(row.slit_id) : undefined,
+          slitId: resolvedSlitId(row.coil_no, row.slit_id),
           annealingBatch: planAnnealingBatchFromRaw(row.raw_row_json),
           routeRaw: row.process_route_raw ?? undefined,
         });

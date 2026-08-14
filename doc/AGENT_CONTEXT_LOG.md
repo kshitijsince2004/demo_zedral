@@ -3259,3 +3259,26 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Touched:** `packages/server/src/services/journeyHandoff.ts`, `ProcessStationService.ts`, `SixHiService.ts`, handoff unit tests, `packages/client/dist-operator`, `packages/client/android/app/build.gradle`
 - **Decisions / skipped:** Left out root audit/plan markdown, `screen.png`, `.github/an`, and `codemod-console-to-logger.mjs`.
 - **Follow-ups:** Watch GitHub Actions CI and Deploy AWS QA after push.
+
+### 2026-08-14 — Stop slit-id doubling in displayMotherCoilId
+
+- **Goal:** Stop `110038829-C C` (and siblings) rendering across all surfaces; presentational only.
+- **Touched:** `packages/client/src/lib/sixHiOrderIdentity.ts`, `packages/client/tests/lib/sixHiOrderIdentity.test.ts`
+- **Decisions / skipped:** One early-return when coil already ends with `-${slit}`. Whitespace guard unchanged. Conflicting suffix (`-C` + slit `B`) left visible (data-linkage follow-up). Extended existing test file rather than adding `src/lib/sixHiOrderIdentity.test.ts`.
+- **Follow-ups:** Visual smoke ANN Batching incoming list + drawer; optional trace of conflicting `queue_batch_id` → `ppc_batch.slit_id`.
+
+### 2026-08-14 — Align slit_id with coil suffix (Layer A + B1)
+
+- **Goal:** Make coil dash-suffix and `ppc_batch.slit_id` agree for display, ANN dedup, grouping, and parse-based lookups.
+- **Touched:** `packages/server/src/utils/rwdFieldMappers.ts`, `ProcessStationService.ts`, `ProcessRouteService.ts`, `packages/client/src/lib/pklSiblingSelect.ts`, `packages/server/scripts/normalize-ppc-slit-id.mjs`, unit tests
+- **Decisions / skipped:** Layer A is read-only (`resolvedSlitId` / `coilSlitIdentity`). Layer B1 normalizes at `linkBatchToJourney`. Layer B2 dry-run only — local DB has 2 seed false positives (`ARCHIVE-COIL`, `COIL-2001`, both `slit_id` null), not a letter-vs-letter mismatch. Did not `--apply`. Did not rewrite `txn.*_order.slit_id`. Did not change capture/journey-advance.
+- **Follow-ups:** Run the dry-run script against QA; `--apply` only if the sample is real child-coil letter mismatches. Visual smoke ANN Batching for `110038829-C` without a conflicting `B`.
+
+### 2026-08-14 — Commit/push slit-id alignment
+
+- **Goal:** Commit and push slit-id display + linkage work to `main`.
+- **Touched:** `sixHiOrderIdentity.ts`, `pklSiblingSelect.ts`, `rwdFieldMappers.ts`, `ProcessStationService.ts`, `ProcessRouteService.ts`, `normalize-ppc-slit-id.mjs`, unit tests
+- **Decisions / skipped:** Left out root audit/plan markdown, `screen.png`, `.github/an`, and the console-to-logger codemod.
+- **Follow-ups:** Watch CI after push; QA dry-run of `normalize-ppc-slit-id.mjs`.
+
+

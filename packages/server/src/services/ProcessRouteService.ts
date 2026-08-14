@@ -5,6 +5,7 @@ import type { Database } from '../db';
 import { getTenantId } from '../context';
 import { logger } from '../utils/logger';
 import { parseRouteForJourney } from '../utils/PpcRouteTranslator';
+import { parseCoilIdentity } from '../utils/rwdFieldMappers';
 
 type DbConn = Kysely<Database>;
 
@@ -119,6 +120,22 @@ export function resolveLinkRouteCode(
   return preferred;
 }
 
+/** Child coils: keep ppc_batch.slit_id aligned with the coil suffix. Mother batches untouched. */
+async function alignBatchSlitToCoilSuffix(conn: DbConn, batchId: number, coilNo: string) {
+  const suffix = parseCoilIdentity(coilNo).slitId;
+  if (!suffix) return;
+  const row = await conn.selectFrom('planning.ppc_batch')
+    .select(['slit_id'])
+    .where('batch_id', '=', String(batchId))
+    .executeTakeFirst();
+  if (!row) return;
+  if (String(row.slit_id ?? '').toUpperCase() === suffix.toUpperCase()) return;
+  await conn.updateTable('planning.ppc_batch')
+    .set({ slit_id: suffix.toUpperCase() })
+    .where('batch_id', '=', String(batchId))
+    .execute();
+}
+
 export class ProcessRouteService {
   static async createJourney(
     coilNo: string,
@@ -204,6 +221,8 @@ export class ProcessRouteService {
   ) {
     const code = resolveLinkRouteCode(machineCode, subProcess, routeRaw);
     if (!code) return;
+
+    await alignBatchSlitToCoilSuffix(conn, batchId, coilNo);
 
     let journey = await conn.selectFrom('planning.order_journey')
       .select(['journey_id', 'current_step_no'])

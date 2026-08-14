@@ -75,6 +75,19 @@ describe('displayMotherCoilId — Operator / MH / PH parity', () => {
     ).toBe('1100038348 a');
   });
 
+  it('does not double-append when coilNo already encodes the slit as a dash suffix', () => {
+    expect(displayMotherCoilId({ coilNo: '110038829-C', slitId: 'C' })).toBe('110038829-C');
+    expect(displayMotherCoilId({ coilNo: '110038829', slitId: 'C' })).toBe('110038829 C');
+    expect(displayMotherCoilId({ coilNo: '110038829 C', slitId: 'C' })).toBe('110038829 C');
+    expect(displayMotherCoilId({ coilNo: '110038829-C' })).toBe('110038829-C');
+    expect(displayMotherCoilId({ motherCoilNo: '110038829', slitId: 'A' })).toBe('110038829 A');
+    expect(displayMotherCoilId({ coilNo: '2005704398', slitId: '' })).toBe('2005704398');
+  });
+
+  it('leaves a conflicting dash suffix visible', () => {
+    expect(displayMotherCoilId({ coilNo: '110038829-C', slitId: 'B' })).toBe('110038829-C B');
+  });
+
   it('treats dash/empty/em-dash slit as no slit', () => {
     expect(displayMotherCoilId({ motherCoil: '1100038348', batchNumber: 'B-1', slitId: '-' })).toBe(
       '1100038348',
