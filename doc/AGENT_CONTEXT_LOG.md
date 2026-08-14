@@ -3281,4 +3281,11 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Left out root audit/plan markdown, `screen.png`, `.github/an`, and the console-to-logger codemod.
 - **Follow-ups:** Watch CI after push; QA dry-run of `normalize-ppc-slit-id.mjs`.
 
+### 2026-08-14 — Fix PKL sibling CI after slit suffix prefer
+
+- **Goal:** Unbreak `mhDeskAndSibling` grouping of `C1-A` + `C1-A2` after parsed suffix always won.
+- **Touched:** `packages/client/src/lib/pklSiblingSelect.ts`, `packages/client/tests/pklMhDesk.test.ts`
+- **Decisions / skipped:** Prefer parsed suffix only when it is a single letter (plant child coil). Longer tokens keep `card.slitId`. Did not change server `resolvedSlitId`.
+- **Follow-ups:** Re-run GitHub Actions CI #224.
+
 

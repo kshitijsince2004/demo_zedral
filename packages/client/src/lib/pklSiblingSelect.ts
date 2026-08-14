@@ -27,10 +27,13 @@ export function pklSiblingKey(card: ProcessQueueCard): string {
     ?? prefVal(p.parentCoilNo)
     ?? parsed.motherCoilNo
   ).trim().toUpperCase();
+  // ponytail: one-letter suffix is the plant slit (`110038829-C`); longer tokens (`C1-A2`) keep card.slitId
+  const letterSuffix = parsed.slitId && /^[A-Za-z]$/.test(parsed.slitId) ? parsed.slitId : null;
   const slit = (
-    parsed.slitId
+    letterSuffix
     ?? card.slitId
     ?? prefVal(p.slitId)
+    ?? parsed.slitId
     ?? ''
   ).trim().toUpperCase();
   const grade = (card.gradeCode || '').trim().toUpperCase();
