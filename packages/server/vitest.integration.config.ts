@@ -9,6 +9,7 @@ export default defineConfig({
     include: [
       'tests/integration/**/*.test.ts',
       'tests/architecture/tenantIsolation.test.ts',
+      'tests/appRoleSchemaGrants.test.ts',
       'tests/platform-security.test.ts',
       'tests/platform-config-authz.test.ts',
       'tests/**/*.integration.test.ts',

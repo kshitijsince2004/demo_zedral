@@ -47,6 +47,19 @@ function respondSixHiServerError(res: import('express').Response, context: strin
   res.status(500).json({ error: message });
 }
 
+function respondSixHiWriteError(
+  res: import('express').Response,
+  error: unknown,
+  fallback: string,
+) {
+  const message = error instanceof Error ? error.message : fallback;
+  if (/permission denied/i.test(message)) {
+    res.status(500).json({ error: 'Database permission denied' });
+    return;
+  }
+  res.status(400).json({ error: message });
+}
+
 async function shiftCodeFromQueryOrCurrent(
   rawShift: unknown,
   userId: number,
@@ -244,7 +257,7 @@ router.put('/import/ppc/preview/:sessionId/machines', denyPlantHeadPpc('PPC_PREV
     );
     res.json({ rows });
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Machine update failed' });
+    respondSixHiWriteError(res, e, 'Machine update failed');
   }
 });
 
@@ -267,7 +280,7 @@ router.post('/import/ppc/preview/:sessionId/commit', denyPlantHeadPpc('PPC_PREVI
     res.status(status).json(result);
   } catch (e: unknown) {
     if (e instanceof AuthError) return res.status(403).json({ error: e.message });
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Commit failed' });
+    respondSixHiWriteError(res, e, 'Commit failed');
   }
 });
 
@@ -320,7 +333,7 @@ router.post('/master/defect-codes', requireSixHi('WRITE'), async (req, res) => {
     const data = await SixHiConfigService.saveDefectCode(req.body);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save defect code' });
+    respondSixHiWriteError(res, e, 'Failed to save defect code');
   }
 });
 
@@ -329,7 +342,7 @@ router.patch('/master/defect-codes/:code/toggle', requireSixHi('WRITE'), async (
     const data = await SixHiConfigService.toggleDefectCode(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle defect code' });
+    respondSixHiWriteError(res, e, 'Failed to toggle defect code');
   }
 });
 
@@ -338,7 +351,7 @@ router.post('/master/stoppage-categories', requireSixHi('WRITE'), async (req, re
     const data = await SixHiConfigService.saveStoppageCategory(req.body);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save stoppage category' });
+    respondSixHiWriteError(res, e, 'Failed to save stoppage category');
   }
 });
 
@@ -347,7 +360,7 @@ router.patch('/master/stoppage-categories/:code/toggle', requireSixHi('WRITE'), 
     const data = await SixHiConfigService.toggleStoppageCategory(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle stoppage category' });
+    respondSixHiWriteError(res, e, 'Failed to toggle stoppage category');
   }
 });
 
@@ -356,7 +369,7 @@ router.post('/master/stoppage-codes', requireSixHi('WRITE'), async (req, res) =>
     const data = await SixHiConfigService.saveStoppageCode(req.body);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to save stoppage code' });
+    respondSixHiWriteError(res, e, 'Failed to save stoppage code');
   }
 });
 
@@ -365,7 +378,7 @@ router.patch('/master/stoppage-codes/:code/toggle', requireSixHi('WRITE'), async
     const data = await SixHiConfigService.toggleStoppageCode(req.params.code, req.body.isActive);
     res.json(data);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to toggle stoppage code' });
+    respondSixHiWriteError(res, e, 'Failed to toggle stoppage code');
   }
 });
 
@@ -406,7 +419,7 @@ router.post('/manual-stoppage/start', requireSixHi('WRITE'), async (req, res) =>
     );
     res.json(status);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to start manual stoppage' });
+    respondSixHiWriteError(res, e, 'Failed to start manual stoppage');
   }
 });
 
@@ -430,7 +443,7 @@ router.patch('/manual-stoppage', requireSixHi('WRITE'), async (req, res) => {
     );
     res.json(status);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to update manual stoppage' });
+    respondSixHiWriteError(res, e, 'Failed to update manual stoppage');
   }
 });
 
@@ -441,7 +454,7 @@ router.post('/manual-stoppage/end', requireSixHi('WRITE'), async (req, res) => {
     const status = await SixHiExecutionService.endManualStoppage(machine, req.user!.id);
     res.json(status);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to end manual stoppage' });
+    respondSixHiWriteError(res, e, 'Failed to end manual stoppage');
   }
 });
 
@@ -499,7 +512,7 @@ router.post('/orders/manual', requireSixHi('WRITE'), async (req, res) => {
     const result = await PPCImportService.createManualBatch(validation.data, req.user!.id);
     res.status(201).json(result);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Manual order creation failed' });
+    respondSixHiWriteError(res, e, 'Manual order creation failed');
   }
 });
 
@@ -710,7 +723,7 @@ router.delete(
       const result = await SixHiExecutionService.deleteOrder(req.params.batchNo, req.user.id);
       res.json(result);
     } catch (e: unknown) {
-      res.status(400).json({ error: e instanceof Error ? e.message : 'Delete failed' });
+      respondSixHiWriteError(res, e, 'Delete failed');
     }
   },
 );
@@ -742,11 +755,7 @@ router.post(
     if (isVersionConflict(e)) {
       return res.status(409).json(versionConflictBody(e));
     }
-    const message = e instanceof Error ? e.message : 'Machine allocation failed';
-    if (/permission denied/i.test(message)) {
-      return res.status(500).json({ error: 'Database permission denied' });
-    }
-    res.status(400).json({ error: message });
+    respondSixHiWriteError(res, e, 'Machine allocation failed');
   }
 });
 
@@ -793,7 +802,7 @@ router.post(
       }
       res.json({ ok: true, results, transferType });
     } catch (e: unknown) {
-      res.status(400).json({ error: e instanceof Error ? e.message : 'Transfer failed' });
+      respondSixHiWriteError(res, e, 'Transfer failed');
     }
   },
 );
@@ -815,7 +824,7 @@ router.post('/orders/transfer-machines', requireSixHi('WRITE'), async (req, res)
     );
     res.json({ results });
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Bulk transfer failed' });
+    respondSixHiWriteError(res, e, 'Bulk transfer failed');
   }
 });
 
@@ -854,7 +863,7 @@ router.post('/orders/cancel-combined', requireSixHi('WRITE'), async (req, res) =
     const orders = await SixHiExecutionService.cancelCombinedProduction(cleanBatchNumbers, req.user!.id);
     res.json({ orders });
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Cancel combined failed' });
+    respondSixHiWriteError(res, e, 'Cancel combined failed');
   }
 });
 
@@ -879,7 +888,7 @@ router.post('/orders/:batchNo/start', requireSixHi('WRITE'), async (req, res) =>
     if (msg === 'ACTIVE_REROLL_CONFLICT') {
       return res.status(409).json({ error: 'Finish the active Manual Re-Roll session before starting production' });
     }
-    res.status(400).json({ error: msg });
+    respondSixHiWriteError(res, e, 'Start failed');
   }
 });
 
@@ -896,7 +905,7 @@ router.post('/orders/:batchNo/end', requireSixHi('WRITE'), async (req, res) => {
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'End failed' });
+    respondSixHiWriteError(res, e, 'End failed');
   }
 });
 
@@ -916,7 +925,7 @@ router.patch('/orders/:batchNo/rolling', requireSixHi('WRITE'), async (req, res)
     }, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Update failed' });
+    respondSixHiWriteError(res, e, 'Update failed');
   }
 });
 
@@ -927,7 +936,7 @@ router.patch('/orders/:batchNo/skinpass', requireSixHi('WRITE'), async (req, res
     const order = await SixHiExecutionService.updateSkinPass(req.params.batchNo, parsed.data, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Update failed' });
+    respondSixHiWriteError(res, e, 'Update failed');
   }
 });
 
@@ -937,7 +946,7 @@ router.post('/orders/:batchNo/stoppages/start', requireSixHi('WRITE'), async (re
     const order = await SixHiStoppageService.addStoppage(req.params.batchNo, '12', undefined, undefined, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage start failed' });
+    respondSixHiWriteError(res, e, 'Stoppage start failed');
   }
 });
 
@@ -954,7 +963,7 @@ router.post('/orders/:batchNo/stoppages', requireSixHi('WRITE'), async (req, res
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Stoppage failed' });
+    respondSixHiWriteError(res, e, 'Stoppage failed');
   }
 });
 
@@ -972,7 +981,7 @@ router.patch('/orders/:batchNo/stoppages/:stoppageId', requireSixHi('WRITE'), as
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Update stoppage failed' });
+    respondSixHiWriteError(res, e, 'Update stoppage failed');
   }
 });
 
@@ -981,7 +990,7 @@ router.patch('/orders/:batchNo/stoppages/:stoppageId/end', requireSixHi('WRITE')
     const order = await SixHiStoppageService.endStoppage(req.params.batchNo, req.params.stoppageId, req.user!.id);
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'End stoppage failed' });
+    respondSixHiWriteError(res, e, 'End stoppage failed');
   }
 });
 
@@ -1004,7 +1013,7 @@ router.post('/orders/:batchNo/reject', requireSixHi('WRITE'), async (req, res) =
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Order rejection failed' });
+    respondSixHiWriteError(res, e, 'Order rejection failed');
   }
 });
 
@@ -1022,7 +1031,7 @@ router.post('/orders/:batchNo/reinstate', async (req, res) => {
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Order reinstate failed' });
+    respondSixHiWriteError(res, e, 'Order reinstate failed');
   }
 });
 
@@ -1038,7 +1047,7 @@ router.post('/orders/:batchNo/remarks', requireSixHi('WRITE'), async (req, res) 
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Remark failed' });
+    respondSixHiWriteError(res, e, 'Remark failed');
   }
 });
 
@@ -1056,7 +1065,7 @@ router.post('/orders/:batchNo/roll-change', requireSixHi('WRITE'), async (req, r
     );
     res.json(order);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Roll change failed' });
+    respondSixHiWriteError(res, e, 'Roll change failed');
   }
 });
 
@@ -1093,7 +1102,7 @@ router.post('/shift-summary/:shiftLogId', requireSixHi('WRITE'), async (req, res
     );
     res.json(summary);
   } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Save summary failed' });
+    respondSixHiWriteError(res, e, 'Save summary failed');
   }
 });
 

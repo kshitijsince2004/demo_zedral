@@ -3295,4 +3295,19 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Dismiss overlays via "Remind Me Later" (Tailwind `z-[110]` CSS locator was matching an attribute). Click the last Logout (nested handover OperatorShell). Force-click + `/login` fallback. Did not change app overlays.
 - **Follow-ups:** Re-run Deploy AWS QA smoke after this lands on main.
 
+### 2026-08-14 — Operator QA APK 1.2.15 (vc18)
+
+- **Goal:** Rebuild operator APK with slit-id display/linkage client changes since vc17.
+- **Touched:** `packages/client/android/app/build.gradle` (1.2.15 / vc18), `packages/client/.env.operator` (`VITE_APP_VERSION=1.2.15`), `dist-operator` + cap sync, `Zedral-Operator-QA-1.2.15-vc18.apk`
+- **Decisions / skipped:** Restored empty `node_modules/@xmldom/xmldom` from leftover npm dir so `cap sync` could run. Assembled from `C:\temp\zedral-apk-build5` with cached Gradle 9.4.1. Debug-signed (no `ZEDRAL_KEYSTORE_*`). No HeadWind upload.
+- **Follow-ups:** Sideload `Zedral-Operator-QA-1.2.15-vc18.apk`; smoke ANN batching coil ids against `https://qa.zedral.com`.
+
+### 2026-08-14 — Grant config/canon USAGE to m1_app (CRM save)
+
+- **Goal:** Stop CRM production save `permission denied for schema config`.
+- **Touched:** `packages/server/migrations/1981000000000_grant_config_and_canon_to_app.js`, `packages/server/tests/appRoleSchemaGrants.test.ts`, `packages/server/vitest.integration.config.ts`, `packages/server/src/routes/sixHiRoutes.ts`
+- **Decisions / skipped:** USAGE+DML on `config` (admin `/validation-rules` writes); USAGE+SELECT only on `canon`. No CREATE. No `dpr` grant. CRM write 400s map permission denied to 500. No APK rebuild.
+- **Follow-ups:** Apply `1981` on QA as `m1_user`. Smoke 6HI/4HI/2HI rolling save from APK.
+
+
 
