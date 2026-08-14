@@ -50,21 +50,18 @@ docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" exec -T db \
 gzip -f "${OUTPUT}"
 PLAIN_ARCHIVE="${OUTPUT}.gz"
 
-# Encrypt with age using an off-box public recipient (private key never on the VM).
-# Set AGE_RECIPIENT in deploy/.env (age1...). Install: https://github.com/FiloSottile/age
+# Encrypt when AGE_RECIPIENT is set (age1… public key in deploy/.env).
+# ponytail: Factory has no recipient yet — keep gzip so pre-deploy backup cannot block the stack.
+ARCHIVE="${PLAIN_ARCHIVE}"
 if [ -z "${AGE_RECIPIENT:-}" ]; then
-  echo "ERROR: AGE_RECIPIENT not set — refusing to leave plaintext backup on disk" >&2
+  echo "WARN: AGE_RECIPIENT not set — keeping gzip backup. Set AGE_RECIPIENT (age1…) to encrypt." >&2
+elif ! command -v age >/dev/null 2>&1; then
+  echo "WARN: age not installed — keeping gzip backup. Install https://github.com/FiloSottile/age" >&2
+else
+  ARCHIVE="${PLAIN_ARCHIVE}.age"
+  age -r "${AGE_RECIPIENT}" -o "${ARCHIVE}" "${PLAIN_ARCHIVE}"
   rm -f "${PLAIN_ARCHIVE}"
-  exit 1
 fi
-if ! command -v age >/dev/null 2>&1; then
-  echo "ERROR: age not installed on PATH" >&2
-  rm -f "${PLAIN_ARCHIVE}"
-  exit 1
-fi
-ARCHIVE="${PLAIN_ARCHIVE}.age"
-age -r "${AGE_RECIPIENT}" -o "${ARCHIVE}" "${PLAIN_ARCHIVE}"
-rm -f "${PLAIN_ARCHIVE}"
 SIZE="$(du -h "${ARCHIVE}" | cut -f1)"
 echo "[$(date -Is)] Backup complete (${SIZE}): ${ARCHIVE}"
 
@@ -72,5 +69,5 @@ echo "[$(date -Is)] Backup complete (${SIZE}): ${ARCHIVE}"
 # Encrypt-before-upload already done; upload the .age only:
 # aws s3 cp "${ARCHIVE}" "s3://${S3_BACKUP_BUCKET}/zedral/$(basename "${ARCHIVE}")"
 
-find "${BACKUP_DIR}" -name 'zedral_*.sql.gz.age' -type f -mtime +"${RETENTION_DAYS}" -delete
-echo "[$(date -Is)] Pruned encrypted backups older than ${RETENTION_DAYS} days"
+find "${BACKUP_DIR}" \( -name 'zedral_*.sql.gz.age' -o -name 'zedral_*.sql.gz' \) -type f -mtime +"${RETENTION_DAYS}" -delete
+echo "[$(date -Is)] Pruned backups older than ${RETENTION_DAYS} days"

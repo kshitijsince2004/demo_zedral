@@ -140,7 +140,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.resolve-images.outputs.checkout_ref }}
+          # Deploy scripts from this workflow run so backup hotfixes apply without a new GHCR image.
+          # Application images still come from BACKEND_IMAGE / NGINX_IMAGE.
+          ref: ${{ github.sha }}
 
       - name: Resolve APP_DIR
         id: appdir

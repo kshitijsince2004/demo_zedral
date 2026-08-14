@@ -18,11 +18,11 @@ Zedral production runs PostgreSQL 15 in Docker (`zedral-db` container) with data
 1. Reads credentials from `deploy/.env`
 2. Runs `pg_dump` inside the `db` container (no owner/ACL for portability)
 3. Compresses with gzip
-4. Encrypts with `age -r "$AGE_RECIPIENT"` → `*.sql.gz.age` (plaintext gzip deleted)
+4. If `AGE_RECIPIENT` is set and `age` is installed: encrypts → `*.sql.gz.age` (gzip deleted). Otherwise keeps `*.sql.gz` and warns (Factory pre-deploy must not block on missing keys).
 5. Stores in `/var/backups/zedral/` (configurable via `BACKUP_DIR`)
-6. Deletes encrypted archives older than 30 days (configurable via `RETENTION_DAYS`)
+6. Deletes archives older than 30 days (configurable via `RETENTION_DAYS`)
 
-**Key custody:** `AGE_RECIPIENT` (public) lives on the VM in `deploy/.env`. The matching **private** identity stays off-box (ops laptop / sealed store). Never store the private key on the plant VM.
+**Key custody:** `AGE_RECIPIENT` (public) lives on the VM in `deploy/.env`. The matching **private** identity stays off-box (ops laptop / sealed store). Never store the private key on the plant VM. Pre-deploy `verify-backup.sh` gzip-tests plaintext dumps; decrypt-verify only when `AGE_IDENTITY` is present.
 
 ### Schedule (Cron)
 
@@ -117,11 +117,10 @@ Before relying on backups, restore to a separate VM or local Docker instance and
 
 ### Automated
 
-`verify-backup.sh` runs weekly via cron:
+`verify-backup.sh` runs weekly via cron (and after Factory pre-deploy):
 
-- Finds latest `.sql.gz.age` in backup directory
-- Decrypts with `AGE_IDENTITY` (private key must be available to the verify host)
-- Validates gzip integrity (`gzip -t`)
+- If `AGE_IDENTITY` is set: decrypts the latest `.sql.gz.age` and gzip-tests it
+- Otherwise gzip-tests the latest `.sql.gz` (plant VM has no private key)
 - Confirms file contains SQL content (≥5 lines in header)
 
 ### Manual Quarterly Drill

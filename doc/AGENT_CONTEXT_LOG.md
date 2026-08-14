@@ -3309,5 +3309,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** USAGE+DML on `config` (admin `/validation-rules` writes); USAGE+SELECT only on `canon`. No CREATE. No `dpr` grant. CRM write 400s map permission denied to 500. No APK rebuild.
 - **Follow-ups:** Apply `1981` on QA as `m1_user`. Smoke 6HI/4HI/2HI rolling save from APK.
 
+### 2026-08-14 — Factory backup: AGE_RECIPIENT optional
+
+- **Goal:** Unblock Deploy Production #22 (`AGE_RECIPIENT not set — refusing to leave plaintext backup`).
+- **Touched:** `deploy/scripts/backup-db.sh`, `deploy/scripts/verify-backup.sh`, `.github/workflows/deploy-production.yml`, `BACKUP_STRATEGY.md`
+- **Decisions / skipped:** Keep gzip when recipient/age missing; verify gzip on plant (private key stays off-box). Factory job checkouts `github.sha` for deploy scripts. Did not install age on the VM.
+- **Follow-ups:** Re-run Deploy Production (Factory) from this commit. Later set `AGE_RECIPIENT` in factory `deploy/.env` to encrypt.
+
+
 
 
