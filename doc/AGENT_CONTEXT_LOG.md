@@ -3288,4 +3288,11 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Prefer parsed suffix only when it is a single letter (plant child coil). Longer tokens keep `card.slitId`. Did not change server `resolvedSlitId`.
 - **Follow-ups:** Re-run GitHub Actions CI #224.
 
+### 2026-08-14 — Unstick QA Playwright logout smoke
+
+- **Goal:** Fix Deploy AWS QA #207 smoke `logout.click` timeout (line 209).
+- **Touched:** `e2e/tests/smoke.spec.ts`
+- **Decisions / skipped:** Dismiss overlays via "Remind Me Later" (Tailwind `z-[110]` CSS locator was matching an attribute). Click the last Logout (nested handover OperatorShell). Force-click + `/login` fallback. Did not change app overlays.
+- **Follow-ups:** Re-run Deploy AWS QA smoke after this lands on main.
+
 

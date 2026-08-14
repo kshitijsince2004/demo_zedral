@@ -66,11 +66,9 @@ async function dismissBlockingOverlays(page: Page) {
     await syncClose.click({ timeout: 3_000 }).catch(() => undefined);
   }
 
-  // Shift-end / crew-capture / similar z-[110] backdrops block rail logout.
+  // Crew / shift-end sit above the rail. Match the button, not Tailwind z-[110]
+  // (CSS treats [110] as an attribute selector, so that class locator often misses).
   for (let attempt = 0; attempt < 4; attempt++) {
-    const backdrop = page.locator('div.fixed.inset-0.z-\\[110\\]').first();
-    if (!(await backdrop.isVisible().catch(() => false))) return;
-
     const remind = page.getByRole('button', { name: /remind me later/i }).first();
     if (await remind.isVisible().catch(() => false)) {
       await remind.click({ timeout: 5_000 }).catch(() => undefined);
@@ -87,17 +85,12 @@ async function dismissBlockingOverlays(page: Page) {
       continue;
     }
 
-    // Soft-mandatory overlays: backdrop click snoozes / reminds later.
-    await backdrop.click({ force: true, timeout: 3_000 }).catch(() => undefined);
+    const overlay = page.locator('div.fixed.inset-0').first();
+    if (!(await overlay.isVisible().catch(() => false))) return;
+    await overlay.click({ force: true, timeout: 3_000 }).catch(() => undefined);
     await page.keyboard.press('Escape').catch(() => undefined);
     await page.waitForTimeout(300);
   }
-
-  await page
-    .locator('div.fixed.inset-0.z-\\[110\\]')
-    .first()
-    .waitFor({ state: 'hidden', timeout: 5_000 })
-    .catch(() => undefined);
 }
 
 test.describe('Staging smoke', () => {
@@ -203,10 +196,17 @@ test.describe('Staging smoke', () => {
       .waitFor({ state: 'hidden', timeout: 20_000 })
       .catch(() => undefined);
 
-    const logout = page.getByRole('button', { name: /log ?out|sign out|end session/i }).first();
-    if (await logout.count()) {
+    const logoutBtns = page.getByRole('button', { name: /log ?out|sign out|end session/i });
+    const logoutCount = await logoutBtns.count();
+    if (logoutCount) {
       await dismissBlockingOverlays(page);
-      await logout.click({ timeout: 15_000 });
+      // Nested OperatorShell (handover accept) puts a second Logout on top; .first() is covered.
+      const logout = logoutBtns.nth(logoutCount - 1);
+      try {
+        await logout.click({ timeout: 8_000 });
+      } catch {
+        await logout.click({ force: true, timeout: 5_000 }).catch(() => undefined);
+      }
       const confirmBtn = page.getByRole('dialog').getByRole('button', { name: /^logout$/i });
       try {
         await confirmBtn.waitFor({ state: 'visible', timeout: 3_000 });
