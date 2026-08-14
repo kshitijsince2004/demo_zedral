@@ -339,6 +339,12 @@ assert_http_not_404() {
 }
 
 assert_local_auth_routes() {
+  # Rollback to an older image can legitimately 404 on routes added later
+  # (e.g. /api/tenant-flags). Health already proved the stack is up.
+  if [ "${SKIP_ROUTE_ASSERT:-false}" = "true" ]; then
+    log "SKIP_ROUTE_ASSERT=true — skipping local auth/API route asserts"
+    return 0
+  fi
   local http_port="${HTTP_PORT:-80}"
   local base="http://127.0.0.1:${http_port}"
   assert_http_not_404 POST "${base}/auth/session/refresh"
@@ -350,6 +356,10 @@ assert_local_auth_routes() {
 
 # Public URL check (Cloudflare → origin nginx). Fatal on 404 when URL is set.
 assert_public_auth_routes() {
+  if [ "${SKIP_ROUTE_ASSERT:-false}" = "true" ]; then
+    log "SKIP_ROUTE_ASSERT=true — skipping public auth/API route asserts"
+    return 0
+  fi
   local base="${AWS_PUBLIC_URL:-${PUBLIC_BASE_URL:-}}"
   base="${base%"${base##*[![:space:]]}"}"
   base="${base#"${base%%[![:space:]]*}"}"
