@@ -9,8 +9,8 @@ android {
         applicationId "com.zedral.m1operator"
         minSdk rootProject.ext.appMinSdkVersion
         targetSdk rootProject.ext.appTargetSdkVersion
-        versionCode providers.environmentVariable("ZEDRAL_VERSION_CODE").getOrElse("17").toInteger()
-        versionName "1.2.14"
+        versionCode providers.environmentVariable("ZEDRAL_VERSION_CODE").getOrElse("18").toInteger()
+        versionName "1.2.15"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
