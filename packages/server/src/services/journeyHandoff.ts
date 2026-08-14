@@ -11,7 +11,7 @@ import { ProcessRouteService } from './ProcessRouteService';
 import { QueueTransferService, type BatchRow } from './QueueTransferService';
 import { recordHandoffSelfHeal } from './handoffMetrics';
 
-const ADVANCE_PROCESSES = ['HRS', 'PKL', 'RWD', 'CRS', 'CTL'] as const;
+const ADVANCE_PROCESSES = ['HRS', 'PKL', 'RWD', 'CRS', 'CTL', 'ANN', 'CRM'] as const;
 type AdvanceProcess = (typeof ADVANCE_PROCESSES)[number];
 
 const PROD_TABLE: Partial<Record<AdvanceProcess, 'txn.prod_hrs' | 'txn.prod_pkl' | 'txn.prod_rwd' | 'txn.prod_crs' | 'txn.prod_ctl'>> = {
@@ -255,7 +255,7 @@ export async function findStrandedHandoffs(): Promise<StrandedHandoff[]> {
      AND nxt.status <> 'SKIPPED'
     JOIN coil.coil c ON c.coil_no = oj.coil_no
     WHERE oj.status = 'ACTIVE'
-      AND cur.process_code IN ('HRS', 'PKL', 'RWD', 'CRS', 'CTL')
+      AND cur.process_code IN ('HRS', 'PKL', 'RWD', 'CRS', 'CTL', 'ANN', 'CRM')
       AND nxt.queue_batch_id IS NULL
       AND (
         c.status = 'DONE'
@@ -274,6 +274,15 @@ export async function findStrandedHandoffs(): Promise<StrandedHandoff[]> {
           SELECT 1 FROM txn.prod_crs ph WHERE ph.coil_no = oj.coil_no))
         OR (cur.process_code = 'CTL' AND EXISTS (
           SELECT 1 FROM txn.prod_ctl pt WHERE pt.coil_no = oj.coil_no))
+        OR (cur.process_code = 'CRM' AND cur.queue_batch_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM txn.crm_order o
+          WHERE o.batch_id = cur.queue_batch_id AND o.status = 'COMPLETED'))
+        OR (cur.process_code = 'ANN' AND EXISTS (
+          SELECT 1 FROM txn.ann_charge_coil acc
+          JOIN txn.ann_charge ac ON ac.charge_no = acc.charge_no
+          WHERE acc.coil_no = oj.coil_no
+            AND ac.status = 'DONE'
+            AND (acc.disposition IS NULL OR acc.disposition = 'ADVANCE')))
       )
     ORDER BY oj.journey_id, nxt.step_no
   `.execute(db);
@@ -316,8 +325,30 @@ export async function reconcileOneStranded(s: StrandedHandoff): Promise<boolean>
     await emitProductionCaptured(code, prod.shiftLogId, prod.entryId, s.coilNo);
     return true;
   }
-  await ProcessRouteService.advanceJourneyByCoil(s.coilNo, {});
+  const view = await ProcessRouteService.advanceJourneyByCoil(s.coilNo, {});
+  if (view) {
+    recordHandoffSelfHeal(
+      code === 'ANN' ? 'ann_reconcile' : code === 'CRM' ? 'crm_reconcile' : 'advance_by_coil',
+    );
+  }
   return true;
+}
+
+/** Idempotent, out-of-band re-drive for a single coil. Safe to call post-commit. */
+export async function redriveCoilJourney(coilNo: string, tag: string): Promise<void> {
+  try {
+    const view = await ProcessRouteService.advanceJourneyByCoil(coilNo, {});
+    if (view) recordHandoffSelfHeal(tag);
+  } catch (err) {
+    logger.error(
+      JSON.stringify({
+        msg: 'redrive_coil_failed',
+        coilNo,
+        tag,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
 }
 
 const STARTED_ORDER = new Set(['IN_PROGRESS', 'STOPPAGE', 'COMPLETED']);

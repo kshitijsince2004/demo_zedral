@@ -8,6 +8,7 @@ let prodRow: { entry_id: string; shift_log_id: string } | null = null;
 let inv1Rows: unknown[] = [];
 let strandedRows: unknown[] = [];
 let coilRow: Record<string, unknown> | null = null;
+let lastSql = '';
 
 const selectBuilder: any = {
   select: () => selectBuilder,
@@ -42,6 +43,7 @@ vi.mock('kysely', () => ({
     (strings: TemplateStringsArray) => ({
       execute: async () => {
         const q = strings.join('');
+        lastSql = q;
         if (q.includes('machine_code IS NOT NULL')) return { rows: inv1Rows };
         if (q.includes('nxt.queue_batch_id IS NULL')) return { rows: strandedRows };
         return { rows: [] };
@@ -152,11 +154,13 @@ describe('journeyHandoff — Fix 3 reconcile', () => {
   beforeEach(() => {
     publish.mockClear();
     advanceJourneyByCoil.mockClear();
+    advanceJourneyByCoil.mockResolvedValue(null);
     enqueueActiveStep.mockClear();
     inv1Rows = [];
     strandedRows = [];
     prodRow = null;
     coilRow = null;
+    lastSql = '';
   });
 
   it('re-emits when stranded HRS has COMPLETED prod', async () => {
@@ -194,6 +198,105 @@ describe('journeyHandoff — Fix 3 reconcile', () => {
     const healed = await reconcileStrandedHandoffs();
     expect(healed).toBeGreaterThanOrEqual(1);
     expect(advanceJourneyByCoil).toHaveBeenCalledWith('C-CTL', {});
+  });
+
+  it('stranded SQL includes ANN/CRM predicates keyed to charge ADVANCE and current CRM batch', async () => {
+    lastSql = '';
+    const { findStrandedHandoffs } = await import('../src/services/journeyHandoff');
+    await findStrandedHandoffs();
+    expect(lastSql).toContain("'HRS', 'PKL', 'RWD', 'CRS', 'CTL', 'ANN', 'CRM'");
+    expect(lastSql).toContain('o.batch_id = cur.queue_batch_id');
+    expect(lastSql).toContain("ac.status = 'DONE'");
+    expect(lastSql).toContain("acc.disposition = 'ADVANCE'");
+  });
+
+  it('rescues stranded ANN via advanceJourneyByCoil and records ann_reconcile', async () => {
+    const { resetHandoffMetricsForTests, getHandoffMetricsSnapshot } = await import(
+      '../src/services/handoffMetrics'
+    );
+    resetHandoffMetricsForTests();
+    strandedRows = [
+      { coil_no: 'C-ANN', journey_id: '12', current_step_no: 4, stuck_process: 'ANN' },
+    ];
+    prodRow = null;
+    advanceJourneyByCoil.mockResolvedValue({ journeyId: '12' });
+    const { reconcileStrandedHandoffs } = await import('../src/services/journeyHandoff');
+    const healed = await reconcileStrandedHandoffs();
+    expect(healed).toBeGreaterThanOrEqual(1);
+    expect(advanceJourneyByCoil).toHaveBeenCalledWith('C-ANN', {});
+    expect(getHandoffMetricsSnapshot()).toMatchObject({
+      'handoff_self_heal{action=ann_reconcile}': 1,
+    });
+  });
+
+  it('rescues stranded CRM via advanceJourneyByCoil and records crm_reconcile', async () => {
+    const { resetHandoffMetricsForTests, getHandoffMetricsSnapshot } = await import(
+      '../src/services/handoffMetrics'
+    );
+    resetHandoffMetricsForTests();
+    strandedRows = [
+      { coil_no: 'C-CRM', journey_id: '13', current_step_no: 2, stuck_process: 'CRM' },
+    ];
+    prodRow = null;
+    advanceJourneyByCoil.mockResolvedValue({ journeyId: '13' });
+    const { reconcileStrandedHandoffs } = await import('../src/services/journeyHandoff');
+    const healed = await reconcileStrandedHandoffs();
+    expect(healed).toBeGreaterThanOrEqual(1);
+    expect(advanceJourneyByCoil).toHaveBeenCalledWith('C-CRM', {});
+    expect(getHandoffMetricsSnapshot()).toMatchObject({
+      'handoff_self_heal{action=crm_reconcile}': 1,
+    });
+  });
+
+  it('already-advanced coil is a no-op', async () => {
+    strandedRows = [];
+    const { reconcileStrandedHandoffs } = await import('../src/services/journeyHandoff');
+    const healed = await reconcileStrandedHandoffs();
+    expect(healed).toBe(0);
+    expect(advanceJourneyByCoil).not.toHaveBeenCalled();
+  });
+});
+
+describe('redriveCoilJourney', () => {
+  beforeEach(() => {
+    advanceJourneyByCoil.mockReset();
+    advanceJourneyByCoil.mockResolvedValue(null);
+  });
+
+  it('records tag when advance succeeds', async () => {
+    const { resetHandoffMetricsForTests, getHandoffMetricsSnapshot } = await import(
+      '../src/services/handoffMetrics'
+    );
+    resetHandoffMetricsForTests();
+    advanceJourneyByCoil.mockResolvedValue({ journeyId: '1' });
+    const { redriveCoilJourney } = await import('../src/services/journeyHandoff');
+    await redriveCoilJourney('C-1', 'ann_reconcile');
+    expect(advanceJourneyByCoil).toHaveBeenCalledWith('C-1', {});
+    expect(getHandoffMetricsSnapshot()).toMatchObject({
+      'handoff_self_heal{action=ann_reconcile}': 1,
+    });
+  });
+
+  it('swallows advance errors', async () => {
+    advanceJourneyByCoil.mockRejectedValue(new Error('boom'));
+    const { redriveCoilJourney } = await import('../src/services/journeyHandoff');
+    await expect(redriveCoilJourney('C-1', 'crm_reconcile')).resolves.toBeUndefined();
+  });
+});
+
+describe('CRM post-commit handoff', () => {
+  it('advances after the completion transaction, not inside completeSingleOrder', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../src/services/SixHiService.ts', import.meta.url), 'utf8');
+    const endStart = src.indexOf('static async endProduction(');
+    const methodStart = src.indexOf('private static async completeSingleOrder');
+    const methodEnd = src.indexOf('\n  static async getEffectiveRuleset', methodStart);
+    const endProduction = src.slice(endStart, methodStart);
+    const methodBody = src.slice(methodStart, methodEnd);
+    expect(methodBody).not.toContain('advanceJourneyByCoil');
+    expect(endProduction.indexOf('advanceJourneyByCoil')).toBeGreaterThan(
+      endProduction.indexOf('db.transaction()'),
+    );
   });
 });
 

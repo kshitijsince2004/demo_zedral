@@ -3238,3 +3238,24 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Touched:** deploy/docker-compose.prod.yml, .github/workflows/deploy-aws.yml, .github/workflows/deploy-production.yml, .github/dependabot.yml
 - **Decisions / skipped:** Compose Docker secrets were required but QA has no deploy/secrets/*. Restored .env injection. Kept entrypoint *_FILE loader. Dependabot ignore for puppeteer (optional, skipped in image). Did not take puppeteer 25.
 - **Follow-ups:** Close Dependabot PR #218. Re-run Deploy AWS QA after this lands on main.
+
+### 2026-08-14 — Operator QA APK 1.2.14 (vc17)
+
+- **Goal:** Rebuild operator APK with latest client changes since vc16.
+- **Touched:** `packages/client/android/app/build.gradle` (1.2.14 / vc17), `packages/client/.env.operator` (`VITE_APP_VERSION=1.2.14`), `dist-operator` + cap sync, `Zedral-Operator-QA-1.2.14-vc17.apk`
+- **Decisions / skipped:** In-tree gradle skipped (Windows locks under `C:\dev`); assembled from `C:\temp\zedral-apk-build4` with cached Gradle 9.4.1. Debug-signed (no `ZEDRAL_KEYSTORE_*`). No HeadWind upload.
+- **Follow-ups:** Sideload `Zedral-Operator-QA-1.2.14-vc17.apk`; badge/PIN smoke against `https://qa.zedral.com`.
+
+### 2026-08-14 — ANN/CRM journey hand-off recovery
+
+- **Goal:** Make ANN and CRM coils self-heal like HRS/PKL/RWD/CRS/CTL when the in-line journey advance is missed.
+- **Touched:** `packages/server/src/services/journeyHandoff.ts`, `packages/server/src/services/ProcessStationService.ts`, `packages/server/src/services/SixHiService.ts`, `packages/server/tests/journeyHandoff.unit.test.ts`, `packages/server/tests/annDoneFanOut.unit.test.ts`
+- **Decisions / skipped:** Did not add ANN to the consumer `ADVANCE_PROCESSES` (would advance on single-coil capture before charge DONE). Did not extend INV-1 backfill to ANN. Skipped CRM payload reconstruction (enqueue fallback already routes). Skipped Phase 2 CRM redrive (Phase 3 post-commit advance covers it). Kept `process_route_raw` gate on the by-batch fallback.
+- **Follow-ups:** Staging E2E — strand a 4HI/6HI coil and an ANN charge with sweep off, then confirm rescue within one tick after sweep on. Watch `handoff_self_heal{ann_reconcile|crm_reconcile}`.
+
+### 2026-08-14 — Commit/push ANN-CRM handoff + operator 1.2.14
+
+- **Goal:** Commit and push current work to `main`.
+- **Touched:** `packages/server/src/services/journeyHandoff.ts`, `ProcessStationService.ts`, `SixHiService.ts`, handoff unit tests, `packages/client/dist-operator`, `packages/client/android/app/build.gradle`
+- **Decisions / skipped:** Left out root audit/plan markdown, `screen.png`, `.github/an`, and `codemod-console-to-logger.mjs`.
+- **Follow-ups:** Watch GitHub Actions CI and Deploy AWS QA after push.

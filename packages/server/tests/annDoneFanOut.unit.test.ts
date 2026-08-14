@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const advanceJourneyByCoil = vi.fn().mockResolvedValue(null);
+const redriveCoilJourney = vi.fn().mockResolvedValue(undefined);
 
 const dbMock = {
   selectFrom: vi.fn((table: string) => {
@@ -62,10 +63,20 @@ vi.mock('../src/db', () => ({
   db: dbMock,
 }));
 
+vi.mock('@m1/shared-validation', () => ({
+  formatPlantTime: () => '00:00',
+}));
+
+vi.mock('../src/services/journeyHandoff', () => ({
+  redriveCoilJourney: (...args: unknown[]) => redriveCoilJourney(...args),
+}));
+
 describe('ANN charge DONE fan-out', () => {
   beforeEach(() => {
     advanceJourneyByCoil.mockReset();
     advanceJourneyByCoil.mockResolvedValue(null);
+    redriveCoilJourney.mockReset();
+    redriveCoilJourney.mockResolvedValue(undefined);
   });
 
   it('advances ADVANCE coils with PENDING|ACTIVE ANN step; skips HOLD', async () => {
@@ -91,6 +102,7 @@ describe('ANN charge DONE fan-out', () => {
       /ann_fanout_advance_failed: C1/,
     );
     expect(advanceJourneyByCoil).toHaveBeenCalledTimes(2);
+    expect(redriveCoilJourney).toHaveBeenCalledWith('C1', 'ann_reconcile');
   });
 });
 

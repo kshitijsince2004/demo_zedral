@@ -9,6 +9,7 @@ import { ANN_BASE_REQUIRED_MSG, annCreateStatus, assertAnnBaseAssigned } from '.
 import { throwVersionConflict } from '../utils/versionConflict';
 import { buildAnnPlanDetailSections, type AnnDetailSection } from '../utils/annQueueOrderDetail';
 import { logger } from '../utils/logger';
+import { redriveCoilJourney } from './journeyHandoff';
 import {
   mapStepStatus,
   pageProcessQueue,
@@ -2125,6 +2126,9 @@ export class ProcessStationService {
     }
 
     if (failedCoils.length) {
+      for (const coilNo of failedCoils) {
+        void redriveCoilJourney(coilNo, 'ann_reconcile');
+      }
       throw new Error(`ann_fanout_advance_failed: ${failedCoils.join(',')}`);
     }
   }

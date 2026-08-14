@@ -20,7 +20,8 @@ import {
 } from '@m1/shared-validation';
 import { getTenantId } from '../context';
 import { ShiftDetectionService } from './ShiftDetectionService';
-import { ProcessRouteService } from './ProcessRouteService';
+import { ProcessRouteService, type CompletionPayload } from './ProcessRouteService';
+import { recordAdvanceNoopNullBatch } from './handoffMetrics';
 import { MachineRegistryService } from './MachineRegistryService';
 import { formatPlantDate, parsePlantDateOnly, postgresDateOnly, PLANT_TIME_ZONE } from '@m1/shared-validation';
 import { MachineStateEventService } from './MachineStateEventService';
@@ -1806,6 +1807,13 @@ export class SixHiService {
     }
 
     const endAt = new Date();
+    const completions: Array<{
+      coilNo: string;
+      batchNumber: string;
+      completionPayload: CompletionPayload;
+      fallbackNextDest: string;
+      processRouteRaw: string | null | undefined;
+    }> = [];
     await db.transaction().execute(async (trx) => {
       if (order.combined_group_id) {
         await this.syncCombinedGroupProductionData(
@@ -1826,7 +1834,7 @@ export class SixHiService {
               : `Mandatory production data missing: ${missing.join(', ')}`,
           );
         }
-        await this.completeSingleOrder(
+        const completion = await this.completeSingleOrder(
           String(target.batch_number),
           target.order_id,
           userId,
@@ -1837,8 +1845,24 @@ export class SixHiService {
           /* emitMachineIdle */ false,
           trx,
         );
+        if (completion) completions.push(completion);
       }
     });
+
+    // Post-commit: journey advance can no longer be orphaned by a rollback.
+    for (const c of completions) {
+      let advanced = await ProcessRouteService.advanceJourneyByCoil(c.coilNo, c.completionPayload);
+      if (!advanced && c.processRouteRaw) {
+        advanced = await ProcessRouteService.advanceJourney(c.batchNumber, c.completionPayload);
+      }
+      if (!advanced) {
+        await db.updateTable('coil.coil')
+          .set({ status: 'DONE', next_dest: c.fallbackNextDest })
+          .where('coil_no', '=', c.coilNo)
+          .execute();
+        recordAdvanceNoopNullBatch('CRM');
+      }
+    }
 
     // Phase 1.3: shift production cache refresh after atomic completion (outside txn),
     // but do it fire-and-forget to keep end response latency low.
@@ -2181,12 +2205,18 @@ export class SixHiService {
     shiftCode: string | undefined,
     emitMachineIdle: boolean,
     trx: DbExecutor = db,
-  ) {
+  ): Promise<{
+    coilNo: string;
+    batchNumber: string;
+    completionPayload: CompletionPayload;
+    fallbackNextDest: string;
+    processRouteRaw: string | null | undefined;
+  } | null> {
     const order = await trx.selectFrom('txn.crm_order').selectAll()
       .where('order_id', '=', orderId as any)
       .executeTakeFirstOrThrow();
     if (order.status !== 'IN_PROGRESS' && order.status !== 'STOPPAGE') {
-      return;
+      return null;
     }
 
     let durationMin: number | null = null;
@@ -2243,29 +2273,19 @@ export class SixHiService {
       .where('batch_id', '=', order.batch_id)
       .executeTakeFirst();
 
-    const completionPayload = {
+    const completionPayload: CompletionPayload = {
       outputThkMm: skinpass?.output_thk_mm ? Number(skinpass.output_thk_mm) : rolling?.final_thk_mm ? Number(rolling.final_thk_mm) : undefined,
       actualWeightMt: skinpass?.actual_weight_mt ? Number(skinpass.actual_weight_mt) : rolling?.actual_weight_mt ? Number(rolling.actual_weight_mt) : undefined,
       destination: rolling?.destination ?? undefined,
-      gradeCode: batch?.grade_code,
+      gradeCode: batch?.grade_code ?? undefined,
       widthMm: batch?.width_mm ? Number(batch.width_mm) : undefined,
-      customerName: batch?.customer_name,
-      shiftCode: batch?.shift_code,
+      customerName: batch?.customer_name ?? undefined,
+      shiftCode: batch?.shift_code ?? undefined,
     };
 
-    let advanced = await ProcessRouteService.advanceJourneyByCoil(order.coil_no, completionPayload);
-    if (!advanced && batch?.process_route_raw) {
-      advanced = await ProcessRouteService.advanceJourney(batchNumber, completionPayload);
-    }
-    if (!advanced) {
-      const nextDest = order.sub_process === 'SKIN_PASS'
-        ? 'CTL'
-        : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
-      await trx.updateTable('coil.coil')
-        .set({ status: 'DONE', next_dest: nextDest })
-        .where('coil_no', '=', order.coil_no)
-        .execute();
-    }
+    const fallbackNextDest = order.sub_process === 'SKIN_PASS'
+      ? 'CTL'
+      : rolling?.destination === 'REWINDING' ? 'RWD' : 'ANN';
 
     if (emitMachineIdle) {
       MachineStateEventService.recordEvent(machineCode, 'RUNNING_ENDED', {
@@ -2285,6 +2305,14 @@ export class SixHiService {
     if (trx === db) {
       await this.refreshShiftProductionFromOrder(String(order.order_id));
     }
+
+    return {
+      coilNo: String(order.coil_no),
+      batchNumber,
+      completionPayload,
+      fallbackNextDest,
+      processRouteRaw: batch?.process_route_raw,
+    };
   }
 
   static async getEffectiveRuleset() {
