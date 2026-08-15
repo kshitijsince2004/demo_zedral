@@ -3323,6 +3323,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Three `git revert`s of `1b95292`, `74cfc77`, `a949a04` (PRs #23/#22/#21). Did not change Deploy Production. Dirty client/docs left unstaged.
 - **Follow-ups:** Merge `ci/revert-rollback-workflows`. Use Deploy Production for Factory image changes; recover login with `latest-main` if still on broken rollback state.
 
+### 2026-08-15 — Re-add Repair Factory App Grants (web/APK 500s)
+
+- **Goal:** Factory web + APK still 500 on `/auth/badge-pin` and live APIs (`permission denied for schema security`). Restore Actions-only GRANT repair after rollback workflows were reverted.
+- **Touched:** `.github/workflows/repair-factory-app-grants.yml`
+- **Decisions / skipped:** No rollback workflow. Grants cover master/coil/security/txn/planning/audit for `m1_app`, then restart backend + `/health`.
+- **Follow-ups:** Merge → Run workflow Repair Factory App Grants → retry login. Also Deploy Production `latest-main` if images are still on the rolled-back SHA.
+
 
 
 
