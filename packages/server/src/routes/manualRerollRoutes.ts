@@ -532,14 +532,41 @@ router.get('/sessions', requireManualRerollRead, async (req, res) => {
   }
 });
 
+function parseOverlayBatchNumbers(req: import('express').Request): string[] {
+  const fromBody = req.body?.batchNumbers;
+  if (Array.isArray(fromBody)) {
+    return [...new Set(fromBody.map((b: unknown) => String(b).trim()).filter(Boolean))];
+  }
+  const raw = String(req.query.batchNumbers ?? '').trim();
+  if (!raw) return [];
+  return [...new Set(raw.split(',').map((b) => b.trim()).filter(Boolean))];
+}
+
+/** Prefer POST — large mill queues exceed nginx URI limits on GET (HTTP 414). */
+router.post('/overlay', requireManualRerollRead, async (req, res) => {
+  try {
+    const batchNumbers = parseOverlayBatchNumbers(req);
+    if (batchNumbers.length === 0) {
+      return res.status(400).json({ error: 'batchNumbers array required' });
+    }
+    const overlay = await ManualRerollService.getOverlay(batchNumbers);
+    res.json({ overlay });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Overlay failed' });
+  }
+});
+
 router.get('/overlay', requireManualRerollRead, async (req, res) => {
   try {
-    const raw = String(req.query.batchNumbers ?? '').trim();
-    const batchNumbers = raw
-      ? raw.split(',').map((b) => b.trim()).filter(Boolean)
-      : [];
+    const batchNumbers = parseOverlayBatchNumbers(req);
     if (batchNumbers.length === 0) {
       return res.status(400).json({ error: 'batchNumbers query required' });
+    }
+    // Large lists blow nginx default URI buffers → 414. Prefer POST /overlay.
+    if (batchNumbers.length > 80) {
+      return res.status(414).json({
+        error: 'batchNumbers query too large — use POST /manual-reroll/overlay with JSON body',
+      });
     }
     const overlay = await ManualRerollService.getOverlay(batchNumbers);
     res.json({ overlay });

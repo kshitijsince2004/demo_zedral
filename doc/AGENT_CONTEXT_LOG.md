@@ -3344,6 +3344,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Must merge before re-run; re-running old workflow will fail the same way.
 - **Follow-ups:** Merge PR from `ci/repair-factory-security-grants` → **new** Repair run (#3+) → login.
 
+### 2026-08-15 — Fix manual-reroll overlay HTTP 414
+
+- **Goal:** After login recovered, Factory web hit `414 Request-URI Too Large` on `GET /api/manual-reroll/overlay?batchNumbers=…` (huge 4HI queue).
+- **Touched:** `packages/server/src/routes/manualRerollRoutes.ts`, `packages/client/src/services/manualRerollService.ts`, `deploy/nginx.prod.conf`
+- **Decisions / skipped:** Add `POST /manual-reroll/overlay` with JSON body; client SWR uses POST. Keep small GET for compat; reject GET when >80 batches. Raise nginx `large_client_header_buffers` as defense.
+- **Follow-ups:** Merge → CI build images → Deploy Production `latest-main`. Rebuild/sideload operator APK for native clients still on old GET.
+
 
 
 

@@ -220,26 +220,34 @@ export async function fetchManualRerollOverlay(
 ): Promise<ManualRerollOverlayEntry[]> {
   const unique = [...new Set(batchNumbers.map((b) => b.trim()).filter(Boolean))];
   if (unique.length === 0) return [];
-  const params = new URLSearchParams({
-    machine,
-    batchNumbers: unique.join(','),
-  });
-  const res = await apiClient.get<{ overlay: ManualRerollOverlayEntry[] }>(
-    `/manual-reroll/overlay?${params}`,
+  // POST body — GET query strings hit nginx 414 on large mill queues.
+  const res = await apiClient.post<{ overlay: ManualRerollOverlayEntry[] }>(
+    '/manual-reroll/overlay',
+    { machine, batchNumbers: unique },
   );
   return res.overlay ?? [];
 }
 
 export function useManualRerollOverlay(machine: string | null, batchNumbers: string[], enabled: boolean) {
-  const key = machine && enabled && batchNumbers.length > 0
-    ? `/manual-reroll/overlay?machine=${encodeURIComponent(machine)}&batchNumbers=${encodeURIComponent(
-      [...new Set(batchNumbers)].sort().join(','),
-    )}`
+  const uniqueSorted = [...new Set(batchNumbers.map((b) => b.trim()).filter(Boolean))].sort();
+  const key = machine && enabled && uniqueSorted.length > 0
+    ? (['manual-reroll-overlay', machine, uniqueSorted.join(',')] as const)
     : null;
-  return useSWR<{ overlay: ManualRerollOverlayEntry[] }>(key, (url: string) => apiClient.get(url), {
-    refreshInterval: 30_000,
-    revalidateOnFocus: true,
-  });
+  return useSWR<{ overlay: ManualRerollOverlayEntry[] }>(
+    key,
+    async ([, mill, joined]) => {
+      const batches = String(joined).split(',').filter(Boolean);
+      const res = await apiClient.post<{ overlay: ManualRerollOverlayEntry[] }>(
+        '/manual-reroll/overlay',
+        { machine: mill, batchNumbers: batches },
+      );
+      return res;
+    },
+    {
+      refreshInterval: 30_000,
+      revalidateOnFocus: true,
+    },
+  );
 }
 
 export async function fetchManualRerollSession(
