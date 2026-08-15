@@ -4,6 +4,7 @@ name: Repair Factory App Grants
 # m1_app lacks USAGE on schema security (permission denied for schema security).
 # Runs on the Factory self-hosted runner — no laptop SSH required.
 # Does NOT touch AWS QA. Shares deploy-production concurrency with Deploy Production.
+# Never `source` deploy/.env (values may contain bash metacharacters like '(').
 
 on:
   workflow_dispatch:
@@ -52,18 +53,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "Repair reason: ${{ github.event.inputs.reason }}"
-          set -a
-          # shellcheck disable=SC1091
-          . "${APP_DIR}/deploy/.env"
-          set +a
-          DB_USER="${DB_USER:-m1_user}"
-          DB_NAME="${DB_NAME:-m1_db}"
+          # Use POSTGRES_* inside the db container — do not source deploy/.env in bash.
           docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
             --env-file "${APP_DIR}/deploy/.env" exec -T db \
-            psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -c \
-            "SELECT has_schema_privilege('m1_app','security','USAGE') AS security_usage,
-                    has_schema_privilege('m1_app','master','USAGE') AS master_usage,
-                    has_schema_privilege('m1_app','txn','USAGE') AS txn_usage;" \
+            sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "
+              SELECT has_schema_privilege('\''m1_app'\'', '\''security'\'', '\''USAGE'\'') AS security_usage,
+                     has_schema_privilege('\''m1_app'\'', '\''master'\'', '\''USAGE'\'') AS master_usage,
+                     has_schema_privilege('\''m1_app'\'', '\''txn'\'', '\''USAGE'\'') AS txn_usage;"' \
             || true
 
       - name: GRANT m1_app schemas (1797-equivalent)
@@ -71,15 +67,9 @@ jobs:
           APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           set -euo pipefail
-          set -a
-          # shellcheck disable=SC1091
-          . "${APP_DIR}/deploy/.env"
-          set +a
-          DB_USER="${DB_USER:-m1_user}"
-          DB_NAME="${DB_NAME:-m1_db}"
           docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
             --env-file "${APP_DIR}/deploy/.env" exec -T db \
-            psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 <<'SQL'
+            sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'm1_app') THEN

@@ -3330,6 +3330,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** No rollback workflow. Grants cover master/coil/security/txn/planning/audit for `m1_app`, then restart backend + `/health`.
 - **Follow-ups:** Merge → Run workflow Repair Factory App Grants → retry login. Also Deploy Production `latest-main` if images are still on the rolled-back SHA.
 
+### 2026-08-15 — Repair grants: do not source deploy/.env
+
+- **Goal:** Repair Factory App Grants #1 failed: `deploy/.env: line 46: syntax error near unexpected token '('`.
+- **Touched:** `.github/workflows/repair-factory-app-grants.yml`
+- **Decisions / skipped:** Stop bash-sourcing `.env`; use `POSTGRES_USER`/`POSTGRES_DB` inside `zedral-db` via `docker compose exec`. Compose still gets `--env-file` for interpolation only.
+- **Follow-ups:** Merge → re-run Repair Factory App Grants (new run) → retry login on `http://10.255.92.33/login`.
+
 
 
 
