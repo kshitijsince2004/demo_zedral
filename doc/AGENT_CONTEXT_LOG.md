@@ -3316,6 +3316,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Keep gzip when recipient/age missing; verify gzip on plant (private key stays off-box). Factory job checkouts `github.sha` for deploy scripts. Did not install age on the VM.
 - **Follow-ups:** Re-run Deploy Production (Factory) from this commit. Later set `AGE_RECIPIENT` in factory `deploy/.env` to encrypt.
 
+### 2026-08-15 — Revert Factory rollback workflows from main
+
+- **Goal:** Remove all Rollback Production / Repair Factory App Grants / SKIP_ROUTE_ASSERT rollback wiring from main (user request).
+- **Touched:** deleted `.github/workflows/rollback-production.yml`, `.github/workflows/repair-factory-app-grants.yml`; reverted `deploy/lib/common.sh`, `deploy/scripts/remote-ghcr-deploy.sh`
+- **Decisions / skipped:** Three `git revert`s of `1b95292`, `74cfc77`, `a949a04` (PRs #23/#22/#21). Did not change Deploy Production. Dirty client/docs left unstaged.
+- **Follow-ups:** Merge `ci/revert-rollback-workflows`. Use Deploy Production for Factory image changes; recover login with `latest-main` if still on broken rollback state.
+
 
 
 
