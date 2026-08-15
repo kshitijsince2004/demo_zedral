@@ -1,8 +1,7 @@
 name: Rollback Production (Factory)
 
 # Manual, pull-only rollback for the Factory production box.
-# Re-deploys an EXISTING known-good GHCR image tag. Requires the FULL 40-char git SHA
-# so Factory can sync that era's deploy/compose (not today's main wiring).
+# Re-deploys an EXISTING known-good GHCR image tag (full git SHA | vX.Y.Z | latest-main).
 # Never builds. Runs docker/compose LOCALLY on the Factory self-hosted runner.
 # Takes a DB backup before switching and auto-restores the previous image pair if the
 # rollback itself fails. Does NOT touch AWS QA (separate runner/box). Shares the
@@ -12,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Full 40-char git SHA GHCR tag (era-matched deploy checkout; not latest-main / SemVer)'
+        description: 'Known-good GHCR tag to roll back to (full git SHA | vX.Y.Z | latest-main)'
         required: true
         type: string
       reason:
@@ -47,7 +46,6 @@ jobs:
       backend_image: ${{ steps.meta.outputs.backend }}
       nginx_image: ${{ steps.meta.outputs.nginx }}
       image_tag: ${{ steps.meta.outputs.tag }}
-      checkout_ref: ${{ steps.meta.outputs.checkout }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -68,11 +66,6 @@ jobs:
             echo "::error::image_tag is empty"
             exit 1
           fi
-          # Era-matched deploy/ requires a full git SHA (old compose vs today's m1_app wiring).
-          if ! printf '%s' "${SRC}" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::image_tag must be the full 40-char git SHA (got '${SRC}'). Do not use latest-main or SemVer — Factory must sync deploy/compose from that commit."
-            exit 1
-          fi
           echo "Rolling back to tag=${SRC} — verifying it exists in GHCR"
           if ! docker buildx imagetools inspect "${IMAGE_PREFIX}/backend:${SRC}" >/dev/null 2>&1; then
             echo "::error::${IMAGE_PREFIX}/backend:${SRC} not found in GHCR. It may have been pruned by retention — you cannot roll back to a tag that no longer exists. Rebuild that commit or pick a tag still present."
@@ -81,11 +74,10 @@ jobs:
           docker buildx imagetools inspect "${IMAGE_PREFIX}/nginx:${SRC}" >/dev/null
           {
             echo "tag=${SRC}"
-            echo "checkout=${SRC}"
             echo "backend=${IMAGE_PREFIX}/backend:${SRC}"
             echo "nginx=${IMAGE_PREFIX}/nginx:${SRC}"
           } >> "$GITHUB_OUTPUT"
-          echo "Factory will roll back to tag=${SRC} with era-matched deploy checkout"
+          echo "Factory will roll back to tag=${SRC}"
 
       - name: Notify started
         env:
@@ -104,10 +96,10 @@ jobs:
       contents: read
       packages: read
     steps:
-      - name: Checkout era-matched deploy scripts
+      - name: Checkout deploy scripts
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.resolve-images.outputs.checkout_ref }}
+          ref: ${{ github.sha }}
 
       - name: Resolve APP_DIR
         id: appdir

@@ -3323,13 +3323,6 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** `SKIP_ROUTE_ASSERT=true` only on rollback workflow; health + container checks still run. Normal Deploy Production unchanged. Did not auto-restore DB for the 500s on `/api/shifts/current` and `/api/6hi/queue`.
 - **Follow-ups:** Merge, re-run rollback to `9c5aa926a1e968fb8852c10b5c5ee1e1e17311fc`. Confirm whether Factory needs a matching DB restore (those 500s signal schema drift). Auto-restore on #1 likely undid the image switch — verify `docker ps` images before re-run.
 
-### 2026-08-15 — Era-matched rollback + Actions grants repair
-
-- **Goal:** Old APK stays on Factory; rollback must sync that SHA’s deploy/compose (not main’s `m1_app` wiring) so login is not `permission denied for schema security`. Actions-only (no personal SSH).
-- **Touched:** `.github/workflows/rollback-production.yml`, `.github/workflows/repair-factory-app-grants.yml`, `doc/AGENT_CONTEXT_LOG.md`
-- **Decisions / skipped:** Require full 40-char git SHA for rollback; checkout `deploy/` from that SHA. New manual Repair Factory App Grants workflow (1797-equivalent GRANTs + backend restart + /health). No DB restore workflow in this change.
-- **Follow-ups:** Merge → new Rollback run with `9c5aa926a1e968fb8852c10b5c5ee1e1e17311fc` → old APK login. If still denied, run Repair Factory App Grants. Longer-term: ship Production APK via GitHub Release so devices can leave the old APK.
-
 
 
 
