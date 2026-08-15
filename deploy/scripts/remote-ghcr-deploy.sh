@@ -2,7 +2,6 @@
 # Remote GHCR deploy entrypoint (invoked over SSH from GitHub Actions).
 # Required env: BACKEND_IMAGE, NGINX_IMAGE
 # Optional: APP_BASE, SKIP_MIGRATE, GHCR_TOKEN, GHCR_USER, RUN_BACKUP=true, VERIFY_BACKUP=true
-# Optional: SKIP_ROUTE_ASSERT=true (rollback: skip auth/API not-404 asserts tied to current API)
 # Optional QA: PUBLIC_BASE_URL / AWS_PUBLIC_URL (sync SuperTokens+CORS), ENSURE_SMOKE_USERS=true, SMOKE_PIN
 set -euo pipefail
 

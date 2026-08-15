@@ -3316,13 +3316,6 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Keep gzip when recipient/age missing; verify gzip on plant (private key stays off-box). Factory job checkouts `github.sha` for deploy scripts. Did not install age on the VM.
 - **Follow-ups:** Re-run Deploy Production (Factory) from this commit. Later set `AGE_RECIPIENT` in factory `deploy/.env` to encrypt.
 
-### 2026-08-15 — Rollback: skip current-API route asserts
-
-- **Goal:** Fix Rollback Production #1 false failure on `GET /api/tenant-flags → 404` when rolling to older image `9c5aa92` (route added later).
-- **Touched:** `deploy/lib/common.sh`, `deploy/scripts/remote-ghcr-deploy.sh`, `.github/workflows/rollback-production.yml`
-- **Decisions / skipped:** `SKIP_ROUTE_ASSERT=true` only on rollback workflow; health + container checks still run. Normal Deploy Production unchanged. Did not auto-restore DB for the 500s on `/api/shifts/current` and `/api/6hi/queue`.
-- **Follow-ups:** Merge, re-run rollback to `9c5aa926a1e968fb8852c10b5c5ee1e1e17311fc`. Confirm whether Factory needs a matching DB restore (those 500s signal schema drift). Auto-restore on #1 likely undid the image switch — verify `docker ps` images before re-run.
-
 
 
 
