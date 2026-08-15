@@ -3316,19 +3316,12 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Keep gzip when recipient/age missing; verify gzip on plant (private key stays off-box). Factory job checkouts `github.sha` for deploy scripts. Did not install age on the VM.
 - **Follow-ups:** Re-run Deploy Production (Factory) from this commit. Later set `AGE_RECIPIENT` in factory `deploy/.env` to encrypt.
 
-### 2026-08-15 — Rollback: skip current-API route asserts
+### 2026-08-15 — Revert Factory rollback workflows from main
 
-- **Goal:** Fix Rollback Production #1 false failure on `GET /api/tenant-flags → 404` when rolling to older image `9c5aa92` (route added later).
-- **Touched:** `deploy/lib/common.sh`, `deploy/scripts/remote-ghcr-deploy.sh`, `.github/workflows/rollback-production.yml`
-- **Decisions / skipped:** `SKIP_ROUTE_ASSERT=true` only on rollback workflow; health + container checks still run. Normal Deploy Production unchanged. Did not auto-restore DB for the 500s on `/api/shifts/current` and `/api/6hi/queue`.
-- **Follow-ups:** Merge, re-run rollback to `9c5aa926a1e968fb8852c10b5c5ee1e1e17311fc`. Confirm whether Factory needs a matching DB restore (those 500s signal schema drift). Auto-restore on #1 likely undid the image switch — verify `docker ps` images before re-run.
-
-### 2026-08-15 — Era-matched rollback + Actions grants repair
-
-- **Goal:** Old APK stays on Factory; rollback must sync that SHA’s deploy/compose (not main’s `m1_app` wiring) so login is not `permission denied for schema security`. Actions-only (no personal SSH).
-- **Touched:** `.github/workflows/rollback-production.yml`, `.github/workflows/repair-factory-app-grants.yml`, `doc/AGENT_CONTEXT_LOG.md`
-- **Decisions / skipped:** Require full 40-char git SHA for rollback; checkout `deploy/` from that SHA. New manual Repair Factory App Grants workflow (1797-equivalent GRANTs + backend restart + /health). No DB restore workflow in this change.
-- **Follow-ups:** Merge → new Rollback run with `9c5aa926a1e968fb8852c10b5c5ee1e1e17311fc` → old APK login. If still denied, run Repair Factory App Grants. Longer-term: ship Production APK via GitHub Release so devices can leave the old APK.
+- **Goal:** Remove all Rollback Production / Repair Factory App Grants / SKIP_ROUTE_ASSERT rollback wiring from main (user request).
+- **Touched:** deleted `.github/workflows/rollback-production.yml`, `.github/workflows/repair-factory-app-grants.yml`; reverted `deploy/lib/common.sh`, `deploy/scripts/remote-ghcr-deploy.sh`
+- **Decisions / skipped:** Three `git revert`s of `1b95292`, `74cfc77`, `a949a04` (PRs #23/#22/#21). Did not change Deploy Production. Dirty client/docs left unstaged.
+- **Follow-ups:** Merge `ci/revert-rollback-workflows`. Use Deploy Production for Factory image changes; recover login with `latest-main` if still on broken rollback state.
 
 
 
