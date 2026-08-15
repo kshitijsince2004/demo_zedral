@@ -3337,6 +3337,13 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Stop bash-sourcing `.env`; use `POSTGRES_USER`/`POSTGRES_DB` inside `zedral-db` via `docker compose exec`. Compose still gets `--env-file` for interpolation only.
 - **Follow-ups:** Merge → re-run Repair Factory App Grants (new run) → retry login on `http://10.255.92.33/login`.
 
+### 2026-08-15 — Repair grants fix still not on main (#2)
+
+- **Goal:** Run #2 still used pre-fix workflow on main (`source .env`). Harden GRANT (temp SQL file + per-schema IF EXISTS) and land on main.
+- **Touched:** `.github/workflows/repair-factory-app-grants.yml`
+- **Decisions / skipped:** Must merge before re-run; re-running old workflow will fail the same way.
+- **Follow-ups:** Merge PR from `ci/repair-factory-security-grants` → **new** Repair run (#3+) → login.
+
 
 
 
