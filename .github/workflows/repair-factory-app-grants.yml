@@ -4,6 +4,10 @@ name: Repair Factory App Grants
 # m1_app lacks USAGE on schema security (permission denied for schema security).
 # Runs on the Factory self-hosted runner — no laptop SSH required.
 # Does NOT touch AWS QA. Shares deploy-production concurrency with Deploy Production.
+#
+# IMPORTANT: never `source` / `.' deploy/.env in bash — Factory .env values can contain
+# '(' and other metacharacters (Repair #1/#2 failed that way). Pass --env-file to compose
+# only; read POSTGRES_USER / POSTGRES_DB from inside the db container.
 
 on:
   workflow_dispatch:
@@ -52,18 +56,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "Repair reason: ${{ github.event.inputs.reason }}"
-          set -a
-          # shellcheck disable=SC1091
-          . "${APP_DIR}/deploy/.env"
-          set +a
-          DB_USER="${DB_USER:-m1_user}"
-          DB_NAME="${DB_NAME:-m1_db}"
           docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
             --env-file "${APP_DIR}/deploy/.env" exec -T db \
-            psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -c \
-            "SELECT has_schema_privilege('m1_app','security','USAGE') AS security_usage,
-                    has_schema_privilege('m1_app','master','USAGE') AS master_usage,
-                    has_schema_privilege('m1_app','txn','USAGE') AS txn_usage;" \
+            printenv POSTGRES_USER POSTGRES_DB
+          docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
+            --env-file "${APP_DIR}/deploy/.env" exec -T db \
+            sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "SELECT has_schema_privilege('\''m1_app'\'','\''security'\'','\''USAGE'\'') AS security_usage, has_schema_privilege('\''m1_app'\'','\''master'\'','\''USAGE'\'') AS master_usage, has_schema_privilege('\''m1_app'\'','\''txn'\'','\''USAGE'\'') AS txn_usage;"' \
             || true
 
       - name: GRANT m1_app schemas (1797-equivalent)
@@ -71,15 +69,8 @@ jobs:
           APP_DIR: ${{ steps.appdir.outputs.dir }}
         run: |
           set -euo pipefail
-          set -a
-          # shellcheck disable=SC1091
-          . "${APP_DIR}/deploy/.env"
-          set +a
-          DB_USER="${DB_USER:-m1_user}"
-          DB_NAME="${DB_NAME:-m1_db}"
-          docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
-            --env-file "${APP_DIR}/deploy/.env" exec -T db \
-            psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 <<'SQL'
+          SQL_FILE="$(mktemp)"
+          cat > "${SQL_FILE}" <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'm1_app') THEN
@@ -88,38 +79,65 @@ jobs:
           END
           $$;
 
-          GRANT USAGE ON SCHEMA master, coil, security, txn, planning, audit TO m1_app;
-          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA master, coil, security, txn, planning, audit TO m1_app;
-          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA master, coil, security, txn, planning, audit TO m1_app;
+          DO $$
+          DECLARE
+            s text;
+          BEGIN
+            FOREACH s IN ARRAY ARRAY['master', 'coil', 'security', 'txn', 'planning', 'audit']
+            LOOP
+              IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = s) THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA %I TO m1_app', s);
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO m1_app', s);
+                EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO m1_app', s);
+                RAISE NOTICE 'granted schema % to m1_app', s;
+              ELSE
+                RAISE NOTICE 'skip missing schema %', s;
+              END IF;
+            END LOOP;
+          END
+          $$;
 
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA master
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA coil
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA security
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA txn
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA planning
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA audit
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'm1_user') THEN
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA master
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA coil
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA security
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA txn
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA planning
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA audit
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA master
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA coil
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA security
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA txn
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA planning
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+              ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA audit
+                GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'default privileges skipped: %', SQLERRM;
+          END
+          $$;
 
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA master
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA coil
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA security
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA txn
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA planning
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE m1_user IN SCHEMA audit
-            GRANT USAGE, SELECT ON SEQUENCES TO m1_app;
-
-          SELECT has_schema_privilege('m1_app','security','USAGE') AS security_usage_after;
+          SELECT has_schema_privilege('m1_app', 'security', 'USAGE') AS security_usage_after;
           SQL
+          echo "Running grants via db container POSTGRES_USER/POSTGRES_DB (not sourcing .env)…"
+          docker compose -f "${APP_DIR}/deploy/docker-compose.prod.yml" \
+            --env-file "${APP_DIR}/deploy/.env" exec -T db \
+            sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f -' \
+            < "${SQL_FILE}"
+          rm -f "${SQL_FILE}"
 
       - name: Restart backend and health-check
         env:
