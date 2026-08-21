@@ -6,6 +6,8 @@ node_modules/
 .env.*
 !.env.example
 !deploy/.env.production.example
+!deploy/.env.render.example
+!packages/client/.env.operator.production.example
 deploy/.env
 
 # Claude Code local credentials (never commit API keys)

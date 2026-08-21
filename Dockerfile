@@ -108,14 +108,22 @@ CMD ["node", "dist/index.js"]
 FROM alpine:3.21 AS nginx
 
 RUN apk upgrade --no-cache && \
-    apk add --no-cache nginx nginx-mod-http-brotli wget
+    apk add --no-cache nginx nginx-mod-http-brotli wget gettext
 
-COPY deploy/nginx.prod.conf /etc/nginx/nginx.conf
+COPY deploy/nginx.prod.conf /etc/nginx/nginx.conf.template
+COPY deploy/nginx-entrypoint.sh /nginx-entrypoint.sh
 COPY --from=builder /app/packages/client/dist /usr/share/nginx/html
+
+RUN chmod +x /nginx-entrypoint.sh
+
+# Compose default; Render: BACKEND_UPSTREAM=<api-service-name>:<PORT>
+ENV BACKEND_UPSTREAM=backend:3005
+# Empty → entrypoint reads /etc/resolv.conf (Docker usually already has 127.0.0.11)
+ENV NGINX_RESOLVER=
 
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1/health || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/nginx-entrypoint.sh"]

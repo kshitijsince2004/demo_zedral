@@ -2,7 +2,8 @@
 
 > **CI/CD:** [docs/CICD_PIPELINE.md](../docs/CICD_PIPELINE.md)  
 > **Build Once → Deploy Many** · **GitHub Free** (manual production via Actions Run workflow)  
-> **Self-hosted runners** live on each server — deploy runs docker/compose locally (no SSH from GitHub).
+> **Self-hosted runners** live on each server — deploy runs docker/compose locally (no SSH from GitHub).  
+> **Free public demo (`demo.zedral.com` on Render):** [RENDER_DEMO.md](RENDER_DEMO.md)
 
 ## Architecture
 

@@ -3354,3 +3354,11 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 
 
 
+
+### 2026-08-21 — Render demo env + nginx BACKEND_UPSTREAM for 502
+
+- **Goal:** Free demo on Render at demo-zedral.onrender.com / demo.zedral.com; fix nginx 502 on /auth /api /health.
+- **Touched:** `deploy/RENDER_DEMO.md`, `deploy/.env.render.example`, `deploy/nginx-entrypoint.sh`, `deploy/nginx.prod.conf`, `Dockerfile`, `deploy/README.md`, `deploy/.env.production.example`, `.env.example`, `.gitignore`
+- **Decisions / skipped:** Nginx proxies via BACKEND_UPSTREAM (default backend:3005 for compose); resolver from resolv.conf on Render. Did not push unrelated operator/dist changes.
+- **Follow-ups:** Redeploy nginx+API on Render with BACKEND_UPSTREAM=<api-name>:<PORT>; set API_DOMAIN to public URL.
+
