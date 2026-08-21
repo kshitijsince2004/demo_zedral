@@ -34,36 +34,35 @@ Internal Database URL for API + SuperTokens.
 - `API_KEYS` = same as API `SUPERTOKENS_API_KEY`
 - Internal URI for API: `http://<st-service-name>:3567` (or whatever port ST listens on)
 
-### 3. API (Web Service, Docker) — target `backend`
+### 3. API (Web Service, Docker) — use **`./Dockerfile.api`**
 
-- Dockerfile target **`backend`**
-- Env: copy [`deploy/.env.render.example`](.env.render.example)
-- Until custom domain is live, set domains to the **public nginx** URL, e.g.:
+`./Dockerfile` ends with **nginx**. A service named `demo-zedral-api` that still logs `[nginx …]` and **port 80** is another SPA, not the API.
+
+1. Settings → **Dockerfile Path** = `./Dockerfile.api`
+2. Manual Deploy (clear cache if needed)
+3. Success: Logs show `Server listening on …` and port is **`$PORT`** (often 10000), **not** 80
+4. Env from [`deploy/.env.render.example`](.env.render.example): `DEMO_SEED_ON_BOOT=true`, DB, SuperTokens, and:
 
 ```env
 API_DOMAIN=https://demo-zedral.onrender.com
 WEBSITE_DOMAIN=https://demo-zedral.onrender.com
 CORS_ORIGIN=https://demo-zedral.onrender.com
+SUPERTOKENS_CORE_URI=http://<st-service-name>:3567
 ```
-
-After `demo.zedral.com` is attached to nginx, switch all three to `https://demo.zedral.com`.
-
-- `SUPERTOKENS_CORE_URI=http://<st-service-name>:3567`
-- Listen on Render `PORT` (app already uses `process.env.PORT`)
 
 ### 4. Nginx (Web Service, Docker) — public URL
 
-- Dockerfile target **`nginx`** (this is `demo-zedral.onrender.com`)
+- Dockerfile Path **`./Dockerfile`** (final stage nginx) — `https://demo-zedral.onrender.com`
 - Env (required on Render):
 
 ```env
-BACKEND_UPSTREAM=<api-service-name>:<api-PORT>
+BACKEND_UPSTREAM=demo-zedral-api:<PORT from API logs>
 ```
 
-Example: if the API service is named `zedral-api` and Render sets `PORT=10000`:
+Example:
 
 ```env
-BACKEND_UPSTREAM=zedral-api:10000
+BACKEND_UPSTREAM=demo-zedral-api:10000
 ```
 
 - Do **not** leave the Compose default `backend:3005` on Render.

@@ -3369,3 +3369,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Touched:** `packages/client/src/pages/Login.tsx`, `deploy/docker-entrypoint.sh`, `Dockerfile`, `deploy/.env.render.example`, `deploy/RENDER_DEMO.md`
 - **Decisions / skipped:** Hostname allowlist for chips; boot seed gated by `DEMO_SEED_ON_BOOT`. 502 still needs `BACKEND_UPSTREAM` + nginx redeploy.
 - **Follow-ups:** Push; set `DEMO_SEED_ON_BOOT=true` on API; redeploy nginx+API; verify `/health` 200 then login chips.
+
+### 2026-08-21 — Dockerfile.api for Render (nginx was deployed as `api'')
+
+- **Goal:** User's `demo-zedral-api` built nginx (port 80); add `Dockerfile.api` ending at backend.
+- **Touched:** `Dockerfile.api`, `deploy/RENDER_DEMO.md`
+- **Decisions / skipped:** Separate file because Render defaults to last stage of `Dockerfile`.
+- **Follow-ups:** Push; set API Dockerfile Path to `./Dockerfile.api`; `BACKEND_UPSTREAM=demo-zedral-api:<PORT>` on nginx.
