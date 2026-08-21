@@ -107,4 +107,25 @@ if [ -z "${DB_APP_PASSWORD:-}" ] && [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
+# ponytail: Render demo — create login profiles on boot (idempotent). Needs SuperTokens up.
+if [ "${DEMO_SEED_ON_BOOT:-false}" = "true" ]; then
+  echo "[entrypoint] DEMO_SEED_ON_BOOT=true — running seed:profiles…"
+  SEED_DATABASE_URL=""
+  if [ -n "${MIGRATE_DATABASE_URL:-}" ]; then
+    SEED_DATABASE_URL="${MIGRATE_DATABASE_URL}"
+  elif [ -n "${DB_HOST:-}" ] && [ -n "${DB_USER:-}" ] && [ -n "${DB_PASSWORD:-}" ] && [ -n "${DB_NAME:-}" ]; then
+    SEED_DATABASE_URL="$(pg_url "${DB_USER}" "${DB_PASSWORD}" "${DB_HOST}" "${DB_PORT:-5432}" "${DB_NAME}")"
+  fi
+  if [ -n "${SEED_DATABASE_URL}" ]; then
+    (
+      export DATABASE_URL="${SEED_DATABASE_URL}"
+      export MIGRATE_DATABASE_URL="${SEED_DATABASE_URL}"
+      cd /app/packages/server
+      node scripts/seed-login-profiles.mjs
+    ) || echo "[entrypoint] WARN: seed:profiles failed (check SuperTokens + owner DB URL)"
+  else
+    echo "[entrypoint] WARN: DEMO_SEED_ON_BOOT set but no owner DB URL — skip seed"
+  fi
+fi
+
 exec "$@"

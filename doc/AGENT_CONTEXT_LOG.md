@@ -3362,3 +3362,10 @@ ejectOrder aliases immediate. Did not change Manual Re-Roll hold (already direct
 - **Decisions / skipped:** Nginx proxies via BACKEND_UPSTREAM (default backend:3005 for compose); resolver from resolv.conf on Render. Did not push unrelated operator/dist changes.
 - **Follow-ups:** Redeploy nginx+API on Render with BACKEND_UPSTREAM=<api-name>:<PORT>; set API_DOMAIN to public URL.
 
+
+### 2026-08-21 — Demo seed login chips + DEMO_SEED_ON_BOOT
+
+- **Goal:** Show seed creds on demo hosts; auto seed:profiles on API boot for Render.
+- **Touched:** `packages/client/src/pages/Login.tsx`, `deploy/docker-entrypoint.sh`, `Dockerfile`, `deploy/.env.render.example`, `deploy/RENDER_DEMO.md`
+- **Decisions / skipped:** Hostname allowlist for chips; boot seed gated by `DEMO_SEED_ON_BOOT`. 502 still needs `BACKEND_UPSTREAM` + nginx redeploy.
+- **Follow-ups:** Push; set `DEMO_SEED_ON_BOOT=true` on API; redeploy nginx+API; verify `/health` 200 then login chips.

@@ -80,7 +80,17 @@ Redeploy nginx after setting `BACKEND_UPSTREAM`. Smoke:
 2. Cloudflare DNS: CNAME `demo` → `demo-zedral.onrender.com` (or the verify target Render shows), **DNS only** until verified; SSL mode **Full**
 3. Update API env `API_DOMAIN` / `WEBSITE_DOMAIN` / `CORS_ORIGIN` to `https://demo.zedral.com` and restart API
 
-## C. Out of scope
+## C. Demo login chips + auto seed
+
+| What | How |
+|------|-----|
+| Chips on Login | Auto on `demo-zedral.onrender.com` / `demo.zedral.com`, or Docker build-arg `VITE_SHOW_SEED_LOGIN=true` |
+| Users in DB | API env `DEMO_SEED_ON_BOOT=true` → entrypoint runs `seed:profiles` (idempotent) |
+| Creds | `admin@zedral.local` / `Password123!` · badge `3000` / PIN `5678` |
+
+`DEMO_SEED_ON_BOOT` needs owner DB URL (`MIGRATE_DATABASE_URL` or `DB_USER`/`DB_PASSWORD`) and a live SuperTokens service.
+
+## D. Out of scope
 
 - Cloudflare Tunnel
 - Elasticsearch on free tier

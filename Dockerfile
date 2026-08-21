@@ -40,6 +40,11 @@ COPY packages/server packages/server
 COPY packages/client packages/client
 COPY doc doc
 
+# Optional: bake seed-login chips into SPA (Render demo Docker build-arg).
+# Runtime also enables chips on demo-zedral.onrender.com / demo.zedral.com.
+ARG VITE_SHOW_SEED_LOGIN=
+ENV VITE_SHOW_SEED_LOGIN=$VITE_SHOW_SEED_LOGIN
+
 RUN npm run build
 
 # ── Production node_modules (prune the full workspace install) ────────────────

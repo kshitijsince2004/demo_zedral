@@ -8,26 +8,43 @@ import { ZInput } from '../components/primitives/ZInput';
 import { isNative } from '../operator/native/init';
 import { App } from '@capacitor/app';
 
-/** Pilot dev credentials — match `npm run seed:users` / `seed:profiles`. */
-const DEV_OPERATOR_BADGE = '3000';
-const DEV_OPERATOR_PIN = '5678';
-const DEV_STAFF_PASSWORD = 'Password123!';
-const DEV_STAFF = {
+/** Pilot credentials — match `npm run seed:users` / `seed:profiles`. */
+const SEED_OPERATOR_PIN = '5678';
+const SEED_STAFF_PASSWORD = 'Password123!';
+const SEED_OPERATORS = [
+  { label: '6HI', badge: '3000' },
+  { label: '4HI', badge: '3004' },
+  { label: '2HI', badge: '3002' },
+  { label: 'ANN', badge: '3010' },
+] as const;
+const SEED_STAFF = {
   admin: 'admin@zedral.local',
   machinehead: 'machinehead@zedral.local',
   'mh.ann': 'machinehead.ann@zedral.local',
   supervisor: 'supervisor@zedral.local',
+  planning: 'planning@zedral.local',
   planthead: 'planthead@zedral.local',
   quality: 'quality@zedral.local',
 } as const;
 
+/** Local DEV, build flag, or known demo hosts (Render / demo.zedral.com). */
+function isDemoSeedHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'demo-zedral.onrender.com' || h === 'demo.zedral.com';
+}
+const SHOW_SEED_LOGIN =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_SHOW_SEED_LOGIN === 'true' ||
+  isDemoSeedHost();
+
 export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boolean } = {}) {
   const operatorOnly = operatorOnlyProp ?? isNative();
   const [mode, setMode] = useState<'operator' | 'staff'>('operator');
-  const [badgeId, setBadgeId] = useState(import.meta.env.DEV ? DEV_OPERATOR_BADGE : '');
-  const [pin, setPin] = useState(import.meta.env.DEV ? DEV_OPERATOR_PIN : '');
-  const [email, setEmail] = useState(import.meta.env.DEV ? DEV_STAFF.supervisor : '');
-  const [password, setPassword] = useState(import.meta.env.DEV ? DEV_STAFF_PASSWORD : '');
+  const [badgeId, setBadgeId] = useState(SHOW_SEED_LOGIN ? SEED_OPERATORS[0].badge : '');
+  const [pin, setPin] = useState(SHOW_SEED_LOGIN ? SEED_OPERATOR_PIN : '');
+  const [email, setEmail] = useState(SHOW_SEED_LOGIN ? SEED_STAFF.supervisor : '');
+  const [password, setPassword] = useState(SHOW_SEED_LOGIN ? SEED_STAFF_PASSWORD : '');
   const [error, setError] = useState('');
   const loginParams = new URLSearchParams(window.location.search);
   const sessionExpired = loginParams.get('session') === 'expired';
@@ -105,7 +122,7 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
     if (!import.meta.env.DEV || import.meta.env.VITE_DEV_AUTO_LOGIN !== 'true') return;
     const doAutoLogin = async () => {
       try {
-        await badgePinLogin(DEV_OPERATOR_BADGE, DEV_OPERATOR_PIN);
+        await badgePinLogin(SEED_OPERATORS[0].badge, SEED_OPERATOR_PIN);
         window.location.href = '/';
       } catch (err) {
         console.error('Auto login failed', err);
@@ -269,36 +286,54 @@ export function Login({ operatorOnly: operatorOnlyProp }: { operatorOnly?: boole
             )}
           </div>
 
-          {import.meta.env.DEV && !operatorOnly && (
-            <div className="mt-3 space-y-2 text-center text-[10px] text-muted-foreground font-mono">
-              <p>
-                Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}
+          {SHOW_SEED_LOGIN && (
+            <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-background/80 px-3 py-2 text-left text-[10px] text-muted-foreground font-mono">
+              <p className="font-sans text-[11px] font-semibold uppercase tracking-wide text-foreground">
+                Seed logins (demo)
               </p>
-              <p>Staff ({DEV_STAFF_PASSWORD}) — click to fill:</p>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {(Object.keys(DEV_STAFF) as (keyof typeof DEV_STAFF)[]).map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setMode('staff');
-                      setEmail(DEV_STAFF[key]);
-                      setPassword(DEV_STAFF_PASSWORD);
-                    }}
-                    className="rounded border border-border bg-background px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-muted/40"
-                  >
-                    {key}
-                  </button>
-                ))}
+              <div>
+                <p className="mb-1 text-foreground/80">Operator — PIN {SEED_OPERATOR_PIN} (click badge):</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {SEED_OPERATORS.map((op) => (
+                    <button
+                      key={op.badge}
+                      type="button"
+                      onClick={() => {
+                        setMode('operator');
+                        setBadgeId(op.badge);
+                        setPin(SEED_OPERATOR_PIN);
+                      }}
+                      className="rounded border border-border bg-background px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-muted/40"
+                    >
+                      {op.label} · {op.badge}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-
-          {import.meta.env.DEV && operatorOnly && (
-            <div className="mt-3 text-center text-[10px] text-muted-foreground font-mono">
-              <p>
-                Operator: badge {DEV_OPERATOR_BADGE} / PIN {DEV_OPERATOR_PIN}
-              </p>
+              {!operatorOnly && (
+                <div>
+                  <p className="mb-1 text-foreground/80">
+                    Staff — password {SEED_STAFF_PASSWORD} (click role):
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(SEED_STAFF) as (keyof typeof SEED_STAFF)[]).map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          setMode('staff');
+                          setEmail(SEED_STAFF[key]);
+                          setPassword(SEED_STAFF_PASSWORD);
+                        }}
+                        className="rounded border border-border bg-background px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-muted/40"
+                        title={SEED_STAFF[key]}
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
