@@ -36,7 +36,7 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "nodemailer": "9.0.5",
+    "nodemailer": "9.0.6",
     "xlsx": "file:vendor/xlsx-0.20.3.tgz",
     "zod": "3.25.76"
   },
@@ -45,7 +45,7 @@
     "zod": "3.25.76",
     "undici": "7.29.0",
     "esbuild": "0.28.0",
-    "nodemailer": "9.0.5",
+    "nodemailer": "9.0.6",
     "glob": "11.1.0",
     "kysely": "0.28.17",
     "supertokens-node": {
@@ -60,19 +60,19 @@
     "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   },
   "optionalDependencies": {
-    "@esbuild/linux-x64": "0.28.0",
-    "@esbuild/win32-x64": "0.28.0",
-    "@rolldown/binding-linux-x64-gnu": "1.0.2",
-    "@rolldown/binding-linux-x64-musl": "1.0.2",
-    "@rolldown/binding-win32-x64-msvc": "1.0.2",
-    "@rollup/rollup-linux-x64-gnu": "4.60.4",
-    "@rollup/rollup-linux-x64-musl": "4.60.4",
-    "@rollup/rollup-win32-x64-msvc": "4.60.4",
-    "@tailwindcss/oxide-linux-x64-gnu": "4.3.0",
-    "@tailwindcss/oxide-linux-x64-musl": "4.3.0",
-    "@tailwindcss/oxide-win32-x64-msvc": "4.3.0",
-    "lightningcss-linux-x64-gnu": "1.32.0",
-    "lightningcss-linux-x64-musl": "1.32.0",
-    "lightningcss-win32-x64-msvc": "1.32.0"
+    "@esbuild/linux-x64": "0.28.2",
+    "@esbuild/win32-x64": "0.28.2",
+    "@rolldown/binding-linux-x64-gnu": "1.2.6",
+    "@rolldown/binding-linux-x64-musl": "1.2.6",
+    "@rolldown/binding-win32-x64-msvc": "1.2.6",
+    "@rollup/rollup-linux-x64-gnu": "4.63.1",
+    "@rollup/rollup-linux-x64-musl": "4.63.1",
+    "@rollup/rollup-win32-x64-msvc": "4.63.1",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.3",
+    "@tailwindcss/oxide-linux-x64-musl": "4.3.3",
+    "@tailwindcss/oxide-win32-x64-msvc": "4.3.3",
+    "lightningcss-linux-x64-gnu": "1.33.0",
+    "lightningcss-linux-x64-musl": "1.33.0",
+    "lightningcss-win32-x64-msvc": "1.33.0"
   }
 }
